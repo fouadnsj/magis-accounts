@@ -1,0 +1,40 @@
+# Builds the Windows installer on GitHub's own Windows computers.
+# Runs when a version tag (v0.1.0, v0.2.0…) is pushed, or by hand from the Actions tab.
+# The installer appears on the repository's Releases page.
+name: Windows installer
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --bundles nsis
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: 'MAGIS Accounts ${{ github.ref_name }}'
+          releaseBody: 'Windows: download the -setup.exe below and install it over the old version. Your data file (.db) is not touched.'
+          releaseDraft: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-setup
+          path: src-tauri/target/release/bundle/nsis/*.exe

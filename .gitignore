@@ -1,0 +1,8 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+*.db
+.DS_Store
+# Stays on this Mac: it describes the register's real data
+REPRISE.md

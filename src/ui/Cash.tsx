@@ -1,0 +1,296 @@
+// Holders sheet: what each holder should hold, the note-by-note count, the difference.
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useApp, type Data } from '../state';
+import { holders, type HolderLine } from '../domain/reports';
+import { auditStmt } from '../db/repo';
+import { nowIso, uuid } from '../db/db';
+import { Field, Modal, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
+
+const NOTES = { SYP: [10000, 5000, 2000, 1000, 500, 200, 100, 50], USD: [100, 50, 20, 10, 5, 2, 1] };
+
+type Counts = Record<number, { SYP: Map<number, number>; USD: Map<number, number>; at: string | null }>;
+
+/** A holder's own balance: the office books transfers, so the holder uses what he noted as received. */
+export function holderBalance(d: Data, bookId: number) {
+  const book = d.lists.books.find((b) => b.id === bookId)!;
+  const mk = (cur: 'SYP' | 'USD') => {
+    const [line] = holders(d.rows, [book], cur);
+    const received = d.receipts.reduce((a, r) => a + (cur === 'SYP' ? r.amount_syp : r.amount_usd), 0);
+    return { ...line, transfers: received, shouldHold: line.shouldHold - line.transfers + received };
+  };
+  return { syp: mk('SYP'), usd: mk('USD') };
+}
+
+export function Cash() {
+  const { s, d, myBook } = useApp();
+  const [counts, setCounts] = useState<Counts>({});
+  const [counting, setCounting] = useState<number | null>(null);
+
+  const loadCounts = useCallback(async () => {
+    const rows = await s.db.query<{ book_id: number; currency: 'SYP' | 'USD'; denomination: number; qty: number; counted_at: string | null }>('SELECT * FROM cash_count');
+    const c: Counts = {};
+    for (const r of rows) {
+      c[r.book_id] ??= { SYP: new Map(), USD: new Map(), at: null };
+      c[r.book_id][r.currency].set(r.denomination, r.qty);
+      if (r.counted_at && (!c[r.book_id].at || r.counted_at > c[r.book_id].at!)) c[r.book_id].at = r.counted_at;
+    }
+    setCounts(c);
+  }, [s.db]);
+  useEffect(() => {
+    void loadCounts();
+  }, [loadCounts]);
+
+  const counted = (bookId: number, cur: 'SYP' | 'USD') => {
+    const m = counts[bookId]?.[cur];
+    if (!m || !m.size) return null;
+    let x = 0;
+    for (const [den, q] of m) x += den * q;
+    return x;
+  };
+
+  if (s.install === 'holder' && myBook != null) return <HolderCash counted={counted} counts={counts} onCount={() => setCounting(myBook)} counting={counting} setCounting={setCounting} reloadCounts={loadCounts} />;
+
+  const syp = holders(d.rows, d.lists.books, 'SYP');
+  const usd = holders(d.rows, d.lists.books, 'USD');
+
+  const table = (lines: HolderLine[], cur: 'SYP' | 'USD') => {
+    const f = cur === 'SYP' ? fmtSyp : fmtUsd;
+    const tol = cur === 'SYP' ? 1 : 0.01;
+    const visible = lines.filter((l) => !l.book || l.book.active || l.shouldHold !== 0);
+    const total = (k: keyof HolderLine) => visible.reduce((a, l) => a + (l[k] as number), 0);
+    const totCounted = visible.reduce((a, l) => a + (l.book ? counted(l.book.id, cur) ?? 0 : 0), 0);
+    return (
+      <div className="tbl-wrap">
+        <table className="t">
+          <thead>
+            <tr>
+              <th>{t('الصندوق', 'Holder')}</th><th className="n">{t('افتتاحي', 'Opening')}</th><th className="n">＋ {t('إيرادات', 'Income')}</th>
+              <th className="n">− {t('نفقات', 'Expenses')}</th><th className="n">± {t('تحويلات', 'Transfers')}</th>
+              <th className="n">{cur === 'SYP' ? `＋ ${t('تصريف داخل', 'Exchange in')}` : `− ${t('تصريف خارج', 'Exchange out')}`}</th>
+              <th className="n">= {t('يجب أن يحمل', 'Should hold')}</th><th className="n">{t('المعدود', 'Counted')}</th><th className="n">{t('الفرق', 'Difference')}</th><th />
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((l) => {
+              const c = l.book ? counted(l.book.id, cur) : null;
+              const diff = c == null ? null : c - l.shouldHold;
+              return (
+                <tr key={l.book?.id ?? 'none'}>
+                  <td>{l.book ? <>{l.book.name}{l.book.keeper_name ? <span className="muted small"> · {l.book.keeper_name}</span> : null}</> : <span className="muted">{t('بلا دفتر — يجب أن يكون صفراً', 'No book written — must be nil')}</span>}</td>
+                  <td className="n">{f(l.opening)}</td><td className="n">{f(l.income)}</td><td className="n">{f(l.expenses)}</td><td className="n">{f(l.transfers)}</td>
+                  <td className="n">{f(l.exchange)}</td><td className="n"><b>{f(l.shouldHold)}</b></td>
+                  <td className="n">{c == null ? <span className="muted">—</span> : f(c)}</td>
+                  <td className="n">{diff == null ? '' : Math.abs(diff) < tol ? <span className="ok">✓</span> : <span className="bad">{f(diff)}</span>}</td>
+                  <td>{l.book && <button className="btn small" onClick={() => setCounting(l.book!.id)}>{t('عدّ', 'Count')}</button>}
+                    {!l.book && (Math.abs(l.shouldHold) < tol ? <span className="ok">✓</span> : <span className="bad">✗</span>)}</td>
+                </tr>
+              );
+            })}
+            <tr className="total">
+              <td>{t('المجموع', 'Total')}</td><td className="n">{f(total('opening'))}</td><td className="n">{f(total('income'))}</td><td className="n">{f(total('expenses'))}</td>
+              <td className="n">{f(total('transfers'))} {Math.abs(total('transfers')) < tol ? <span className="ok">✓</span> : <span className="bad">✗</span>}</td>
+              <td className="n">{f(total('exchange'))}</td><td className="n">{f(total('shouldHold'))}</td><td className="n">{f(totCounted)}</td><td /><td />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      <div className="page-head"><h1>{t('النقد · وضع الصناديق', "Cash · holders' position")}</h1></div>
+      <div className="panel">
+        <h2>{t('ليرة سورية', 'Syrian pounds')}</h2>
+        {table(syp, 'SYP')}
+      </div>
+      <div className="panel">
+        <h2>{t('دولار', 'Dollars')}</h2>
+        {table(usd, 'USD')}
+      </div>
+      <p className="muted small">
+        {t('التحويلات يجب أن يكون مجموعها صفراً: ما خرج من الرئيسي وصل إلى دفتر. التصريف يُحسب للحامل فقط، ليس إيراداً ولا نفقة.',
+          "Transfers must total nil: whatever left Main arrived in someone's book. An exchange counts for the holder only — it is neither income nor expense.")}
+      </p>
+      {counting != null && <CountModal bookId={counting} counts={counts} onClose={() => setCounting(null)} onSaved={loadCounts} />}
+    </>
+  );
+}
+
+function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; counts: Counts; onClose: () => void; onSaved: () => Promise<void> }) {
+  const { s, d, who } = useApp();
+  const book = d.lists.books.find((b) => b.id === bookId)!;
+  const [q, setQ] = useState<Record<string, string>>(() => {
+    const o: Record<string, string> = {};
+    for (const cur of ['SYP', 'USD'] as const) for (const den of NOTES[cur]) {
+      const v = counts[bookId]?.[cur].get(den);
+      o[`${cur}${den}`] = v ? String(v) : '';
+    }
+    return o;
+  });
+  const tot = (cur: 'SYP' | 'USD') => NOTES[cur].reduce((a, den) => a + den * (parseAmount(q[`${cur}${den}`] ?? '') || 0), 0);
+  const save = async () => {
+    const at = nowIso();
+    await s.db.batch([
+      { sql: 'DELETE FROM cash_count WHERE book_id = ?', params: [bookId] },
+      ...(['SYP', 'USD'] as const).flatMap((cur) =>
+        NOTES[cur].map((den) => ({ sql: 'INSERT INTO cash_count (book_id, currency, denomination, qty, counted_at) VALUES (?,?,?,?,?)', params: [bookId, cur, den, parseAmount(q[`${cur}${den}`] ?? '') || 0, at] })),
+      ),
+      auditStmt(who, 'count', 'cash_count', String(bookId), null, { syp: tot('SYP'), usd: tot('USD') }),
+    ]);
+    await onSaved();
+    toast(t('حُفظ العدّ', 'Count saved'));
+    onClose();
+  };
+  return (
+    <Modal title={<>{t('عدّ النقد ورقة ورقة', 'Count the cash, note by note')} · {book.name}</>} onClose={onClose}>
+      <div className="notes-grid">
+        {(['SYP', 'USD'] as const).map((cur) => (
+          <div key={cur}>
+            <table className="t">
+              <thead><tr><th className="n">{cur === 'SYP' ? t('الفئة ل.س', 'SYP note') : t('الفئة $', 'USD note')}</th><th className="n">{t('العدد', 'How many')}</th><th className="n">{t('المجموع', 'Total')}</th></tr></thead>
+              <tbody>
+                {NOTES[cur].map((den) => (
+                  <tr key={den}>
+                    <td className="n">{den.toLocaleString('en-US')}</td>
+                    <td style={{ width: 110 }}><input className="inp num" inputMode="numeric" value={q[`${cur}${den}`]} onChange={(e) => setQ({ ...q, [`${cur}${den}`]: e.target.value })} /></td>
+                    <td className="n">{(cur === 'SYP' ? fmtSyp : fmtUsd)(den * (parseAmount(q[`${cur}${den}`] ?? '') || 0))}</td>
+                  </tr>
+                ))}
+                <tr className="total"><td>{t('المجموع', 'Total')}</td><td /><td className="n">{(cur === 'SYP' ? fmtSyp : fmtUsd)(tot(cur))}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" onClick={save}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
+  counted: (b: number, c: 'SYP' | 'USD') => number | null; counts: Counts; onCount: () => void;
+  counting: number | null; setCounting: (b: number | null) => void; reloadCounts: () => Promise<void>;
+}) {
+  const { s, d, myBook, reload, who } = useApp();
+  const b = useMemo(() => holderBalance(d, myBook!), [d, myBook]);
+  const [adding, setAdding] = useState(false);
+  const office = d.officeTransfers[String(myBook)] ?? [];
+  const sum = (cur: 'SYP' | 'USD') => office.reduce((a, x) => a + (cur === 'SYP' ? x.trf_syp : x.trf_usd), 0);
+
+  const line = (label: string, syp: number, usd: number, strong = false) => (
+    <tr className={strong ? 'total' : ''}><td>{label}</td><td className="n">{fmtSyp(syp)}</td><td className="n">{fmtUsd(usd)}</td></tr>
+  );
+  const cs = counted(myBook!, 'SYP');
+  const cu = counted(myBook!, 'USD');
+
+  const delReceipt = async (id: string) => {
+    if (!(await confirmBox(t('حذف هذا المقبوض؟', 'Delete this receipt?'), true))) return;
+    await s.db.batch([{ sql: 'DELETE FROM holder_receipt WHERE id = ?', params: [id] }, auditStmt(who, 'delete', 'holder_receipt', id, null, null)]);
+    await reload();
+  };
+
+  return (
+    <>
+      <div className="page-head"><h1>{t('صندوقي', 'My cash')}</h1>
+        <div className="row">
+          <button className="btn" onClick={() => setAdding(true)}>＋ {t('مقبوض من المكتب', 'Received from the office')}</button>
+          <button className="btn primary" onClick={() => setCounting(myBook)}>{t('عدّ النقد', 'Count cash')}</button>
+        </div>
+      </div>
+      <div className="panel">
+        <table className="t">
+          <thead><tr><th /><th className="n">SYP</th><th className="n">USD</th></tr></thead>
+          <tbody>
+            {line(t('رصيد افتتاحي', 'Opening'), b.syp.opening, b.usd.opening)}
+            {line(`＋ ${t('مقبوض من المكتب', 'Received from the office')}`, b.syp.transfers, b.usd.transfers)}
+            {line(`＋ ${t('إيرادات', 'Income')}`, b.syp.income, b.usd.income)}
+            {line(`− ${t('نفقات', 'Expenses')}`, b.syp.expenses, b.usd.expenses)}
+            {line(`± ${t('تصريف', 'Exchange')}`, b.syp.exchange, b.usd.exchange)}
+            {line(`= ${t('يجب أن يكون معي', 'I should hold')}`, b.syp.shouldHold, b.usd.shouldHold, true)}
+            <tr><td>{t('المعدود', 'Counted')}{counts[myBook!]?.at && <span className="muted small"> · {fmtDate(counts[myBook!].at!.slice(0, 10))}</span>}</td><td className="n">{cs == null ? '—' : fmtSyp(cs)}</td><td className="n">{cu == null ? '—' : fmtUsd(cu)}</td></tr>
+            <tr><td>{t('الفرق', 'Difference')}</td>
+              <td className="n">{cs == null ? '' : Math.abs(cs - b.syp.shouldHold) < 1 ? <span className="ok">✓</span> : <span className="bad">{fmtSyp(cs - b.syp.shouldHold)}</span>}</td>
+              <td className="n">{cu == null ? '' : Math.abs(cu - b.usd.shouldHold) < 0.01 ? <span className="ok">✓</span> : <span className="bad">{fmtUsd(cu - b.usd.shouldHold)}</span>}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grid2">
+        <div className="panel">
+          <h3>{t('ما سجّلتُ أني قبضته', 'What I noted as received')}</h3>
+          <p className="muted small">{t('لمتابعتك فقط — لا يُرسل إلى المكتب، فالمكتب يسجّل التحويلات.', 'For your own follow-up — not sent to the office, which books the transfers.')}</p>
+          <table className="t">
+            <thead><tr><th>{t('التاريخ', 'Date')}</th><th className="n">SYP</th><th className="n">USD</th><th>{t('ملاحظة', 'Note')}</th><th /></tr></thead>
+            <tbody>
+              {d.receipts.map((r) => (
+                <tr key={r.id}><td>{fmtDate(r.date)}</td><td className="n">{fmtSyp(r.amount_syp)}</td><td className="n">{fmtUsd(r.amount_usd)}</td><td>{r.note}</td>
+                  <td><button className="btn small ghost" onClick={() => delReceipt(r.id)}>✕</button></td></tr>
+              ))}
+              <tr className="total"><td /><td className="n">{fmtSyp(b.syp.transfers)}</td><td className="n">{fmtUsd(b.usd.transfers)}</td><td colSpan={2} /></tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="panel">
+          <h3>{t('ما سجّله المكتب', 'What the office booked')}</h3>
+          <p className="muted small">{t('من آخر حزمة قوائم. يجب أن يساوي ما قبضتَه.', 'From the last lists package. It should equal what you received.')}</p>
+          <table className="t">
+            <thead><tr><th>{t('التاريخ', 'Date')}</th><th className="n">SYP</th><th className="n">USD</th></tr></thead>
+            <tbody>
+              {office.map((r, i) => <tr key={i}><td>{fmtDate(r.date)}</td><td className="n">{fmtSyp(r.trf_syp)}</td><td className="n">{fmtUsd(r.trf_usd)}</td></tr>)}
+              <tr className="total"><td>
+                {Math.abs(sum('SYP') - b.syp.transfers) < 1 && Math.abs(sum('USD') - b.usd.transfers) < 0.01 ? <span className="ok">✓ {t('مطابق', 'matches')}</span> : <span className="warn">≠</span>}
+              </td><td className="n">{fmtSyp(sum('SYP'))}</td><td className="n">{fmtUsd(sum('USD'))}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {adding && <ReceiptModal onClose={() => setAdding(false)} />}
+      {counting != null && <CountModal bookId={counting} counts={counts} onClose={() => setCounting(null)} onSaved={reloadCounts} />}
+    </>
+  );
+}
+
+function ReceiptModal({ onClose }: { onClose: () => void }) {
+  const { s, reload, who } = useApp();
+  const [date, setDate] = useState(todayIso());
+  const [syp, setSyp] = useState('');
+  const [usd, setUsd] = useState('');
+  const [note, setNote] = useState('');
+  const save = async () => {
+    const a = parseAmount(syp) || 0;
+    const b = parseAmount(usd) || 0;
+    if (!date || (!a && !b)) return toast(t('التاريخ ومبلغ واحد على الأقل', 'A date and at least one amount'), true);
+    try {
+      const id = uuid();
+      await s.db.batch([
+        { sql: 'INSERT INTO holder_receipt (id, date, amount_syp, amount_usd, note, created_at) VALUES (?,?,?,?,?,?)', params: [id, date, a, b, note || null, nowIso()] },
+        auditStmt(who, 'add', 'holder_receipt', id, null, { date, a, b }),
+      ]);
+      await reload();
+      onClose();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <Modal title={t('مقبوض من المكتب', 'Received from the office')} onClose={onClose} narrow>
+      <p className="muted small">{t('بالسالب إن أعدتَ نقداً إلى المكتب.', 'Negative if you handed cash back.')}</p>
+      <div className="grid2">
+        <Field label={t('التاريخ', 'Date')}><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <div />
+        <Field label="SYP"><input className="num" value={syp} onChange={(e) => setSyp(e.target.value)} /></Field>
+        <Field label="USD"><input className="num" value={usd} onChange={(e) => setUsd(e.target.value)} /></Field>
+        <Field label={t('ملاحظة', 'Note')} className="span2"><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      </div>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" onClick={save}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
+  );
+}

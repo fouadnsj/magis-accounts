@@ -120,7 +120,7 @@ export function App() {
 
   const localLogin = (o: Opened) => async (profileId: number, secret: string) => {
     const { profile } = await login(o.db, profileId, secret);
-    const who = `${profile.name} (${profile.role})`;
+    const who = profile.name;
     const files = desktopFiles(o.dbPath);
     setSession({
       api: localApi({ db: o.db, profile, who, install: o.install, files }),
@@ -181,11 +181,11 @@ export const roleName = (r: Role) => (r === 'sup' ? t('الرئيس', 'Superior'
 function Login({ title, subtitle, loadProfiles, onLogin, onClose }: {
   title: string;
   subtitle: string;
-  loadProfiles: () => Promise<{ id: number; name: string; role: Role }[]>;
+  loadProfiles: () => Promise<{ id: number; name: string; role: Role; access_name?: string }[]>;
   onLogin: (profileId: number, secret: string) => Promise<void>;
   onClose?: () => void;
 }) {
-  const [profiles, setProfiles] = useState<{ id: number; name: string; role: Role }[]>([]);
+  const [profiles, setProfiles] = useState<{ id: number; name: string; role: Role; access_name?: string }[]>([]);
   const [pick, setPick] = useState<number | null>(null);
   const [pin, setPin] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -216,7 +216,7 @@ function Login({ title, subtitle, loadProfiles, onLogin, onClose }: {
         <div className="profiles">
           {profiles.map((p) => (
             <button key={p.id} className={pick === p.id ? 'on' : ''} onClick={() => setPick(p.id)}>
-              <b>{p.name}</b> <span className="muted">· {roleName(p.role)}</span>
+              <b>{p.name}</b> <span className="muted">· {p.access_name || roleName(p.role)}</span>
             </button>
           ))}
         </div>

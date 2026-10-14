@@ -26,6 +26,11 @@ export interface Trx {
   transfer_group: string | null;
   review: string | null;
   sent_at: string | null;
+  /** transfers: the receiver confirmed (or said he did not receive) */
+  received_at?: string | null;
+  received_by?: string | null;
+  disputed_at?: string | null;
+  dispute_note?: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;

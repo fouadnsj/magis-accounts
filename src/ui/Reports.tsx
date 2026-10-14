@@ -3,6 +3,7 @@ import { useApp, useNames } from '../state';
 import { coverage, exchangeLog, monthly, projectFunds, summary, inPeriod, type Period } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
+import type { Perm } from '../perms';
 import { Tabs, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t } from './kit';
 
 type Tab = 'summary' | 'monthly' | 'accounts' | 'coverage' | 'funds' | 'exchange';
@@ -13,11 +14,12 @@ const monthName = (ym: string) => {
 };
 
 export function Reports() {
-  const { d, isSup } = useApp();
+  const { d, can } = useApp();
   const names = useNames();
   const years = useMemo(() => [...new Set(d.rows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort(), [d.rows]);
   const lastYear = years[years.length - 1] ?? String(new Date().getFullYear());
-  const [tab, setTab] = useState<Tab>('summary');
+  const first = (['summary', 'monthly', 'accounts', 'coverage', 'funds', 'exchange'] as Tab[]).find((x) => can(`reports.${x}` as Perm)) ?? 'summary';
+  const [tab, setTab] = useState<Tab>(first);
   const [p, setP] = useState<Period>({ from: `${lastYear}-01`, to: `${lastYear}-12` });
   const year = Number(p.to.slice(0, 4));
   const yms = useMemo(() => {
@@ -46,19 +48,19 @@ export function Reports() {
         {period}
       </div>
       <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'summary', label: t('الملخص', 'Summary') },
-        { value: 'monthly', label: t('شهرياً', 'Monthly') },
-        { value: 'accounts', label: t('حسب الحساب', 'By account') },
-        { value: 'coverage', label: t('التغطية', 'Coverage'), hidden: !isSup },
-        { value: 'funds', label: t('أموال المشاريع', 'Project funds'), hidden: !isSup },
-        { value: 'exchange', label: t('سجل التصريف', 'Exchange log') },
+        { value: 'summary', label: t('الملخص', 'Summary'), hidden: !can('reports.summary') },
+        { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
+        { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') },
+        { value: 'coverage', label: t('التغطية', 'Coverage'), hidden: !can('reports.coverage') },
+        { value: 'funds', label: t('أموال المشاريع', 'Project funds'), hidden: !can('reports.funds') },
+        { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
-      {tab === 'summary' && <SummaryTab p={p} />}
-      {tab === 'monthly' && <MonthlyTab year={year} />}
-      {tab === 'accounts' && <AccountsTab p={p} />}
-      {tab === 'coverage' && isSup && <CoverageTab p={p} year={year} />}
-      {tab === 'funds' && isSup && <FundsTab />}
-      {tab === 'exchange' && <ExchangeTab p={p} names={names} />}
+      {tab === 'summary' && can('reports.summary') && <SummaryTab p={p} />}
+      {tab === 'monthly' && can('reports.monthly') && <MonthlyTab year={year} />}
+      {tab === 'accounts' && can('reports.accounts') && <AccountsTab p={p} />}
+      {tab === 'coverage' && can('reports.coverage') && <CoverageTab p={p} year={year} />}
+      {tab === 'funds' && can('reports.funds') && <FundsTab />}
+      {tab === 'exchange' && can('reports.exchange') && <ExchangeTab p={p} names={names} />}
     </>
   );
 }

@@ -288,6 +288,7 @@ const TRX_COLS = [
   'id', 'n', 'city_id', 'account_id', 'book_id', 'date', 'type', 'heading_id', 'line_id', 'explanation', 'party_id', 'receipt',
   'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd', 'transfer_group', 'review', 'sent_at',
   'created_at', 'created_by', 'updated_at', 'source_file',
+  'received_at', 'received_by', 'disputed_at', 'dispute_note',
 ] as const;
 
 export async function loadTrx(db: Db): Promise<Trx[]> {
@@ -297,7 +298,7 @@ export async function loadTrx(db: Db): Promise<Trx[]> {
 export function insertTrxStmt(t: Trx): Stmt {
   return {
     sql: `INSERT INTO trx (${TRX_COLS.join(',')}) VALUES (${TRX_COLS.map(() => '?').join(',')})`,
-    params: TRX_COLS.map((c) => t[c] as SqlValue),
+    params: TRX_COLS.map((c) => (t[c] ?? null) as SqlValue),
   };
 }
 
@@ -305,7 +306,7 @@ function updateTrxStmt(t: Trx): Stmt {
   const cols = TRX_COLS.filter((c) => c !== 'id' && c !== 'created_at' && c !== 'created_by');
   return {
     sql: `UPDATE trx SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,
-    params: [...cols.map((c) => t[c] as SqlValue), t.id],
+    params: [...cols.map((c) => (t[c] ?? null) as SqlValue), t.id],
   };
 }
 
@@ -321,6 +322,7 @@ export function blankTrx(): Trx {
     heading_id: null, line_id: null, explanation: null, party_id: null, receipt: null,
     inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0,
     transfer_group: null, review: null, sent_at: null, created_at: nowIso(), created_by: null, updated_at: null, source_file: null,
+    received_at: null, received_by: null, disputed_at: null, dispute_note: null,
   };
 }
 

@@ -7,8 +7,7 @@ import { validateTrx } from '../domain/validate';
 import { rateOn } from '../domain/compute';
 import type { Trx, TrxType } from '../domain/types';
 import { TYPE_LABEL, tx, type Msg } from '../i18n';
-import { can } from '../auth';
-import { Combo, Field, Modal, Msgs, Seg, Select, confirmBox, errText, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
+import { Combo, Field, Modal, Msgs, Seg, Select, confirmBox, errText, fmtDate, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
 
 type Cur = 'SYP' | 'USD';
 
@@ -49,14 +48,19 @@ const recall = (k: string) => {
 
 export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: () => void }) {
   const app = useApp();
-  const { d, s, myBook, reload, holder } = app;
+  const { d, s, reload, can, myBooks, fileHolder } = app;
   const L = d.lists;
   const editing = typeof start === 'object' ? start : null;
   const mainId = L.books.find((b) => b.is_main)?.id ?? null;
+  /** Without "write in every book", a person writes only in the books he keeps. */
+  const restricted = !can('register.edit');
 
-  // The other row of a keeper-to-keeper transfer.
+  // The other row of a keeper-to-keeper transfer, and the transfer as a whole.
   const partner = editing?.transfer_group ? d.rows.find((r) => r.transfer_group === editing.transfer_group && r.id !== editing.id) ?? null : null;
-  const readOnly = !!(app.fileHolder && editing?.sent_at);
+  const transfer = editing?.type === 'Transfer' ? d.transfers.find((x) => x.rowIds.includes(editing.id)) ?? null : null;
+  const lockedTransfer = !!(restricted && transfer && (transfer.receivedAt || !myBooks.includes(transfer.from!)));
+  const bookLocked = !!(restricted && editing?.date && d.bookClosed.has(`${editing.book_id}|${editing.date.slice(0, 7)}`));
+  const readOnly = !!(fileHolder && editing?.sent_at) || lockedTransfer || bookLocked;
 
   const usual = (type: TrxType) => {
     // Transfer/Exchange: the heading and line most often used for that type.
@@ -110,7 +114,7 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
       return base;
     }
     const type = start as TrxType;
-    const bookId = holder ? myBook : Number(recall('lastBook')) || L.settings.def_book_id || mainId;
+    const bookId = restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId;
     const book = L.books.find((b) => b.id === bookId);
     const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
     return {
@@ -118,7 +122,7 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
       accountId: Number(recall('lastAccount')) || book?.account_id || L.settings.def_account_id,
       cityId: book?.city_id ?? L.settings.def_city_id,
       headingId: h, lineId: l, partyId: null, explanation: '', receipt: '', currency: null, amount: '',
-      fromBook: mainId, toBook: null, usd: '', syp: '',
+      fromBook: restricted ? myBooks[0] ?? null : mainId, toBook: null, usd: '', syp: '',
     };
   };
 
@@ -147,6 +151,8 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
     [L, f.headingId, f.lineId],
   );
   const bookOpts = opts(L.books, f.bookId);
+  // A restricted person writes in, and gives from, his own books only.
+  const myBookOpts = restricted ? bookOpts.filter((o) => myBooks.includes(o.value)) : bookOpts;
 
   const switchType = (type: TrxType) => {
     const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
@@ -237,7 +243,7 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
     try {
       await s.api.call('trx.save', { rows, deletes });
       remember('lastDate', f.date);
-      if (!holder) remember('lastBook', f.type === 'Transfer' ? null : f.bookId);
+      if (!restricted) remember('lastBook', f.type === 'Transfer' ? null : f.bookId);
       remember('lastAccount', f.accountId);
       await reload();
       toast(t('حُفظ', 'Saved') + (rows.length > 1 ? ` (${rows.length})` : ''));
@@ -269,7 +275,7 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
     onClose();
   };
 
-  const addParty = can.manageLists(s.profile.role)
+  const addParty = can('lists.manage')
     ? async (name: string) => {
         try {
           const id = await s.api.call('party.add', { name });
@@ -282,7 +288,8 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
       }
     : undefined;
 
-  const types: TrxType[] = holder ? ['Income', 'Exp', 'Exchange'] : ['Income', 'Exp', 'Transfer', 'Exchange'];
+  // On a holder's own computer (files), transfers are booked by the office.
+  const types: TrxType[] = fileHolder ? ['Income', 'Exp', 'Exchange'] : ['Income', 'Exp', 'Transfer', 'Exchange'];
   const curSeg = <Seg value={f.currency} options={[{ value: 'SYP', label: t('ليرة', 'SYP') }, { value: 'USD', label: t('دولار', 'USD') }]} onChange={(v) => set('currency', v)} />;
 
   return (
@@ -300,7 +307,24 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
           <b>{t('للمراجعة', 'To review')}:</b> <span className="ltr">{editing.review}</span>
         </div>
       )}
-      {readOnly && <div className="alert info">{t('أُرسل هذا القيد إلى المكتب ولا يمكن تعديله هنا. للتصحيح أضف قيداً جديداً.', 'This entry was sent to the office and cannot be changed here. To correct it, add a new entry.')}</div>}
+      {transfer && (
+        <div className={`alert ${transfer.disputedAt ? 'err' : transfer.receivedAt ? 'ok' : 'warn'}`}>
+          {transfer.disputedAt
+            ? <>✗ {t('قال المستلم إنه لم يصل', 'The receiver says it did not arrive')}{transfer.disputeNote ? `: ${transfer.disputeNote}` : ''}</>
+            : transfer.receivedAt
+              ? <>✓ {t('أكّد الاستلام', 'Receipt confirmed by')} {transfer.receivedBy} · {fmtDate(transfer.receivedAt.slice(0, 10))}</>
+              : <>⏳ {t('ينتظر تأكيد المستلم', 'Waiting for the receiver to confirm')}</>}
+        </div>
+      )}
+      {readOnly && (
+        <div className="alert info">
+          {fileHolder && editing?.sent_at
+            ? t('أُرسل هذا القيد إلى المكتب ولا يمكن تعديله هنا. للتصحيح أضف قيداً جديداً.', 'This entry was sent to the office and cannot be changed here. To correct it, add a new entry.')
+            : bookLocked
+              ? t('أغلقتَ هذا الشهر لدفترك. للتصحيح اطلب من المكتب.', 'You closed this month for your book. Ask the office for a correction.')
+              : t('لا يعدّل هذا التحويل إلا من أعطى المال، قبل تأكيد المستلم. اطلب من المكتب.', 'Only the giver can change this transfer, before the receiver confirms. Ask the office.')}
+        </div>
+      )}
 
       <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="row" style={{ marginBottom: 14 }}>
@@ -313,15 +337,15 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
           </Field>
           {f.type !== 'Transfer' ? (
             <Field label={t('الدفتر', 'Book')}>
-              <Select value={f.bookId} options={bookOpts} disabled={holder} onChange={(v) => {
+              <Select value={f.bookId} options={myBookOpts} disabled={restricted && myBookOpts.length <= 1} onChange={(v) => {
                 const b = L.books.find((x) => x.id === v);
                 setF((x) => ({ ...x, bookId: v, accountId: b?.account_id ?? x.accountId, cityId: b?.city_id ?? x.cityId }));
               }} />
             </Field>
           ) : (
             <>
-              <Field label={t('من', 'From')}><Select value={f.fromBook} options={bookOpts} onChange={(v) => set('fromBook', v)} /></Field>
-              <Field label={t('إلى', 'To')}><Select value={f.toBook} options={bookOpts} onChange={(v) => set('toBook', v)} /></Field>
+              <Field label={t('من (المعطي)', 'From (giver)')}><Select value={f.fromBook} options={myBookOpts} onChange={(v) => set('fromBook', v)} /></Field>
+              <Field label={t('إلى (المستلم)', 'To (receiver)')}><Select value={f.toBook} options={bookOpts.filter((o) => o.value !== f.fromBook)} onChange={(v) => set('toBook', v)} /></Field>
             </>
           )}
           <Field label={t('الحساب', 'Account')}>
@@ -383,6 +407,9 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
 
         {f.type === 'Transfer' && f.fromBook != null && f.toBook != null && f.fromBook !== mainId && f.toBook !== mainId && (
           <p className="muted small">{t('بين أمينين: يُكتب سطران (− من الأول، + للثاني).', 'Between two keepers: two rows are written (− from the first, + to the second).')}</p>
+        )}
+        {f.type === 'Transfer' && !editing && (
+          <p className="muted small">{t('يسجّله من يعطي المال، مرة واحدة. يظهر فوراً في دفتر المستلم ليؤكّد أنه استلمه.', 'The giver records it, once. It appears at once in the receiver\'s book, for him to confirm he received it.')}</p>
         )}
       </fieldset>
 

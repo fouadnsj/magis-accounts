@@ -22,7 +22,8 @@ export function holderBalance(d: Data, bookId: number, fileHolder: boolean) {
 }
 
 export function Cash() {
-  const { s, d, myBook } = useApp();
+  const { s, d, can, myBooks } = useApp();
+  const [myBook, setMyBook] = useState<number | null>(myBooks[0] ?? null);
   const [counts, setCounts] = useState<Counts>({});
   const [counting, setCounting] = useState<number | null>(null);
 
@@ -48,7 +49,7 @@ export function Cash() {
     return x;
   };
 
-  if (myBook != null) return <HolderCash counted={counted} counts={counts} onCount={() => setCounting(myBook)} counting={counting} setCounting={setCounting} reloadCounts={loadCounts} />;
+  if (!can('reports.cash') && myBook != null) return <HolderCash bookId={myBook} switchTo={myBooks.length > 1 ? setMyBook : null} counted={counted} counts={counts} onCount={() => setCounting(myBook)} counting={counting} setCounting={setCounting} reloadCounts={loadCounts} />;
 
   const syp = holders(d.rows, d.lists.books, 'SYP');
   const usd = holders(d.rows, d.lists.books, 'USD');
@@ -171,13 +172,14 @@ function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; coun
   );
 }
 
-function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
+function HolderCash({ bookId: myBook, switchTo, counted, counts, counting, setCounting, reloadCounts }: {
+  bookId: number; switchTo: ((b: number) => void) | null;
   counted: (b: number, c: 'SYP' | 'USD') => number | null; counts: Counts; onCount: () => void;
   counting: number | null; setCounting: (b: number | null) => void; reloadCounts: () => Promise<void>;
 }) {
-  const { s, d, myBook, reload, fileHolder } = useApp();
-  const b = useMemo(() => holderBalance(d, myBook!, fileHolder), [d, myBook, fileHolder]);
-  const transfers = d.rows.filter((r) => r.type === 'Transfer');
+  const { s, d, reload, fileHolder, myBooks } = useApp();
+  const b = useMemo(() => holderBalance(d, myBook, fileHolder), [d, myBook, fileHolder]);
+  const transfers = d.rows.filter((r) => r.type === 'Transfer' && r.book_id === myBook);
   const [adding, setAdding] = useState(false);
   const office = d.officeTransfers[String(myBook)] ?? [];
   const sum = (cur: 'SYP' | 'USD') => office.reduce((a, x) => a + (cur === 'SYP' ? x.trf_syp : x.trf_usd), 0);
@@ -196,7 +198,10 @@ function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
 
   return (
     <>
-      <div className="page-head"><h1>{t('صندوقي', 'My cash')}</h1>
+      <div className="page-head"><h1>{t('صندوقي', 'My cash')} · {d.lists.books.find((x) => x.id === myBook)?.name}</h1>
+        {switchTo && (
+          <div className="seg">{myBooks.map((id) => <button key={id} className={id === myBook ? 'on' : ''} onClick={() => switchTo(id)}>{d.lists.books.find((x) => x.id === id)?.name}</button>)}</div>
+        )}
         <div className="row">
           {fileHolder && <button className="btn" onClick={() => setAdding(true)}>＋ {t('مقبوض من المكتب', 'Received from the office')}</button>}
           <button className="btn primary" onClick={() => setCounting(myBook)}>{t('عدّ النقد', 'Count cash')}</button>

@@ -53,7 +53,7 @@ export async function hello(): Promise<Hello | null> {
   }
 }
 
-export const serverProfiles = () => get<{ id: number; name: string; role: Profile['role'] }[]>('/api/profiles');
+export const serverProfiles = () => get<{ id: number; name: string; role: Profile['role']; access_name: string }[]>('/api/profiles');
 
 export const serverLogin = (profileId: number, password: string) =>
   post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { profileId, password });

@@ -19,7 +19,8 @@ interface Status {
 }
 
 export function ServerTab() {
-  const { isSup } = useApp();
+  const { can } = useApp();
+  const isSup = can('users.manage');
   const [st, setSt] = useState<Status | null>(null);
   const [mirror, setMirror] = useState('');
   const load = () =>

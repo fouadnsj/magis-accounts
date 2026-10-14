@@ -36,6 +36,7 @@ export async function createHolder(db: Db, pkg: ListsPackage, bookId: number, na
     setMetaStmt('holder_book_id', String(bookId)),
     setMetaStmt('created_at', nowIso()),
     await profileStmt({ name: name.trim(), role: 'holder', pin, book_id: bookId }),
+    { sql: 'INSERT INTO user_book (profile_id, book_id) SELECT MAX(id), ? FROM profile', params: [bookId] },
     auditStmt(name, 'create', 'meta', null, null, { install: 'holder', bookId }),
   ]);
 }

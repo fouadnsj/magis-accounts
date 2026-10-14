@@ -76,7 +76,8 @@ function HolderFiles() {
 
 
 function OfficeFiles() {
-  const { s, d, reload, isSup } = useApp();
+  const { s, d, reload, can } = useApp();
+  const isSup = can('lists.donors') || can('reports.coverage');
   const years = [...new Set(d.rows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort();
   const y = years[years.length - 1] ?? todayIso().slice(0, 4);
   const [allPeriod, setAllPeriod] = useState(true);
@@ -161,7 +162,7 @@ function OfficeFiles() {
 
   return (
     <>
-      <div className="panel">
+      {can('data.export') && <div className="panel">
         <h2>{t('تصدير إلى Excel', 'Export to Excel')}</h2>
         <p className="muted small">{t('ورقة Transactions بجدول TRX بنفس ترتيب الأعمدة تماماً، قيم بلا معادلات.', 'A Transactions sheet with a TRX table in exactly the same column order — values, no formulas.')}</p>
         <div className="grid4">
@@ -179,9 +180,10 @@ function OfficeFiles() {
           {!registerOnly && isSup && <label className="row"><input type="checkbox" checked={confidential} onChange={(e) => setConfidential(e.target.checked)} /> {t('السرّي (المانحون، المنح، التغطية)', 'Confidential (donors, grants, coverage)')}</label>}
         </div>
         <div className="modal-foot"><button className="btn primary" disabled={busy} onClick={doExport}>{t('تصدير…', 'Export…')}</button></div>
-      </div>
+      </div>}
 
-      <div className="grid2">
+      {/* Files between holders and the office: only for desktop installs. On the server everybody shares one database. */}
+      {s.mode !== 'server' && can('data.import') && <div className="grid2">
         <div className="panel">
           <h2>{t('استيراد قيود أمين', "Import a holder's entries")}</h2>
           <p className="muted small">{t('ملف ‎.json يرسله الأمين. ما سبق استيراده يُتخطى ويُذكر. نسخة احتياطية تُؤخذ قبل الاستيراد.', 'The .json file a holder sends. Rows already imported are skipped and listed. A backup is taken first.')}</p>
@@ -204,9 +206,9 @@ function OfficeFiles() {
           <p className="muted small">{t('الدفاتر والموازنة والجهات والإعدادات، والتحويلات المسجلة لكل دفتر. بلا مانحين ولا منح.', 'Books, budget, parties, settings, and the transfers booked for each book. No donors, no grants.')}</p>
           <button className="btn" onClick={doListsPackage}>{t('حفظ الحزمة…', 'Save package…')}</button>
         </div>
-      </div>
+      </div>}
 
-      {!d.rows.length && (
+      {!d.rows.length && can('data.import') && (
         <div className="panel">
           <h2>{t('البدء من ملف Excel', 'Start from the Excel workbook')}</h2>
           <button className="btn" disabled={busy} onClick={doSeed}>{t('استيراد Master Sup / Master Com…', 'Import Master Sup / Master Com…')}</button>
@@ -214,7 +216,7 @@ function OfficeFiles() {
         </div>
       )}
 
-      {log.length > 0 && (
+      {log.length > 0 && can('data.import') && (
         <div className="panel">
           <h3>{t('سجل الاستيراد', 'Import log')}</h3>
           <table className="t">

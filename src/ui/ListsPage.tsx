@@ -11,7 +11,7 @@ import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmt
 type Tab = 'budget' | 'city' | 'account' | 'project' | 'party' | 'books' | 'donors' | 'rules' | 'settings';
 
 export function ListsPage() {
-  const { isSup } = useApp();
+  const { can } = useApp();
   const [tab, setTab] = useState<Tab>('budget');
   return (
     <>
@@ -23,14 +23,14 @@ export function ListsPage() {
         { value: 'account', label: t('الحسابات', 'Accounts') },
         { value: 'project', label: t('المشاريع', 'Projects') },
         { value: 'rules', label: t('قواعد الصرف', 'Spending rules') },
-        { value: 'donors', label: t('المانحون', 'Donors'), hidden: !isSup },
+        { value: 'donors', label: t('المانحون', 'Donors'), hidden: !can('lists.donors') },
         { value: 'city', label: t('المدن', 'Cities') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
       {tab === 'budget' && <BudgetTab />}
       {(tab === 'city' || tab === 'account' || tab === 'project' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
       {tab === 'books' && <BooksTab />}
-      {tab === 'donors' && isSup && <DonorsTab />}
+      {tab === 'donors' && can('lists.donors') && <DonorsTab />}
       {tab === 'rules' && <RulesTab />}
       {tab === 'settings' && <SettingsTab />}
     </>

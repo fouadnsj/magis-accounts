@@ -6,13 +6,39 @@ import { type Db, one } from './db/db';
 import { auditStmt, UserError } from './db/repo';
 import { m } from './i18n';
 import type { Role } from './domain/types';
+import { cleanPerms, type Perm } from './perms';
 
+/** A person who can log in: his permission profile's ticks and the books he keeps. */
 export interface Profile {
   id: number;
   name: string;
-  role: Role;
-  book_id: number | null;
+  role: Role; // kept for older files; permissions now come from the profile
+  book_id: number | null; // first book kept (older files)
   active: number;
+  access_id: number | null;
+  access_name: string;
+  perms: Perm[];
+  books: number[];
+}
+
+export const has = (p: Pick<Profile, 'perms'>, perm: Perm) => p.perms.includes(perm);
+
+/** Reads a person with his permissions and books; null if unknown or deactivated. */
+export async function loadProfile(db: Db, id: number): Promise<Profile | null> {
+  const r = await one<{ id: number; name: string; role: Role; book_id: number | null; active: number; access_id: number | null; access_name: string | null; perms: string | null }>(
+    db,
+    `SELECT p.id, p.name, p.role, p.book_id, p.active, p.access_id, a.name AS access_name, a.perms
+       FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.id = ? AND p.active = 1`,
+    [id],
+  );
+  if (!r) return null;
+  const books = (await db.query<{ book_id: number }>('SELECT book_id FROM user_book WHERE profile_id = ? ORDER BY book_id', [id])).map((b) => b.book_id);
+  return { ...r, access_name: r.access_name ?? '', perms: cleanPerms(r.perms ? JSON.parse(r.perms) : []), books, book_id: books[0] ?? r.book_id };
+}
+
+/** The old role column, guessed from the ticks (only older parts of the program read it). */
+export function roleFor(perms: Perm[]): Role {
+  return perms.includes('users.manage') ? 'sup' : perms.includes('register.view') ? 'com' : 'holder';
 }
 
 const ITER = 120_000;
@@ -42,24 +68,31 @@ export function checkSecretShape(secret: string) {
   if (secret.length < 6) throw new UserError(m('كلمة السر 6 أحرف أو أرقام على الأقل', 'The password must have at least 6 characters'));
 }
 
-export async function profileStmt(p: { name: string; role: Role; pin: string; book_id?: number | null }) {
+/** Statement creating a person. access_id: his permission profile (1 Superior, 2 Accountant, 3 Book holder by default). */
+export async function profileStmt(p: { name: string; role: Role; pin: string; book_id?: number | null; access_id?: number }) {
   checkSecretShape(p.pin);
   const salt = crypto.randomUUID();
+  const access = p.access_id ?? (p.role === 'sup' ? 1 : p.role === 'com' ? 2 : 3);
   return {
-    sql: 'INSERT INTO profile (name, role, pin_salt, pin_hash, book_id) VALUES (?, ?, ?, ?, ?)',
-    params: [p.name.trim(), p.role, salt, await hashSecret(salt, p.pin), p.book_id ?? null],
+    sql: 'INSERT INTO profile (name, role, pin_salt, pin_hash, book_id, access_id) VALUES (?, ?, ?, ?, ?, ?)',
+    params: [p.name.trim(), p.role, salt, await hashSecret(salt, p.pin), p.book_id ?? null, access],
   };
 }
 
-export async function listProfiles(db: Db): Promise<Profile[]> {
-  return db.query<Profile>('SELECT id, name, role, book_id, active FROM profile WHERE active = 1 ORDER BY role DESC, name');
+/** Names on the login screen: name and permission profile only. */
+export async function listProfiles(db: Db): Promise<{ id: number; name: string; role: Role; access_name: string }[]> {
+  return db.query(
+    `SELECT p.id, p.name, p.role, COALESCE(a.name, '') AS access_name FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id
+      WHERE p.active = 1 ORDER BY a.sort, p.name`,
+  );
 }
 
 export async function login(db: Db, profileId: number, secret: string): Promise<{ profile: Profile; weak: boolean }> {
-  const r = await one<Profile & { pin_salt: string; pin_hash: string }>(db, 'SELECT * FROM profile WHERE id = ? AND active = 1', [profileId]);
+  const r = await one<{ pin_salt: string; pin_hash: string }>(db, 'SELECT pin_salt, pin_hash FROM profile WHERE id = ? AND active = 1', [profileId]);
   const v = r ? await verifySecret(r.pin_salt, secret, r.pin_hash) : { ok: false, weak: false };
-  if (!r || !v.ok) throw new UserError(m('كلمة السر غير صحيحة', 'Wrong password'));
-  return { profile: { id: r.id, name: r.name, role: r.role, book_id: r.book_id, active: r.active }, weak: v.weak };
+  const profile = r && v.ok ? await loadProfile(db, profileId) : null;
+  if (!profile) throw new UserError(m('كلمة السر غير صحيحة', 'Wrong password'));
+  return { profile, weak: v.weak };
 }
 
 export async function changePin(db: Db, profileId: number, secret: string, who: string) {
@@ -71,11 +104,4 @@ export async function changePin(db: Db, profileId: number, secret: string, who: 
   ]);
 }
 
-/** What each role may open. Com = everything except donors, grants and coverage. */
-export const can = {
-  confidential: (r: Role) => r === 'sup',
-  manageLists: (r: Role) => r === 'sup' || r === 'com',
-  register: (r: Role) => r === 'sup' || r === 'com',
-  reopenMonth: (r: Role) => r === 'sup',
-  profiles: (r: Role) => r === 'sup',
-};
+

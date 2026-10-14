@@ -23,13 +23,13 @@ import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one } from '../src/db/db';
 import { getMeta } from '../src/db/repo';
-import { listProfiles, login, type Profile } from '../src/auth';
+import { has, listProfiles, loadProfile, login, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
 import { createOffice } from '../src/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 
-export const SERVER_VERSION = '0.2.1';
+export const SERVER_VERSION = '0.3.0';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -281,7 +281,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       sessions.delete(sid);
       return null;
     }
-    const p = await one<Profile>(handle.db, 'SELECT id, name, role, book_id, active FROM profile WHERE id = ? AND active = 1', [s.profile.id]);
+    const p = await loadProfile(handle.db, s.profile.id);
     if (!p) {
       sessions.delete(sid);
       return null;
@@ -396,7 +396,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     if (url === '/api/profiles' && method === 'GET') {
       const ps = await listProfiles(handle.db);
-      return send(res, 200, ps.map((p) => ({ id: p.id, name: p.name, role: p.role })));
+      return send(res, 200, ps.map((p) => ({ id: p.id, name: p.name, role: p.role, access_name: p.access_name })));
     }
 
     if (url === '/api/login' && method === 'POST') {
@@ -411,7 +411,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         // An old 4-digit PIN (or any old-style hash) must be replaced on the network.
         const mustChange = weak;
         sessions.set(sid, { profile, mustChange, last: Date.now(), ip });
-        log(`login ${profile.name} (${profile.role}) from ${ip}`);
+        log(`login ${profile.name} (${profile.access_name}) from ${ip}`);
         return send(res, 200, { profile, mustChange, install: 'office' }, {
           'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Strict; Path=/${viaHttps ? '; Secure' : ''}`,
         });
@@ -436,7 +436,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (url === '/api/version') return send(res, 200, { v: version });
 
     if (url === '/api/server/status' && method === 'GET') {
-      if (s.profile.role === 'holder') throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (!has(s.profile, 'data.backup') && !has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const backups = await files.list();
       return send(res, 200, {
         version: SERVER_VERSION,
@@ -453,7 +453,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       });
     }
     if (url === '/api/server/restore-upload' && method === 'POST') {
-      if (s.profile.role !== 'sup') throw new HttpError(403, { ar: 'للرئيس فقط', en: 'Superior only' });
+      if (!has(s.profile, 'data.restore')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const body = (await readBody(req)) as { base64?: string; fileName?: string };
       await files.backupNow('before-restore');
       await replaceDatabase(body.base64 ?? '');
@@ -462,7 +462,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { ok: true });
     }
     if (url === '/api/server/config' && method === 'POST') {
-      if (s.profile.role !== 'sup') throw new HttpError(403, { ar: 'للرئيس فقط', en: 'Superior only' });
+      if (!has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const body = (await readBody(req)) as { backupMirror?: string | null };
       const mirror = body.backupMirror?.trim() || null;
       config = { ...config, backupMirror: mirror };
@@ -476,7 +476,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (s.mustChange && op !== 'profile.setPin')
         throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
       const args = await readBody(req);
-      const ctx: OpCtx = { db: handle.db, profile: s.profile, who: `${s.profile.name} (${s.profile.role})`, install: 'office', files };
+      const ctx: OpCtx = { db: handle.db, profile: s.profile, who: s.profile.name, install: 'office', files };
       const result = await runOp(ctx, op, args);
       if (op === 'profile.setPin' && (args as { id?: number }).id === s.profile.id) s.mustChange = false;
       if (!READ_ONLY.has(op)) version++;
@@ -523,7 +523,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const srv = http.createServer((req, res) => {
       if (config.httpMode === 'serve') return handler(false)(req, res);
       const host = (req.headers.host ?? 'localhost').replace(/:\d+$/, '');
-      res.writeHead(301, { Location: `https://${host}:${httpsPort}${req.url ?? '/'}` });
+      // 307, not 301: a browser must not remember the redirect for ever (the mode can change)
+      res.writeHead(307, { Location: `https://${host}:${httpsPort}${req.url ?? '/'}` });
       res.end();
     });
     httpPort = await listen(srv, config.httpPort);

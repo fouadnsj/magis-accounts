@@ -41,12 +41,16 @@ At the first login over the network, anyone who still has an old 4-digit PIN is 
 4. Choose your name and type your password.
 5. On a phone, use the browser menu → **Add to Home screen**. It then opens like an app.
 
-## 6. Users
-In **Admin → Users & passwords**, the Superior adds:
-- each **cash holder**, with their book (Roula → Roula's book…);
-- other accountants or superiors if needed.
+## 6. Users and permission profiles
+- **Admin → Permission profiles**: each profile is a set of ticks grouped by category (Book, Register, Reports, Lists, Admin). Three are ready: **Superior**, **Accountant**, **Book holder**. Change them or create others.
+- **Admin → Users**: each person gets one profile and the book(s) they keep (Roula → Roula's book…).
+- A book holder sees and writes only their own book(s), and their reports cover only those books.
 
-A holder sees and writes only their own book, and doesn't see reports, lists or donors.
+## 6b. Transfers and month closing
+- **The giver records a transfer, once.** It appears at once in the receiver's book as "⏳ to confirm". The receiver clicks **✓ Received**, or **✗ Not received** with a note.
+- **Closing a month has two steps:**
+  1. Each holder closes their book's month after counting their cash. This is refused while a transfer is unanswered or a row needs review.
+  2. The office closes the whole month. After that nobody can change it. **Only the Superior can reopen.**
 
 ## 7. Backups
 - Every day, by itself, in `C:\ProgramData\MAGIS\backups`. The last 60 days are kept.

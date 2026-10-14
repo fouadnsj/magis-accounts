@@ -230,4 +230,51 @@ CREATE TABLE import_log (
 );
 `,
   },
+  {
+    n: 2,
+    name: 'permission profiles, books per user, transfer confirmation, two-step month closing',
+    sql: `
+-- Permission profiles: named sets of ticks (see src/perms.ts for their meaning).
+-- The three first ones copy the old fixed roles; the Superior can change them.
+CREATE TABLE access_profile (
+  id    INTEGER PRIMARY KEY,
+  name  TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  perms TEXT NOT NULL,
+  sort  INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO access_profile (id, name, perms, sort) VALUES
+  (1, 'Superior · الرئيس', '["book.own","register.view","register.edit","reports.summary","reports.monthly","reports.accounts","reports.exchange","reports.cash","reports.coverage","reports.funds","lists.manage","lists.donors","month.close","month.reopen","users.manage","data.backup","data.restore","data.export","data.import","audit.view"]', 1),
+  (2, 'Accountant · المحاسب', '["book.own","register.view","register.edit","reports.summary","reports.monthly","reports.accounts","reports.exchange","reports.cash","lists.manage","month.close","data.backup","data.export","data.import","audit.view"]', 2),
+  (3, 'Book holder · أمين صندوق', '["book.own","reports.summary","reports.monthly"]', 3);
+
+ALTER TABLE profile ADD COLUMN access_id INTEGER REFERENCES access_profile(id);
+UPDATE profile SET access_id = CASE role WHEN 'sup' THEN 1 WHEN 'com' THEN 2 ELSE 3 END;
+
+-- The books a person keeps (none, one or several).
+CREATE TABLE user_book (
+  profile_id INTEGER NOT NULL REFERENCES profile(id),
+  book_id    INTEGER NOT NULL REFERENCES book(id),
+  PRIMARY KEY (profile_id, book_id)
+);
+INSERT INTO user_book (profile_id, book_id) SELECT id, book_id FROM profile WHERE book_id IS NOT NULL;
+
+-- A transfer is recorded once by the giver; the receiver confirms it.
+ALTER TABLE trx ADD COLUMN received_at TEXT;
+ALTER TABLE trx ADD COLUMN received_by TEXT;
+ALTER TABLE trx ADD COLUMN disputed_at TEXT;
+ALTER TABLE trx ADD COLUMN dispute_note TEXT;
+-- transfers already in the register are history: taken as received
+UPDATE trx SET received_at = created_at, received_by = 'migration' WHERE type = 'Transfer';
+
+-- Step 1 of month closing: the holder closes his book's month.
+-- (Step 2, the office, is the closed_month table.)
+CREATE TABLE book_month (
+  book_id   INTEGER NOT NULL REFERENCES book(id),
+  ym        TEXT NOT NULL,
+  closed_at TEXT NOT NULL,
+  closed_by TEXT,
+  PRIMARY KEY (book_id, ym)
+);
+`,
+  },
 ];

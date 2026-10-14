@@ -1,92 +1,142 @@
-// Month closing, backups, users and passwords, audit log, and (on the network) the server.
+// Month closing (two steps), backups, users, permission profiles, audit log, server.
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
-import { can, type Profile } from '../auth';
-import type { AuditRow, BackupFile } from '../ops';
-import type { Role } from '../domain/types';
-import { Field, Modal, Select, Tabs, confirmBox, errText, t, toast } from './kit';
+import type { Profile } from '../auth';
+import type { AccessRow, AuditRow, BackupFile, UserRow } from '../ops';
+import { PERM_GROUPS, type Perm } from '../perms';
+import { tx } from '../i18n';
+import { Field, Modal, Tabs, confirmBox, errText, t, toast } from './kit';
 import { ServerTab } from './ServerTab';
 import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
 
-type Tab = 'months' | 'backups' | 'profiles' | 'audit' | 'server';
+type Tab = 'months' | 'backups' | 'users' | 'access' | 'audit' | 'server';
 
 export function Admin() {
-  const { s, holder } = useApp();
-  const [tab, setTab] = useState<Tab>(holder ? 'profiles' : 'months');
-  const office = !holder;
+  const { s, can, myBooks } = useApp();
+  const tabs: { value: Tab; label: string; hidden?: boolean }[] = [
+    { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
+    { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore')) || s.mode === 'preview' },
+    { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : t('كلمة السر', 'Password') },
+    { value: 'access', label: t('ملفات الصلاحيات', 'Permission profiles'), hidden: !can('users.manage') },
+    { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
+    { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
+  ];
+  const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
   return (
     <>
-      <div className="page-head"><h1>{holder ? t('الإعدادات', 'Settings') : t('الإدارة', 'Admin')}</h1></div>
+      <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}</h1></div>
       {s.mode === 'desktop' && <p className="muted small ltr" style={{ textAlign: 'start' }}>{s.dbPath}</p>}
-      <Tabs value={tab} onChange={setTab} tabs={[
-        { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !office },
-        { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !office || s.mode === 'preview' },
-        { value: 'profiles', label: holder ? t('كلمة السر', 'Password') : t('المستخدمون وكلمات السر', 'Users & passwords') },
-        { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !office },
-        { value: 'server', label: t('الخادم', 'Server'), hidden: !office || s.mode !== 'server' },
-      ]} />
-      {tab === 'months' && office && <Months />}
-      {tab === 'backups' && office && <Backups />}
-      {tab === 'profiles' && <Profiles />}
-      {tab === 'audit' && office && <Audit />}
-      {tab === 'server' && office && s.mode === 'server' && <ServerTab />}
+      <Tabs value={tab} onChange={setTab} tabs={tabs} />
+      {tab === 'months' && <Months />}
+      {tab === 'backups' && <Backups />}
+      {tab === 'users' && <Users />}
+      {tab === 'access' && can('users.manage') && <AccessProfiles />}
+      {tab === 'audit' && can('audit.view') && <Audit />}
+      {tab === 'server' && s.mode === 'server' && <ServerTab />}
     </>
   );
 }
 
+// ---------------------------------------------------------------- months: step 1 per book, step 2 office
+
 function Months() {
-  const { s, d, reload } = useApp();
+  const { s, d, reload, can, myBooks, limited } = useApp();
+  const books = useMemo(
+    () => d.lists.books.filter((b) => !b.is_main && (limited ? myBooks.includes(b.id) : true) && d.rows.some((r) => r.book_id === b.id)),
+    [d, limited, myBooks],
+  );
   const months = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of d.rows) if (r.date) m.set(r.date.slice(0, 7), (m.get(r.date.slice(0, 7)) ?? 0) + 1);
-    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
+    const set = new Set<string>();
+    for (const r of d.rows) if (r.date) set.add(r.date.slice(0, 7));
+    return [...set].sort().reverse();
   }, [d.rows]);
-  const review = (ym: string) => d.rows.filter((r) => r.date?.startsWith(ym) && r.review).length;
-  const run = async (f: () => Promise<unknown>) => {
+  const used = (bookId: number, ym: string) => d.rows.some((r) => r.book_id === bookId && r.date?.startsWith(ym));
+  const mayCloseBook = (bookId: number) => myBooks.includes(bookId) || (can('month.close') && can('register.edit'));
+
+  const run = async (f: () => Promise<unknown>, ok: string) => {
     try {
       await f();
       await reload();
+      toast(ok);
     } catch (e) {
       toast(errText(e), true);
     }
   };
-  const close = async (ym: string) => {
-    const rv = review(ym);
-    if (!(await confirmBox(
-      t(`إغلاق ${ym}؟ بعد الإغلاق لا تعديل في هذا الشهر؛ التصحيح بقيد عكسي.`, `Close ${ym}? After closing, no edits in that month; corrections by a reversing entry.`) +
-        (rv ? '\n\n' + t(`⚠ ما زال ${rv} سطراً للمراجعة في هذا الشهر.`, `⚠ ${rv} rows of this month still need review.`) : ''),
-    ))) return;
-    await run(() => s.api.call('month.close', { ym }));
+
+  const closeBook = async (bookId: number, ym: string) => {
+    const problems = await s.api.call('closing.problems', { ym, bookId });
+    if (problems.length) return toast(problems.map(tx).join(' · '), true);
+    const name = d.lists.books.find((b) => b.id === bookId)?.name;
+    if (!(await confirmBox(t(`إغلاق ${ym} لدفتر ${name}؟ هل عددتَ النقد وكان الفرق صفراً؟ بعد الإغلاق لا تعديل.`, `Close ${ym} for the book ${name}? Did you count the cash, with no difference? After closing, no more changes.`)))) return;
+    await run(() => s.api.call('bookMonth.close', { bookId, ym }), t('أُغلق', 'Closed'));
   };
-  const reopen = async (ym: string) => {
-    if (await confirmBox(t(`إعادة فتح ${ym}؟`, `Reopen ${ym}?`))) await run(() => s.api.call('month.reopen', { ym }));
+  const closeOffice = async (ym: string) => {
+    const problems = await s.api.call('closing.problems', { ym, bookId: null });
+    if (problems.length) return toast(problems.map(tx).join(' · '), true);
+    if (!(await confirmBox(t(`إغلاق الشهر ${ym} للمركز كله؟ بعدها لا يغيّر أحد شيئاً؛ الرئيس وحده يعيد الفتح.`, `Close ${ym} for the whole centre? After that nobody changes anything; only the Superior can reopen.`)))) return;
+    await run(() => s.api.call('month.close', { ym }), t('أُغلق الشهر', 'Month closed'));
   };
+
   return (
-    <div className="panel" style={{ maxWidth: 700 }}>
-      <table className="t">
-        <thead><tr><th>{t('الشهر', 'Month')}</th><th className="n">{t('سطور', 'Rows')}</th><th className="n">{t('للمراجعة', 'To review')}</th><th>{t('الحالة', 'Status')}</th><th /></tr></thead>
-        <tbody>
-          {months.map(([ym, n]) => (
-            <tr key={ym}>
-              <td className="ltr">{ym}</td><td className="n">{n}</td><td className="n">{review(ym) || ''}</td>
-              <td>{d.closed.has(ym) ? <span className="ok">🔒 {t('مغلق', 'closed')}</span> : <span className="muted">{t('مفتوح', 'open')}</span>}</td>
-              <td className="right">
-                {d.closed.has(ym)
-                  ? can.reopenMonth(s.profile.role) && <button className="btn small" onClick={() => reopen(ym)}>{t('إعادة فتح', 'Reopen')}</button>
-                  : <button className="btn small" onClick={() => close(ym)}>{t('إغلاق', 'Close')}</button>}
-              </td>
+    <div className="panel">
+      <p className="muted small">
+        {t('١ — كل أمين يغلق شهر دفتره بعد عدّ نقده. ٢ — ثم يغلق المكتب الشهر كله. الرئيس وحده يعيد الفتح.',
+          '1 — Each holder closes his book\'s month after counting his cash. 2 — Then the office closes the whole month. Only the Superior can reopen.')}
+      </p>
+      <div className="tbl-wrap">
+        <table className="t">
+          <thead>
+            <tr>
+              <th>{t('الشهر', 'Month')}</th>
+              {books.map((b) => <th key={b.id} className="center">{b.name}</th>)}
+              {!limited && <th className="center">{t('المكتب', 'Office')}</th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="muted small">{t('الرئيس وحده يعيد فتح شهر.', 'Only the Superior can reopen a month.')}</p>
+          </thead>
+          <tbody>
+            {months.map((ym) => {
+              const office = d.closed.has(ym);
+              return (
+                <tr key={ym}>
+                  <td className="ltr nowrap">{ym}</td>
+                  {books.map((b) => {
+                    if (!used(b.id, ym)) return <td key={b.id} className="center muted">—</td>;
+                    const closed = d.bookClosed.has(`${b.id}|${ym}`);
+                    return (
+                      <td key={b.id} className="center nowrap">
+                        {closed ? <span className="ok">🔒</span> : <span className="muted">{t('مفتوح', 'open')}</span>}{' '}
+                        {!closed && !office && mayCloseBook(b.id) && <button className="btn small" onClick={() => closeBook(b.id, ym)}>{t('إغلاق', 'Close')}</button>}
+                        {closed && !office && can('month.reopen') && (
+                          <button className="btn small ghost" onClick={() => run(() => s.api.call('bookMonth.reopen', { bookId: b.id, ym }), t('أعيد الفتح', 'Reopened'))}>↺</button>
+                        )}
+                      </td>
+                    );
+                  })}
+                  {!limited && (
+                    <td className="center nowrap">
+                      {office ? <span className="ok">🔒 {t('مغلق', 'closed')}</span> : <span className="muted">{t('مفتوح', 'open')}</span>}{' '}
+                      {!office && can('month.close') && <button className="btn small primary" onClick={() => closeOffice(ym)}>{t('إغلاق الشهر', 'Close month')}</button>}
+                      {office && can('month.reopen') && (
+                        <button className="btn small" onClick={async () => (await confirmBox(t(`إعادة فتح ${ym}؟`, `Reopen ${ym}?`))) && run(() => s.api.call('month.reopen', { ym }), t('أعيد الفتح', 'Reopened'))}>
+                          {t('إعادة فتح', 'Reopen')}
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------------- backups
+
 function Backups() {
-  const { s, reload } = useApp();
+  const { s, reload, can } = useApp();
   const [list, setList] = useState<BackupFile[]>([]);
   const refresh = () => s.api.call('backup.list').then(setList).catch((e) => toast(errText(e), true));
   useEffect(() => {
@@ -105,6 +155,7 @@ function Backups() {
     if (!(await confirmBox(t(`استبدال قاعدة البيانات الحالية بالنسخة:\n${b.name}\n\nتُؤخذ نسخة من الحالية أولاً.`, `Replace the current database with:\n${b.name}\n\nA copy of the current one is taken first.`), true))) return;
     try {
       await s.api.call('backup.restore', { path: b.path });
+      if (s.mode === 'server') return window.location.reload();
       await reload();
       await refresh();
       toast(t('استُرجعت النسخة', 'Backup restored'));
@@ -133,10 +184,8 @@ function Backups() {
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
         <p className="muted small" style={{ margin: 0 }}>{t('نسخة كل يوم، ونسخة قبل كل استيراد أو استرجاع.', 'One copy every day, and one before every import or restore.')}</p>
         <div className="row">
-          {s.mode === 'server' && can.profiles(s.profile.role) && (
-            <button className="btn" onClick={fromFile}>{t('استرجاع من ملف…', 'Restore from a file…')}</button>
-          )}
-          <button className="btn primary" onClick={now}>{t('نسخة الآن', 'Back up now')}</button>
+          {s.mode === 'server' && can('data.restore') && <button className="btn" onClick={fromFile}>{t('استرجاع من ملف…', 'Restore from a file…')}</button>}
+          {can('data.backup') && <button className="btn primary" onClick={now}>{t('نسخة الآن', 'Back up now')}</button>}
         </div>
       </div>
       <table className="t">
@@ -144,7 +193,7 @@ function Backups() {
         <tbody>
           {list.map((b) => (
             <tr key={b.path}><td className="code">{b.name}</td><td className="ltr">{new Date(b.modified).toLocaleString('en-GB')}</td><td className="n">{Math.round(b.size / 1024)}</td>
-              <td className="right">{can.profiles(s.profile.role) && <button className="btn small" onClick={() => restore(b)}>{t('استرجاع', 'Restore')}</button>}</td></tr>
+              <td className="right">{can('data.restore') && <button className="btn small" onClick={() => restore(b)}>{t('استرجاع', 'Restore')}</button>}</td></tr>
           ))}
         </tbody>
       </table>
@@ -152,51 +201,106 @@ function Backups() {
   );
 }
 
-const roleName = (r: Role) => (r === 'sup' ? t('الرئيس', 'Superior') : r === 'com' ? t('المحاسب', 'Accountant') : t('أمين صندوق', 'Cash holder'));
+// ---------------------------------------------------------------- users
 
-function Profiles() {
-  const { s, d } = useApp();
-  const [list, setList] = useState<Profile[]>([]);
-  const [pinFor, setPinFor] = useState<Profile | null>(null);
-  const [adding, setAdding] = useState(false);
-  const refresh = () => s.api.call('profiles.list').then(setList);
+function Users() {
+  const { s, d, can } = useApp();
+  const [list, setList] = useState<UserRow[]>([]);
+  const [access, setAccess] = useState<AccessRow[]>([]);
+  const [edit, setEdit] = useState<Partial<UserRow> | null>(null);
+  const [pinFor, setPinFor] = useState<UserRow | null>(null);
+  const manage = can('users.manage');
+  const refresh = async () => {
+    setList(await s.api.call('users.list'));
+    if (manage) setAccess(await s.api.call('access.list'));
+  };
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const sup = can.profiles(s.profile.role);
-  const deactivate = async (p: Profile) => {
-    if (!(await confirmBox(t(`إيقاف ${p.name}؟ لن يستطيع الدخول.`, `Deactivate ${p.name}? They will no longer be able to log in.`), true))) return;
+  const bookName = (id: number) => d.lists.books.find((b) => b.id === id)?.name ?? '?';
+  const deactivate = async (u: UserRow) => {
+    if (!(await confirmBox(t(`إيقاف ${u.name}؟ لن يستطيع الدخول.`, `Deactivate ${u.name}? They will no longer be able to log in.`), true))) return;
     try {
-      await s.api.call('profile.deactivate', { id: p.id });
+      await s.api.call('user.deactivate', { id: u.id });
       await refresh();
     } catch (e) {
       toast(errText(e), true);
     }
   };
   return (
-    <div className="panel" style={{ maxWidth: 760 }}>
+    <div className="panel" style={{ maxWidth: 900 }}>
       <table className="t">
-        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{t('الدور', 'Role')}</th><th /></tr></thead>
+        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{t('ملف الصلاحيات', 'Permission profile')}</th><th>{t('الدفاتر', 'Books kept')}</th><th /></tr></thead>
         <tbody>
-          {list.map((p) => (
-            <tr key={p.id}><td>{p.name}</td><td>{roleName(p.role)}{p.book_id != null && ` · ${d.lists.books.find((b) => b.id === p.book_id)?.name ?? ''}`}</td>
+          {list.filter((u) => u.active).map((u) => (
+            <tr key={u.id}>
+              <td><b>{u.name}</b></td><td>{u.access_name}</td><td>{u.books.map(bookName).join('، ') || '—'}</td>
               <td className="right nowrap">
-                <button className="btn small" onClick={() => setPinFor(p)}>{t('تغيير كلمة السر', 'Change password')}</button>
-                {sup && p.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(p)}>✕</button>}
-              </td></tr>
+                {manage && <button className="btn small" onClick={() => setEdit(u)}>✎</button>}{' '}
+                <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>{' '}
+                {manage && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)}>✕</button>}
+              </td>
+            </tr>
           ))}
         </tbody>
       </table>
-      {sup && s.install === 'office' && (
-        <div className="modal-foot"><button className="btn" onClick={() => setAdding(true)}>＋ {t('مستخدم', 'User')}</button></div>
+      {manage && s.install === 'office' && (
+        <div className="modal-foot"><button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {t('مستخدم', 'User')}</button></div>
       )}
-      {pinFor && <PinModal p={pinFor} onClose={() => setPinFor(null)} />}
-      {adding && <AddUser onClose={() => setAdding(false)} onDone={refresh} />}
+      {edit && <UserModal user={edit} access={access} onClose={() => setEdit(null)} onDone={refresh} />}
+      {pinFor && <PinModal p={{ id: pinFor.id, name: pinFor.name }} onClose={() => setPinFor(null)} />}
     </div>
   );
 }
 
-export function PinModal({ p, onClose, onDone }: { p: Profile; onClose: () => void; onDone?: () => void }) {
+function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void> }) {
+  const { s, d } = useApp();
+  const [name, setName] = useState(user.name ?? '');
+  const [accessId, setAccessId] = useState<number | null>(user.access_id ?? access.find((a) => a.id === 3)?.id ?? access[0]?.id ?? null);
+  const [books, setBooks] = useState<number[]>(user.books ?? []);
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const toggle = (id: number) => setBooks((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
+  const save = async () => {
+    if (accessId == null) return setErr(t('اختر ملف الصلاحيات', 'Choose a permission profile'));
+    try {
+      await s.api.call('user.save', { id: user.id, name, access_id: accessId, books, pin: pin || undefined });
+      await onDone();
+      onClose();
+    } catch (e) {
+      setErr(errText(e));
+    }
+  };
+  return (
+    <Modal title={user.id ? t('تعديل مستخدم', 'Edit user') : t('مستخدم جديد', 'New user')} onClose={onClose} narrow>
+      <div className="grid2">
+        <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={t('ملف الصلاحيات', 'Permission profile')}>
+          <select value={accessId ?? ''} onChange={(e) => setAccessId(Number(e.target.value))}>
+            {access.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </Field>
+        <Field label={user.id ? t('كلمة سر جديدة (اتركها فارغة إن لم تتغير)', 'New password (empty = unchanged)') : t('كلمة السر (6 على الأقل)', 'Password (6+)')} className="span2">
+          <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} />
+        </Field>
+      </div>
+      <h3 style={{ marginTop: 14 }}>{t('الدفاتر التي يحملها', 'Books this person keeps')}</h3>
+      <div className="chips">
+        {d.lists.books.filter((b) => b.active).map((b) => (
+          <button key={b.id} type="button" className={`chip ${books.includes(b.id) ? 'on' : ''}`} onClick={() => toggle(b.id)}>{b.name}</button>
+        ))}
+      </div>
+      <p className="muted small">{t('يكتب في هذه الدفاتر ويؤكّد ما يصلها ويغلق شهرها، إن سمح ملف صلاحياته بذلك.', 'He writes in these books, confirms what reaches them and closes their month — if his permission profile allows "Book".')}</p>
+      {err && <div className="alert err">{err}</div>}
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={!name.trim()} onClick={save}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+export function PinModal({ p, onClose, onDone }: { p: Pick<Profile, 'id' | 'name'>; onClose: () => void; onDone?: () => void }) {
   const { s } = useApp();
   const [a, setA] = useState('');
   const [b, setB] = useState('');
@@ -227,37 +331,78 @@ export function PinModal({ p, onClose, onDone }: { p: Profile; onClose: () => vo
   );
 }
 
-function AddUser({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const { s, d } = useApp();
-  const [name, setName] = useState('');
-  const [role, setRole] = useState<Role>('holder');
-  const [book, setBook] = useState<number | null>(null);
-  const [pin, setPin] = useState('');
-  const [err, setErr] = useState<string | null>(null);
-  const books = d.lists.books.filter((b) => !b.is_main && b.active).map((b) => ({ value: b.id, label: b.name }));
+// ---------------------------------------------------------------- permission profiles
+
+function AccessProfiles() {
+  const { s, reload } = useApp();
+  const [list, setList] = useState<AccessRow[]>([]);
+  const [edit, setEdit] = useState<Partial<AccessRow> | null>(null);
+  const refresh = () => s.api.call('access.list').then(setList);
+  useEffect(() => {
+    void refresh();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const remove = async (a: AccessRow) => {
+    if (!(await confirmBox(t(`حذف «${a.name}»؟`, `Delete "${a.name}"?`), true))) return;
+    try {
+      await s.api.call('access.delete', { id: a.id });
+      await refresh();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   return (
-    <Modal title={t('مستخدم جديد', 'New user')} onClose={onClose} narrow>
-      <div className="grid2">
-        <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <Field label={t('الدور', 'Role')}>
-          <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-            <option value="holder">{t('أمين صندوق', 'Cash holder')}</option>
-            <option value="com">{t('المحاسب', 'Accountant')}</option>
-            <option value="sup">{t('الرئيس', 'Superior')}</option>
-          </select>
-        </Field>
-        {role === 'holder' && (
-          <Field label={t('دفتره', 'Their book')}><Select value={book} options={books} onChange={setBook} /></Field>
-        )}
-        <Field label={t('كلمة السر (6 على الأقل)', 'Password (6+)')}><input type="password" value={pin} onChange={(e) => setPin(e.target.value)} /></Field>
+    <div className="panel" style={{ maxWidth: 900 }}>
+      <p className="muted small">{t('ملف الصلاحيات مجموعة علامات. كل مستخدم يأخذ ملفاً واحداً. تغيير الملف يغيّر صلاحيات كل من يحمله.', 'A permission profile is a set of ticks. Each user has one profile. Changing a profile changes the rights of everybody who has it.')}</p>
+      <table className="t">
+        <thead><tr><th>{t('الملف', 'Profile')}</th><th className="n">{t('مستخدمون', 'Users')}</th><th>{t('الصلاحيات', 'Permissions')}</th><th /></tr></thead>
+        <tbody>
+          {list.map((a) => (
+            <tr key={a.id}>
+              <td><b>{a.name}</b></td><td className="n">{a.users}</td>
+              <td className="small muted">{a.perms.length} / {PERM_GROUPS.reduce((n, g) => n + g.perms.length, 0)}</td>
+              <td className="right nowrap">
+                <button className="btn small" onClick={() => setEdit(a)}>✎</button>{' '}
+                {a.users === 0 && <button className="btn small ghost" onClick={() => remove(a)}>✕</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="modal-foot"><button className="btn primary" onClick={() => setEdit({ name: '', perms: [] })}>＋ {t('ملف صلاحيات', 'Permission profile')}</button></div>
+      {edit && <AccessModal a={edit} onClose={() => setEdit(null)} onDone={async () => { await refresh(); await reload(); }} />}
+    </div>
+  );
+}
+
+function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow>; onClose: () => void; onDone: () => Promise<void> }) {
+  const { s } = useApp();
+  const [name, setName] = useState(a.name ?? '');
+  const [perms, setPerms] = useState<Perm[]>(a.perms ?? []);
+  const [err, setErr] = useState<string | null>(null);
+  const toggle = (p: Perm) => setPerms((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p]));
+  return (
+    <Modal title={a.id ? t('تعديل ملف صلاحيات', 'Edit permission profile') : t('ملف صلاحيات جديد', 'New permission profile')} onClose={onClose}>
+      <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <div className="grid2" style={{ marginTop: 14 }}>
+        {PERM_GROUPS.map((g) => (
+          <div key={g.key} className="panel" style={{ padding: 12, marginBottom: 0 }}>
+            <h3>{tx(g.label)}</h3>
+            {g.perms.map((p) => (
+              <label key={p.key} className="row" style={{ alignItems: 'flex-start', marginBottom: 6, flexWrap: 'nowrap' }}>
+                <input type="checkbox" checked={perms.includes(p.key)} onChange={() => toggle(p.key)} style={{ marginTop: 3 }} />
+                <span className="small">{tx(p.label)}</span>
+              </label>
+            ))}
+          </div>
+        ))}
       </div>
       {err && <div className="alert err" style={{ marginTop: 10 }}>{err}</div>}
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" disabled={!name.trim()} onClick={async () => {
           try {
-            await s.api.call('profile.add', { name, role, pin, book_id: role === 'holder' ? book : null });
-            onDone();
+            await s.api.call('access.save', { id: a.id, name, perms });
+            await onDone();
             onClose();
           } catch (e) {
             setErr(errText(e));
@@ -267,6 +412,8 @@ function AddUser({ onClose, onDone }: { onClose: () => void; onDone: () => void 
     </Modal>
   );
 }
+
+// ---------------------------------------------------------------- audit
 
 function Audit() {
   const { s, d } = useApp();

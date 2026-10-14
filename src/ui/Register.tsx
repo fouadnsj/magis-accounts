@@ -10,7 +10,8 @@ import { Select, fmtDate, fmtRate, fmtSyp, fmtUsd, t } from './kit';
 const ROW_H = 30;
 
 export function Register() {
-  const { d, holder } = useApp();
+  const { d, limited, myBooks } = useApp();
+  const holder = limited && myBooks.length <= 1; // one book only: no Book column
   const nav = useNav();
   const names = useNames();
   const [month, setMonth] = useState('');
@@ -71,7 +72,7 @@ export function Register() {
         <td className="ltr">{fmtDate(r.date)}</td>
         {!holder && <td>{names.book(r.book_id)}</td>}
         <td>{names.account(r.account_id)}</td>
-        <td>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}</td>
+        <td>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</td>
         <td>{names.heading(r.heading_id)}</td>
         <td>{names.line(r.line_id)}</td>
         <td style={{ maxWidth: 280 }}>{r.explanation}</td>
@@ -93,7 +94,7 @@ export function Register() {
   return (
     <>
       <div className="page-head">
-        <h1>{holder ? t('قيودي', 'My entries') : t('السجل', 'Register')}</h1>
+        <h1>{limited ? t('قيودي', 'My entries') : t('السجل', 'Register')}</h1>
         <div className="row">
           <span className="muted small">{rows.length} / {d.rows.length}</span>
           <button className="btn primary" onClick={() => nav.entry('Exp')}>＋ {t('قيد جديد', 'New entry')}</button>

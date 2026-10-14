@@ -6,9 +6,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { computeAll } from './domain/compute';
 import type { GrantRow } from './domain/reports';
 import type { Computed, Lists, Trx } from './domain/types';
-import type { Profile } from './auth';
-import { can } from './auth';
-import type { Api, HolderReceipt, Install, OfficeTransfer } from './ops';
+import { has, type Profile } from './auth';
+import type { Perm } from './perms';
+import type { TransferInfo } from './domain/transfers';
+import type { Api, BookMonth, HolderReceipt, Install, OfficeTransfer } from './ops';
 
 export type { HolderReceipt, Install } from './ops';
 
@@ -31,6 +32,11 @@ export interface Data {
   rows: Trx[];
   comp: Map<string, Computed>;
   closed: Set<string>;
+  /** step 1 of month closing: 'bookId|YYYY-MM' */
+  bookClosed: Set<string>;
+  bookMonths: BookMonth[];
+  transfers: TransferInfo[];
+  keptBooks: number[];
   grants: GrantRow[];
   receipts: HolderReceipt[];
   officeTransfers: Record<string, OfficeTransfer[]>;
@@ -42,13 +48,16 @@ interface Ctx {
   d: Data;
   reload: () => Promise<void>;
   who: string;
-  /** The book of a cash holder (desktop holder install or holder user on the server), else null. */
+  /** Has this person this permission? */
+  can: (p: Perm) => boolean;
+  /** The books this person keeps (none, one or several). */
+  myBooks: number[];
+  /** First book kept (or null). */
   myBook: number | null;
-  /** A cash holder is logged in. */
-  holder: boolean;
-  /** A holder working on his own computer with files (not on the server). */
+  /** Sees only his own books (no "see every book" permission). */
+  limited: boolean;
+  /** A holder working on his own computer with files (desktop holder install, not the server). */
   fileHolder: boolean;
-  isSup: boolean;
   logout: () => void;
 }
 
@@ -67,6 +76,10 @@ async function loadData(s: Session): Promise<Data> {
     rows: p.rows,
     comp: computeAll(p.rows, p.lists),
     closed: new Set(p.closed),
+    bookClosed: new Set(p.bookMonths.map((b) => `${b.book_id}|${b.ym}`)),
+    bookMonths: p.bookMonths,
+    transfers: p.transfers,
+    keptBooks: p.keptBooks,
     grants: p.grants,
     receipts: p.receipts,
     officeTransfers: p.officeTransfers,
@@ -106,16 +119,17 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
 
   const value = useMemo<Ctx | null>(() => {
     if (!d) return null;
-    const holder = session.profile.role === 'holder';
+    const p = session.profile;
     return {
       s: session,
       d,
       reload,
-      who: `${session.profile.name} (${session.profile.role})`,
-      myBook: holder ? session.profile.book_id : null,
-      holder,
-      fileHolder: holder && session.install === 'holder',
-      isSup: can.confidential(session.profile.role),
+      who: p.name,
+      can: (perm: Perm) => has(p, perm),
+      myBooks: p.books,
+      myBook: p.books[0] ?? null,
+      limited: !has(p, 'register.view'),
+      fileHolder: session.install === 'holder',
       logout: onLogout,
     };
   }, [d, session, reload, onLogout]);

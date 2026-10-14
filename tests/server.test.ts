@@ -96,7 +96,7 @@ describe('server: permissions are checked by the server', () => {
     const d = (await op('data', {}, sup)).body as DataPayload;
     roulaId = d.lists.books.find((b) => b.name === 'Roula')!.id;
     naghamId = d.lists.books.find((b) => b.name === 'Nagham')!.id;
-    expect((await op('profile.add', { name: 'Roula', role: 'holder', pin: 'roula-secret', book_id: roulaId }, sup)).status).toBe(200);
+    expect((await op('user.save', { name: 'Roula', access_id: 3, books: [roulaId], pin: 'roula-secret' }, sup)).status).toBe(200);
     holder = await loginAs('Roula', 'roula-secret');
   });
 
@@ -113,7 +113,7 @@ describe('server: permissions are checked by the server', () => {
   });
 
   it('only the superior adds users', async () => {
-    expect((await op('profile.add', { name: 'X', role: 'sup', pin: '12345678', book_id: null }, com)).status).toBe(400);
+    expect((await op('user.save', { name: 'X', access_id: 1, books: [], pin: '12345678' }, com)).status).toBe(400);
   });
 
   it('a holder sees only his own book', async () => {
@@ -130,7 +130,11 @@ describe('server: permissions are checked by the server', () => {
       heading_id: L.headings.find((h) => h.name === 'Operations')!.id, line_id: L.lines.find((l) => l.name === 'Internet')!.id, explanation: 'test', exp_syp: 1234, ...over,
     });
     expect((await op('trx.save', { rows: [row({ book_id: naghamId })] }, holder)).body.error.en).toMatch(/own book/);
-    expect((await op('trx.save', { rows: [row({ type: 'Transfer', exp_syp: 0, trf_syp: 100 })] }, holder)).status).toBe(400);
+    // a transfer is recorded by the giver: Roula cannot record money leaving Nagham's book
+    const transfer = (book: number, amount: number) => row({ type: 'Transfer', book_id: book, exp_syp: 0, trf_syp: amount, heading_id: L.headings.find((h) => h.name === 'Other / Unallocated')!.id, line_id: L.lines.find((l) => l.name === 'Unallocated')!.id });
+    expect((await op('trx.save', { rows: [transfer(naghamId, -100)] }, holder)).status).toBe(400);
+    // nor record money given by Main (the office gives it)
+    expect((await op('trx.save', { rows: [transfer(roulaId, 100)] }, holder)).status).toBe(400);
     expect((await op('list.add', { table: 'party', name: 'hack' }, holder)).status).toBe(400);
 
     // a correct row is saved and numbered by the server
@@ -149,6 +153,115 @@ describe('server: permissions are checked by the server', () => {
     const r = await op('trx.save', { rows: [bad] }, com);
     expect(r.status).toBe(400);
     expect(r.body.error.en).toMatch(/Date is required/);
+  });
+});
+
+describe('server: transfers recorded once by the giver, confirmed by the receiver', () => {
+  let sup: string, com: string, roula: string, nagham: string;
+  let L: DataPayload['lists'];
+  let roulaId: number, naghamId: number;
+  const NOV = '2026-11-05';
+
+  beforeAll(async () => {
+    sup = await loginAs('Fouad', 'sup-secret');
+    com = await loginAs('Comptable', 'com-secret');
+    roula = await loginAs('Roula', 'roula-secret');
+    L = ((await op('data', {}, sup)).body as DataPayload).lists;
+    roulaId = L.books.find((b) => b.name === 'Roula')!.id;
+    naghamId = L.books.find((b) => b.name === 'Nagham')!.id;
+    expect((await op('user.save', { name: 'Nagham', access_id: 3, books: [naghamId], pin: 'nagham-secret' }, sup)).status).toBe(200);
+    nagham = await loginAs('Nagham', 'nagham-secret');
+  });
+
+  const leg = (book: number, amount: number, group: string | null, over: Partial<Trx> = {}): Trx => ({
+    ...blankTrx(), city_id: L.cities[0].id, account_id: L.accounts.find((a) => a.name === 'Center')!.id, book_id: book, date: NOV, type: 'Transfer',
+    heading_id: L.headings.find((h) => h.name === 'Other / Unallocated')!.id, line_id: L.lines.find((l) => l.name === 'Unallocated')!.id,
+    trf_syp: amount, transfer_group: group, ...over,
+  });
+  const transfersOf = async (cookie: string) => ((await op('data', {}, cookie)).body as DataPayload).transfers;
+
+  it('Main → Roula by the office appears in Roula\'s book, to confirm; only Roula confirms', async () => {
+    const t1 = leg(roulaId, 25000, null);
+    expect((await op('trx.save', { rows: [t1] }, com)).status).toBe(200);
+    const mine = (await transfersOf(roula)).find((x) => x.rowIds.includes(t1.id))!;
+    expect(mine).toMatchObject({ to: roulaId, amount: 25000, receivedAt: null });
+    expect((await op('transfer.answer', { id: t1.id, ok: true }, nagham)).status).toBe(400);
+    expect((await op('transfer.answer', { id: t1.id, ok: true }, roula)).status).toBe(200);
+    expect((await transfersOf(roula)).find((x) => x.rowIds.includes(t1.id))!.receivedBy).toBe('Roula');
+  });
+
+  it('Roula → Nagham: recorded once by Roula, seen by both, confirmed by Nagham; then Roula cannot change it', async () => {
+    const g = crypto.randomUUID();
+    const out = leg(roulaId, -7000, g);
+    const inn = leg(naghamId, 7000, g);
+    expect((await op('trx.save', { rows: [out, inn] }, roula)).status).toBe(200);
+    const seenByNagham = (await transfersOf(nagham)).find((x) => x.key === g)!;
+    expect(seenByNagham).toMatchObject({ from: roulaId, to: naghamId, amount: 7000 });
+    // Nagham's own register now has the + row, without having typed anything
+    expect(((await op('data', {}, nagham)).body as DataPayload).rows.some((r) => r.id === inn.id)).toBe(true);
+    expect((await op('transfer.answer', { id: inn.id, ok: true }, nagham)).status).toBe(200);
+    const r = await op('trx.save', { rows: [{ ...out, trf_syp: -8000 }, { ...inn, trf_syp: 8000 }] }, roula);
+    expect(r.status).toBe(400);
+    expect(r.body.error.en).toMatch(/confirmed/);
+  });
+
+  it('"Not received" is shown to everyone concerned', async () => {
+    const t2 = leg(roulaId, -3000, null); // Roula hands 3,000 back to Main
+    expect((await op('trx.save', { rows: [t2] }, roula)).status).toBe(200);
+    expect((await op('transfer.answer', { id: t2.id, ok: false, note: 'received 2,000 only' }, com)).status).toBe(200);
+    const x = (await transfersOf(roula)).find((t) => t.rowIds.includes(t2.id))!;
+    expect(x.disputedAt).not.toBeNull();
+    expect(x.disputeNote).toBe('received 2,000 only');
+  });
+
+  it('month closing: book first (blocked while a transfer is unanswered), then the office; only the Superior reopens', async () => {
+    // Roula's November: the disputed transfer blocks her closing
+    let r = await op('bookMonth.close', { bookId: roulaId, ym: '2026-11' }, roula);
+    expect(r.status).toBe(400);
+    expect(r.body.error.en).toMatch(/not received/);
+    // the office fixes it: delete the disputed transfer, record the right amount, confirm
+    const disputed = (await transfersOf(com)).find((x) => x.disputedAt)!;
+    expect((await op('trx.delete', { ids: disputed.rowIds }, com)).status).toBe(200);
+    const fixed = leg(roulaId, -2000, null);
+    expect((await op('trx.save', { rows: [fixed] }, roula)).status).toBe(200);
+    expect((await op('transfer.answer', { id: fixed.id, ok: true }, com)).status).toBe(200);
+    expect((await op('bookMonth.close', { bookId: roulaId, ym: '2026-11' }, roula)).status).toBe(200);
+
+    // after closing, Roula cannot write in November any more
+    const late = { ...leg(roulaId, 0, null), type: 'Exp' as const, trf_syp: 0, exp_syp: 500, explanation: 'late', heading_id: L.headings.find((h) => h.name === 'Operations')!.id, line_id: L.lines.find((l) => l.name === 'Internet')!.id };
+    r = await op('trx.save', { rows: [late] }, roula);
+    expect(r.body.error.en).toMatch(/closed this month/);
+
+    // the office cannot close November while Nagham's book is open
+    r = await op('month.close', { ym: '2026-11' }, com);
+    expect(r.body.error.en).toMatch(/Books not closed yet: .*Nagham/);
+    expect((await op('bookMonth.close', { bookId: naghamId, ym: '2026-11' }, nagham)).status).toBe(200);
+    expect((await op('month.close', { ym: '2026-11' }, com)).status).toBe(200);
+
+    // closed for everybody, the Superior included
+    r = await op('trx.save', { rows: [{ ...late, id: crypto.randomUUID(), book_id: L.books.find((b) => b.is_main)!.id }] }, sup);
+    expect(r.body.error.en).toMatch(/Month 2026-11 is closed/);
+    expect((await op('month.reopen', { ym: '2026-11' }, com)).status).toBe(400);
+    expect((await op('month.reopen', { ym: '2026-11' }, sup)).status).toBe(200);
+  });
+});
+
+describe('server: permission profiles', () => {
+  it('a profile can be changed, but someone must always keep "manage users"', async () => {
+    const sup = await loginAs('Fouad', 'sup-secret');
+    const list = (await op('access.list', {}, sup)).body as { id: number; name: string; perms: string[] }[];
+    const supProfile = list.find((a) => a.id === 1)!;
+    const r = await op('access.save', { id: 1, name: supProfile.name, perms: supProfile.perms.filter((p) => p !== 'users.manage') }, sup);
+    expect(r.status).toBe(400);
+    expect(((await op('access.list', {}, sup)).body as { id: number; perms: string[] }[]).find((a) => a.id === 1)!.perms).toContain('users.manage');
+    // a new profile "Reader": sees everything, writes nothing
+    expect((await op('access.save', { name: 'Reader', perms: ['register.view', 'reports.summary'] }, sup)).status).toBe(200);
+    const reader = ((await op('access.list', {}, sup)).body as { id: number; name: string }[]).find((a) => a.name === 'Reader')!;
+    expect((await op('user.save', { name: 'Auditor', access_id: reader.id, books: [], pin: 'auditor-pass' }, sup)).status).toBe(200);
+    const aud = await loginAs('Auditor', 'auditor-pass');
+    expect(((await op('data', {}, aud)).body as DataPayload).rows.length).toBeGreaterThan(586);
+    const d = (await op('data', {}, aud)).body as DataPayload;
+    expect((await op('trx.save', { rows: [{ ...d.rows[0], explanation: 'changed' }] }, aud)).status).toBe(400);
   });
 });
 

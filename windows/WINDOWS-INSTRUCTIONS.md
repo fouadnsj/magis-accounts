@@ -1,8 +1,11 @@
 # MAGIS Accounts on Windows · حسابات ماجيس على ويندوز
 
-There are two parts:
-- **Part A** is done **only once**, on **one** Windows computer with good internet. It makes the installer.
-- **Part B** is done on **every** holder's computer. It installs the program and needs no internet.
+> **You do not need Part A any more.** GitHub now makes the installer
+> `MAGIS.Accounts_…_x64-setup.exe` (from the Releases page of the private repository
+> `fouadnsj/magis-accounts`, or sent by Fr. Fouad). Go straight to **Part B**.
+> لم يعد الجزء أ ضرورياً: GitHub يصنع ملف التثبيت. ابدأ مباشرة بالجزء ب.
+
+Part A is kept only in case GitHub can no longer be used.
 
 ---
 

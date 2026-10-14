@@ -43,6 +43,8 @@ async function loginAs(name: string, password: string) {
   const p = ps.find((x) => x.name === name)!;
   const r = await call('/api/login', { profileId: p.id, password });
   expect(r.status).toBe(200);
+  // An account made by the Superior: the person chooses his own password first (here, he keeps the same one).
+  if (r.body.mustChange) expect((await call('/api/op/profile.setPin', { id: r.body.profile.id, pin: password }, r.cookie!)).status).toBe(200);
   return r.cookie!;
 }
 
@@ -262,6 +264,24 @@ describe('server: permission profiles', () => {
     expect(((await op('data', {}, aud)).body as DataPayload).rows.length).toBeGreaterThan(586);
     const d = (await op('data', {}, aud)).body as DataPayload;
     expect((await op('trx.save', { rows: [{ ...d.rows[0], explanation: 'changed' }] }, aud)).status).toBe(400);
+  });
+});
+
+describe('server: accounts for all book keepers', () => {
+  it('creates one account per book nobody keeps, each must choose his own password at first login', async () => {
+    const sup = await loginAs('Fouad', 'sup-secret');
+    const made = (await op('users.createKeepers', {}, sup)).body as { name: string; book: string; password: string }[];
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.some((x) => x.book === 'Roula')).toBe(false); // Roula already has her account
+    const first = made[0];
+    const ps = (await call('/api/profiles')).body as { id: number; name: string }[];
+    const r = await call('/api/login', { profileId: ps.find((p) => p.name === first.name)!.id, password: first.password });
+    expect(r.body.mustChange).toBe(true);
+    expect((await op('data', {}, r.cookie!)).status).toBe(403); // nothing before choosing a password
+    expect((await op('profile.setPin', { id: r.body.profile.id, pin: 'my-own-pass' }, r.cookie!)).status).toBe(200);
+    expect((await op('data', {}, r.cookie!)).status).toBe(200);
+    // a second run creates nobody
+    expect(((await op('users.createKeepers', {}, sup)).body as unknown[]).length).toBe(0);
   });
 });
 

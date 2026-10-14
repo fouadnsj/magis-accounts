@@ -87,19 +87,22 @@ export async function listProfiles(db: Db): Promise<{ id: number; name: string; 
   );
 }
 
-export async function login(db: Db, profileId: number, secret: string): Promise<{ profile: Profile; weak: boolean }> {
-  const r = await one<{ pin_salt: string; pin_hash: string }>(db, 'SELECT pin_salt, pin_hash FROM profile WHERE id = ? AND active = 1', [profileId]);
+export async function login(db: Db, profileId: number, secret: string): Promise<{ profile: Profile; weak: boolean; given: boolean }> {
+  const r = await one<{ pin_salt: string; pin_hash: string; must_change: number }>(db, 'SELECT pin_salt, pin_hash, must_change FROM profile WHERE id = ? AND active = 1', [profileId]);
   const v = r ? await verifySecret(r.pin_salt, secret, r.pin_hash) : { ok: false, weak: false };
   const profile = r && v.ok ? await loadProfile(db, profileId) : null;
   if (!profile) throw new UserError(m('كلمة السر غير صحيحة', 'Wrong password'));
-  return { profile, weak: v.weak };
+  // weak: an old-style 4-digit PIN (must change on the network).
+  // given: a password set by the Superior (must change everywhere: only the person knows his own).
+  return { profile, weak: v.weak, given: !!r!.must_change };
 }
 
-export async function changePin(db: Db, profileId: number, secret: string, who: string) {
+/** mustChange: set by the Superior for someone else — that person will choose his own at the next login. */
+export async function changePin(db: Db, profileId: number, secret: string, who: string, mustChange = false) {
   checkSecretShape(secret);
   const salt = crypto.randomUUID();
   await db.batch([
-    { sql: 'UPDATE profile SET pin_salt = ?, pin_hash = ? WHERE id = ?', params: [salt, await hashSecret(salt, secret), profileId] },
+    { sql: 'UPDATE profile SET pin_salt = ?, pin_hash = ?, must_change = ? WHERE id = ?', params: [salt, await hashSecret(salt, secret), mustChange ? 1 : 0, profileId] },
     auditStmt(who, 'password', 'profile', String(profileId), null, null),
   ]);
 }

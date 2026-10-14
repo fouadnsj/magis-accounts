@@ -332,7 +332,7 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id: num
     if (a.pin) {
       checkSecretShape(a.pin);
       const salt = crypto.randomUUID();
-      stmts.push({ sql: 'UPDATE profile SET pin_salt = ?, pin_hash = ? WHERE id = ?', params: [salt, await hashSecret(salt, a.pin), id] });
+      stmts.push({ sql: 'UPDATE profile SET pin_salt = ?, pin_hash = ?, must_change = ? WHERE id = ?', params: [salt, await hashSecret(salt, a.pin), id === c.profile.id ? 0 : 1, id] });
     }
   } else {
     if (!a.pin) throw new UserError(m('كلمة السر مطلوبة', 'A password is required'));
@@ -340,7 +340,7 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id: num
     id = ((await one<{ m: number | null }>(c.db, 'SELECT MAX(id) AS m FROM profile'))?.m ?? 0) + 1;
     const salt = crypto.randomUUID();
     stmts.push({
-      sql: 'INSERT INTO profile (id, name, role, pin_salt, pin_hash, book_id, access_id) VALUES (?,?,?,?,?,?,?)',
+      sql: 'INSERT INTO profile (id, name, role, pin_salt, pin_hash, book_id, access_id, must_change) VALUES (?,?,?,?,?,?,?,1)',
       params: [id, name, role, salt, await hashSecret(salt, a.pin), books[0] ?? null, a.access_id],
     });
   }
@@ -349,6 +349,33 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id: num
   stmts.push(auditStmt(c.who, a.id ? 'edit' : 'add', 'profile', String(id), null, { name, access_id: a.access_id, books }));
   await c.db.batch(stmts);
   await keepAManager(c);
+}
+
+/**
+ * One account for every active book that nobody keeps yet: the keeper's name, his book,
+ * the "Book holder" profile, and a temporary password he must change at first login.
+ * The temporary passwords are returned ONCE, for the Superior to hand out.
+ */
+async function createKeepers(c: OpCtx): Promise<{ name: string; book: string; password: string }[]> {
+  const lists = await loadLists(c.db);
+  const kept = new Set((await c.db.query<{ book_id: number }>('SELECT ub.book_id FROM user_book ub JOIN profile p ON p.id = ub.profile_id WHERE p.active = 1')).map((r) => r.book_id));
+  const holderProfile =
+    (await accessList(c)).find((a) => a.perms.includes('book.own') && !a.perms.includes('register.view')) ??
+    (() => {
+      throw new UserError(m('لا ملف صلاحيات «أمين صندوق»', 'No "Book holder" permission profile'));
+    })();
+  const taken = new Set((await c.db.query<{ name: string }>('SELECT name FROM profile WHERE active = 1')).map((r) => r.name.toLowerCase()));
+  const out: { name: string; book: string; password: string }[] = [];
+  for (const b of lists.books.filter((x) => x.active && !x.is_main && !kept.has(x.id))) {
+    let name = (b.keeper_name || b.name).trim();
+    if (taken.has(name.toLowerCase())) name = `${name} (${b.name})`;
+    taken.add(name.toLowerCase());
+    // 6 digits, easy to read aloud or write on paper
+    const password = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    await saveUser(c, { name, access_id: holderProfile.id, books: [b.id], pin: password });
+    out.push({ name, book: b.name, password });
+  }
+  return out;
 }
 
 async function accessList(c: OpCtx): Promise<AccessRow[]> {
@@ -546,6 +573,7 @@ export const OPS = {
 
   // ---------------------------------------------------------------- users and permission profiles
   'user.save': { check: (c: OpCtx) => need(c, 'users.manage'), run: (c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) => saveUser(c, a) },
+  'users.createKeepers': { check: (c: OpCtx) => need(c, 'users.manage'), run: (c: OpCtx) => createKeepers(c) },
   'user.deactivate': {
     check: (c: OpCtx) => need(c, 'users.manage'),
     run: async (c: OpCtx, a: { id: number }) => {
@@ -557,7 +585,7 @@ export const OPS = {
     check: anyone,
     run: (c: OpCtx, a: { id: number; pin: string }) => {
       if (a.id !== c.profile.id) need(c, 'users.manage');
-      return changePin(c.db, a.id, a.pin, c.who);
+      return changePin(c.db, a.id, a.pin, c.who, a.id !== c.profile.id);
     },
   },
   'access.save': { check: (c: OpCtx) => need(c, 'users.manage'), run: (c: OpCtx, a: { id?: number; name: string; perms: string[] }) => saveAccess(c, a) },

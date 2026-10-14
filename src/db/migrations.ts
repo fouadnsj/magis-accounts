@@ -277,4 +277,17 @@ CREATE TABLE book_month (
 );
 `,
   },
+  {
+    n: 3,
+    name: 'first-login password change, Arabic-first profile names',
+    sql: `
+-- 1 = the person must choose his own password at the next login
+-- (accounts created by the Superior, or a password reset by him).
+ALTER TABLE profile ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0;
+-- Arabic first, like every label of the program (only if never renamed).
+UPDATE access_profile SET name = 'الرئيس · Superior' WHERE name = 'Superior · الرئيس';
+UPDATE access_profile SET name = 'المحاسب · Accountant' WHERE name = 'Accountant · المحاسب';
+UPDATE access_profile SET name = 'أمين صندوق · Book holder' WHERE name = 'Book holder · أمين صندوق';
+`,
+  },
 ];

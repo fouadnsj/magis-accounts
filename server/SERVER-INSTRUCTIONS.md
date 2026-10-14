@@ -44,6 +44,8 @@ At the first login over the network, anyone who still has an old 4-digit PIN is 
 ## 6. Users and permission profiles
 - **Admin → Permission profiles**: each profile is a set of ticks grouped by category (Book, Register, Reports, Lists, Admin). Three are ready: **Superior**, **Accountant**, **Book holder**. Change them or create others.
 - **Admin → Users**: each person gets one profile and the book(s) they keep (Roula → Roula's book…).
+- **"Create accounts for all book keepers"** makes, in one click, an account for every book nobody keeps yet (the keeper's name, his book, a temporary password shown once). First tick in your own account the book you keep yourself.
+- A password given by the Superior is temporary: at first login, each person chooses his own.
 - A book holder sees and writes only their own book(s), and their reports cover only those books.
 
 ## 6b. Transfers and month closing

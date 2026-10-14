@@ -5,7 +5,7 @@ import type { Profile } from '../auth';
 import type { AccessRow, AuditRow, BackupFile, UserRow } from '../ops';
 import { PERM_GROUPS, type Perm } from '../perms';
 import { tx } from '../i18n';
-import { Field, Modal, Tabs, confirmBox, errText, t, toast } from './kit';
+import { Field, Modal, Tabs, biName, confirmBox, errText, t, toast } from './kit';
 import { ServerTab } from './ServerTab';
 import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
@@ -218,6 +218,19 @@ function Users() {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const bookName = (id: number) => d.lists.books.find((b) => b.id === id)?.name ?? '?';
+  const [created, setCreated] = useState<{ name: string; book: string; password: string }[] | null>(null);
+  const keptIds = new Set(list.filter((u) => u.active).flatMap((u) => u.books));
+  const unkept = d.lists.books.filter((b) => b.active && !b.is_main && !keptIds.has(b.id));
+  const createKeepers = async () => {
+    const names = unkept.map((b) => b.keeper_name || b.name).join('، ');
+    if (!(await confirmBox(t(`إنشاء حساب «أمين صندوق» لكل من: ${names}؟\nلكلٍّ كلمة سر مؤقتة يغيّرها عند أول دخول.`, `Create a "Book holder" account for: ${names}?\nEach gets a temporary password, to change at first login.`)))) return;
+    try {
+      setCreated(await s.api.call('users.createKeepers'));
+      await refresh();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   const deactivate = async (u: UserRow) => {
     if (!(await confirmBox(t(`إيقاف ${u.name}؟ لن يستطيع الدخول.`, `Deactivate ${u.name}? They will no longer be able to log in.`), true))) return;
     try {
@@ -234,7 +247,7 @@ function Users() {
         <tbody>
           {list.filter((u) => u.active).map((u) => (
             <tr key={u.id}>
-              <td><b>{u.name}</b></td><td>{u.access_name}</td><td>{u.books.map(bookName).join('، ') || '—'}</td>
+              <td><b>{u.name}</b></td><td>{biName(u.access_name)}</td><td>{u.books.map(bookName).join('، ') || '—'}</td>
               <td className="right nowrap">
                 {manage && <button className="btn small" onClick={() => setEdit(u)}>✎</button>}{' '}
                 <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>{' '}
@@ -245,11 +258,38 @@ function Users() {
         </tbody>
       </table>
       {manage && s.install === 'office' && (
-        <div className="modal-foot"><button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {t('مستخدم', 'User')}</button></div>
+        <div className="modal-foot">
+          {unkept.length > 0 && (
+            <button className="btn" onClick={createKeepers}>
+              {t(`إنشاء حسابات لكل أمناء الدفاتر (${unkept.length})`, `Create accounts for all book keepers (${unkept.length})`)}
+            </button>
+          )}
+          <button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {t('مستخدم', 'User')}</button>
+        </div>
       )}
+      {created && <CreatedModal rows={created} onClose={() => setCreated(null)} />}
       {edit && <UserModal user={edit} access={access} onClose={() => setEdit(null)} onDone={refresh} />}
       {pinFor && <PinModal p={{ id: pinFor.id, name: pinFor.name }} onClose={() => setPinFor(null)} />}
     </div>
+  );
+}
+
+/** The temporary passwords, shown once: to hand to each person (or print). */
+function CreatedModal({ rows, onClose }: { rows: { name: string; book: string; password: string }[]; onClose: () => void }) {
+  return (
+    <Modal title={t('الحسابات الجديدة', 'New accounts')} onClose={onClose} narrow>
+      <div className="alert warn small">
+        {t('اكتب كلمات السر المؤقتة الآن: لن تظهر مرة أخرى. عند أول دخول يختار كل واحد كلمة سره.', 'Write these temporary passwords down now: they will not be shown again. At first login, each person chooses his own password.')}
+      </div>
+      <table className="t">
+        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{t('الدفتر', 'Book')}</th><th>{t('كلمة السر المؤقتة', 'Temporary password')}</th></tr></thead>
+        <tbody>{rows.map((r) => <tr key={r.name}><td><b>{r.name}</b></td><td>{r.book}</td><td className="code" style={{ fontSize: 16 }}>{r.password}</td></tr>)}</tbody>
+      </table>
+      <div className="modal-foot">
+        <button className="btn" onClick={() => window.print()}>{t('طباعة', 'Print')}</button>
+        <button className="btn primary" onClick={onClose}>{t('كتبتها', 'I wrote them down')}</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -277,7 +317,7 @@ function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; 
         <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
         <Field label={t('ملف الصلاحيات', 'Permission profile')}>
           <select value={accessId ?? ''} onChange={(e) => setAccessId(Number(e.target.value))}>
-            {access.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {access.map((a) => <option key={a.id} value={a.id}>{biName(a.name)}</option>)}
           </select>
         </Field>
         <Field label={user.id ? t('كلمة سر جديدة (اتركها فارغة إن لم تتغير)', 'New password (empty = unchanged)') : t('كلمة السر (6 على الأقل)', 'Password (6+)')} className="span2">

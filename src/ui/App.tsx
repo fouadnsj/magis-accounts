@@ -16,7 +16,7 @@ import { hello, httpApi, serverLogin, serverLogout, serverMe, serverProfiles, se
 import { AppProvider, type Install, type Session } from '../state';
 import { getLang, setLang } from '../i18n';
 import type { Role } from '../domain/types';
-import { ConfirmHost, PromptHost, ToastHost, errText, t } from './kit';
+import { ConfirmHost, PromptHost, ToastHost, biName, errText, t } from './kit';
 import { Welcome } from './Welcome';
 import { Shell } from './Shell';
 import { ServerSetup } from './ServerSetup';
@@ -119,7 +119,8 @@ export function App() {
   };
 
   const localLogin = (o: Opened) => async (profileId: number, secret: string) => {
-    const { profile } = await login(o.db, profileId, secret);
+    const { profile, given } = await login(o.db, profileId, secret);
+    setMustChange(given);
     const who = profile.name;
     const files = desktopFiles(o.dbPath);
     setSession({
@@ -144,7 +145,7 @@ export function App() {
         }}
       />
     );
-  else if (server && session && mustChange)
+  else if (session && mustChange)
     body = <ForcePassword session={session} onDone={() => setMustChange(false)} onLogout={logout} />;
   else if (!server && !opened)
     body = <Welcome onCreated={onCreated} onOpenPath={openPath} newWebDb={webDb} bootErr={bootErr} />;
@@ -216,7 +217,8 @@ function Login({ title, subtitle, loadProfiles, onLogin, onClose }: {
         <div className="profiles">
           {profiles.map((p) => (
             <button key={p.id} className={pick === p.id ? 'on' : ''} onClick={() => setPick(p.id)}>
-              <b>{p.name}</b> <span className="muted">· {p.access_name || roleName(p.role)}</span>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{p.name}</div>
+              <div className="muted small">{p.access_name ? biName(p.access_name) : roleName(p.role)}</div>
             </button>
           ))}
         </div>

@@ -29,7 +29,7 @@ import { createOffice } from '../src/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 
-export const SERVER_VERSION = '0.3.0';
+export const SERVER_VERSION = '0.3.1';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -405,11 +405,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
       const body = (await readBody(req)) as { profileId?: number; password?: string };
       try {
-        const { profile, weak } = await login(handle.db, Number(body.profileId), String(body.password ?? ''));
+        const { profile, weak, given } = await login(handle.db, Number(body.profileId), String(body.password ?? ''));
         failures.delete(ip);
         const sid = randomBytes(32).toString('base64url');
         // An old 4-digit PIN (or any old-style hash) must be replaced on the network.
-        const mustChange = weak;
+        const mustChange = weak || given;
         sessions.set(sid, { profile, mustChange, last: Date.now(), ip });
         log(`login ${profile.name} (${profile.access_name}) from ${ip}`);
         return send(res, 200, { profile, mustChange, install: 'office' }, {

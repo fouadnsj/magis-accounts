@@ -8,6 +8,14 @@ export function T({ ar, en }: { ar: string; en: string }) {
 }
 export const t = (ar: string, en: string) => tx({ ar, en });
 
+/** A name stored as "عربي · English" (e.g. a permission profile), shown in the current language mode. */
+export function biName(s: string): string {
+  const parts = s.split(' · ');
+  if (parts.length !== 2) return s;
+  const [a, b] = /[\u0600-\u06FF]/.test(parts[0]) ? parts : [parts[1], parts[0]];
+  return tx({ ar: a, en: b });
+}
+
 // ---------------------------------------------------------------- numbers
 
 /** Pounds: #,##0;(#,##0);-  — zero as a dash, negatives in parentheses. */

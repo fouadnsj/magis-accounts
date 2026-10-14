@@ -1,6 +1,7 @@
-// PIN profiles. A PIN is never stored: only a salted SHA-256 of it.
-// This keeps honest people out of screens they should not use; it is not
-// encryption — whoever has the database file can read it.
+// Users and passwords. A password is never stored: only a slow salted hash
+// (PBKDF2-SHA256), so a stolen database does not give the passwords away.
+// Older databases hold a quick SHA-256 of a 4-digit PIN: still accepted, but
+// reported as "weak" so the network server asks for a new password.
 import { type Db, one } from './db/db';
 import { auditStmt, UserError } from './db/repo';
 import { m } from './i18n';
@@ -14,22 +15,39 @@ export interface Profile {
   active: number;
 }
 
+const ITER = 120_000;
 const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-export async function hashPin(salt: string, pin: string): Promise<string> {
-  return hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pin)));
+async function pbkdf2(salt: string, secret: string, iter: number): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: iter }, key, 256);
+  return hex(bits);
 }
 
-export function checkPinShape(pin: string) {
-  if (!/^\d{4,8}$/.test(pin)) throw new UserError(m('الرمز من 4 إلى 8 أرقام', 'The PIN must be 4 to 8 digits'));
+export async function hashSecret(salt: string, secret: string): Promise<string> {
+  return `pbkdf2$${ITER}$${await pbkdf2(salt, secret, ITER)}`;
+}
+
+/** true/false, and whether the stored hash is of the old weak kind. */
+export async function verifySecret(salt: string, secret: string, stored: string): Promise<{ ok: boolean; weak: boolean }> {
+  if (stored.startsWith('pbkdf2$')) {
+    const [, iter, h] = stored.split('$');
+    return { ok: (await pbkdf2(salt, secret, Number(iter))) === h, weak: false };
+  }
+  const legacy = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + secret)));
+  return { ok: legacy === stored, weak: true };
+}
+
+export function checkSecretShape(secret: string) {
+  if (secret.length < 6) throw new UserError(m('كلمة السر 6 أحرف أو أرقام على الأقل', 'The password must have at least 6 characters'));
 }
 
 export async function profileStmt(p: { name: string; role: Role; pin: string; book_id?: number | null }) {
-  checkPinShape(p.pin);
+  checkSecretShape(p.pin);
   const salt = crypto.randomUUID();
   return {
     sql: 'INSERT INTO profile (name, role, pin_salt, pin_hash, book_id) VALUES (?, ?, ?, ?, ?)',
-    params: [p.name, p.role, salt, await hashPin(salt, p.pin), p.book_id ?? null],
+    params: [p.name.trim(), p.role, salt, await hashSecret(salt, p.pin), p.book_id ?? null],
   };
 }
 
@@ -37,18 +55,19 @@ export async function listProfiles(db: Db): Promise<Profile[]> {
   return db.query<Profile>('SELECT id, name, role, book_id, active FROM profile WHERE active = 1 ORDER BY role DESC, name');
 }
 
-export async function login(db: Db, profileId: number, pin: string): Promise<Profile> {
+export async function login(db: Db, profileId: number, secret: string): Promise<{ profile: Profile; weak: boolean }> {
   const r = await one<Profile & { pin_salt: string; pin_hash: string }>(db, 'SELECT * FROM profile WHERE id = ? AND active = 1', [profileId]);
-  if (!r || (await hashPin(r.pin_salt, pin)) !== r.pin_hash) throw new UserError(m('الرمز غير صحيح', 'Wrong PIN'));
-  return { id: r.id, name: r.name, role: r.role, book_id: r.book_id, active: r.active };
+  const v = r ? await verifySecret(r.pin_salt, secret, r.pin_hash) : { ok: false, weak: false };
+  if (!r || !v.ok) throw new UserError(m('كلمة السر غير صحيحة', 'Wrong password'));
+  return { profile: { id: r.id, name: r.name, role: r.role, book_id: r.book_id, active: r.active }, weak: v.weak };
 }
 
-export async function changePin(db: Db, profileId: number, pin: string, who: string) {
-  checkPinShape(pin);
+export async function changePin(db: Db, profileId: number, secret: string, who: string) {
+  checkSecretShape(secret);
   const salt = crypto.randomUUID();
   await db.batch([
-    { sql: 'UPDATE profile SET pin_salt = ?, pin_hash = ? WHERE id = ?', params: [salt, await hashPin(salt, pin), profileId] },
-    auditStmt(who, 'pin', 'profile', String(profileId), null, null),
+    { sql: 'UPDATE profile SET pin_salt = ?, pin_hash = ? WHERE id = ?', params: [salt, await hashSecret(salt, secret), profileId] },
+    auditStmt(who, 'password', 'profile', String(profileId), null, null),
   ]);
 }
 

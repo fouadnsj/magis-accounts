@@ -1,31 +1,29 @@
-// What every screen can read: the open database, the person logged in, the
-// lists, the register with its computed columns. After any write, call reload().
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Db } from './db/db';
-import { closedMonths, getMeta, loadLists, loadTrx } from './db/repo';
+// What every screen can read: the person logged in, the lists, the register
+// with its computed columns, and `api` — the only way to read or change data.
+// After any write, call reload(). On the network, other people's changes are
+// picked up automatically (the server says when its data changed).
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { computeAll } from './domain/compute';
 import type { GrantRow } from './domain/reports';
 import type { Computed, Lists, Trx } from './domain/types';
 import type { Profile } from './auth';
 import { can } from './auth';
+import type { Api, HolderReceipt, Install, OfficeTransfer } from './ops';
 
-export type Install = 'office' | 'holder';
+export type { HolderReceipt, Install } from './ops';
+
+/** desktop = this computer's file · server = the centre's server over the LAN · preview = in memory */
+export type Mode = 'desktop' | 'server' | 'preview';
 
 export interface Session {
-  db: Db;
-  dbPath: string | null; // null in the browser preview
+  api: Api;
+  mode: Mode;
+  dbPath: string | null;
   install: Install;
   organisation: string;
   profile: Profile;
-}
-
-export interface HolderReceipt {
-  id: string;
-  date: string;
-  amount_syp: number;
-  amount_usd: number;
-  receipt: string | null;
-  note: string | null;
+  /** server mode: asks the server whether data changed since `v` */
+  version?: () => Promise<number>;
 }
 
 export interface Data {
@@ -35,7 +33,7 @@ export interface Data {
   closed: Set<string>;
   grants: GrantRow[];
   receipts: HolderReceipt[];
-  officeTransfers: Record<string, { date: string | null; trf_syp: number; trf_usd: number; explanation: string | null; n: number | null }[]>;
+  officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
 }
 
@@ -44,8 +42,12 @@ interface Ctx {
   d: Data;
   reload: () => Promise<void>;
   who: string;
-  /** The holder's own book on a holder install, else null. */
+  /** The book of a cash holder (desktop holder install or holder user on the server), else null. */
   myBook: number | null;
+  /** A cash holder is logged in. */
+  holder: boolean;
+  /** A holder working on his own computer with files (not on the server). */
+  fileHolder: boolean;
   isSup: boolean;
   logout: () => void;
 }
@@ -58,31 +60,28 @@ export function useApp(): Ctx {
   return c;
 }
 
-async function loadData(db: Db, profile: Profile, install: Install): Promise<Data> {
-  const [lists, allRows, closed] = await Promise.all([loadLists(db), loadTrx(db), closedMonths(db)]);
-  // A holder sees and computes with his own book only.
-  const rows = install === 'holder' && profile.book_id != null ? allRows.filter((r) => r.book_id === profile.book_id) : allRows;
-  const grants = can.confidential(profile.role) ? await db.query<GrantRow>('SELECT * FROM grant_row ORDER BY date') : [];
-  const receipts = install === 'holder' ? await db.query<HolderReceipt>('SELECT * FROM holder_receipt ORDER BY date') : [];
-  const ot = await getMeta(db, 'office_transfers');
+async function loadData(s: Session): Promise<Data> {
+  const p = await s.api.call('data');
   return {
-    lists,
-    rows,
-    comp: computeAll(rows, lists),
-    closed,
-    grants,
-    receipts,
-    officeTransfers: ot ? JSON.parse(ot) : {},
-    listsVersion: await getMeta(db, 'lists_version'),
+    lists: p.lists,
+    rows: p.rows,
+    comp: computeAll(p.rows, p.lists),
+    closed: new Set(p.closed),
+    grants: p.grants,
+    receipts: p.receipts,
+    officeTransfers: p.officeTransfers,
+    listsVersion: p.listsVersion,
   };
 }
 
 export function AppProvider({ session, onLogout, children }: { session: Session; onLogout: () => void; children: ReactNode }) {
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const seen = useRef<number | null>(null);
   const reload = useCallback(async () => {
     try {
-      setD(await loadData(session.db, session.profile, session.install));
+      if (session.version) seen.current = await session.version();
+      setD(await loadData(session));
     } catch (e) {
       setErr(String(e));
     }
@@ -90,19 +89,36 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
   useEffect(() => {
     void reload();
   }, [reload]);
-  const value = useMemo<Ctx | null>(
-    () =>
-      d && {
-        s: session,
-        d,
-        reload,
-        who: `${session.profile.name} (${session.profile.role})`,
-        myBook: session.install === 'holder' ? session.profile.book_id : null,
-        isSup: can.confidential(session.profile.role),
-        logout: onLogout,
-      },
-    [d, session, reload, onLogout],
-  );
+
+  // Network: every 15 seconds, reload if someone else changed something.
+  useEffect(() => {
+    if (!session.version) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const v = await session.version!();
+        if (seen.current != null && v !== seen.current && !document.querySelector('.overlay')) await reload();
+      } catch {
+        /* server unreachable for a moment: try again later */
+      }
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [session, reload]);
+
+  const value = useMemo<Ctx | null>(() => {
+    if (!d) return null;
+    const holder = session.profile.role === 'holder';
+    return {
+      s: session,
+      d,
+      reload,
+      who: `${session.profile.name} (${session.profile.role})`,
+      myBook: holder ? session.profile.book_id : null,
+      holder,
+      fileHolder: holder && session.install === 'holder',
+      isSup: can.confidential(session.profile.role),
+      logout: onLogout,
+    };
+  }, [d, session, reload, onLogout]);
   if (err) return <div className="center-page"><div className="alert err">{err}</div></div>;
   if (!value) return <div className="center-page muted">…</div>;
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

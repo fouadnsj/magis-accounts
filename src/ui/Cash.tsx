@@ -2,19 +2,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, type Data } from '../state';
 import { holders, type HolderLine } from '../domain/reports';
-import { auditStmt } from '../db/repo';
-import { nowIso, uuid } from '../db/db';
 import { Field, Modal, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 
 const NOTES = { SYP: [10000, 5000, 2000, 1000, 500, 200, 100, 50], USD: [100, 50, 20, 10, 5, 2, 1] };
 
 type Counts = Record<number, { SYP: Map<number, number>; USD: Map<number, number>; at: string | null }>;
 
-/** A holder's own balance: the office books transfers, so the holder uses what he noted as received. */
-export function holderBalance(d: Data, bookId: number) {
+/** A holder's own balance. On the server the office's transfers are in the register.
+ *  With files, the office books the transfers elsewhere, so the holder uses what he noted as received. */
+export function holderBalance(d: Data, bookId: number, fileHolder: boolean) {
   const book = d.lists.books.find((b) => b.id === bookId)!;
   const mk = (cur: 'SYP' | 'USD') => {
     const [line] = holders(d.rows, [book], cur);
+    if (!fileHolder) return line;
     const received = d.receipts.reduce((a, r) => a + (cur === 'SYP' ? r.amount_syp : r.amount_usd), 0);
     return { ...line, transfers: received, shouldHold: line.shouldHold - line.transfers + received };
   };
@@ -27,7 +27,7 @@ export function Cash() {
   const [counting, setCounting] = useState<number | null>(null);
 
   const loadCounts = useCallback(async () => {
-    const rows = await s.db.query<{ book_id: number; currency: 'SYP' | 'USD'; denomination: number; qty: number; counted_at: string | null }>('SELECT * FROM cash_count');
+    const rows = await s.api.call('cash.counts');
     const c: Counts = {};
     for (const r of rows) {
       c[r.book_id] ??= { SYP: new Map(), USD: new Map(), at: null };
@@ -35,7 +35,7 @@ export function Cash() {
       if (r.counted_at && (!c[r.book_id].at || r.counted_at > c[r.book_id].at!)) c[r.book_id].at = r.counted_at;
     }
     setCounts(c);
-  }, [s.db]);
+  }, [s.api]);
   useEffect(() => {
     void loadCounts();
   }, [loadCounts]);
@@ -48,7 +48,7 @@ export function Cash() {
     return x;
   };
 
-  if (s.install === 'holder' && myBook != null) return <HolderCash counted={counted} counts={counts} onCount={() => setCounting(myBook)} counting={counting} setCounting={setCounting} reloadCounts={loadCounts} />;
+  if (myBook != null) return <HolderCash counted={counted} counts={counts} onCount={() => setCounting(myBook)} counting={counting} setCounting={setCounting} reloadCounts={loadCounts} />;
 
   const syp = holders(d.rows, d.lists.books, 'SYP');
   const usd = holders(d.rows, d.lists.books, 'USD');
@@ -118,7 +118,7 @@ export function Cash() {
 }
 
 function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; counts: Counts; onClose: () => void; onSaved: () => Promise<void> }) {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const book = d.lists.books.find((b) => b.id === bookId)!;
   const [q, setQ] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = {};
@@ -130,14 +130,14 @@ function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; coun
   });
   const tot = (cur: 'SYP' | 'USD') => NOTES[cur].reduce((a, den) => a + den * (parseAmount(q[`${cur}${den}`] ?? '') || 0), 0);
   const save = async () => {
-    const at = nowIso();
-    await s.db.batch([
-      { sql: 'DELETE FROM cash_count WHERE book_id = ?', params: [bookId] },
-      ...(['SYP', 'USD'] as const).flatMap((cur) =>
-        NOTES[cur].map((den) => ({ sql: 'INSERT INTO cash_count (book_id, currency, denomination, qty, counted_at) VALUES (?,?,?,?,?)', params: [bookId, cur, den, parseAmount(q[`${cur}${den}`] ?? '') || 0, at] })),
-      ),
-      auditStmt(who, 'count', 'cash_count', String(bookId), null, { syp: tot('SYP'), usd: tot('USD') }),
-    ]);
+    const counts = (['SYP', 'USD'] as const).flatMap((currency) =>
+      NOTES[currency].map((denomination) => ({ currency, denomination, qty: parseAmount(q[`${currency}${denomination}`] ?? '') || 0 })),
+    );
+    try {
+      await s.api.call('cash.saveCount', { bookId, counts });
+    } catch (e) {
+      return toast(errText(e), true);
+    }
     await onSaved();
     toast(t('حُفظ العدّ', 'Count saved'));
     onClose();
@@ -175,8 +175,9 @@ function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
   counted: (b: number, c: 'SYP' | 'USD') => number | null; counts: Counts; onCount: () => void;
   counting: number | null; setCounting: (b: number | null) => void; reloadCounts: () => Promise<void>;
 }) {
-  const { s, d, myBook, reload, who } = useApp();
-  const b = useMemo(() => holderBalance(d, myBook!), [d, myBook]);
+  const { s, d, myBook, reload, fileHolder } = useApp();
+  const b = useMemo(() => holderBalance(d, myBook!, fileHolder), [d, myBook, fileHolder]);
+  const transfers = d.rows.filter((r) => r.type === 'Transfer');
   const [adding, setAdding] = useState(false);
   const office = d.officeTransfers[String(myBook)] ?? [];
   const sum = (cur: 'SYP' | 'USD') => office.reduce((a, x) => a + (cur === 'SYP' ? x.trf_syp : x.trf_usd), 0);
@@ -189,7 +190,7 @@ function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
 
   const delReceipt = async (id: string) => {
     if (!(await confirmBox(t('حذف هذا المقبوض؟', 'Delete this receipt?'), true))) return;
-    await s.db.batch([{ sql: 'DELETE FROM holder_receipt WHERE id = ?', params: [id] }, auditStmt(who, 'delete', 'holder_receipt', id, null, null)]);
+    await s.api.call('receipt.delete', { id });
     await reload();
   };
 
@@ -197,7 +198,7 @@ function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
     <>
       <div className="page-head"><h1>{t('صندوقي', 'My cash')}</h1>
         <div className="row">
-          <button className="btn" onClick={() => setAdding(true)}>＋ {t('مقبوض من المكتب', 'Received from the office')}</button>
+          {fileHolder && <button className="btn" onClick={() => setAdding(true)}>＋ {t('مقبوض من المكتب', 'Received from the office')}</button>}
           <button className="btn primary" onClick={() => setCounting(myBook)}>{t('عدّ النقد', 'Count cash')}</button>
         </div>
       </div>
@@ -219,7 +220,19 @@ function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
         </table>
       </div>
 
-      <div className="grid2">
+      {!fileHolder && (
+        <div className="panel">
+          <h3>{t('ما سلّمني إياه المكتب', 'What the office handed me')}</h3>
+          <table className="t">
+            <thead><tr><th>{t('التاريخ', 'Date')}</th><th className="n">SYP</th><th className="n">USD</th><th>{t('الشرح', 'Explanation')}</th></tr></thead>
+            <tbody>
+              {transfers.map((r) => <tr key={r.id}><td>{fmtDate(r.date)}</td><td className="n">{fmtSyp(r.trf_syp)}</td><td className="n">{fmtUsd(r.trf_usd)}</td><td>{r.explanation}</td></tr>)}
+              <tr className="total"><td /><td className="n">{fmtSyp(b.syp.transfers)}</td><td className="n">{fmtUsd(b.usd.transfers)}</td><td /></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {fileHolder && <div className="grid2">
         <div className="panel">
           <h3>{t('ما سجّلتُ أني قبضته', 'What I noted as received')}</h3>
           <p className="muted small">{t('لمتابعتك فقط — لا يُرسل إلى المكتب، فالمكتب يسجّل التحويلات.', 'For your own follow-up — not sent to the office, which books the transfers.')}</p>
@@ -247,7 +260,7 @@ function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
 
       {adding && <ReceiptModal onClose={() => setAdding(false)} />}
       {counting != null && <CountModal bookId={counting} counts={counts} onClose={() => setCounting(null)} onSaved={reloadCounts} />}
@@ -256,7 +269,7 @@ function HolderCash({ counted, counts, counting, setCounting, reloadCounts }: {
 }
 
 function ReceiptModal({ onClose }: { onClose: () => void }) {
-  const { s, reload, who } = useApp();
+  const { s, reload } = useApp();
   const [date, setDate] = useState(todayIso());
   const [syp, setSyp] = useState('');
   const [usd, setUsd] = useState('');
@@ -266,11 +279,7 @@ function ReceiptModal({ onClose }: { onClose: () => void }) {
     const b = parseAmount(usd) || 0;
     if (!date || (!a && !b)) return toast(t('التاريخ ومبلغ واحد على الأقل', 'A date and at least one amount'), true);
     try {
-      const id = uuid();
-      await s.db.batch([
-        { sql: 'INSERT INTO holder_receipt (id, date, amount_syp, amount_usd, note, created_at) VALUES (?,?,?,?,?,?)', params: [id, date, a, b, note || null, nowIso()] },
-        auditStmt(who, 'add', 'holder_receipt', id, null, { date, a, b }),
-      ]);
+      await s.api.call('receipt.add', { date, syp: a, usd: b, note: note || null });
       await reload();
       onClose();
     } catch (e) {

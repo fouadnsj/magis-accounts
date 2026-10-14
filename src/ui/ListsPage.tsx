@@ -3,10 +3,7 @@
 // in old rows while disappearing from the forms.
 import { useState } from 'react';
 import { useApp } from '../state';
-import {
-  addHeading, addLine, addNamed, deleteRule, deleteUnused, moveRow, renameRow, saveBook, saveDonor, saveRule,
-  saveSettings, setActive, setHeadingTypes, setProjectFund, type SimpleList,
-} from '../db/repo';
+import type { SimpleList } from '../db/repo';
 import { TYPES, type Book, type TrxType } from '../domain/types';
 import { TYPE_LABEL, tx } from '../i18n';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
@@ -43,7 +40,7 @@ export function ListsPage() {
 /** Runs a change, reloads, and shows the error in words if it is refused. */
 function useAct() {
   const { reload } = useApp();
-  return async (f: () => Promise<void>, ok?: string) => {
+  return async (f: () => Promise<unknown>, ok?: string) => {
     try {
       await f();
       await reload();
@@ -69,7 +66,7 @@ function useCounts() {
 // ---------------------------------------------------------------- budget
 
 function BudgetTab() {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const act = useAct();
   const counts = useCounts();
   const L = d.lists;
@@ -84,15 +81,15 @@ function BudgetTab() {
 
   const rename = async (table: 'heading' | 'budget_line', id: number, old: string) => {
     const name = await promptBox(t('الاسم الجديد', 'New name'), old);
-    if (name && name !== old) await act(() => renameRow(s.db, table, id, name, who), t('تمت إعادة التسمية', 'Renamed'));
+    if (name && name !== old) await act(() => s.api.call('list.rename', { table: table, id: id, name: name }), t('تمت إعادة التسمية', 'Renamed'));
   };
   const remove = async (table: 'heading' | 'budget_line', id: number, used: number) => {
     if (used) {
       if (await confirmBox(t(`مستعمل في ${used} سطراً. إيقافه بدل حذفه؟`, `Used in ${used} rows. Deactivate it instead?`)))
-        await act(() => setActive(s.db, table, id, false, who), t('أوقف', 'Deactivated'));
+        await act(() => s.api.call('list.setActive', { table: table, id: id, active: false }), t('أوقف', 'Deactivated'));
       return;
     }
-    if (await confirmBox(t('حذف نهائي؟ (لم يُستعمل قط)', 'Delete for good? (never used)'), true)) await act(() => deleteUnused(s.db, table, id, who), t('حُذف', 'Deleted'));
+    if (await confirmBox(t('حذف نهائي؟ (لم يُستعمل قط)', 'Delete for good? (never used)'), true)) await act(() => s.api.call('list.delete', { table: table, id: id }), t('حُذف', 'Deleted'));
   };
 
   return (
@@ -113,7 +110,7 @@ function BudgetTab() {
               {TYPES.map((ty) => <option key={ty} value={ty}>{tx(TYPE_LABEL[ty]).split(' · ').pop()}</option>)}
             </select>
             <button className="btn" disabled={!newHeading.trim()} onClick={async () => {
-              if (await act(() => addHeading(s.db, newHeading, [newHeadingType], who), t('أضيف', 'Added'))) setNewHeading('');
+              if (await act(() => s.api.call('heading.add', { name: newHeading, types: [newHeadingType] }), t('أضيف', 'Added'))) setNewHeading('');
             }}>＋</button>
           </div>
           <label className="row small muted" style={{ marginTop: 8 }}>
@@ -130,7 +127,7 @@ function BudgetTab() {
               <button className="btn small" onClick={() => rename('heading', h.id, h.name)}>{t('إعادة تسمية', 'Rename')}</button>
               {h.active
                 ? <button className="btn small" onClick={() => remove('heading', h.id, (counts.heading.get(h.id) ?? 0) + L.lines.filter((l) => l.heading_id === h.id).length)}>{t('إيقاف / حذف', 'Deactivate / delete')}</button>
-                : <button className="btn small" onClick={() => act(() => setActive(s.db, 'heading', h.id, true, who))}>{t('تفعيل', 'Reactivate')}</button>}
+                : <button className="btn small" onClick={() => act(() => s.api.call('list.setActive', { table: 'heading', id: h.id, active: true }))}>{t('تفعيل', 'Reactivate')}</button>}
             </div>
           </div>
           <p className="muted small">{counts.heading.get(h.id) ?? 0} {t('سطراً في السجل', 'rows in the register')}</p>
@@ -142,7 +139,7 @@ function BudgetTab() {
                 return (
                   <button key={ty} className={`chip ${on ? 'on' : ''}`} onClick={() => {
                     const next = on ? types(h.id).filter((x) => x !== ty) : [...types(h.id), ty];
-                    void act(() => setHeadingTypes(s.db, h.id, next, who));
+                    void act(() => s.api.call('heading.types', { id: h.id, types: next }));
                   }}>{tx(TYPE_LABEL[ty])}</button>
                 );
               })}
@@ -159,13 +156,13 @@ function BudgetTab() {
                   <td>{l.name}</td>
                   <td className="n">{counts.line.get(l.id) ?? 0}</td>
                   {types(h.id).includes('Income') && (
-                    <td><input type="checkbox" checked={!!l.is_project_fund} onChange={(e) => act(() => setProjectFund(s.db, l.id, e.target.checked, who))} /></td>
+                    <td><input type="checkbox" checked={!!l.is_project_fund} onChange={(e) => act(() => s.api.call('line.fund', { id: l.id, on: e.target.checked }))} /></td>
                   )}
                   <td className="nowrap">
                     <button className="btn small ghost" onClick={() => rename('budget_line', l.id, l.name)}>✎</button>
                     {l.active
                       ? <button className="btn small ghost" onClick={() => remove('budget_line', l.id, counts.line.get(l.id) ?? 0)}>✕</button>
-                      : <button className="btn small ghost" onClick={() => act(() => setActive(s.db, 'budget_line', l.id, true, who))}>↺</button>}
+                      : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'budget_line', id: l.id, active: true }))}>↺</button>}
                   </td>
                 </tr>
               ))}
@@ -174,10 +171,10 @@ function BudgetTab() {
           <div className="row" style={{ marginTop: 10 }}>
             <input className="inp" style={{ flex: 1 }} placeholder={t('خط جديد في هذا البند', 'New line under this heading')} value={newLine} onChange={(e) => setNewLine(e.target.value)}
               onKeyDown={async (e) => {
-                if (e.key === 'Enter' && newLine.trim() && (await act(() => addLine(s.db, h.id, newLine, who), t('أضيف', 'Added')))) setNewLine('');
+                if (e.key === 'Enter' && newLine.trim() && (await act(() => s.api.call('line.add', { headingId: h.id, name: newLine }), t('أضيف', 'Added')))) setNewLine('');
               }} />
             <button className="btn primary" disabled={!newLine.trim()} onClick={async () => {
-              if (await act(() => addLine(s.db, h.id, newLine, who), t('أضيف', 'Added'))) setNewLine('');
+              if (await act(() => s.api.call('line.add', { headingId: h.id, name: newLine }), t('أضيف', 'Added'))) setNewLine('');
             }}>＋ {t('خط', 'Line')}</button>
           </div>
           <p className="muted small">{t('الرمز يُعطى مرة واحدة ولا يتغير أبداً، فتبقى رموز السطور القديمة كما هي.', 'A code is given once and never changes, so old rows keep their code.')}</p>
@@ -190,7 +187,7 @@ function BudgetTab() {
 // ---------------------------------------------------------------- simple lists
 
 function SimpleTab({ table }: { table: SimpleList }) {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const act = useAct();
   const counts = useCounts();
   const [name, setName] = useState('');
@@ -202,8 +199,8 @@ function SimpleTab({ table }: { table: SimpleList }) {
     <div className="panel" style={{ maxWidth: 760 }}>
       <div className="row" style={{ marginBottom: 10 }}>
         <input className="inp" style={{ flex: 1 }} placeholder={t('اسم جديد', 'New name')} value={name} onChange={(e) => setName(e.target.value)}
-          onKeyDown={async (e) => e.key === 'Enter' && name.trim() && (await act(() => addNamed(s.db, table, name, who), t('أضيف', 'Added'))) && setName('')} />
-        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => addNamed(s.db, table, name, who), t('أضيف', 'Added'))) && setName('')}>＋ {t('إضافة', 'Add')}</button>
+          onKeyDown={async (e) => e.key === 'Enter' && name.trim() && (await act(() => s.api.call('list.add', { table: table, name: name }), t('أضيف', 'Added'))) && setName('')} />
+        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => s.api.call('list.add', { table: table, name: name }), t('أضيف', 'Added'))) && setName('')}>＋ {t('إضافة', 'Add')}</button>
         {arr.length > 12 && <input className="inp" style={{ width: 160 }} placeholder={t('بحث…', 'Search…')} value={q} onChange={(e) => setQ(e.target.value)} />}
       </div>
       <table className="t">
@@ -214,21 +211,21 @@ function SimpleTab({ table }: { table: SimpleList }) {
               <td>{x.name}{!x.active && <span className="small"> · {t('موقوف', 'deactivated')}</span>}</td>
               <td className="n">{used(x.id)}</td>
               <td className="nowrap right">
-                <button className="btn small ghost" title="↑" onClick={() => act(() => moveRow(s.db, table, x.id, -1, who))}>▲</button>
-                <button className="btn small ghost" title="↓" onClick={() => act(() => moveRow(s.db, table, x.id, 1, who))}>▼</button>
+                <button className="btn small ghost" title="↑" onClick={() => act(() => s.api.call('list.move', { table: table, id: x.id, dir: -1 }))}>▲</button>
+                <button className="btn small ghost" title="↓" onClick={() => act(() => s.api.call('list.move', { table: table, id: x.id, dir: 1 }))}>▼</button>
                 <button className="btn small ghost" onClick={async () => {
                   const n = await promptBox(t('الاسم الجديد', 'New name'), x.name);
-                  if (n && n !== x.name) void act(() => renameRow(s.db, table, x.id, n, who), t('تمت إعادة التسمية', 'Renamed'));
+                  if (n && n !== x.name) void act(() => s.api.call('list.rename', { table: table, id: x.id, name: n }), t('تمت إعادة التسمية', 'Renamed'));
                 }}>✎</button>
                 {x.active ? (
                   <button className="btn small ghost" onClick={async () => {
                     if (used(x.id)) {
                       if (await confirmBox(t('مستعمل. إيقافه؟ (يبقى في السطور القديمة ويختفي من القوائم)', 'In use. Deactivate it? (stays on old rows, leaves the dropdowns)')))
-                        await act(() => setActive(s.db, table, x.id, false, who));
-                    } else if (await confirmBox(t('حذف نهائي؟', 'Delete for good?'), true)) await act(() => deleteUnused(s.db, table, x.id, who));
+                        await act(() => s.api.call('list.setActive', { table: table, id: x.id, active: false }));
+                    } else if (await confirmBox(t('حذف نهائي؟', 'Delete for good?'), true)) await act(() => s.api.call('list.delete', { table: table, id: x.id }));
                   }}>✕</button>
                 ) : (
-                  <button className="btn small ghost" onClick={() => act(() => setActive(s.db, table, x.id, true, who))}>↺</button>
+                  <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: table, id: x.id, active: true }))}>↺</button>
                 )}
               </td>
             </tr>
@@ -242,7 +239,7 @@ function SimpleTab({ table }: { table: SimpleList }) {
 // ---------------------------------------------------------------- books
 
 function BooksTab() {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const act = useAct();
   const counts = useCounts();
   const [edit, setEdit] = useState<Partial<Book> | null>(null);
@@ -265,8 +262,8 @@ function BooksTab() {
               <td className="nowrap right">
                 <button className="btn small ghost" onClick={() => setEdit(b)}>✎</button>
                 {!b.is_main && (b.active
-                  ? <button className="btn small ghost" onClick={async () => (await confirmBox(t('إيقاف هذا الدفتر؟', 'Deactivate this book?'))) && act(() => setActive(s.db, 'book', b.id, false, who))}>✕</button>
-                  : <button className="btn small ghost" onClick={() => act(() => setActive(s.db, 'book', b.id, true, who))}>↺</button>)}
+                  ? <button className="btn small ghost" onClick={async () => (await confirmBox(t('إيقاف هذا الدفتر؟', 'Deactivate this book?'))) && act(() => s.api.call('list.setActive', { table: 'book', id: b.id, active: false }))}>✕</button>
+                  : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'book', id: b.id, active: true }))}>↺</button>)}
               </td>
             </tr>
           ))}
@@ -278,7 +275,7 @@ function BooksTab() {
 }
 
 function BookModal({ book, onClose }: { book: Partial<Book>; onClose: () => void }) {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const act = useAct();
   const [b, setB] = useState({ ...book, opening_syp: book.opening_syp ?? 0, opening_usd: book.opening_usd ?? 0 });
   const [os, setOs] = useState(String(b.opening_syp || ''));
@@ -297,7 +294,7 @@ function BookModal({ book, onClose }: { book: Partial<Book>; onClose: () => void
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" onClick={async () => {
-          const ok = await act(() => saveBook(s.db, { ...b, name: b.name ?? '', opening_syp: parseAmount(os) || 0, opening_usd: parseAmount(ou) || 0 }, who), t('حُفظ', 'Saved'));
+          const ok = await act(() => s.api.call('book.save', { ...b, name: b.name ?? '', opening_syp: parseAmount(os) || 0, opening_usd: parseAmount(ou) || 0 }), t('حُفظ', 'Saved'));
           if (ok) onClose();
         }}>{t('احفظ', 'Save')}</button>
       </div>
@@ -308,7 +305,7 @@ function BookModal({ book, onClose }: { book: Partial<Book>; onClose: () => void
 // ---------------------------------------------------------------- donors (Sup)
 
 function DonorsTab() {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const act = useAct();
   const [name, setName] = useState('');
   const [proj, setProj] = useState<number | null>(null);
@@ -319,7 +316,7 @@ function DonorsTab() {
       <div className="row" style={{ marginBottom: 10 }}>
         <input className="inp" style={{ flex: 1 }} placeholder={t('مانح جديد', 'New donor')} value={name} onChange={(e) => setName(e.target.value)} />
         <div className="field" style={{ width: 180 }}><Select value={proj} options={projects} onChange={setProj} placeholder={t('بلا مشروع بعد', 'No project yet')} /></div>
-        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => saveDonor(s.db, { name, default_project_id: proj }, who), t('أضيف', 'Added'))) && (setName(''), setProj(null))}>＋</button>
+        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => s.api.call('donor.save', { name, default_project_id: proj }), t('أضيف', 'Added'))) && (setName(''), setProj(null))}>＋</button>
       </div>
       <table className="t">
         <thead><tr><th>{t('المانح', 'Donor')}</th><th>{t('المشروع الافتراضي', 'Default project')}</th><th /></tr></thead>
@@ -327,15 +324,15 @@ function DonorsTab() {
           {d.lists.donors.map((x) => (
             <tr key={x.id} className={x.active ? '' : 'off'}>
               <td>{x.name}</td>
-              <td style={{ width: 220 }} className="field"><Select value={x.default_project_id} options={projects} placeholder={t('بلا مشروع بعد', 'No project yet')} onChange={(v) => act(() => saveDonor(s.db, { id: x.id, name: x.name, default_project_id: v }, who))} /></td>
+              <td style={{ width: 220 }} className="field"><Select value={x.default_project_id} options={projects} placeholder={t('بلا مشروع بعد', 'No project yet')} onChange={(v) => act(() => s.api.call('donor.save', { id: x.id, name: x.name, default_project_id: v }))} /></td>
               <td className="nowrap right">
                 <button className="btn small ghost" onClick={async () => {
                   const n = await promptBox(t('الاسم الجديد', 'New name'), x.name);
-                  if (n && n !== x.name) void act(() => saveDonor(s.db, { id: x.id, name: n, default_project_id: x.default_project_id }, who));
+                  if (n && n !== x.name) void act(() => s.api.call('donor.save', { id: x.id, name: n, default_project_id: x.default_project_id }));
                 }}>✎</button>
                 {x.active
-                  ? <button className="btn small ghost" onClick={() => act(() => setActive(s.db, 'donor', x.id, false, who))}>✕</button>
-                  : <button className="btn small ghost" onClick={() => act(() => setActive(s.db, 'donor', x.id, true, who))}>↺</button>}
+                  ? <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: false }))}>✕</button>
+                  : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: true }))}>↺</button>}
               </td>
             </tr>
           ))}
@@ -348,7 +345,7 @@ function DonorsTab() {
 // ---------------------------------------------------------------- spending rules (ProjectMap)
 
 function RulesTab() {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const act = useAct();
   const L = d.lists;
   const [n, setN] = useState<{ project_id: number | null; account_id: number | null; heading_id: number | null }>({ project_id: null, account_id: null, heading_id: null });
@@ -368,7 +365,7 @@ function RulesTab() {
           {L.rules.map((r) => (
             <tr key={r.id}>
               <td>{name(L.projects, r.project_id)}</td><td>{name(L.accounts, r.account_id)}</td><td>{r.heading_id == null ? <i>{t('الكل', 'All')}</i> : name(L.headings, r.heading_id)}</td>
-              <td className="right"><button className="btn small ghost" onClick={async () => (await confirmBox(t('حذف هذه القاعدة؟', 'Delete this rule?'), true)) && act(() => deleteRule(s.db, r.id, who))}>✕</button></td>
+              <td className="right"><button className="btn small ghost" onClick={async () => (await confirmBox(t('حذف هذه القاعدة؟', 'Delete this rule?'), true)) && act(() => s.api.call('rule.delete', { id: r.id }))}>✕</button></td>
             </tr>
           ))}
           <tr>
@@ -376,7 +373,7 @@ function RulesTab() {
             <td className="field"><Select value={n.account_id} options={opt(L.accounts)} onChange={(v) => setN({ ...n, account_id: v })} /></td>
             <td className="field"><Select value={n.heading_id} options={expHeadings.map((h) => ({ value: h.id, label: h.name }))} placeholder={t('الكل', 'All')} onChange={(v) => setN({ ...n, heading_id: v })} /></td>
             <td><button className="btn primary small" disabled={n.project_id == null || n.account_id == null}
-              onClick={async () => (await act(() => saveRule(s.db, { project_id: n.project_id!, account_id: n.account_id!, heading_id: n.heading_id }, who), t('أضيفت', 'Added'))) && setN({ project_id: null, account_id: null, heading_id: null })}>＋</button></td>
+              onClick={async () => (await act(() => s.api.call('rule.save', { project_id: n.project_id!, account_id: n.account_id!, heading_id: n.heading_id }), t('أضيفت', 'Added'))) && setN({ project_id: null, account_id: null, heading_id: null })}>＋</button></td>
           </tr>
         </tbody>
       </table>
@@ -387,7 +384,7 @@ function RulesTab() {
 // ---------------------------------------------------------------- settings
 
 function SettingsTab() {
-  const { s, d, who } = useApp();
+  const { s, d } = useApp();
   const act = useAct();
   const st = d.lists.settings;
   const [rate, setRate] = useState(String(st.usd_rate));
@@ -400,20 +397,20 @@ function SettingsTab() {
         <Field label={t('سعر الصرف الاحتياطي (ل.س لكل دولار)', 'Fallback exchange rate (SYP per USD)')}>
           <input className="num" value={rate} onChange={(e) => setRate(e.target.value)} onBlur={() => {
             const v = parseAmount(rate);
-            if (v > 0 && v !== st.usd_rate) void act(() => saveSettings(s.db, { usd_rate: v }, who), t('حُفظ', 'Saved'));
+            if (v > 0 && v !== st.usd_rate) void act(() => s.api.call('settings.save', { usd_rate: v }), t('حُفظ', 'Saved'));
           }} />
         </Field>
         <Field label={t('تنبيه التصريف إن ابتعد السعر أكثر من (%)', 'Exchange warning if rate is off by more than (%)')}>
           <input className="num" value={tol} onChange={(e) => setTol(e.target.value)} onBlur={() => {
             const v = parseAmount(tol);
-            if (v > 0 && v / 100 !== st.exchange_tolerance) void act(() => saveSettings(s.db, { exchange_tolerance: v / 100 }, who), t('حُفظ', 'Saved'));
+            if (v > 0 && v / 100 !== st.exchange_tolerance) void act(() => s.api.call('settings.save', { exchange_tolerance: v / 100 }), t('حُفظ', 'Saved'));
           }} />
         </Field>
-        <Field label={t('المدينة الافتراضية', 'Default city')}><Select value={st.def_city_id} options={opt(d.lists.cities)} onChange={(v) => act(() => saveSettings(s.db, { def_city_id: v }, who))} /></Field>
-        <Field label={t('الحساب الافتراضي', 'Default account')}><Select value={st.def_account_id} options={opt(d.lists.accounts)} onChange={(v) => act(() => saveSettings(s.db, { def_account_id: v }, who))} /></Field>
-        <Field label={t('الدفتر الافتراضي', 'Default book')}><Select value={st.def_book_id} options={opt(d.lists.books)} onChange={(v) => act(() => saveSettings(s.db, { def_book_id: v }, who))} /></Field>
+        <Field label={t('المدينة الافتراضية', 'Default city')}><Select value={st.def_city_id} options={opt(d.lists.cities)} onChange={(v) => act(() => s.api.call('settings.save', { def_city_id: v }))} /></Field>
+        <Field label={t('الحساب الافتراضي', 'Default account')}><Select value={st.def_account_id} options={opt(d.lists.accounts)} onChange={(v) => act(() => s.api.call('settings.save', { def_account_id: v }))} /></Field>
+        <Field label={t('الدفتر الافتراضي', 'Default book')}><Select value={st.def_book_id} options={opt(d.lists.books)} onChange={(v) => act(() => s.api.call('settings.save', { def_book_id: v }))} /></Field>
         <Field label={t('بداية السنة المالية (لا تواريخ قبلها)', 'Fiscal year start (no dates before it)')}>
-          <input type="date" value={fs} onChange={(e) => setFs(e.target.value)} onBlur={() => fs !== (st.fiscal_start ?? '') && act(() => saveSettings(s.db, { fiscal_start: fs || null }, who), t('حُفظ', 'Saved'))} />
+          <input type="date" value={fs} onChange={(e) => setFs(e.target.value)} onBlur={() => fs !== (st.fiscal_start ?? '') && act(() => s.api.call('settings.save', { fiscal_start: fs || null }), t('حُفظ', 'Saved'))} />
         </Field>
       </div>
     </div>

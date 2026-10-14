@@ -1,30 +1,27 @@
 import { useEffect, useState } from 'react';
-import ExcelJS from 'exceljs';
 import { useApp } from '../state';
 import { exportWorkbook } from '../io/exportExcel';
-import { applySeed, readWorkbook, type ImportReport } from '../io/importWorkbook';
-import {
-  applyListsPackage, buildEntriesFile, entriesFileName, exportListsPackage, markSent, importEntries, listsFileName, parseListsPackage, type EntriesImportResult,
-} from '../io/keeperFiles';
-import { backupNow } from '../db/backup';
-import { pickFile, saveFile } from '../platform';
+import type { ImportReport } from '../io/importWorkbook';
+import { entriesFileName, listsFileName, parseListsPackage, type EntriesImportResult } from '../io/keeperFiles';
+import type { ImportLogRow } from '../ops';
+import { pickFile, saveFile, toBase64 } from '../platform';
 import { Field, Select, confirmBox, errText, fmtDate, t, toast, todayIso } from './kit';
 import { MigrationReport } from './Welcome';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 
 export function Files() {
-  const { s } = useApp();
+  const { fileHolder } = useApp();
   return (
     <>
       <div className="page-head"><h1>{t('استيراد وتصدير', 'Import / Export')}</h1></div>
-      {s.install === 'holder' ? <HolderFiles /> : <OfficeFiles />}
+      {fileHolder ? <HolderFiles /> : <OfficeFiles />}
     </>
   );
 }
 
 function HolderFiles() {
-  const { s, d, myBook, reload, who } = useApp();
+  const { s, d, myBook, reload } = useApp();
   const [busy, setBusy] = useState(false);
   const book = d.lists.books.find((b) => b.id === myBook);
   const unsent = d.rows.filter((r) => !r.sent_at).length;
@@ -32,10 +29,10 @@ function HolderFiles() {
   const exp = async () => {
     setBusy(true);
     try {
-      const { file, unsentIds } = await buildEntriesFile(s.db, myBook!);
+      const { file, unsentIds } = await s.api.call('entries.build');
       const path = await saveFile(entriesFileName(book?.name ?? 'book'), ['json'], enc(JSON.stringify(file, null, 1)), t('احفظ ملف القيود', 'Save the entries file'));
       if (!path) return; // cancelled: nothing left the computer, nothing is marked as sent
-      await markSent(s.db, unsentIds, file.rows.length, who);
+      await s.api.call('entries.markSent', { ids: unsentIds, total: file.rows.length });
       await reload();
       toast(t(`صُدّر ${file.rows.length} قيداً (${unsentIds.length} جديد)`, `${file.rows.length} entries exported (${unsentIds.length} new)`));
     } catch (e) {
@@ -50,8 +47,7 @@ function HolderFiles() {
     if (!f) return;
     try {
       const p = parseListsPackage(new TextDecoder().decode(f.bytes));
-      if (s.dbPath) await backupNow(s.dbPath, 'before-lists');
-      await applyListsPackage(s.db, p, who);
+      await s.api.call('lists.apply', { pkg: p });
       await reload();
       toast(t('حُدّثت القوائم', 'Lists updated'));
     } catch (e) {
@@ -78,10 +74,9 @@ function HolderFiles() {
   );
 }
 
-interface LogRow { id: number; at: string; who: string; kind: string; file_name: string; added: number; skipped: number }
 
 function OfficeFiles() {
-  const { s, d, reload, who, isSup } = useApp();
+  const { s, d, reload, isSup } = useApp();
   const years = [...new Set(d.rows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort();
   const y = years[years.length - 1] ?? todayIso().slice(0, 4);
   const [allPeriod, setAllPeriod] = useState(true);
@@ -96,11 +91,11 @@ function OfficeFiles() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<EntriesImportResult | null>(null);
   const [seedReport, setSeedReport] = useState<ImportReport | null>(null);
-  const [log, setLog] = useState<LogRow[]>([]);
+  const [log, setLog] = useState<ImportLogRow[]>([]);
 
   useEffect(() => {
-    s.db.query<LogRow>('SELECT * FROM import_log ORDER BY id DESC LIMIT 30').then(setLog);
-  }, [s.db, d]);
+    s.api.call('importLog.list').then(setLog).catch(() => undefined);
+  }, [s.api, d]);
 
   const doExport = async () => {
     setBusy(true);
@@ -124,8 +119,7 @@ function OfficeFiles() {
     if (!f) return;
     setBusy(true);
     try {
-      if (s.dbPath) await backupNow(s.dbPath, 'before-import');
-      const r = await importEntries(s.db, new TextDecoder().decode(f.bytes), f.name, who);
+      const r = await s.api.call('entries.import', { text: new TextDecoder().decode(f.bytes), fileName: f.name });
       setResult(r);
       await reload();
     } catch (e) {
@@ -137,7 +131,7 @@ function OfficeFiles() {
 
   const doListsPackage = async () => {
     try {
-      const p = await exportListsPackage(s.db, who);
+      const p = await s.api.call('lists.export');
       const path = await saveFile(listsFileName(), ['json'], enc(JSON.stringify(p)), t('احفظ حزمة القوائم', 'Save the lists package'));
       if (path) toast(t('حُفظت حزمة القوائم', 'Lists package saved'));
       await reload();
@@ -153,10 +147,7 @@ function OfficeFiles() {
     if (!f) return;
     setBusy(true);
     try {
-      if (s.dbPath) await backupNow(s.dbPath, 'before-migration');
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(f.bytes);
-      setSeedReport(await applySeed(s.db, readWorkbook(wb), who, f.name));
+      setSeedReport(await s.api.call('workbook.import', { base64: toBase64(f.bytes), fileName: f.name }));
       await reload();
     } catch (e) {
       toast(errText(e), true);

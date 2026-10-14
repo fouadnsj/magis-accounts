@@ -26,11 +26,12 @@ const NavCtx = createContext<Nav | null>(null);
 export const useNav = () => useContext(NavCtx)!;
 
 export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onToggleLang: () => void }) {
-  const { s, d, logout, isSup, myBook } = useApp();
+  const { s, d, logout, isSup, myBook, holder, fileHolder } = useApp();
   const role = s.profile.role;
   const [page, setPage] = useState<Page>('home');
   const [reviewOnly, setReviewOnly] = useState(false);
   const [editing, setEditing] = useState<TrxType | Trx | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const nav: Nav = {
     go: (p, o) => {
       setReviewOnly(!!o?.review);
@@ -40,7 +41,6 @@ export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onTo
     reviewOnly,
   };
   const toReview = d.rows.filter((r) => r.review).length;
-  const holder = s.install === 'holder';
 
   const item = (p: Page, label: string, extra?: React.ReactNode) => (
     <button className={page === p ? 'on' : ''} onClick={() => nav.go(p)}>
@@ -52,11 +52,16 @@ export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onTo
   return (
     <NavCtx.Provider value={nav}>
       <div className="shell">
-        <nav className="side">
-          <div className="org">{s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}</div>
-          <div className="who">
-            {s.profile.name}
-            {holder && myBook != null && <> · {d.lists.books.find((b) => b.id === myBook)?.name}</>}
+        <nav className={`side ${menuOpen ? 'open' : ''}`} onClick={(e) => (e.target as HTMLElement).closest('button:not(.menu-toggle)') && setMenuOpen(false)}>
+          <div className="top">
+            <div>
+              <div className="org">{s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}</div>
+              <div className="who">
+                {s.profile.name}
+                {holder && myBook != null && <> · {d.lists.books.find((b) => b.id === myBook)?.name}</>}
+              </div>
+            </div>
+            <button className="menu-toggle" onClick={() => setMenuOpen((x) => !x)} aria-label="menu">☰ {t('القائمة', 'Menu')}</button>
           </div>
           {item('home', t('الرئيسية', 'Home'))}
           {item('register', holder ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
@@ -64,12 +69,12 @@ export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onTo
           {!holder && item('reports', t('التقارير', 'Reports'))}
           {!holder && isSup && item('grants', t('المنح', 'Grants'))}
           {!holder && can.manageLists(role) && item('lists', t('القوائم', 'Lists'))}
-          {item('files', t('استيراد وتصدير', 'Import / Export'))}
+          {(!holder || fileHolder) && item('files', t('استيراد وتصدير', 'Import / Export'))}
           {item('admin', holder ? t('الإعدادات', 'Settings') : t('الإدارة', 'Admin'))}
           <div className="spacer" />
           <button onClick={onToggleLang}>{getLang() === 'en' ? 'عربي · English' : 'English only'}</button>
           <button onClick={logout}>{t('خروج', 'Log out')}</button>
-          <button onClick={onCloseDb} className="small">{t('إغلاق الملف', 'Close file')}</button>
+          {s.mode !== 'server' && <button onClick={onCloseDb} className="small">{t('إغلاق الملف', 'Close file')}</button>}
         </nav>
         <main className="main">
           {page === 'home' && <Home />}

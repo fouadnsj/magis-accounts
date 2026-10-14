@@ -52,3 +52,14 @@ export async function restoreBackup(dbPath: string, from: string): Promise<void>
   const safety = `${backupDir(dbPath)}/${base}_${stamp(true)}_before-restore.db`;
   await invoke('db_restore', { from, safetyCopy: safety });
 }
+
+/** The desktop app's way of making backups, as the operations expect it. */
+export function desktopFiles(dbPath: string | null): import('../ops').FileOps {
+  if (!dbPath || !isDesktop())
+    return { backupNow: async () => null, list: async () => [], restore: async () => undefined };
+  return {
+    backupNow: (reason) => backupNow(dbPath, reason),
+    list: () => listBackups(dbPath),
+    restore: (path) => restoreBackup(dbPath, path),
+  };
+}

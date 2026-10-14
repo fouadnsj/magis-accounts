@@ -10,10 +10,9 @@ import { Select, fmtDate, fmtRate, fmtSyp, fmtUsd, t } from './kit';
 const ROW_H = 30;
 
 export function Register() {
-  const { d, s } = useApp();
+  const { d, holder } = useApp();
   const nav = useNav();
   const names = useNames();
-  const holder = s.install === 'holder';
   const [month, setMonth] = useState('');
   const [book, setBook] = useState<number | null>(null);
   const [account, setAccount] = useState<number | null>(null);

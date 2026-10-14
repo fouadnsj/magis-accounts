@@ -158,3 +158,17 @@ describe('holder ↔ office files', () => {
     expect((await loadLists(office)).books.some((b) => b.name === 'Maya')).toBe(true);
   });
 });
+
+describe('desktop app path (local operations)', () => {
+  it('reads and saves through the same operations as the server', async () => {
+    const { localApi } = await import('../src/ops');
+    const files = { backupNow: async () => null, list: async () => [], restore: async () => undefined };
+    const api = localApi({ db: office, profile: { id: 1, name: 'Com', role: 'com', book_id: null, active: 1 }, who: 'Com (com)', install: 'office', files });
+    const before = (await api.call('data')).rows.length;
+    await api.call('trx.save', { rows: [expense({ exp_syp: 4321 })] });
+    const after = await api.call('data');
+    expect(after.rows.length).toBe(before + 1);
+    expect(after.lists.donors).toEqual([]); // the accountant never receives the donors
+    await expect(api.call('grant.add', { date: '2026-10-01', donor_id: 1, project_id: null, amount_usd: 5, reference: null, note: null })).rejects.toThrow(/Not allowed/);
+  });
+});

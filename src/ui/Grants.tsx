@@ -2,19 +2,16 @@
 // One donor may fund several projects: one row per project.
 import { useState } from 'react';
 import { useApp, useNames } from '../state';
-import { auditStmt } from '../db/repo';
-import { nowIso, uuid } from '../db/db';
-import { Field, Modal, Select, confirmBox, fmtDate, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
+import { Field, Modal, Select, confirmBox, errText, fmtDate, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 
 export function Grants() {
-  const { s, d, reload, who } = useApp();
+  const { s, d, reload } = useApp();
   const names = useNames();
   const [adding, setAdding] = useState(false);
   const total = d.grants.reduce((a, g) => a + g.amount_usd, 0);
   const del = async (id: string) => {
     if (!(await confirmBox(t('حذف هذه المنحة؟', 'Delete this grant?'), true))) return;
-    const before = d.grants.find((g) => g.id === id);
-    await s.db.batch([{ sql: 'DELETE FROM grant_row WHERE id = ?', params: [id] }, auditStmt(who, 'delete', 'grant_row', id, before, null)]);
+    await s.api.call('grant.delete', { id });
     await reload();
   };
   return (
@@ -45,7 +42,7 @@ export function Grants() {
 }
 
 function GrantModal({ onClose }: { onClose: () => void }) {
-  const { s, d, reload, who } = useApp();
+  const { s, d, reload } = useApp();
   const [date, setDate] = useState(todayIso());
   const [donor, setDonor] = useState<number | null>(null);
   const [project, setProject] = useState<number | null>(null);
@@ -55,11 +52,11 @@ function GrantModal({ onClose }: { onClose: () => void }) {
   const save = async () => {
     const a = parseAmount(amount);
     if (!date || donor == null || !(a > 0)) return toast(t('التاريخ والمانح والمبلغ مطلوبة', 'Date, donor and amount are required'), true);
-    const id = uuid();
-    await s.db.batch([
-      { sql: 'INSERT INTO grant_row (id, date, donor_id, project_id, amount_usd, reference, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)', params: [id, date, donor, project, a, reference || null, note || null, nowIso(), who] },
-      auditStmt(who, 'add', 'grant_row', id, null, { date, donor, project, a }),
-    ]);
+    try {
+      await s.api.call('grant.add', { date, donor_id: donor, project_id: project, amount_usd: a, reference: reference || null, note: note || null });
+    } catch (e) {
+      return toast(errText(e), true);
+    }
     await reload();
     toast(t('حُفظ', 'Saved'));
     onClose();

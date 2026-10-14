@@ -2,8 +2,7 @@
 // Every rule of validate.ts is checked before saving; warnings need a second click.
 import { useMemo, useState } from 'react';
 import { useApp } from '../state';
-import { addNamed, blankTrx, deleteTrxRows, saveTrxRows } from '../db/repo';
-import { one } from '../db/db';
+import { blankTrx } from '../db/repo';
 import { validateTrx } from '../domain/validate';
 import { rateOn } from '../domain/compute';
 import type { Trx, TrxType } from '../domain/types';
@@ -50,15 +49,14 @@ const recall = (k: string) => {
 
 export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: () => void }) {
   const app = useApp();
-  const { d, s, myBook, reload, who } = app;
+  const { d, s, myBook, reload, holder } = app;
   const L = d.lists;
   const editing = typeof start === 'object' ? start : null;
-  const holder = s.install === 'holder';
   const mainId = L.books.find((b) => b.is_main)?.id ?? null;
 
   // The other row of a keeper-to-keeper transfer.
   const partner = editing?.transfer_group ? d.rows.find((r) => r.transfer_group === editing.transfer_group && r.id !== editing.id) ?? null : null;
-  const readOnly = !!(holder && editing?.sent_at);
+  const readOnly = !!(app.fileHolder && editing?.sent_at);
 
   const usual = (type: TrxType) => {
     // Transfer/Exchange: the heading and line most often used for that type.
@@ -237,7 +235,7 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
     }
     setBusy(true);
     try {
-      await saveTrxRows(s.db, rows, who, !holder, deletes);
+      await s.api.call('trx.save', { rows, deletes });
       remember('lastDate', f.date);
       if (!holder) remember('lastBook', f.type === 'Transfer' ? null : f.bookId);
       remember('lastAccount', f.accountId);
@@ -261,7 +259,11 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
     const ids = [editing.id, ...(partner ? [partner.id] : [])];
     if (editing.date && d.closed.has(editing.date.slice(0, 7))) return toast(t('الشهر مغلق — صحّح بقيد عكسي', 'Month closed — correct with a reversing entry'), true);
     if (!(await confirmBox(partner ? t('حذف سطري التحويل كليهما؟', 'Delete both rows of this transfer?') : t('حذف هذا السطر؟', 'Delete this row?'), true))) return;
-    await deleteTrxRows(s.db, ids, who);
+    try {
+      await s.api.call('trx.delete', { ids });
+    } catch (e) {
+      return toast(errText(e), true);
+    }
     await reload();
     toast(t('حُذف', 'Deleted'));
     onClose();
@@ -270,10 +272,9 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
   const addParty = can.manageLists(s.profile.role)
     ? async (name: string) => {
         try {
-          await addNamed(s.db, 'party', name, who);
-          const r = await one<{ id: number }>(s.db, 'SELECT id FROM party WHERE name = ?', [name]);
+          const id = await s.api.call('party.add', { name });
           await reload();
-          return r?.id ?? null;
+          return id;
         } catch (e) {
           toast(errText(e), true);
           return null;

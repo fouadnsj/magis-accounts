@@ -38,3 +38,47 @@ jobs:
         with:
           name: windows-setup
           path: src-tauri/target/release/bundle/nsis/*.exe
+
+  # The centre's server (mini-PC): server program + its own Node.js + the screens, in one installer.
+  server:
+    needs: windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:server
+      - name: Node.js for Windows (verified download)
+        shell: pwsh
+        run: |
+          $v = 'v22.20.0'
+          $zip = "node-$v-win-x64.zip"
+          Invoke-WebRequest "https://nodejs.org/dist/$v/$zip" -OutFile $zip
+          $sums = (Invoke-WebRequest "https://nodejs.org/dist/$v/SHASUMS256.txt").Content -split "`n"
+          $expected = (($sums | Where-Object { $_ -match " $zip$" }) -split '\s+')[0]
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) { throw "Node.js checksum mismatch" }
+          Expand-Archive $zip -DestinationPath nodezip
+          New-Item -ItemType Directory -Force server/windows/stage | Out-Null
+          Copy-Item "nodezip/node-$v-win-x64/node.exe" server/windows/stage/magis-node.exe
+          Copy-Item server-dist/server.mjs server/windows/stage/
+          Copy-Item -Recurse server-dist/web server/windows/stage/web
+      - name: Installer
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "/DVERSION=$ver" server/windows/installer.nsi
+      - name: Attach to the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: gh release upload "${{ github.ref_name }}" (Get-ChildItem server/windows/MAGIS-Server_*_setup.exe).FullName --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-setup
+          path: server/windows/MAGIS-Server_*_setup.exe

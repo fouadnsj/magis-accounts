@@ -80,7 +80,7 @@ function OfficeForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
   const go = async () => {
     setErr(null);
     if (!f.supName.trim() || !f.comName.trim()) return setErr(t('اكتب الاسمين', 'Write both names'));
-    if (f.supPin !== f.supPin2 || f.comPin !== f.comPin2) return setErr(t('الرمز وتأكيده مختلفان', 'PIN and confirmation differ'));
+    if (f.supPin !== f.supPin2 || f.comPin !== f.comPin2) return setErr(t('كلمة السر وتأكيدها مختلفان', 'Password and confirmation differ'));
     setBusy(true);
     try {
       let wbFile = null;
@@ -128,22 +128,22 @@ function OfficeForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
           <input value={f.supName} onChange={set('supName')} />
         </Field>
         <div className="grid2">
-          <Field label={t('رمزه', 'PIN')}><input type="password" inputMode="numeric" value={f.supPin} onChange={set('supPin')} /></Field>
-          <Field label={t('تأكيد', 'Again')}><input type="password" inputMode="numeric" value={f.supPin2} onChange={set('supPin2')} /></Field>
+          <Field label={t('كلمة السر', 'Password')}><input type="password" value={f.supPin} onChange={set('supPin')} /></Field>
+          <Field label={t('تأكيد', 'Again')}><input type="password" value={f.supPin2} onChange={set('supPin2')} /></Field>
         </div>
         <Field label={t('اسم المحاسب (بلا المانحين والتغطية)', 'Accountant — all except donors & coverage')}>
           <input value={f.comName} onChange={set('comName')} />
         </Field>
         <div className="grid2">
-          <Field label={t('رمزه', 'PIN')}><input type="password" inputMode="numeric" value={f.comPin} onChange={set('comPin')} /></Field>
-          <Field label={t('تأكيد', 'Again')}><input type="password" inputMode="numeric" value={f.comPin2} onChange={set('comPin2')} /></Field>
+          <Field label={t('كلمة السر', 'Password')}><input type="password" value={f.comPin} onChange={set('comPin')} /></Field>
+          <Field label={t('تأكيد', 'Again')}><input type="password" value={f.comPin2} onChange={set('comPin2')} /></Field>
         </div>
         <label className="row span2">
           <input type="checkbox" checked={fromWorkbook} onChange={(e) => setFromWorkbook(e.target.checked)} />
           {t('ابدأ من ملف Excel الحالي: القوائم والموازنة والسجل كله', 'Start from the current Excel workbook: lists, budget and the whole register')}
         </label>
       </div>
-      <p className="muted small">{t('الرمز من 4 إلى 8 أرقام.', 'PINs are 4 to 8 digits.')}</p>
+      <p className="muted small">{t('كلمة السر 6 أحرف أو أرقام على الأقل.', 'Passwords: at least 6 characters.')}</p>
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">
         <button className="btn" onClick={onBack}>{t('رجوع', 'Back')}</button>
@@ -206,7 +206,7 @@ function HolderForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
 
   const go = async () => {
     if (!pkg || bookId == null) return;
-    if (pin !== pin2) return setErr(t('الرمز وتأكيده مختلفان', 'PIN and confirmation differ'));
+    if (pin !== pin2) return setErr(t('كلمة السر وتأكيدها مختلفان', 'Password and confirmation differ'));
     setBusy(true);
     try {
       const book = books.find((b) => b.id === bookId)!;
@@ -226,7 +226,7 @@ function HolderForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
       <h2>{t('حاسوب أمين صندوق', "A cash holder's computer")}</h2>
       <ol className="muted">
         <li>{t('يرسل المكتب «حزمة القوائم» (ملف ‎.json).', 'The office sends the "lists package" (a .json file).')}</li>
-        <li>{t('اختر دفترك، واكتب رمزاً.', 'Choose your book and a PIN.')}</li>
+        <li>{t('اختر دفترك، واكتب كلمة سر.', 'Choose your book and a password.')}</li>
       </ol>
       <div className="row">
         <button className="btn" onClick={load}>{t('اختيار حزمة القوائم…', 'Choose lists package…')}</button>
@@ -246,8 +246,8 @@ function HolderForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
           </Field>
           <Field label={t('اسمي', 'My name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <div className="grid2">
-            <Field label={t('رمزي', 'PIN')}><input type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value)} /></Field>
-            <Field label={t('تأكيد', 'Again')}><input type="password" inputMode="numeric" value={pin2} onChange={(e) => setPin2(e.target.value)} /></Field>
+            <Field label={t('كلمة السر', 'Password')}><input type="password" value={pin} onChange={(e) => setPin(e.target.value)} /></Field>
+            <Field label={t('تأكيد', 'Again')}><input type="password" value={pin2} onChange={(e) => setPin2(e.target.value)} /></Field>
           </div>
         </div>
       )}

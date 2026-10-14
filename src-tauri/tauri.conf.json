@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MAGIS Accounts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "org.magis.accounts",
   "build": {
     "frontendDist": "../dist",
@@ -13,19 +13,34 @@
     "windows": [
       {
         "label": "main",
-        "title": "حسابات ماجيس · MAGIS Accounts",
+        "title": "\u062d\u0633\u0627\u0628\u0627\u062a \u0645\u0627\u062c\u064a\u0633 \u00b7 MAGIS Accounts",
         "width": 1320,
         "height": 860,
         "minWidth": 900,
         "minHeight": 600
       }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app", "msi", "nsis"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "macOS": { "minimumSystemVersion": "12.0" }
+    "targets": [
+      "dmg",
+      "app",
+      "msi",
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
   }
 }

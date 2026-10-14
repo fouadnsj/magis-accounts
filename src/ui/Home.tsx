@@ -8,9 +8,8 @@ import { fmtDate, fmtSyp, fmtUsd, t } from './kit';
 import { holderBalance } from './Cash';
 
 export function Home() {
-  const { s, d, myBook } = useApp();
+  const { d, myBook, holder, fileHolder } = useApp();
   const nav = useNav();
-  const holder = s.install === 'holder';
   const types: TrxType[] = holder ? ['Income', 'Exp', 'Exchange'] : ['Income', 'Exp', 'Transfer', 'Exchange'];
   const hint: Record<TrxType, string> = {
     Income: t('مال يدخل', 'money in'),
@@ -24,7 +23,7 @@ export function Home() {
   const toReview = d.rows.filter((r) => r.review).length;
   const noBook = syp[syp.length - 1].shouldHold !== 0 || usd[usd.length - 1].shouldHold !== 0;
   const last = d.rows.reduce<string | null>((m, r) => (r.date && (!m || r.date > m) ? r.date : m), null);
-  const unsent = holder ? d.rows.filter((r) => !r.sent_at).length : 0;
+  const unsent = fileHolder ? d.rows.filter((r) => !r.sent_at).length : 0;
 
   return (
     <>
@@ -77,8 +76,8 @@ export function Home() {
 }
 
 function HolderCards() {
-  const { d, myBook } = useApp();
-  const b = holderBalance(d, myBook!);
+  const { d, myBook, fileHolder } = useApp();
+  const b = holderBalance(d, myBook!, fileHolder);
   return (
     <div className="cards">
       <div className="card">

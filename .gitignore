@@ -6,3 +6,4 @@ src-tauri/gen
 .DS_Store
 # Stays on this Mac: it describes the register's real data
 REPRISE.md
+server-dist

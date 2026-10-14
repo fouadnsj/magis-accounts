@@ -71,3 +71,4 @@ export const httpApi: Api = {
 
 export const serverStatus = <T,>() => get<T>('/api/server/status');
 export const serverConfig = (c: Record<string, unknown>) => post('/api/server/config', c);
+export const serverRestoreUpload = (base64: string, fileName: string) => post('/api/server/restore-upload', { base64, fileName });

@@ -6,6 +6,8 @@ import type { AuditRow, BackupFile } from '../ops';
 import type { Role } from '../domain/types';
 import { Field, Modal, Select, Tabs, confirmBox, errText, t, toast } from './kit';
 import { ServerTab } from './ServerTab';
+import { serverRestoreUpload } from '../net';
+import { pickFile, toBase64 } from '../platform';
 
 type Tab = 'months' | 'backups' | 'profiles' | 'audit' | 'server';
 
@@ -110,11 +112,32 @@ function Backups() {
       toast(errText(e), true);
     }
   };
+  // Server only: replace the data by a .db file from this computer (desktop app file or a backup copy).
+  const fromFile = async () => {
+    const f = await pickFile(['db'], t('اختر ملف قاعدة البيانات', 'Choose the database file'));
+    if (!f) return;
+    if (!(await confirmBox(
+      t(`استبدال كل بيانات الخادم بالملف:\n${f.name}\n\nتُؤخذ نسخة من الحالية أولاً، ثم يخرج الجميع ويدخلون من جديد.`,
+        `Replace ALL the server's data with the file:\n${f.name}\n\nA copy of the current data is taken first; then everybody logs in again.`),
+      true,
+    ))) return;
+    try {
+      await serverRestoreUpload(toBase64(f.bytes), f.name);
+      window.location.reload();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   return (
     <div className="panel">
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
         <p className="muted small" style={{ margin: 0 }}>{t('نسخة كل يوم، ونسخة قبل كل استيراد أو استرجاع.', 'One copy every day, and one before every import or restore.')}</p>
-        <button className="btn primary" onClick={now}>{t('نسخة الآن', 'Back up now')}</button>
+        <div className="row">
+          {s.mode === 'server' && can.profiles(s.profile.role) && (
+            <button className="btn" onClick={fromFile}>{t('استرجاع من ملف…', 'Restore from a file…')}</button>
+          )}
+          <button className="btn primary" onClick={now}>{t('نسخة الآن', 'Back up now')}</button>
+        </div>
       </div>
       <table className="t">
         <thead><tr><th>{t('الملف', 'File')}</th><th>{t('التاريخ', 'Date')}</th><th className="n">KB</th><th /></tr></thead>

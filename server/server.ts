@@ -29,7 +29,7 @@ import { createOffice } from '../src/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 
-export const SERVER_VERSION = '0.2.0';
+export const SERVER_VERSION = '0.2.1';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -192,7 +192,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   };
   const files: FileOps = {
     async backupNow(reason) {
-      const dest = path.join(backupsDir, `magis_${stamp()}_${reason.replace(/[^\w-]/g, '')}.db`);
+      // two copies in the same second get -2, -3… instead of failing
+      const base = `magis_${stamp()}_${reason.replace(/[^\w-]/g, '')}`;
+      let dest = path.join(backupsDir, `${base}.db`);
+      for (let i = 2; fs.existsSync(dest); i++) dest = path.join(backupsDir, `${base}-${i}.db`);
       await handle.db.query('VACUUM INTO ?', [dest]);
       if (config.backupMirror) {
         try {
@@ -327,6 +330,38 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
   const secure = () => config.httpsPort > 0;
 
+  /**
+   * Replaces the database by an uploaded office database (from the desktop app,
+   * or a backup copy). Checked in a temporary file first: it must open, must be
+   * an office database (not a holder's), and must have at least one user.
+   */
+  const replaceDatabase = async (base64: string) => {
+    const tmp = path.join(dataDir, `upload-${Date.now()}.db`);
+    fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
+    try {
+      const test = openDb(tmp);
+      try {
+        await migrate(test.db);
+        const install = await getMeta(test.db, 'install');
+        const users = await one<{ c: number }>(test.db, 'SELECT COUNT(*) AS c FROM profile WHERE active = 1');
+        if (install === 'holder') throw new HttpError(400, { ar: 'هذا ملف أمين صندوق، لا ملف المكتب', en: "This is a holder's file, not the office database" });
+        if (!users?.c) throw new HttpError(400, { ar: 'لا مستخدمين في هذا الملف', en: 'No users in this file' });
+      } finally {
+        test.close();
+      }
+    } catch (e) {
+      fs.rmSync(tmp, { force: true });
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(400, { ar: 'ليس ملف قاعدة بيانات صالحاً', en: 'Not a valid database file' });
+    }
+    handle.close();
+    fs.copyFileSync(tmp, dbFile);
+    fs.rmSync(tmp, { force: true });
+    handle = openDb(dbFile);
+    await migrate(handle.db);
+    version++;
+  };
+
   // ---------------------------------------------------------------- API
   const api = async (req: http.IncomingMessage, res: http.ServerResponse, url: string, viaHttps: boolean) => {
     const method = req.method ?? 'GET';
@@ -353,28 +388,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         return send(res, 200, { ok: true, report });
       }
       if (url === '/api/setup/upload-db') {
-        // A database made by the desktop app: checked in a temporary file before replacing.
-        const tmp = path.join(dataDir, `upload-${Date.now()}.db`);
-        fs.writeFileSync(tmp, Buffer.from(body.base64 ?? '', 'base64'));
-        try {
-          const test = openDb(tmp);
-          await migrate(test.db);
-          const install = await getMeta(test.db, 'install');
-          const users = await one<{ c: number }>(test.db, 'SELECT COUNT(*) AS c FROM profile WHERE active = 1');
-          test.close();
-          if (install === 'holder') throw new HttpError(400, { ar: 'هذا ملف أمين صندوق، لا ملف المكتب', en: "This is a holder's file, not the office database" });
-          if (!users?.c) throw new HttpError(400, { ar: 'لا مستخدمين في هذا الملف', en: 'No users in this file' });
-        } catch (e) {
-          fs.rmSync(tmp, { force: true });
-          if (e instanceof HttpError) throw e;
-          throw new HttpError(400, { ar: 'ليس ملف قاعدة بيانات صالحاً', en: 'Not a valid database file' });
-        }
-        handle.close();
-        fs.copyFileSync(tmp, dbFile);
-        fs.rmSync(tmp, { force: true });
-        handle = openDb(dbFile);
-        await migrate(handle.db);
-        version++;
+        await replaceDatabase(body.base64 ?? '');
         log('setup: database uploaded from the desktop app');
         return send(res, 200, { ok: true });
       }
@@ -437,6 +451,15 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         users: [...new Set([...sessions.values()].filter((x) => Date.now() - x.last < 15 * 60e3).map((x) => x.profile.name))],
         startedAt,
       });
+    }
+    if (url === '/api/server/restore-upload' && method === 'POST') {
+      if (s.profile.role !== 'sup') throw new HttpError(403, { ar: 'للرئيس فقط', en: 'Superior only' });
+      const body = (await readBody(req)) as { base64?: string; fileName?: string };
+      await files.backupNow('before-restore');
+      await replaceDatabase(body.base64 ?? '');
+      sessions.clear(); // the restored file may hold other users: everybody logs in again
+      log(`restored from uploaded file ${body.fileName ?? ''} by ${s.profile.name}`);
+      return send(res, 200, { ok: true });
     }
     if (url === '/api/server/config' && method === 'POST') {
       if (s.profile.role !== 'sup') throw new HttpError(403, { ar: 'للرئيس فقط', en: 'Superior only' });

@@ -163,15 +163,6 @@ describe('server: backups', () => {
   });
 });
 
-describe('server: too many wrong passwords', () => {
-  it('blocks the address for 5 minutes after 8 failures', async () => {
-    const ps = (await call('/api/profiles')).body as { id: number }[];
-    let last = 0;
-    for (let i = 0; i < 9; i++) last = (await call('/api/login', { profileId: ps[0].id, password: 'wrong' })).status;
-    expect(last).toBe(429);
-  });
-});
-
 describe('server: moving the desktop database in', () => {
   it('takes the office .db made by the desktop app, with its users; refuses a holder file', async () => {
     const { nodeDb } = await import('./nodeDb');
@@ -199,5 +190,39 @@ describe('server: moving the desktop database in', () => {
       fs.rmSync(dir2, { recursive: true, force: true });
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+describe('server: restore from an uploaded file (Superior only)', () => {
+  it('replaces the data after a safety copy; the accountant may not', async () => {
+    const { nodeDb } = await import('./nodeDb');
+    const { createOffice } = await import('../src/setup');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-rs-'));
+    const file = path.join(tmp, 'other.db');
+    await createOffice(nodeDb(file), { organisation: 'Restored', supName: 'S2', supPin: 'sup2-pass', comName: 'C2', comPin: 'com2-pass' });
+    const body = { base64: fs.readFileSync(file).toString('base64'), fileName: 'other.db' };
+
+    const com = await loginAs('Comptable', 'com-secret');
+    expect((await call('/api/server/restore-upload', body, com)).status).toBe(403);
+
+    const sup = await loginAs('Fouad', 'sup-secret');
+    const before = ((await op('backup.list', {}, sup)).body as { name: string }[]).length;
+    expect((await call('/api/server/restore-upload', { base64: 'bm90IGEgZGF0YWJhc2U=', fileName: 'x.db' }, sup)).status).toBe(400);
+    expect((await call('/api/server/restore-upload', body, sup)).status).toBe(200);
+    expect((await call('/api/hello')).body.organisation).toBe('Restored');
+    expect((await call('/api/op/data', {}, sup)).status).toBe(401); // everybody logs in again
+    const sup2 = await loginAs('S2', 'sup2-pass');
+    expect(((await op('backup.list', {}, sup2)).body as { name: string }[]).length).toBeGreaterThan(before); // safety copies kept
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+});
+
+// Last: it blocks this computer's address for 5 minutes.
+describe('server: too many wrong passwords', () => {
+  it('blocks the address for 5 minutes after 8 failures', async () => {
+    const ps = (await call('/api/profiles')).body as { id: number }[];
+    let last = 0;
+    for (let i = 0; i < 9; i++) last = (await call('/api/login', { profileId: ps[0].id, password: 'wrong' })).status;
+    expect(last).toBe(429);
   });
 });

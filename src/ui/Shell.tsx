@@ -4,7 +4,7 @@ import type { Trx, TrxType } from '../domain/types';
 import { getLang } from '../i18n';
 import type { Perm } from '../perms';
 import { t } from './kit';
-import { centreStyle } from '../brand';
+import { brandStyle } from '../brand';
 import { Home } from './Home';
 import { EntryForm } from './EntryForm';
 import { Register } from './Register';
@@ -52,7 +52,7 @@ export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onTo
     </button>
   );
 
-  const st = centreStyle(s.centre);
+  const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
   const theme = { '--brand': st.deep, '--brand-2': st.deep, '--centre': st.color } as React.CSSProperties;
 
   return (

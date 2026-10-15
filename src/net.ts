@@ -9,6 +9,8 @@ export interface DbInfo {
   slug: string;
   organisation: string;
   centre: string;
+  color?: string | null;
+  logo?: string | null;
   setupNeeded: boolean;
 }
 
@@ -68,7 +70,8 @@ export const serverProfiles = (db: string) => get<{ id: number; name: string; ro
 export const serverLogin = (db: string, profileId: number, password: string) =>
   post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { db, profileId, password });
 
-export const serverCreateDb = (organisation: string, centre: string) => post<{ slug: string }>('/api/dbs/create', { organisation, centre });
+export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null) =>
+  post<{ slug: string }>('/api/dbs/create', { organisation, centre, color, logo });
 export const serverSetup = <T,>(kind: 'new' | 'upload-db', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
 
 export const serverLogout = () => post('/api/logout', {}).catch(() => undefined);

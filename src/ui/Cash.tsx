@@ -1,8 +1,10 @@
 // Holders sheet: what each holder should hold, the note-by-note count, the difference.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, type Data } from '../state';
-import { holders, type HolderLine } from '../domain/reports';
-import { Field, Modal, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
+import { holders, holdersMonth, monthsOf, type HolderLine, type HolderMonthLine } from '../domain/reports';
+import { MONTHS_AR, MONTHS_EN } from '../domain/types';
+import { getLang } from '../i18n';
+import { Field, Modal, Seg, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 
 const NOTES = { SYP: [10000, 5000, 2000, 1000, 500, 200, 100, 50], USD: [100, 50, 20, 10, 5, 2, 1] };
 
@@ -26,6 +28,11 @@ export function Cash() {
   const [myBook, setMyBook] = useState<number | null>(myBooks[0] ?? null);
   const [counts, setCounts] = useState<Counts>({});
   const [counting, setCounting] = useState<number | null>(null);
+  const months = monthsOf(d.rows);
+  const [view, setView] = useState<CashView>('total');
+  const [ym, setYm] = useState(months[months.length - 1] ?? todayIso().slice(0, 7));
+  const bookChoices = d.lists.books.filter((b) => b.active || d.rows.some((r) => r.book_id === b.id)).map((b) => ({ id: b.id, name: b.name }));
+  const [bookSel, setBookSel] = useState<number | null>(bookChoices.find((b) => !d.lists.books.find((x) => x.id === b.id)?.is_main)?.id ?? bookChoices[0]?.id ?? null);
 
   const loadCounts = useCallback(async () => {
     const rows = await s.api.call('cash.counts');
@@ -100,15 +107,23 @@ export function Cash() {
 
   return (
     <>
-      <div className="page-head"><h1>{t('النقد · وضع الصناديق', "Cash · holders' position")}</h1></div>
-      <div className="panel">
-        <h2>{t('ليرة سورية', 'Syrian pounds')}</h2>
-        {table(syp, 'SYP')}
+      <div className="page-head">
+        <h1>{t('النقد · وضع الصناديق', "Cash · holders' position")}</h1>
+        <CashViewPicker view={view} setView={setView} ym={ym} setYm={setYm} months={months} book={bookSel} setBook={setBookSel} books={bookChoices} />
       </div>
-      <div className="panel">
-        <h2>{t('دولار', 'Dollars')}</h2>
-        {table(usd, 'USD')}
-      </div>
+      {view === 'total' && (
+        <>
+          <CurrencyFrame cur="SYP">{table(syp, 'SYP')}</CurrencyFrame>
+          <CurrencyFrame cur="USD">{table(usd, 'USD')}</CurrencyFrame>
+        </>
+      )}
+      {view === 'month' && (
+        <>
+          <CurrencyFrame cur="SYP"><MonthTable lines={holdersMonth(d.rows, d.lists.books, 'SYP', ym)} cur="SYP" /></CurrencyFrame>
+          <CurrencyFrame cur="USD"><MonthTable lines={holdersMonth(d.rows, d.lists.books, 'USD', ym)} cur="USD" /></CurrencyFrame>
+        </>
+      )}
+      {view === 'book' && bookSel != null && <BookMonths bookId={bookSel} />}
       <p className="muted small">
         {t('التحويلات يجب أن يكون مجموعها صفراً: ما خرج من الرئيسي وصل إلى دفتر. التصريف يُحسب للحامل فقط، ليس إيراداً ولا نفقة.',
           "Transfers must total nil: whatever left Main arrived in someone's book. An exchange counts for the holder only — it is neither income nor expense.")}
@@ -116,6 +131,117 @@ export function Cash() {
       {counting != null && <CountModal bookId={counting} counts={counts} onClose={() => setCounting(null)} onSaved={loadCounts} />}
     </>
   );
+}
+
+// ---------------------------------------------------------------- views: total, one month, one book month by month
+
+export type CashView = 'total' | 'month' | 'book';
+
+function CashViewPicker({ view, setView, ym, setYm, months, book, setBook, books }: {
+  view: CashView; setView: (v: CashView) => void; ym: string; setYm: (m: string) => void; months: string[];
+  book: number | null; setBook: (b: number) => void; books: { id: number; name: string }[];
+}) {
+  return (
+    <div className="row">
+      <Seg<CashView> value={view} onChange={setView} options={[
+        { value: 'total', label: t('المجموع', 'Total') },
+        { value: 'month', label: t('شهر', 'One month') },
+        ...(books.length ? [{ value: 'book' as CashView, label: t('شهراً بشهر', 'Month by month') }] : []),
+      ]} />
+      {view === 'month' && (
+        <select className="inp" style={{ width: 'auto' }} value={ym} onChange={(e) => setYm(e.target.value)}>
+          {[...months].reverse().map((x) => <option key={x} value={x}>{monthLabel(x)}</option>)}
+        </select>
+      )}
+      {view === 'book' && books.length > 1 && (
+        <select className="inp" style={{ width: 'auto' }} value={book ?? ''} onChange={(e) => setBook(Number(e.target.value))}>
+          {books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
+const monthLabel = (ym: string) => {
+  const m = Number(ym.slice(5, 7)) - 1;
+  return getLang() === 'en' ? `${MONTHS_EN[m]} ${ym.slice(0, 4)}` : `${MONTHS_AR[m]} · ${MONTHS_EN[m]} ${ym.slice(0, 4)}`;
+};
+
+/** One frame per currency, so pounds and dollars are never mixed. */
+export function CurrencyFrame({ cur, children, extra }: { cur: 'SYP' | 'USD'; children: React.ReactNode; extra?: React.ReactNode }) {
+  return (
+    <div className={`panel cur-frame ${cur}`}>
+      <div className="cur-head">
+        <span className="cur-chip">{cur}</span>
+        <h2>{cur === 'SYP' ? t('ليرة سورية', 'Syrian pounds') : t('دولار أمريكي', 'US dollars')}</h2>
+        {extra}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function MonthTable({ lines, cur }: { lines: HolderMonthLine[]; cur: 'SYP' | 'USD' }) {
+  const f = cur === 'SYP' ? fmtSyp : fmtUsd;
+  const visible = lines.filter((l) => l.book && (l.start || l.income || l.expenses || l.transfers || l.exchange || l.end));
+  const sum = (k: keyof HolderMonthLine) => visible.reduce((a, l) => a + (l[k] as number), 0);
+  return (
+    <div className="tbl-wrap">
+      <table className="t">
+        <thead><tr>
+          <th>{t('الصندوق', 'Holder')}</th><th className="n">{t('في أول الشهر', 'At the start')}</th><th className="n">＋ {t('إيرادات', 'Income')}</th>
+          <th className="n">− {t('نفقات', 'Expenses')}</th><th className="n">± {t('تحويلات', 'Transfers')}</th><th className="n">± {t('تصريف', 'Exchange')}</th>
+          <th className="n">= {t('في آخر الشهر', 'At the end')}</th>
+        </tr></thead>
+        <tbody>
+          {visible.map((l) => (
+            <tr key={l.book!.id}>
+              <td>{l.book!.name}</td><td className="n">{f(l.start)}</td><td className="n">{f(l.income)}</td><td className="n">{f(l.expenses)}</td>
+              <td className="n">{f(l.transfers)}</td><td className="n">{f(l.exchange)}</td><td className="n"><b>{f(l.end)}</b></td>
+            </tr>
+          ))}
+          <tr className="total"><td>{t('المجموع', 'Total')}</td><td className="n">{f(sum('start'))}</td><td className="n">{f(sum('income'))}</td><td className="n">{f(sum('expenses'))}</td>
+            <td className="n">{f(sum('transfers'))}</td><td className="n">{f(sum('exchange'))}</td><td className="n">{f(sum('end'))}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** One book, month by month: each month starts where the previous one ended. */
+export function BookMonths({ bookId }: { bookId: number }) {
+  const { d } = useApp();
+  const book = d.lists.books.find((b) => b.id === bookId);
+  const months = monthsOf(d.rows.filter((r) => r.book_id === bookId || (book?.is_main && r.type === 'Transfer')));
+  if (!book) return null;
+  const one = (cur: 'SYP' | 'USD') => months.map((ym) => ({ ym, ...holdersMonth(d.rows, [book], cur, ym)[0] }));
+  const block = (cur: 'SYP' | 'USD') => {
+    const f = cur === 'SYP' ? fmtSyp : fmtUsd;
+    const ls = one(cur);
+    return (
+      <CurrencyFrame cur={cur} extra={<span className="muted small">· {book.name}</span>}>
+        <div className="tbl-wrap">
+          <table className="t">
+            <thead><tr>
+              <th>{t('الشهر', 'Month')}</th><th className="n">{t('في أول الشهر', 'At the start')}</th><th className="n">＋ {t('إيرادات', 'Income')}</th>
+              <th className="n">− {t('نفقات', 'Expenses')}</th><th className="n">± {t('تحويلات', 'Transfers')}</th><th className="n">± {t('تصريف', 'Exchange')}</th>
+              <th className="n">= {t('في آخر الشهر', 'At the end')}</th>
+            </tr></thead>
+            <tbody>
+              {[...ls].reverse().map((l) => (
+                <tr key={l.ym}>
+                  <td className="nowrap">{monthLabel(l.ym)}{d.bookClosed.has(`${bookId}|${l.ym}`) ? ' 🔒' : ''}</td>
+                  <td className="n">{f(l.start)}</td><td className="n">{f(l.income)}</td><td className="n">{f(l.expenses)}</td>
+                  <td className="n">{f(l.transfers)}</td><td className="n">{f(l.exchange)}</td><td className="n"><b>{f(l.end)}</b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CurrencyFrame>
+    );
+  };
+  return <>{block('SYP')}{block('USD')}</>;
 }
 
 function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; counts: Counts; onClose: () => void; onSaved: () => Promise<void> }) {
@@ -267,6 +393,12 @@ function HolderCash({ bookId: myBook, switchTo, counted, counts, counting, setCo
         </div>
       </div>}
 
+      {!fileHolder && (
+        <>
+          <h2 style={{ marginTop: 8 }}>{t('شهراً بشهر', 'Month by month')}</h2>
+          <BookMonths bookId={myBook} />
+        </>
+      )}
       {adding && <ReceiptModal onClose={() => setAdding(false)} />}
       {counting != null && <CountModal bookId={counting} counts={counts} onClose={() => setCounting(null)} onSaved={reloadCounts} />}
     </>

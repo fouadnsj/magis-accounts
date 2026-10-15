@@ -1,7 +1,7 @@
 // Automatic backups, next to the database in a "backups" folder:
 // one copy per day when the app opens, and one before every import or restore.
 import { invoke } from '@tauri-apps/api/core';
-import { baseName, dirName, isDesktop } from '../platform';
+import { baseName, dirName, isDesktop, toBase64 } from '../platform';
 
 const KEEP_DAILY = 60;
 
@@ -53,13 +53,26 @@ export async function restoreBackup(dbPath: string, from: string): Promise<void>
   await invoke('db_restore', { from, safetyCopy: safety });
 }
 
-/** The desktop app's way of making backups, as the operations expect it. */
+/** The desktop app's way of making backups and keeping documents, as the operations expect it. */
 export function desktopFiles(dbPath: string | null): import('../ops').FileOps {
-  if (!dbPath || !isDesktop())
-    return { backupNow: async () => null, list: async () => [], restore: async () => undefined };
+  if (!dbPath || !isDesktop()) {
+    // browser preview: documents live in memory only
+    const mem = new Map<string, Uint8Array>();
+    return {
+      backupNow: async () => null, list: async () => [], restore: async () => undefined,
+      docWrite: async (rel, bytes) => void mem.set(rel, bytes),
+      docRead: async (rel) => mem.get(rel) ?? new Uint8Array(),
+      docExists: async (rel) => mem.has(rel),
+    };
+  }
+  // Documents in a folder next to the database: <name>-attachments/<year>/<Bill_Code>.pdf
+  const docs = `${dirName(dbPath)}/${baseName(dbPath).replace(/\.db$/i, '')}-attachments`;
   return {
     backupNow: (reason) => backupNow(dbPath, reason),
     list: () => listBackups(dbPath),
     restore: (path) => restoreBackup(dbPath, path),
+    docWrite: (rel, bytes) => invoke('file_write_b64', { path: `${docs}/${rel}`, data: toBase64(bytes) }),
+    docRead: async (rel) => new Uint8Array(await invoke<ArrayBuffer>('file_read', { path: `${docs}/${rel}` })),
+    docExists: (rel) => invoke<boolean>('file_exists', { path: `${docs}/${rel}` }),
   };
 }

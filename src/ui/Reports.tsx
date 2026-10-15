@@ -4,7 +4,9 @@ import { coverage, exchangeLog, monthly, projectFunds, summary, inPeriod, type P
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
 import type { Perm } from '../perms';
-import { Tabs, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t } from './kit';
+import { Seg, Tabs, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t } from './kit';
+import { BarList, EXPENSE, INCOME, MonthColumns } from './Charts';
+import { CurrencyFrame } from './Cash';
 
 type Tab = 'summary' | 'monthly' | 'accounts' | 'coverage' | 'funds' | 'exchange';
 
@@ -75,64 +77,189 @@ function Card({ k, v, sub }: { k: string; v: string; sub?: string }) {
   );
 }
 
+type Measure = 'eq' | 'SYP' | 'USD';
+
+/** The dashboard: the figures of the period in three separate frames (pounds, dollars,
+ *  all in dollars), the top lines, and charts — expenses by heading (click to see its
+ *  lines), income by line, and the months. */
 function SummaryTab({ p }: { p: Period }) {
   const { d } = useApp();
+  const names = useNames();
   const s = summary(d.rows, d.comp, d.lists, p);
   const undated = d.rows.filter((r) => !r.date).length;
+  const [measure, setMeasure] = useState<Measure>('eq');
+  const [heading, setHeading] = useState<number | null>(null);
+  const rs = useMemo(() => d.rows.filter((r) => inPeriod(r, p)), [d.rows, p]);
+
+  const fmtM = measure === 'SYP' ? fmtSyp : fmtUsd;
+  const unit = measure === 'SYP' ? 'SYP' : measure === 'USD' ? 'USD' : 'USD-eq';
+  const inc = (r: (typeof rs)[number]) => (measure === 'SYP' ? r.inc_syp : measure === 'USD' ? r.inc_usd : d.comp.get(r.id)!.incUsdTot);
+  const exp = (r: (typeof rs)[number]) => (measure === 'SYP' ? r.exp_syp : measure === 'USD' ? r.exp_usd : d.comp.get(r.id)!.expUsdTot);
+
+  const sumBy = (pick: (r: (typeof rs)[number]) => boolean, key: (r: (typeof rs)[number]) => number | null, val: (r: (typeof rs)[number]) => number, label: (k: number) => string) => {
+    const m = new Map<number, number>();
+    for (const r of rs) {
+      if (!pick(r)) continue;
+      const k = key(r);
+      if (k == null) continue;
+      m.set(k, (m.get(k) ?? 0) + val(r));
+    }
+    return [...m.entries()].map(([k, v]) => ({ key: k, label: label(k), value: v }));
+  };
+  const byHeading = sumBy((r) => r.type === 'Exp', (r) => r.heading_id, exp, (k) => names.heading(k));
+  const linesOf = heading == null ? [] : sumBy((r) => r.type === 'Exp' && r.heading_id === heading, (r) => r.line_id, exp, (k) => names.line(k));
+  const byIncomeLine = sumBy((r) => r.type === 'Income', (r) => r.line_id, inc, (k) => names.line(k));
+
+  const monthsInPeriod = useMemo(() => {
+    const out: string[] = [];
+    let [y, m] = p.from.split('-').map(Number);
+    const [ty, tm] = p.to.split('-').map(Number);
+    while (y < ty || (y === ty && m <= tm)) {
+      out.push(`${y}-${String(m).padStart(2, '0')}`);
+      m++;
+      if (m > 12) { m = 1; y++; }
+      if (out.length > 60) break;
+    }
+    return out;
+  }, [p]);
+  const cols = monthsInPeriod.map((ym) => {
+    const mr = rs.filter((r) => r.date?.startsWith(ym));
+    return {
+      label: `${MONTHS_EN[Number(ym.slice(5, 7)) - 1].slice(0, 3)}${monthsInPeriod.length > 12 ? ' ' + ym.slice(2, 4) : ''}`,
+      income: mr.filter((r) => r.type === 'Income').reduce((a, r) => a + inc(r), 0),
+      expense: mr.filter((r) => r.type === 'Exp').reduce((a, r) => a + exp(r), 0),
+    };
+  });
+  const headingTotal = byHeading.find((b) => b.key === heading)?.value ?? 0;
+
+  const Fig = ({ k, v, f, strong }: { k: string; v: number; f: (n: number) => string; strong?: boolean }) => (
+    <div className={`fig ${v < 0 ? 'neg' : ''} ${strong ? 'strong' : ''}`}><span>{k}</span><b>{f(v)}</b></div>
+  );
+
   return (
     <>
-      <div className="cards">
-        <Card k={t('إيراد ل.س', 'Income SYP')} v={fmtSyp(s.incSyp)} />
-        <Card k={t('نفقة ل.س', 'Expense SYP')} v={fmtSyp(s.expSyp)} />
-        <Card k={t('الصافي ل.س', 'Net SYP')} v={fmtSyp(s.incSyp - s.expSyp)} />
-        <Card k={t('إيراد $', 'Income USD')} v={fmtUsd(s.incUsd)} />
-        <Card k={t('نفقة $', 'Expense USD')} v={fmtUsd(s.expUsd)} />
-        <Card k={t('الصافي $', 'Net USD')} v={fmtUsd(s.incUsd - s.expUsd)} />
-        <Card k={t('إيراد إجمالي $', 'Income USD-eq')} v={fmtUsd(s.incEq)} />
-        <Card k={t('نفقة إجمالية $', 'Expense USD-eq')} v={fmtUsd(s.expEq)} />
-        <Card k={t('الصافي الإجمالي $', 'Net USD-eq')} v={fmtUsd(s.incEq - s.expEq)} />
+      <div className="dash-frames">
+        <div className="panel dash-frame SYP">
+          <div className="cur-head"><span className="cur-chip">SYP</span><h3>{t('ليرة سورية', 'Syrian pounds')}</h3></div>
+          <Fig k={t('إيرادات', 'Income')} v={s.incSyp} f={fmtSyp} />
+          <Fig k={t('نفقات', 'Expenses')} v={s.expSyp} f={fmtSyp} />
+          <Fig k={t('الصافي', 'Net')} v={s.incSyp - s.expSyp} f={fmtSyp} strong />
+        </div>
+        <div className="panel dash-frame USD">
+          <div className="cur-head"><span className="cur-chip">USD</span><h3>{t('دولار', 'US dollars')}</h3></div>
+          <Fig k={t('إيرادات', 'Income')} v={s.incUsd} f={fmtUsd} />
+          <Fig k={t('نفقات', 'Expenses')} v={s.expUsd} f={fmtUsd} />
+          <Fig k={t('الصافي', 'Net')} v={s.incUsd - s.expUsd} f={fmtUsd} strong />
+        </div>
+        <div className="panel dash-frame EQ">
+          <div className="cur-head"><span className="cur-chip">USD-eq</span><h3>{t('الكل بالدولار', 'All, in dollars')}</h3></div>
+          <Fig k={t('إيرادات', 'Income')} v={s.incEq} f={fmtUsd} />
+          <Fig k={t('نفقات', 'Expenses')} v={s.expEq} f={fmtUsd} />
+          <Fig k={t('الصافي', 'Net')} v={s.incEq - s.expEq} f={fmtUsd} strong />
+          <div className="muted small" style={{ marginTop: 6 }}>{t('الليرات محوّلة بسعر التصريف لكل سطر', 'Pounds converted at each row\'s exchange rate')}</div>
+        </div>
+      </div>
+
+      <div className="cards" style={{ marginBottom: 16 }}>
+        {s.topHeading && <Card k={t('أعلى بند نفقات (بالدولار)', 'Top expense heading (USD-eq)')} v={fmtUsd(s.topHeading.amount)} sub={s.topHeading.name} />}
+        {s.topIncomeLine && <Card k={t('أعلى خط إيرادات (بالدولار)', 'Top income line (USD-eq)')} v={fmtUsd(s.topIncomeLine.amount)} sub={s.topIncomeLine.name} />}
         <Card k={t('عدد الحركات', 'Rows')} v={String(s.count)} />
-        <Card k={t('نسبة النفقات', 'Expense / income')} v={s.incEq ? fmtPct(s.expEq / s.incEq) : '-'} />
+        <Card k={t('نسبة النفقات إلى الإيرادات', 'Expenses / income')} v={s.incEq ? fmtPct(s.expEq / s.incEq) : '-'} />
         <Card k={t('بلا خط موازنة', 'No budget line')} v={String(s.noLine)} />
       </div>
-      <div className="grid2" style={{ marginTop: 14 }}>
-        {s.topHeading && <Card k={t('أعلى بند نفقات', 'Top expense heading')} v={fmtUsd(s.topHeading.amount)} sub={s.topHeading.name} />}
-        {s.topIncomeLine && <Card k={t('أعلى خط إيرادات', 'Top income line')} v={fmtUsd(s.topIncomeLine.amount)} sub={s.topIncomeLine.name} />}
+
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>{t('الرسوم', 'Charts')}</h2>
+        <Seg<Measure> value={measure} onChange={setMeasure} options={[
+          { value: 'eq', label: t('الكل بالدولار', 'All in USD') },
+          { value: 'SYP', label: t('ليرة فقط', 'SYP only') },
+          { value: 'USD', label: t('دولار فقط', 'USD only') },
+        ]} />
+      </div>
+
+      <div className="grid2 dash-charts">
+        <div className="panel">
+          {heading == null ? (
+            <>
+              <h3>{t('النفقات حسب البند', 'Expenses by heading')} <span className="muted small">· {unit} · {t('اضغط على بند لترى خطوطه', 'click a heading to see its lines')}</span></h3>
+              <BarList bars={byHeading} color={EXPENSE} fmt={fmtM} unit={unit} onPick={(b) => setHeading(Number(b.key))} empty={t('لا نفقات في هذه الفترة', 'No expenses in this period')} />
+            </>
+          ) : (
+            <>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <h3 style={{ margin: 0 }}>{names.heading(heading)} <span className="muted small">· {fmtM(headingTotal)} {unit} · {linesOf.length} {t('خطوط', 'lines')}</span></h3>
+                <button className="btn small" onClick={() => setHeading(null)}>← {t('كل البنود', 'All headings')}</button>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <BarList bars={linesOf} color={EXPENSE} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
+              </div>
+            </>
+          )}
+        </div>
+        <div className="panel">
+          <h3>{t('الإيرادات حسب الخط', 'Income by line')} <span className="muted small">· {unit}</span></h3>
+          <BarList bars={byIncomeLine} color={INCOME} fmt={fmtM} unit={unit} empty={t('لا إيرادات في هذه الفترة', 'No income in this period')} />
+        </div>
+      </div>
+
+      <div className="panel">
+        <h3>{t('شهراً بشهر', 'Month by month')} <span className="muted small">· {unit}</span></h3>
+        <MonthColumns months={cols} fmt={(n) => (measure === 'SYP' ? fmtSyp(n) : Math.round(n).toLocaleString('en-US'))} unit={unit} />
       </div>
       {undated > 0 && <p className="warn small">{t(`${undated} سطراً بلا تاريخ غير محسوبة في أي فترة`, `${undated} undated rows are not counted in any period`)}</p>}
     </>
   );
 }
 
+/** Monthly: pounds, dollars and the dollar equivalent in three separate tables. */
 function MonthlyTab({ year }: { year: number }) {
   const { d } = useApp();
   const ls = monthly(d.rows, d.comp, year);
+  const sum = (f: (l: (typeof ls)[number]) => number) => ls.reduce((a, l) => a + f(l), 0);
+  const block = (cur: 'SYP' | 'USD') => {
+    const f = cur === 'SYP' ? fmtSyp : fmtUsd;
+    const inc = (l: (typeof ls)[number]) => (cur === 'SYP' ? l.incSyp : l.incUsd);
+    const exp = (l: (typeof ls)[number]) => (cur === 'SYP' ? l.expSyp : l.expUsd);
+    const cum = (l: (typeof ls)[number]) => (cur === 'SYP' ? l.cumSyp : l.cumUsd);
+    return (
+      <CurrencyFrame cur={cur}>
+        <div className="tbl-wrap">
+          <table className="t">
+            <thead><tr><th>{t('الشهر', 'Month')}</th><th className="n">{t('إيرادات', 'Income')}</th><th className="n">{t('نفقات', 'Expenses')}</th><th className="n">{t('الصافي', 'Net')}</th><th className="n">{t('التراكمي', 'Cumulative')}</th></tr></thead>
+            <tbody>
+              {ls.map((l) => (
+                <tr key={l.ym} className={l.count ? '' : 'off'}>
+                  <td>{monthName(l.ym)}</td><td className="n">{f(inc(l))}</td><td className="n">{f(exp(l))}</td><td className="n">{f(inc(l) - exp(l))}</td><td className="n">{f(cum(l))}</td>
+                </tr>
+              ))}
+              <tr className="total"><td>{year}</td><td className="n">{f(sum(inc))}</td><td className="n">{f(sum(exp))}</td><td className="n">{f(sum(inc) - sum(exp))}</td><td /></tr>
+            </tbody>
+          </table>
+        </div>
+      </CurrencyFrame>
+    );
+  };
   return (
-    <div className="tbl-wrap">
-      <table className="t">
-        <thead><tr>
-          <th>{t('الشهر', 'Month')}</th><th className="n">Inc SYP</th><th className="n">Exp SYP</th><th className="n">Net SYP</th><th className="n">{t('التراكمي', 'Cumul.')} SYP</th>
-          <th className="n">Inc USD</th><th className="n">Exp USD</th><th className="n">Net USD</th><th className="n">{t('التراكمي', 'Cumul.')} USD</th><th className="n">{t('العدد', 'Count')}</th>
-          <th className="n">Inc USD-eq</th><th className="n">Exp USD-eq</th>
-        </tr></thead>
-        <tbody>
-          {ls.map((l) => (
-            <tr key={l.ym} className={l.count ? '' : 'off'}>
-              <td>{monthName(l.ym)}</td><td className="n">{fmtSyp(l.incSyp)}</td><td className="n">{fmtSyp(l.expSyp)}</td><td className="n">{fmtSyp(l.incSyp - l.expSyp)}</td><td className="n">{fmtSyp(l.cumSyp)}</td>
-              <td className="n">{fmtUsd(l.incUsd)}</td><td className="n">{fmtUsd(l.expUsd)}</td><td className="n">{fmtUsd(l.incUsd - l.expUsd)}</td><td className="n">{fmtUsd(l.cumUsd)}</td>
-              <td className="n">{l.count}</td><td className="n">{fmtUsd(l.incEq)}</td><td className="n">{fmtUsd(l.expEq)}</td>
-            </tr>
-          ))}
-          <tr className="total">
-            <td>{year}</td>
-            <td className="n">{fmtSyp(ls.reduce((a, l) => a + l.incSyp, 0))}</td><td className="n">{fmtSyp(ls.reduce((a, l) => a + l.expSyp, 0))}</td><td /><td />
-            <td className="n">{fmtUsd(ls.reduce((a, l) => a + l.incUsd, 0))}</td><td className="n">{fmtUsd(ls.reduce((a, l) => a + l.expUsd, 0))}</td><td /><td />
-            <td className="n">{ls.reduce((a, l) => a + l.count, 0)}</td>
-            <td className="n">{fmtUsd(ls.reduce((a, l) => a + l.incEq, 0))}</td><td className="n">{fmtUsd(ls.reduce((a, l) => a + l.expEq, 0))}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <>
+      {block('SYP')}
+      {block('USD')}
+      <div className="panel cur-frame EQ">
+        <div className="cur-head"><span className="cur-chip">USD-eq</span><h2>{t('الكل بالدولار', 'All, in dollars')}</h2></div>
+        <div className="tbl-wrap">
+          <table className="t">
+            <thead><tr><th>{t('الشهر', 'Month')}</th><th className="n">{t('إيرادات', 'Income')}</th><th className="n">{t('نفقات', 'Expenses')}</th><th className="n">{t('الصافي', 'Net')}</th><th className="n">{t('عدد الحركات', 'Rows')}</th></tr></thead>
+            <tbody>
+              {ls.map((l) => (
+                <tr key={l.ym} className={l.count ? '' : 'off'}>
+                  <td>{monthName(l.ym)}</td><td className="n">{fmtUsd(l.incEq)}</td><td className="n">{fmtUsd(l.expEq)}</td><td className="n">{fmtUsd(l.incEq - l.expEq)}</td><td className="n">{l.count}</td>
+                </tr>
+              ))}
+              <tr className="total"><td>{year}</td><td className="n">{fmtUsd(sum((l) => l.incEq))}</td><td className="n">{fmtUsd(sum((l) => l.expEq))}</td><td className="n">{fmtUsd(sum((l) => l.incEq - l.expEq))}</td><td className="n">{sum((l) => l.count)}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 }
 

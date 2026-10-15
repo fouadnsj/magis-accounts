@@ -13,7 +13,7 @@ import { listProfiles, login, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
 import { hello, httpApi, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
-import { centreStyle, guessCentre } from '../brand';
+import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
 import { AppProvider, type Install, type Session } from '../state';
@@ -30,6 +30,8 @@ interface Opened {
   install: Install;
   organisation: string;
   centre: string;
+  brandColor: string | null;
+  brandLogo: string | null;
 }
 
 export function App() {
@@ -58,11 +60,12 @@ export function App() {
     const centre = (await getMeta(tauriDb, 'centre')) ?? guessCentre(organisation);
     const cfg = await getConfig();
     await setConfig({ ...cfg, dbPath, recent: [dbPath, ...(cfg.recent ?? []).filter((p) => p !== dbPath)].slice(0, 8) });
-    setOpened({ db: tauriDb, dbPath, install, organisation, centre });
+    setOpened({ db: tauriDb, dbPath, install, organisation, centre, brandColor: await getMeta(tauriDb, 'brand_color'), brandLogo: await getMeta(tauriDb, 'brand_logo') });
   }, []);
 
   const serverSession = useCallback((db: DbInfo, profile: Profile): Session => ({
-    api: httpApi, mode: 'server', dbPath: null, install: 'office', organisation: db.organisation, centre: db.centre, profile, version: serverVersion,
+    api: httpApi, mode: 'server', dbPath: null, install: 'office', organisation: db.organisation, centre: db.centre,
+    brandColor: db.color ?? null, brandLogo: db.logo ?? null, profile, version: serverVersion,
   }), []);
 
   /** Asks the server again for its databases (after a creation or a setup). */
@@ -112,7 +115,7 @@ export function App() {
     else {
       const install = ((await getMeta(db, 'install')) ?? 'office') as Install;
       const organisation = (await getMeta(db, 'organisation')) ?? '';
-      setOpened({ db, dbPath: null, install, organisation, centre: (await getMeta(db, 'centre')) ?? guessCentre(organisation) });
+      setOpened({ db, dbPath: null, install, organisation, centre: (await getMeta(db, 'centre')) ?? guessCentre(organisation), brandColor: await getMeta(db, 'brand_color'), brandLogo: await getMeta(db, 'brand_logo') });
     }
   }, [openPath]);
 
@@ -147,7 +150,8 @@ export function App() {
     const files = desktopFiles(o.dbPath);
     setSession({
       api: localApi({ db: o.db, profile, who, install: o.install, files }),
-      mode: o.dbPath ? 'desktop' : 'preview', dbPath: o.dbPath, install: o.install, organisation: o.organisation, centre: o.centre, profile,
+      mode: o.dbPath ? 'desktop' : 'preview', dbPath: o.dbPath, install: o.install, organisation: o.organisation, centre: o.centre,
+      brandColor: o.brandColor, brandLogo: o.brandLogo, profile,
     });
   };
 
@@ -179,7 +183,7 @@ export function App() {
         onBack={() => setServerDb(null)}
       />
     ) : (
-      <BrandFrame centre={serverDb.centre}>
+      <BrandFrame brand={serverDb}>
         <div className="panel">
           <h2>{serverDb.organisation}</h2>
           <p>{t('لم تُعدّ بعد. تُعدّ على حاسوب الخادم نفسه.', 'Not set up yet. It is set up on the server computer itself.')}</p>
@@ -192,8 +196,8 @@ export function App() {
       <Login
         key={serverDb.slug}
         title={serverDb.organisation}
-        subtitle={tx(centreStyle(serverDb.centre).name)}
-        centre={serverDb.centre}
+        subtitle={serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
+        brand={serverDb}
         loadProfiles={() => serverProfiles(serverDb.slug)}
         onLogin={async (id, pw) => {
           const r = await serverLogin(serverDb.slug, id, pw);
@@ -212,7 +216,7 @@ export function App() {
       <Login
         title={opened.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}
         subtitle={opened.dbPath ?? t('معاينة', 'Preview')}
-        centre={opened.centre}
+        brand={{ centre: opened.centre, color: opened.brandColor, logo: opened.brandLogo }}
         loadProfiles={() => listProfiles(opened.db)}
         onLogin={localLogin(opened)}
         onClose={closeDb}
@@ -238,10 +242,10 @@ export function App() {
 
 export const roleName = (r: Role) => (r === 'sup' ? t('الرئيس', 'Superior') : r === 'com' ? t('المحاسب', 'Accountant') : t('أمين الصندوق', 'Cash holder'));
 
-function Login({ title, subtitle, centre, loadProfiles, onLogin, onClose, onBack }: {
+function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack }: {
   title: string;
   subtitle: string;
-  centre?: string;
+  brand?: BrandInfo;
   onBack?: () => void;
   loadProfiles: () => Promise<{ id: number; name: string; role: Role; access_name?: string }[]>;
   onLogin: (profileId: number, secret: string) => Promise<void>;
@@ -271,7 +275,7 @@ function Login({ title, subtitle, centre, loadProfiles, onLogin, onClose, onBack
     }
   };
   return (
-    <BrandFrame centre={centre}>
+    <BrandFrame brand={brand}>
       <div className="panel login-panel">
         <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>

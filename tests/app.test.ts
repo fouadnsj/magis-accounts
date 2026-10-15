@@ -162,7 +162,11 @@ describe('holder ↔ office files', () => {
 describe('desktop app path (local operations)', () => {
   it('reads and saves through the same operations as the server', async () => {
     const { localApi } = await import('../src/ops');
-    const files = { backupNow: async () => null, list: async () => [], restore: async () => undefined };
+    const mem = new Map<string, Uint8Array>();
+    const files = {
+      backupNow: async () => null, list: async () => [], restore: async () => undefined,
+      docWrite: async (rel: string, b: Uint8Array) => void mem.set(rel, b), docRead: async (rel: string) => mem.get(rel)!, docExists: async (rel: string) => mem.has(rel),
+    };
     const api = localApi({ db: office, profile: { id: 1, name: 'Com', role: 'com', book_id: null, active: 1, access_id: 2, access_name: 'Accountant', books: [], perms: ['register.view', 'register.edit', 'book.own', 'reports.summary'] }, who: 'Com (com)', install: 'office', files });
     const before = (await api.call('data')).rows.length;
     await api.call('trx.save', { rows: [expense({ exp_syp: 4321 })] });
@@ -170,5 +174,24 @@ describe('desktop app path (local operations)', () => {
     expect(after.rows.length).toBe(before + 1);
     expect(after.lists.donors).toEqual([]); // the accountant never receives the donors
     await expect(api.call('grant.add', { date: '2026-10-01', donor_id: 1, project_id: null, amount_usd: 5, reference: null, note: null })).rejects.toThrow(/Not allowed/);
+  });
+});
+
+describe('cash month by month', () => {
+  it('the end of a month is the start of the next, and the last end equals the total', async () => {
+    const { holders, holdersMonth, monthsOf } = await import('../src/domain/reports');
+    const rows = (await loadTrx(office)).filter((r) => r.date); // dated rows only
+    const L = await loadLists(office);
+    const months = monthsOf(rows);
+    for (const cur of ['SYP', 'USD'] as const) {
+      let prev: number[] | null = null;
+      for (const ym of months) {
+        const ls = holdersMonth(rows, L.books, cur, ym);
+        if (prev) ls.forEach((l, i) => expect(l.start).toBeCloseTo(prev![i], 6));
+        prev = ls.map((l) => l.end);
+      }
+      const total = holders(rows, L.books, cur);
+      total.forEach((t, i) => expect(prev![i]).toBeCloseTo(t.shouldHold, 6));
+    }
   });
 });

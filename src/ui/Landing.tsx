@@ -1,15 +1,15 @@
 // The welcome page, in the MAGIS design: warm off-white, a thin gold line,
 // the Jesuit mark and the MAGIS sun, and one card per database in its centre's colour.
 import { useState, type ReactNode } from 'react';
-import { CENTRES, centreStyle, guessCentre, type CentreKey } from '../brand';
+import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
 import { tx } from '../i18n';
 import type { DbInfo } from '../net';
 import { serverCreateDb } from '../net';
 import { Field, errText, t } from './kit';
 
 /** The page around every welcome, login and setup screen. */
-export function BrandFrame({ children, centre, wide }: { children: ReactNode; centre?: string | null; wide?: boolean }) {
-  const st = centre ? centreStyle(centre) : null;
+export function BrandFrame({ children, brand, wide }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean }) {
+  const st = brand ? brandStyle(brand) : null;
   return (
     <div className="brand-page">
       <div className="brand-spine" />
@@ -34,7 +34,7 @@ export function BrandFrame({ children, centre, wide }: { children: ReactNode; ce
 }
 
 export function DbCard({ db, onOpen }: { db: DbInfo; onOpen: () => void }) {
-  const st = centreStyle(db.centre);
+  const st = brandStyle(db);
   return (
     <button className="db-card" onClick={onOpen} style={{ '--centre': st.color, '--centre-deep': st.deep } as React.CSSProperties}>
       <div className="db-card-mark">{st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}</div>
@@ -77,9 +77,39 @@ export function Landing({ dbs, canCreate, onOpen, onCreated }: { dbs: DbInfo[]; 
   );
 }
 
+/** A colour and a logo of one's own (e.g. the scouts). */
+export function OwnBrand({ color, setColor, logo, setLogo }: { color: string; setColor: (c: string) => void; logo: string | null; setLogo: (l: string | null) => void }) {
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="grid2" style={{ marginTop: 12 }}>
+      <Field label={t('اللون', 'Colour')}>
+        <div className="row"><input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 64, height: 40, padding: 2 }} /><span className="code">{color}</span></div>
+      </Field>
+      <Field label={t('الشعار (PNG أو JPG أو SVG)', 'Logo (PNG, JPG or SVG)')}>
+        <div className="row">
+          <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            try {
+              setErr(null);
+              setLogo(await logoToDataUrl(f));
+            } catch (x) {
+              setErr(errText(x));
+            }
+          }} />
+          {logo && <><img src={logo} alt="" style={{ height: 40 }} /><button type="button" className="btn small ghost" onClick={() => setLogo(null)}>✕</button></>}
+        </div>
+      </Field>
+      {err && <div className="alert err span2">{err}</div>}
+    </div>
+  );
+}
+
 function CreateDb({ onCancel, onCreated }: { onCancel?: () => void; onCreated: (slug: string) => void }) {
   const [name, setName] = useState('');
-  const [centre, setCentre] = useState<CentreKey | null>(null);
+  const [centre, setCentre] = useState<CentreKey | 'own' | null>(null);
+  const [color, setColor] = useState('#2E7D32');
+  const [logo, setLogo] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const chosen = centre ?? (name ? guessCentre(name) : null);
@@ -87,7 +117,7 @@ function CreateDb({ onCancel, onCreated }: { onCancel?: () => void; onCreated: (
     setErr(null);
     setBusy(true);
     try {
-      const r = await serverCreateDb(name, chosen ?? 'other');
+      const r = chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
       onCreated(r.slug);
     } catch (e) {
       setErr(errText(e));
@@ -112,7 +142,12 @@ function CreateDb({ onCancel, onCreated }: { onCancel?: () => void; onCreated: (
             </button>
           );
         })}
+        <button type="button" className={chosen === 'own' ? 'on' : ''} onClick={() => setCentre('own')} style={{ '--centre': color, '--centre-deep': brandStyle({ centre: 'other', color }).deep } as React.CSSProperties}>
+          {logo ? <img src={logo} alt="" /> : <span style={{ fontSize: 34, lineHeight: '56px', color }}>●</span>}
+          <span>{t('شعار ولون خاصّان', 'Own logo & colour')}</span>
+        </button>
       </div>
+      {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}
       <p className="muted small">{t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">

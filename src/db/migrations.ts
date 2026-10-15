@@ -290,4 +290,28 @@ UPDATE access_profile SET name = 'المحاسب · Accountant' WHERE name = 'Ac
 UPDATE access_profile SET name = 'أمين صندوق · Book holder' WHERE name = 'Book holder · أمين صندوق';
 `,
   },
+  {
+    n: 4,
+    name: 'attached documents (scans, PDFs, photos) per register row',
+    sql: `
+-- One row per attached document. The file itself is stored on disk next to the
+-- database (attachments folder), named after the row's Bill_Code; this table keeps
+-- what it is and who added it. Nothing is ever deleted: a removed document is only
+-- marked (deleted_at), so the audit can always show it. No foreign key on trx_id:
+-- a deleted register row keeps its documents for the record.
+CREATE TABLE attachment (
+  id         TEXT PRIMARY KEY,
+  trx_id     TEXT NOT NULL,
+  file       TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  mime       TEXT NOT NULL,
+  size       INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT,
+  deleted_at TEXT,
+  deleted_by TEXT
+);
+CREATE INDEX attachment_trx ON attachment(trx_id);
+`,
+  },
 ];

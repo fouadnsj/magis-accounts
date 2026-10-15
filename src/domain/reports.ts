@@ -57,6 +57,31 @@ export function holders(rows: Trx[], books: Book[], currency: 'SYP' | 'USD', upT
   return out;
 }
 
+/** One month of a holder: what he had at the start, what moved, what he has at the end. */
+export interface HolderMonthLine {
+  book: Book | null;
+  start: number;
+  income: number;
+  expenses: number;
+  transfers: number;
+  exchange: number;
+  end: number;
+}
+
+/** Holders for one month (YYYY-MM): start = opening + everything dated before; end = start + the month. */
+export function holdersMonth(rows: Trx[], books: Book[], currency: 'SYP' | 'USD', ym: string): HolderMonthLine[] {
+  const before = holders(rows.filter((r) => r.date && r.date.slice(0, 7) < ym), books, currency);
+  const zero = books.map((b) => ({ ...b, opening_syp: 0, opening_usd: 0 }));
+  const during = holders(rows.filter((r) => r.date?.startsWith(ym)), zero, currency);
+  return before.map((b, i) => {
+    const m = during[i];
+    return { book: b.book, start: b.shouldHold, income: m.income, expenses: m.expenses, transfers: m.transfers, exchange: m.exchange, end: b.shouldHold + m.shouldHold };
+  });
+}
+
+/** The months that have dated rows, oldest first. */
+export const monthsOf = (rows: Trx[]) => [...new Set(rows.map((r) => r.date?.slice(0, 7)).filter(Boolean) as string[])].sort();
+
 // ---------------------------------------------------------------- Dashboard / summary
 
 export interface Summary {

@@ -8,13 +8,14 @@
 import ExcelJS from 'exceljs';
 import { type Db, type Stmt, nowIso, one, uuid } from './db/db';
 import {
-  addHeading, addLine, addNamed, auditStmt, closedMonths, deleteRule, deleteUnused, getMeta, loadLists, loadTrx,
+  addHeading, addLine, addNamed, auditStmt, closedMonths, deleteRule, deleteUnused, getMeta, loadLists, loadTrx, setMetaStmt,
   moveRow, renameRow, saveBook, saveDonor, saveRule, saveSettings, saveTrxRows, setActive, setHeadingTypes, setProjectFund,
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, roleFor, type Profile } from './auth';
 import { cleanPerms, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
+import { billCode } from './domain/compute';
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
 import type { GrantRow } from './domain/reports';
 import type { Book, Lists, Settings, Trx, TrxType } from './domain/types';
@@ -33,11 +34,25 @@ export interface BackupFile {
   modified: number;
 }
 
-/** Backups are files: the desktop app and the server each provide their own way. */
+/** Backups and attached documents are files: the desktop app and the server each provide their own way. */
 export interface FileOps {
   backupNow(reason: string): Promise<string | null>;
   list(): Promise<BackupFile[]>;
   restore(path: string): Promise<void>;
+  /** attached documents, by a path relative to the database's attachments folder */
+  docWrite(rel: string, bytes: Uint8Array): Promise<void>;
+  docRead(rel: string): Promise<Uint8Array>;
+  docExists(rel: string): Promise<boolean>;
+}
+
+export interface AttachmentRow {
+  id: string;
+  trx_id: string;
+  name: string;
+  mime: string;
+  size: number;
+  created_at: string;
+  created_by: string | null;
 }
 
 export interface OpCtx {
@@ -85,6 +100,7 @@ export interface DataPayload {
   receipts: HolderReceipt[];
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
+  attachments: AttachmentRow[];
 }
 
 export interface CashCountRow {
@@ -146,9 +162,12 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   const grants = donors ? await db.query<GrantRow>('SELECT * FROM grant_row ORDER BY date') : [];
   const receipts = c.install === 'holder' ? await db.query<HolderReceipt>('SELECT * FROM holder_receipt ORDER BY date') : [];
   const ot = await getMeta(db, 'office_transfers');
+  const visible = new Set(rows.map((r) => r.id));
+  const attachments = (await db.query<AttachmentRow>('SELECT id, trx_id, name, mime, size, created_at, created_by FROM attachment WHERE deleted_at IS NULL ORDER BY created_at'))
+    .filter((a) => visible.has(a.trx_id));
   return {
     lists, rows, closed: [...closed], bookMonths: all ? bm : bm.filter((b) => keeps(c, b.book_id)), transfers, keptBooks: kept,
-    grants, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'),
+    grants, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
   };
 }
 
@@ -293,6 +312,59 @@ async function closingProblems(c: OpCtx, month: string, bookId: number | null): 
 const throwIf = (problems: Msg[]) => {
   if (problems.length) throw new UserError({ ar: problems.map((p) => p.ar).join(' · '), en: problems.map((p) => p.en).join(' · ') });
 };
+
+// ---------------------------------------------------------------- attached documents
+
+const MAX_DOC = 15 * 1024 * 1024;
+const DOC_TYPES: Record<string, string> = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+/** May this person see (and, with write, change) the documents of this row? Same rules as the row itself. */
+async function docRights(c: OpCtx, trxId: string, write: boolean): Promise<Trx> {
+  const r = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [trxId]);
+  if (!r) throw new UserError(m('السطر غير موجود', 'Row not found'));
+  if (!can(c, 'register.view') && !keeps(c, r.book_id)) throw refuse();
+  if (!write) return r;
+  const month = ym(r.date);
+  if (month && (await closedMonths(c.db)).has(month)) throw new UserError(m(`الشهر ${month} مغلق`, `Month ${month} is closed`));
+  if (!can(c, 'register.edit')) {
+    need(c, 'book.own');
+    if (!keeps(c, r.book_id)) throw refuse();
+    if ((await bookMonths(c.db)).some((b) => b.book_id === r.book_id && b.ym === month))
+      throw new UserError(m('أغلقتَ هذا الشهر لدفترك', 'You closed this month for your book'));
+  }
+  return r;
+}
+
+const bytesToB64 = (bytes: Uint8Array) => {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+/** Stores a document under the row's Bill_Code (e.g. E03.5-751-0826_N0587.pdf). */
+async function addDocument(c: OpCtx, a: { trxId: string; base64: string; mime: string }) {
+  const r = await docRights(c, a.trxId, true);
+  const ext = DOC_TYPES[a.mime];
+  if (!ext) throw new UserError(m('نوع الملف غير مقبول (PDF أو صورة)', 'File type not accepted (PDF or picture)'));
+  const bytes = b64ToBytes(a.base64);
+  if (bytes.length > MAX_DOC) throw new UserError(m('الملف أكبر من 15 م.ب', 'The file is larger than 15 MB'));
+  const lists = await loadLists(c.db);
+  const code = lists.lines.find((l) => l.id === r.line_id)?.code ?? '';
+  const month = r.date ? Number(r.date.slice(5, 7)) : null;
+  const year = r.date ? Number(r.date.slice(0, 4)) : null;
+  const base = `${billCode(r, code, month, year)}${r.n != null ? `_N${String(r.n).padStart(4, '0')}` : ''}`.replace(/[^\w.-]/g, '_');
+  const folder = year ? String(year) : 'undated';
+  let rel = `${folder}/${base}.${ext}`;
+  for (let i = 2; await c.files.docExists(rel); i++) rel = `${folder}/${base}-${i}.${ext}`;
+  await c.files.docWrite(rel, bytes);
+  const id = uuid();
+  const name = rel.split('/').pop()!;
+  await c.db.batch([
+    { sql: 'INSERT INTO attachment (id, trx_id, file, name, mime, size, created_at, created_by) VALUES (?,?,?,?,?,?,?,?)', params: [id, r.id, rel, name, a.mime, bytes.length, nowIso(), c.who] },
+    auditStmt(c.who, 'attach', 'trx', r.id, null, { name, size: bytes.length }),
+  ]);
+  return { id, name };
+}
 
 // ---------------------------------------------------------------- users and permission profiles
 
@@ -451,6 +523,55 @@ export const OPS = {
   'transfer.answer': {
     check: (c: OpCtx) => need(c, 'register.edit', 'book.own'),
     run: (c: OpCtx, a: { id: string; ok: boolean; note?: string | null }) => answerTransfer(c, a),
+  },
+
+  // ---------------------------------------------------------------- the look of this database
+  'brand.get': {
+    check: anyone,
+    run: async (c: OpCtx) => ({
+      organisation: (await getMeta(c.db, 'organisation')) ?? '',
+      centre: (await getMeta(c.db, 'centre')) ?? 'other',
+      color: await getMeta(c.db, 'brand_color'),
+      logo: await getMeta(c.db, 'brand_logo'),
+    }),
+  },
+  'brand.save': {
+    check: (c: OpCtx) => need(c, 'users.manage'),
+    run: async (c: OpCtx, a: { organisation: string; centre: string; color: string | null; logo: string | null }) => {
+      const name = a.organisation.trim();
+      if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
+      if (a.color && !/^#[0-9a-f]{6}$/i.test(a.color)) throw new UserError(m('لون غير صالح', 'Invalid colour'));
+      if (a.logo && (!a.logo.startsWith('data:image/png;base64,') || a.logo.length > 400_000)) throw new UserError(m('شعار غير صالح', 'Invalid logo'));
+      await c.db.batch([
+        setMetaStmt('organisation', name), setMetaStmt('centre', a.centre), setMetaStmt('brand_color', a.color), setMetaStmt('brand_logo', a.logo),
+        auditStmt(c.who, 'edit', 'meta', 'brand', null, { organisation: name, centre: a.centre, color: a.color, logo: a.logo ? 'yes' : 'no' }),
+      ]);
+    },
+  },
+
+  // ---------------------------------------------------------------- attached documents
+  'doc.add': { check: (c: OpCtx) => need(c, 'register.edit', 'book.own'), run: (c: OpCtx, a: { trxId: string; base64: string; mime: string }) => addDocument(c, a) },
+  'doc.get': {
+    check: anyone,
+    run: async (c: OpCtx, a: { id: string }) => {
+      const d = await one<{ trx_id: string; file: string; name: string; mime: string }>(c.db, 'SELECT trx_id, file, name, mime FROM attachment WHERE id = ? AND deleted_at IS NULL', [a.id]);
+      if (!d) throw new UserError(m('الملف غير موجود', 'Document not found'));
+      await docRights(c, d.trx_id, false);
+      return { name: d.name, mime: d.mime, base64: bytesToB64(await c.files.docRead(d.file)) };
+    },
+  },
+  'doc.delete': {
+    check: (c: OpCtx) => need(c, 'register.edit', 'book.own'),
+    run: async (c: OpCtx, a: { id: string }) => {
+      const d = await one<{ trx_id: string; name: string }>(c.db, 'SELECT trx_id, name FROM attachment WHERE id = ? AND deleted_at IS NULL', [a.id]);
+      if (!d) throw new UserError(m('الملف غير موجود', 'Document not found'));
+      await docRights(c, d.trx_id, true);
+      // the file stays on disk: only marked as removed, and the audit says by whom
+      await c.db.batch([
+        { sql: 'UPDATE attachment SET deleted_at = ?, deleted_by = ? WHERE id = ?', params: [nowIso(), c.who, a.id] },
+        auditStmt(c.who, 'detach', 'trx', d.trx_id, { name: d.name }, null),
+      ]);
+    },
   },
 
   // ---------------------------------------------------------------- lists
@@ -640,7 +761,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'cash.counts', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export',
+  'data', 'doc.get', 'brand.get', 'cash.counts', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export',
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

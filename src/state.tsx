@@ -9,7 +9,7 @@ import type { Computed, Lists, Trx } from './domain/types';
 import { has, type Profile } from './auth';
 import type { Perm } from './perms';
 import type { TransferInfo } from './domain/transfers';
-import type { Api, BookMonth, HolderReceipt, Install, OfficeTransfer } from './ops';
+import type { Api, AttachmentRow, BookMonth, HolderReceipt, Install, OfficeTransfer } from './ops';
 
 export type { HolderReceipt, Install } from './ops';
 
@@ -24,6 +24,9 @@ export interface Session {
   organisation: string;
   /** jaramana | aleppo | homs | other: the colour and mark of the menus */
   centre?: string;
+  /** this database's own colour and logo, if it has them (they win over the centre's) */
+  brandColor?: string | null;
+  brandLogo?: string | null;
   profile: Profile;
   /** server mode: asks the server whether data changed since `v` */
   version?: () => Promise<number>;
@@ -43,6 +46,7 @@ export interface Data {
   receipts: HolderReceipt[];
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
+  attachments: AttachmentRow[];
 }
 
 interface Ctx {
@@ -86,6 +90,7 @@ async function loadData(s: Session): Promise<Data> {
     receipts: p.receipts,
     officeTransfers: p.officeTransfers,
     listsVersion: p.listsVersion,
+    attachments: p.attachments ?? [],
   };
 }
 

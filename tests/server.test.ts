@@ -63,7 +63,7 @@ describe('server: first setup', () => {
     expect(c.status).toBe(200);
     DB = c.body.slug;
     expect(DB).toBe('test-centre');
-    expect((await call('/api/hello')).body.dbs).toEqual([{ slug: DB, organisation: 'Test centre', centre: 'homs', setupNeeded: true }]);
+    expect((await call('/api/hello')).body.dbs).toEqual([{ slug: DB, organisation: 'Test centre', centre: 'homs', color: null, logo: null, setupNeeded: true }]);
     const r = await call('/api/setup/new', {
       db: DB,
       organisation: 'Test centre', supName: 'Fouad', supPin: 'sup-secret', comName: 'Comptable', comPin: 'com-secret',
@@ -293,6 +293,33 @@ describe('server: accounts for all book keepers', () => {
   });
 });
 
+describe('server: attached documents', () => {
+  it('a holder attaches a PDF to his own row; it is named after the Bill_Code; only allowed people open it', async () => {
+    const roula = await loginAs('Roula', 'roula-secret');
+    const nagham = await loginAs('Nagham', 'nagham-secret');
+    const com = await loginAs('Comptable', 'com-secret');
+    const mine = ((await op('data', {}, roula)).body as DataPayload).rows.find((r) => r.type === 'Exp' && r.date?.startsWith('2026-10') && r.line_id != null)!;
+    const pdf = Buffer.from('%PDF-1.4\n% test document\n').toString('base64');
+    const r = await op('doc.add', { trxId: mine.id, base64: pdf, mime: 'application/pdf' }, roula);
+    expect(r.status).toBe(200);
+    expect(r.body.name).toMatch(new RegExp(`_N${String(mine.n).padStart(4, '0')}\\.pdf$`));
+    // the file is on disk, next to the database
+    expect(fs.existsSync(path.join(dir, 'dbs', DB, 'attachments', '2026', r.body.name))).toBe(true);
+    // listed with the row
+    expect(((await op('data', {}, roula)).body as DataPayload).attachments.some((a) => a.id === r.body.id)).toBe(true);
+    // Nagham (another book) can neither see nor open it; the accountant can
+    expect((await op('doc.get', { id: r.body.id }, nagham)).status).toBe(400);
+    const got = await op('doc.get', { id: r.body.id }, com);
+    expect(Buffer.from(got.body.base64, 'base64').toString()).toContain('test document');
+    // not a PDF or picture: refused
+    expect((await op('doc.add', { trxId: mine.id, base64: pdf, mime: 'text/html' }, roula)).status).toBe(400);
+    // removing only marks it: the file stays
+    expect((await op('doc.delete', { id: r.body.id }, roula)).status).toBe(200);
+    expect(((await op('data', {}, roula)).body as DataPayload).attachments.some((a) => a.id === r.body.id)).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'dbs', DB, 'attachments', '2026', r.body.name))).toBe(true);
+  });
+});
+
 describe('server: several databases', () => {
   it('a second database is fully separate: its own users, its own data, its own sessions', async () => {
     const c = await call('/api/dbs/create', { organisation: 'Jaramana 2027', centre: 'jaramana' });
@@ -307,6 +334,20 @@ describe('server: several databases', () => {
     const d = (await op('data', {}, r.cookie!)).body as DataPayload;
     expect(d.rows.length).toBe(0);
     expect((await call('/api/me', undefined, r.cookie!)).body.db).toBe(J);
+  });
+
+  it('a database can have its own colour and logo (e.g. the scouts), changed later by the Superior', async () => {
+    const logo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const c = await call('/api/dbs/create', { organisation: 'Scouts', centre: 'other', color: '#2E7D32', logo });
+    const info = ((await call('/api/hello')).body.dbs as { slug: string; color: string; logo: string }[]).find((x) => x.slug === c.body.slug)!;
+    expect(info).toMatchObject({ color: '#2E7D32', logo });
+    // the Superior of the first database changes its look; the accountant may not
+    const com = await loginAs('Comptable', 'com-secret');
+    expect((await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: '#123456', logo: null }, com)).status).toBe(400);
+    const sup = await loginAs('Fouad', 'sup-secret');
+    expect((await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: '#123456', logo: null }, sup)).status).toBe(200);
+    expect(((await call('/api/hello')).body.dbs as { slug: string; color: string }[]).find((x) => x.slug === DB)!.color).toBe('#123456');
+    expect((await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: null, logo: null }, sup)).status).toBe(200);
   });
 
   it('a number N is never given twice, even after deleting the last row', async () => {
@@ -340,7 +381,7 @@ describe('server: a database from an earlier version is moved in', () => {
     const srv3 = await startServer({ dataDir: dir3, webRoot: dir3, config: { httpMode: 'serve', httpPort: 0 }, log: () => undefined });
     try {
       const hello = await (await fetch(`http://127.0.0.1:${srv3.httpPort}/api/hello`)).json();
-      expect(hello.dbs).toEqual([{ slug: 'magis-homs', organisation: 'MAGIS Homs', centre: 'homs', setupNeeded: false }]);
+      expect(hello.dbs).toEqual([{ slug: 'magis-homs', organisation: 'MAGIS Homs', centre: 'homs', color: null, logo: null, setupNeeded: false }]);
       expect(fs.existsSync(path.join(dir3, 'magis.db'))).toBe(false);
       expect(fs.existsSync(path.join(dir3, 'dbs', 'magis-homs', 'backups', 'old-copy.db'))).toBe(true);
     } finally {

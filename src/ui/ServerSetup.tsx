@@ -47,7 +47,7 @@ export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => 
   };
 
   return (
-    <BrandFrame centre={db.centre}>
+    <BrandFrame brand={db}>
       <div className="panel">
         <h2>{t('إعداد', 'Setting up')} · {db.organisation}</h2>
         <p className="muted">{t('مرة واحدة فقط. بعدها يفتح الجميع البرنامج من المتصفح.', 'Only once. Afterwards everyone opens the program from a browser.')}</p>

@@ -100,11 +100,7 @@ export function Home() {
             {myBooks.map((id) => {
               const b = holderBalance(d, id, fileHolder);
               return (
-                <div className="card" key={id}>
-                  <div className="k">{names.book(id)}</div>
-                  <div className="v">{fmtSyp(b.syp.shouldHold)} <span className="small muted">SYP</span></div>
-                  <div className="v2">{fmtUsd(b.usd.shouldHold)} USD</div>
-                </div>
+                <Balance key={id} title={names.book(id)} syp={b.syp.shouldHold} usd={b.usd.shouldHold} />
               );
             })}
           </div>
@@ -116,17 +112,26 @@ export function Home() {
           <h2>{t('ما يجب أن يحمله كل صندوق', 'What each holder should hold')}</h2>
           <div className="cards">
             {syp.filter((l) => l.book && (l.book.active || l.shouldHold !== 0)).map((l, i) => (
-              <div className="card" key={l.book!.id}>
-                <div className="k">{l.book!.name}{l.book!.keeper_name ? ` · ${l.book!.keeper_name}` : ''}</div>
-                <div className="v">{fmtSyp(l.shouldHold)} <span className="small muted">SYP</span></div>
-                <div className="v2">{fmtUsd(usd[i].shouldHold)} USD</div>
-              </div>
+              <Balance key={l.book!.id} title={l.book!.name} sub={l.book!.keeper_name} syp={l.shouldHold} usd={usd[i].shouldHold} />
             ))}
           </div>
         </>
       )}
       {s.mode === 'preview' && null}
     </>
+  );
+}
+
+/** One holder's cash: pounds and dollars side by side, the same size. */
+export function Balance({ title, sub, syp, usd }: { title: string; sub?: string | null; syp: number; usd: number }) {
+  return (
+    <div className="card balance">
+      <div className="k">{title}{sub ? <span className="muted"> · {sub}</span> : null}</div>
+      <div className="balance-row">
+        <div className={syp < 0 ? 'neg' : ''}><span>{t('ل.س', 'SYP')}</span><b>{fmtSyp(syp)}</b></div>
+        <div className={usd < 0 ? 'neg' : ''}><span>{t('دولار', 'USD')}</span><b>{fmtUsd(usd)}</b></div>
+      </div>
+    </div>
   );
 }
 

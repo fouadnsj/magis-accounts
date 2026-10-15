@@ -1,6 +1,7 @@
 // The entry form: the only way a movement enters the register.
 // Every rule of validate.ts is checked before saving; warnings need a second click.
 import { useMemo, useState } from 'react';
+import { DocsPanel, uploadPending, type PendingDoc } from './Docs';
 import { useApp } from '../state';
 import { blankTrx } from '../db/repo';
 import { validateTrx } from '../domain/validate';
@@ -131,6 +132,7 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
   const [warnings, setWarnings] = useState<Msg[]>([]);
   const [warnAccepted, setWarnAccepted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<PendingDoc[]>([]);
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => {
     setF((x) => ({ ...x, [k]: v }));
     setWarnAccepted(false);
@@ -242,6 +244,15 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
     setBusy(true);
     try {
       await s.api.call('trx.save', { rows, deletes });
+      // documents scanned or chosen in the form go with the row (the giver's row for a transfer)
+      if (pending.length) {
+        try {
+          await uploadPending(s.api.call, rows[0].id, pending);
+          setPending([]);
+        } catch (e) {
+          toast(t('حُفظ السطر لكن لا المستند: ', 'The row is saved but not the document: ') + errText(e), true);
+        }
+      }
       remember('lastDate', f.date);
       if (!restricted) remember('lastBook', f.type === 'Transfer' ? null : f.bookId);
       remember('lastAccount', f.accountId);
@@ -412,6 +423,8 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
           <p className="muted small">{t('يسجّله من يعطي المال، مرة واحدة. يظهر فوراً في دفتر المستلم ليؤكّد أنه استلمه.', 'The giver records it, once. It appears at once in the receiver\'s book, for him to confirm he received it.')}</p>
         )}
       </fieldset>
+
+      <DocsPanel trxId={editing?.id ?? null} pending={pending} setPending={setPending} readOnly={readOnly} />
 
       <div style={{ marginTop: 14 }}>
         <Msgs errors={errors} warnings={warnings} />

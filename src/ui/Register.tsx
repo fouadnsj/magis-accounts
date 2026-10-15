@@ -25,6 +25,7 @@ export function Register() {
   const [height, setHeight] = useState(600);
   const box = useRef<HTMLDivElement>(null);
 
+  const withDocs = useMemo(() => new Set(d.attachments.map((x) => x.trx_id)), [d.attachments]);
   const months = useMemo(() => [...new Set(d.rows.map((r) => r.date?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse(), [d.rows]);
 
   const rows = useMemo(() => {
@@ -68,7 +69,7 @@ export function Register() {
     const c = d.comp.get(r.id)!;
     return (
       <tr key={r.id} className={r.type ?? ''} onClick={() => nav.entry(r)} title={r.review ?? undefined}>
-        <td className="code">{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</td>
+        <td className="code">{withDocs.has(r.id) ? '📎' : ''}{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</td>
         <td className="ltr">{fmtDate(r.date)}</td>
         {!holder && <td>{names.book(r.book_id)}</td>}
         <td>{names.account(r.account_id)}</td>

@@ -30,7 +30,7 @@ import { createOffice } from '../src/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 
-export const SERVER_VERSION = '0.4.0';
+export const SERVER_VERSION = '0.5.0';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -244,6 +244,27 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         })
         .sort((a, b) => b.modified - a.modified);
     },
+    // Attached documents: dbs/<slug>/attachments/<year>/<Bill_Code>.pdf — never a path from outside that folder.
+    async docWrite(rel, bytes) {
+      const file = docPath(c, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, bytes);
+      if (config.backupMirror) {
+        try {
+          const mirror = path.join(config.backupMirror, c.slug, 'attachments', rel);
+          fs.mkdirSync(path.dirname(mirror), { recursive: true });
+          fs.copyFileSync(file, mirror);
+        } catch (e) {
+          log(`document mirror failed: ${e}`);
+        }
+      }
+    },
+    async docRead(rel) {
+      return new Uint8Array(fs.readFileSync(docPath(c, rel)));
+    },
+    async docExists(rel) {
+      return fs.existsSync(docPath(c, rel));
+    },
     async restore(name) {
       // Only a file of this database's backups folder, by its bare name: never a path from the browser.
       const base = path.basename(name);
@@ -258,6 +279,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       log(`restored ${c.slug}/${base}`);
     },
   });
+
+  const docPath = (c: Centre, rel: string) => {
+    if (!/^[\w.-]+\/[\w.-]+$/.test(rel) || rel.includes('..')) throw new HttpError(400, { ar: 'اسم ملف غير صالح', en: 'Invalid file name' });
+    return path.join(c.dir, 'attachments', rel);
+  };
 
   const openCentre = async (slug: string): Promise<Centre> => {
     const dir = path.join(dbsDir, slug);
@@ -302,6 +328,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     slug: c.slug,
     organisation: (await getMeta(c.handle.db, 'organisation')) ?? c.slug,
     centre: ((await getMeta(c.handle.db, 'centre')) ?? 'other') as CentreKey,
+    color: await getMeta(c.handle.db, 'brand_color'),
+    logo: await getMeta(c.handle.db, 'brand_logo'),
     setupNeeded: await setupNeeded(c),
   });
   const centreOf = (slug: unknown): Centre => {
@@ -390,7 +418,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; object-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'",
   };
 
   const MIME: Record<string, string> = {
@@ -470,14 +498,19 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // ---- a new database (a centre, a test, a new year…)
     if (url === '/api/dbs/create' && method === 'POST') {
       if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
-      const body = (await readBody(req)) as { organisation?: string; centre?: string };
+      const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null };
       const organisation = (body.organisation ?? '').trim();
       if (!organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات', en: 'Write the name of the database' });
       const centre = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? (body.centre as CentreKey) : guessCentre(organisation);
       let slug = slugify(organisation);
       for (let i = 2; centres.has(slug) || fs.existsSync(path.join(dbsDir, slug)); i++) slug = `${slugify(organisation)}-${i}`;
       const c = await openCentre(slug);
-      await c.handle.db.batch([setMetaStmt('organisation', organisation), setMetaStmt('centre', centre), setMetaStmt('install', 'office')]);
+      const color = body.color && /^#[0-9a-f]{6}$/i.test(body.color) ? body.color : null;
+      const logo = body.logo && body.logo.startsWith('data:image/png;base64,') && body.logo.length < 400_000 ? body.logo : null;
+      await c.handle.db.batch([
+        setMetaStmt('organisation', organisation), setMetaStmt('centre', centre), setMetaStmt('install', 'office'),
+        setMetaStmt('brand_color', color), setMetaStmt('brand_logo', logo),
+      ]);
       log(`new database ${slug} (${organisation}, ${centre})`);
       return send(res, 200, { slug });
     }

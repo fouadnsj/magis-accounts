@@ -7,10 +7,12 @@ import { PERM_GROUPS, type Perm } from '../perms';
 import { tx } from '../i18n';
 import { Field, Modal, Tabs, biName, confirmBox, errText, t, toast } from './kit';
 import { ServerTab } from './ServerTab';
+import { DbCard, OwnBrand } from './Landing';
+import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
 
-type Tab = 'months' | 'backups' | 'users' | 'access' | 'audit' | 'server';
+type Tab = 'months' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
 
 export function Admin() {
   const { s, can, myBooks } = useApp();
@@ -19,6 +21,7 @@ export function Admin() {
     { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore')) || s.mode === 'preview' },
     { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : t('كلمة السر', 'Password') },
     { value: 'access', label: t('ملفات الصلاحيات', 'Permission profiles'), hidden: !can('users.manage') },
+    { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
   ];
@@ -32,6 +35,7 @@ export function Admin() {
       {tab === 'backups' && <Backups />}
       {tab === 'users' && <Users />}
       {tab === 'access' && can('users.manage') && <AccessProfiles />}
+      {tab === 'look' && can('users.manage') && <Appearance />}
       {tab === 'audit' && can('audit.view') && <Audit />}
       {tab === 'server' && s.mode === 'server' && <ServerTab />}
     </>
@@ -450,6 +454,58 @@ function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow>; onClose: (
         }}>{t('احفظ', 'Save')}</button>
       </div>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- appearance: name, centre, own colour and logo
+
+function Appearance() {
+  const { s } = useApp();
+  const [b, setB] = useState<{ organisation: string; centre: string; color: string | null; logo: string | null } | null>(null);
+  const [own, setOwn] = useState(false);
+  const [color, setColor] = useState('#2E7D32');
+  const [logo, setLogo] = useState<string | null>(null);
+  useEffect(() => {
+    s.api.call('brand.get').then((x) => {
+      setB(x);
+      setOwn(!!(x.color || x.logo));
+      if (x.color) setColor(x.color);
+      setLogo(x.logo);
+    });
+  }, [s.api]);
+  if (!b) return <p className="muted">…</p>;
+  const preview = { slug: '', organisation: b.organisation, centre: b.centre, color: own ? color : null, logo: own ? logo : null, setupNeeded: false };
+  const save = async () => {
+    try {
+      await s.api.call('brand.save', { organisation: b.organisation, centre: b.centre, color: own ? color : null, logo: own ? logo : null });
+      toast(t('حُفظ — يُعاد فتح البرنامج', 'Saved — reopening the program'));
+      setTimeout(() => window.location.reload(), 700);
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <div className="panel" style={{ maxWidth: 760 }}>
+      <Field label={t('اسم قاعدة البيانات', 'Name of the database')}><input value={b.organisation} onChange={(e) => setB({ ...b, organisation: e.target.value })} /></Field>
+      <h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
+      <div className="centre-pick">
+        {(Object.keys(CENTRES) as CentreKey[]).map((k) => (
+          <button key={k} type="button" className={!own && b.centre === k ? 'on' : ''} onClick={() => { setOwn(false); setB({ ...b, centre: k }); }}
+            style={{ '--centre': CENTRES[k].color, '--centre-deep': CENTRES[k].deep } as React.CSSProperties}>
+            <img src={CENTRES[k].mark ?? '/brand/magis-sun.png'} alt="" />
+            <span>{tx(CENTRES[k].name)}</span>
+          </button>
+        ))}
+        <button type="button" className={own ? 'on' : ''} onClick={() => setOwn(true)} style={{ '--centre': color, '--centre-deep': brandStyle({ centre: 'other', color }).deep } as React.CSSProperties}>
+          {logo ? <img src={logo} alt="" /> : <span style={{ fontSize: 34, lineHeight: '56px', color }}>●</span>}
+          <span>{t('شعار ولون خاصّان', 'Own logo & colour')}</span>
+        </button>
+      </div>
+      {own && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}
+      <h3 style={{ marginTop: 16 }}>{t('معاينة', 'Preview')}</h3>
+      <div style={{ maxWidth: 360 }}><DbCard db={preview} onOpen={() => undefined} /></div>
+      <div className="modal-foot"><button className="btn primary" onClick={save}>{t('احفظ', 'Save')}</button></div>
+    </div>
   );
 }
 

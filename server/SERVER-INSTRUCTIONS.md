@@ -20,6 +20,10 @@ From then on, the server **starts by itself** every time the mini-PC is switched
 ## 3. Databases (on the welcome page)
 The welcome page shows **one card per database**, in its centre's colour (Jaramana gold, Aleppo navy, Homs maroon). **"＋ New database"** creates another: a centre, a test, a new year. Choose its name and centre, then how it starts (below). Each database has its own users, backups and numbering. Creating one is possible on the server computer itself, or for someone who manages users.
 
+**Own logo and colour** (e.g. the scouts): in "New database" choose "Own logo & colour", or later in Admin → Appearance (whoever manages users).
+
+**Documents of a record:** in a record, 📷 Camera (on a phone it opens the camera; several photos become ONE PDF) or 📄 File (a PDF or a picture). The file is named after the record's Bill_Code and kept in `dbs/<database>/attachments/<year>/`, copied to the USB backup folder too. A 📎 in the register shows which records have documents.
+
 ## 3b. Bring your data in (once per database)
 The setup page offers two choices:
 - **Move the current office database** (recommended). Your accounts, lists and users come across exactly as they are.

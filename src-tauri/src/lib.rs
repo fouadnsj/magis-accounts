@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
+mod remote;
+
 struct DbState {
     conn: Mutex<Option<Connection>>,
     path: Mutex<Option<PathBuf>>,
@@ -231,10 +233,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(DbState { conn: Mutex::new(None), path: Mutex::new(None) })
+        .manage(remote::RemoteState::default())
         .invoke_handler(tauri::generate_handler![
             db_open, db_close, db_query, db_batch, db_backup, db_restore,
             file_read, file_write_b64, file_exists, dir_list, file_delete,
-            config_get, config_set, documents_dir
+            config_get, config_set, documents_dir,
+            remote::srv_connect, remote::srv_request, remote::srv_disconnect
         ])
         .run(tauri::generate_context!())
         .expect("error while running the application");

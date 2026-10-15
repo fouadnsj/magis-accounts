@@ -8,13 +8,14 @@ import { tauriDb } from '../db/tauriDb';
 import { createHolder, createOffice } from '../setup';
 import { applySeed, readWorkbook, type ImportReport } from '../io/importWorkbook';
 import { parseListsPackage, type ListsPackage } from '../io/keeperFiles';
-import { baseName, getConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath } from '../platform';
+import { baseName, getConfig, setConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath } from '../platform';
 import { Field, errText, t } from './kit';
 import { BrandFrame } from './Landing';
 
-type Mode = 'choose' | 'office' | 'holder';
+type Mode = 'choose' | 'office' | 'holder' | 'server';
 
-export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr }: {
+export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }: {
+  onConnect?: (address: string) => Promise<void>;
   onCreated: (db: Db, path: string | null) => Promise<void>;
   onOpenPath: (path: string) => Promise<void>;
   newWebDb: () => Promise<Db>;
@@ -67,6 +68,12 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr }: {
         )}
         {mode === 'choose' && (
           <div className="choice">
+            {onConnect && isDesktop() && (
+              <button onClick={() => setMode('server')} style={{ borderColor: 'var(--gold, #B8891B)' }}>
+                <b>{t('خادم المركز', "The centre's server")}</b>
+                <span className="muted small">{t('الاتصال بقاعدة البيانات المشتركة على شبكة المركز.', "Connect to the shared database on the centre's network.")}</span>
+              </button>
+            )}
             <button onClick={() => setMode('office')}>
               <b>{t('قاعدة المكتب', 'Office database')}</b>
               <span className="muted small">{t('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.')}</span>
@@ -81,9 +88,52 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr }: {
             </button>
           </div>
         )}
+        {mode === 'server' && onConnect && <ServerForm onBack={() => setMode('choose')} onConnect={onConnect} />}
         {mode === 'office' && <OfficeForm onBack={() => setMode('choose')} onCreated={onCreated} newWebDb={newWebDb} />}
         {mode === 'holder' && <HolderForm onBack={() => setMode('choose')} onCreated={onCreated} newWebDb={newWebDb} />}
     </BrandFrame>
+  );
+}
+
+function ServerForm({ onBack, onConnect }: { onBack: () => void; onConnect: (address: string) => Promise<void> }) {
+  const [address, setAddress] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    getConfig().then((c) => c.server && setAddress(c.server.address));
+  }, []);
+  const go = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      await onConnect(address.trim());
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const forget = async () => {
+    const c = await getConfig();
+    await setConfig({ ...c, server: null });
+    setErr(null);
+  };
+  return (
+    <div className="panel" style={{ maxWidth: 620, margin: '0 auto' }}>
+      <h2>{t('خادم المركز', "The centre's server")}</h2>
+      <p className="muted">{t('العنوان موجود على الخادم في: الإدارة ← الخادم (مثلاً 192.168.1.20).', 'The address is shown on the server in Admin → Server (e.g. 192.168.1.20).')}</p>
+      <form onSubmit={(e) => { e.preventDefault(); void go(); }}>
+        <Field label={t('عنوان الخادم', 'Server address')}>
+          <input className="ltr" autoFocus value={address} placeholder="192.168.1.20" onChange={(e) => setAddress(e.target.value)} />
+        </Field>
+        {err && <div className="alert err" style={{ marginTop: 10 }}>{err}</div>}
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onBack}>{t('رجوع', 'Back')}</button>
+          {err && <button type="button" className="btn ghost" onClick={forget}>{t('نسيان الخادم', 'Forget this server')}</button>}
+          <button className="btn primary" disabled={busy || !address.trim()}>{busy ? '…' : t('اتصال', 'Connect')}</button>
+        </div>
+      </form>
+    </div>
   );
 }
 

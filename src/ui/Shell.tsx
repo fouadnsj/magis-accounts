@@ -29,7 +29,7 @@ interface Nav {
 const NavCtx = createContext<Nav | null>(null);
 export const useNav = () => useContext(NavCtx)!;
 
-export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onToggleLang: () => void }) {
+export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void }) {
   const { s, d, logout, can, myBooks, limited, fileHolder } = useApp();
   const [page, setPage] = useState<Page>('home');
   const [reviewOnly, setReviewOnly] = useState(false);
@@ -83,6 +83,7 @@ export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onTo
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
           <button onClick={onToggleLang}>{getLang() === 'en' ? 'عربي · English' : 'English only'}</button>
+          {onDatabases && <button onClick={onDatabases}>{can('users.manage') ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
           <button onClick={logout}>{t('خروج', 'Log out')}</button>
           {s.mode !== 'server' && <button onClick={onCloseDb} className="small">{t('إغلاق الملف', 'Close file')}</button>}
         </nav>

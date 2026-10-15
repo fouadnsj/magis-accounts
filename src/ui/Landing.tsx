@@ -48,30 +48,55 @@ export function DbCard({ db, onOpen }: { db: DbInfo; onOpen: () => void }) {
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate, onOpen, onCreated }: { dbs: DbInfo[]; canCreate: boolean; onOpen: (db: DbInfo) => void; onCreated: (slug: string) => void }) {
-  const [creating, setCreating] = useState(dbs.length === 0);
+export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, onLeave, onBackIn }: {
+  dbs: DbInfo[];
+  canCreate: boolean;
+  onOpen: (db: DbInfo) => void;
+  onCreated: (slug: string) => void;
+  /** already signed in (came here from inside the program) */
+  signedIn?: { name: string; db: string } | null;
+  /** desktop app: the server's address, and the way back to this computer's files */
+  address?: string | null;
+  onLeave?: () => void;
+  onBackIn?: () => void;
+}) {
+  const [creating, setCreating] = useState(dbs.length === 0 && canCreate);
+  const [howTo, setHowTo] = useState(false);
   return (
     <BrandFrame wide>
+      {address && (
+        <div className="row muted small" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+          <span>{t('متصل بخادم المركز', "Connected to the centre's server")} · <span className="ltr">{address}</span></span>
+          {onLeave && <button className="btn small ghost" onClick={onLeave}>{t('ترك الخادم (ملفات هذا الحاسوب)', "Leave the server (this computer's files)")}</button>}
+        </div>
+      )}
       {!creating ? (
         <>
+          {signedIn && (
+            <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+              <span className="muted">{signedIn.name} · {signedIn.db}</span>
+              {onBackIn && <button className="btn small" onClick={onBackIn}>{t('رجوع إلى', 'Back to')} {signedIn.db}</button>}
+            </div>
+          )}
           <h2 className="brand-h2">{t('اختر قاعدة البيانات', 'Choose a database')}</h2>
           <div className="db-grid">
             {dbs.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
-            {canCreate && (
-              <button className="db-card db-new" onClick={() => setCreating(true)}>
-                <div className="db-card-mark"><span>＋</span></div>
-                <div className="db-card-text"><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></div>
-              </button>
-            )}
+            <button className="db-card db-new" onClick={() => (canCreate ? setCreating(true) : setHowTo((x) => !x))}>
+              <div className="db-card-mark"><span>＋</span></div>
+              <div className="db-card-text"><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></div>
+            </button>
           </div>
+          {howTo && !canCreate && (
+            <div className="alert info" style={{ marginTop: 14 }}>
+              {dbs.length
+                ? t('لإنشاء قاعدة بيانات: ادخل أولاً إلى قاعدة موجودة باسم من يدير المستخدمين (الرئيس)، ثم من القائمة اختر «قواعد البيانات · جديدة». أو افتح الصفحة على حاسوب الخادم نفسه.',
+                  'To create a database: first sign in to an existing one as someone who manages users (the Superior), then in the menu choose "Databases · new". Or open this page on the server computer itself.')
+                : t('أول قاعدة بيانات تُنشأ على حاسوب الخادم نفسه: https://localhost:8443', 'The first database is created on the server computer itself: https://localhost:8443')}
+            </div>
+          )}
         </>
-      ) : canCreate ? (
-        <CreateDb onCancel={dbs.length ? () => setCreating(false) : undefined} onCreated={onCreated} />
       ) : (
-        <div className="panel">
-          <h2>{t('لا قاعدة بيانات بعد', 'No database yet')}</h2>
-          <p>{t('أنشئها على حاسوب الخادم نفسه: https://localhost:8443', 'Create it on the server computer itself: https://localhost:8443')}</p>
-        </div>
+        <CreateDb onCancel={() => setCreating(false)} onCreated={onCreated} />
       )}
     </BrandFrame>
   );

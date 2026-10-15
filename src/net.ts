@@ -33,33 +33,85 @@ export class ServerError extends Error {
   }
 }
 
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}), credentials: 'same-origin' });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    if (r.status === 401) window.dispatchEvent(new Event('magis-logged-out'));
-    throw new ServerError(j.error ?? { ar: `خطأ ${r.status}`, en: `Error ${r.status}` });
+// Where requests go. In a browser: the page's own server (fetch). In the desktop
+// app connected to a server: through the app (src-tauri/src/remote.rs), which
+// keeps the session and checks the server's certificate.
+type Raw = (method: 'GET' | 'POST', path: string, body?: unknown) => Promise<{ status: number; json: unknown }>;
+
+const viaFetch: Raw = async (method, path, body) => {
+  const r = await fetch(path, method === 'POST'
+    ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}), credentials: 'same-origin' }
+    : { credentials: 'same-origin' });
+  return { status: r.status, json: await r.json().catch(() => ({})) };
+};
+
+const viaApp: Raw = async (method, path, body) => {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const r = await invoke<{ status: number; body: string }>('srv_request', { method, path, body: method === 'POST' ? JSON.stringify(body ?? {}) : null });
+  let json: unknown = {};
+  try {
+    json = JSON.parse(r.body);
+  } catch {
+    /* not JSON */
   }
-  return j as T;
+  return { status: r.status, json };
+};
+
+let raw: Raw = viaFetch;
+/** The address of the server the desktop app is connected to (null in a browser). */
+export let remoteBase: string | null = null;
+
+async function call<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
+  const { status, json } = await raw(method, url, body);
+  const j = (json ?? {}) as { error?: Msg };
+  if (status < 200 || status >= 300) {
+    if (status === 401) window.dispatchEvent(new Event('magis-logged-out'));
+    throw new ServerError(j.error ?? { ar: `خطأ ${status}`, en: `Error ${status}` });
+  }
+  return json as T;
 }
 
-async function get<T>(url: string): Promise<T> {
-  const r = await fetch(url, { credentials: 'same-origin' });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    if (r.status === 401) window.dispatchEvent(new Event('magis-logged-out'));
-    throw new ServerError(j.error ?? { ar: `خطأ ${r.status}`, en: `Error ${r.status}` });
+const post = <T,>(url: string, body: unknown) => call<T>('POST', url, body);
+const get = <T,>(url: string) => call<T>('GET', url);
+
+/** Desktop app: tries `address` (e.g. 192.168.1.20). Returns the server's
+ *  certificate fingerprint, to remember; refuses if it differs from `pin`. */
+export async function connectRemote(address: string, pin: string | null): Promise<{ base: string; fingerprint: string; hello: Hello }> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  let a = address.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(a)) a = `https://${a}`;
+  a = a.replace(/^http:/i, 'https:');
+  if (!/:\d+$/.test(a.replace(/^https:\/\//i, ''))) a = `${a}:8443`;
+  try {
+    const r = await invoke<{ fingerprint: string; hello: Hello }>('srv_connect', { base: a, pin });
+    raw = viaApp;
+    remoteBase = a;
+    return { base: a, ...r };
+  } catch (e) {
+    const m = String(e);
+    if (m.includes('CERT_CHANGED'))
+      throw new ServerError({ ar: 'شهادة الخادم تغيّرت. إن أُعيد تثبيت الخادم فاضغط «نسيان الخادم» ثم اتصل من جديد؛ وإلا فلا تتابع.', en: "The server's certificate changed. If the server was reinstalled, click \"Forget this server\" and connect again; otherwise do not continue." });
+    if (m.includes('NOT_MAGIS'))
+      throw new ServerError({ ar: 'هذا العنوان ليس خادم ماجيس.', en: 'This address is not a MAGIS server.' });
+    throw new ServerError({ ar: `تعذّر الوصول إلى ${a}. هل الخادم يعمل؟ هل الحاسوب على شبكة المركز؟`, en: `Could not reach ${a}. Is the server running? Is this computer on the centre's network?` });
   }
-  return j as T;
+}
+
+export async function disconnectRemote() {
+  if (!remoteBase) return;
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('srv_disconnect');
+  raw = viaFetch;
+  remoteBase = null;
 }
 
 /** Is this page served by a MAGIS server? (null = no: desktop or browser preview) */
 export async function hello(): Promise<Hello | null> {
   try {
-    const r = await fetch('/api/hello', { credentials: 'same-origin' });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j && j.server ? (j as Hello) : null;
+    const { status, json } = await raw('GET', '/api/hello');
+    if (status !== 200) return null;
+    const j = json as Hello;
+    return j && j.server ? j : null;
   } catch {
     return null;
   }

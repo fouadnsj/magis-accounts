@@ -12,7 +12,7 @@ import { dailyBackup, desktopFiles } from '../db/backup';
 import { listProfiles, login, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
-import { hello, httpApi, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
+import { connectRemote, disconnectRemote, hello, httpApi, remoteBase, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
 import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
@@ -39,6 +39,8 @@ export function App() {
   /** server: the database chosen on the welcome page, and whether it is being set up */
   const [serverDb, setServerDb] = useState<DbInfo | null>(null);
   const [settingUp, setSettingUp] = useState(false);
+  /** logged in, but looking at the list of databases (to create one, or change) */
+  const [browsing, setBrowsing] = useState(false);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [mustChange, setMustChange] = useState(false);
@@ -76,13 +78,40 @@ export function App() {
     return h;
   }, []);
 
+  /** Desktop app: connect to the centre's server and remember it. */
+  const connect = useCallback(async (address: string) => {
+    const cfg = await getConfig();
+    const same = cfg.server && cfg.server.address === address;
+    const r = await connectRemote(address, same ? cfg.server!.fingerprint : null);
+    await setConfig({ ...cfg, server: { address, fingerprint: r.fingerprint } });
+    setBootErr(null);
+    setServer(r.hello);
+  }, []);
+
+  /** Desktop app: stop using the server; back to the files of this computer. */
+  const leaveServer = useCallback(async () => {
+    await serverLogout();
+    await disconnectRemote();
+    const cfg = await getConfig();
+    await setConfig({ ...cfg, server: null });
+    setSession(null);
+    setServerDb(null);
+    setBrowsing(false);
+    setServer(null);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
         if (isDesktop()) {
           const cfg = await getConfig();
-          if (cfg.dbPath && (await invoke<boolean>('file_exists', { path: cfg.dbPath }))) await openPath(cfg.dbPath);
-          return;
+          if (cfg.server) {
+            // the app is used as a window on the centre's server
+            await connectRemote(cfg.server.address, cfg.server.fingerprint);
+          } else {
+            if (cfg.dbPath && (await invoke<boolean>('file_exists', { path: cfg.dbPath }))) await openPath(cfg.dbPath);
+            return;
+          }
         }
         const h = await hello();
         if (h) {
@@ -157,18 +186,49 @@ export function App() {
 
   let body;
   if (booting) body = <div className="center-page muted">…</div>;
-  else if (server && !session && !serverDb)
+  else if (server && ((!session && !serverDb) || (session && browsing)))
     body = (
       <Landing
         dbs={server.dbs}
         canCreate={server.canCreate}
+        signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
+        address={remoteBase}
+        onLeave={remoteBase ? leaveServer : undefined}
+        onBackIn={session ? () => setBrowsing(false) : undefined}
         onOpen={(db) => {
+          if (session && db.slug === serverDb?.slug && !db.setupNeeded) return setBrowsing(false);
+          if (session) {
+            // another database: a new sign-in there
+            void serverLogout();
+            setSession(null);
+            setMustChange(false);
+            setBrowsing(false);
+          }
           setServerDb(db);
           setSettingUp(db.setupNeeded);
         }}
         onCreated={async (slug) => {
           await refreshServer(slug);
           setSettingUp(true);
+          setBrowsing(false);
+        }}
+      />
+    );
+  else if (server && session && settingUp && serverDb)
+    body = (
+      <ServerSetup
+        db={serverDb}
+        onDone={async () => {
+          // the new database is ready: sign in there
+          setSettingUp(false);
+          void serverLogout();
+          setSession(null);
+          setMustChange(false);
+          await refreshServer(serverDb.slug);
+        }}
+        onBack={() => {
+          setSettingUp(false);
+          setBrowsing(true);
         }}
       />
     );
@@ -210,7 +270,7 @@ export function App() {
   else if (session && mustChange)
     body = <ForcePassword session={session} onDone={() => setMustChange(false)} onLogout={logout} />;
   else if (!server && !opened)
-    body = <Welcome onCreated={onCreated} onOpenPath={openPath} newWebDb={webDb} bootErr={bootErr} />;
+    body = <Welcome onCreated={onCreated} onOpenPath={openPath} newWebDb={webDb} bootErr={bootErr} onConnect={connect} />;
   else if (!server && opened && !session)
     body = (
       <Login
@@ -225,7 +285,7 @@ export function App() {
   else
     body = (
       <AppProvider session={session!} onLogout={logout}>
-        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} />
+        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} />
       </AppProvider>
     );
 

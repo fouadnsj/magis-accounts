@@ -1,6 +1,6 @@
 [package]
 name = "magis-accounts"
-version = "0.5.1"
+version = "0.5.2"
 description = "MAGIS cash accounting (offline)"
 edition = "2021"
 
@@ -18,6 +18,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 base64 = "0.22"
+# talking to the centre's server (HTTPS with its own certificate, pinned on first use)
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
+ring = "0.17"
 
 [profile.release]
 opt-level = "s"

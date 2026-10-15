@@ -82,6 +82,8 @@ export function toBase64(bytes: Uint8Array): string {
 export interface LocalConfig {
   dbPath?: string;
   recent?: string[];
+  /** the centre's server this app opens on (desktop app used on the network) */
+  server?: { address: string; fingerprint: string } | null;
 }
 
 export async function getConfig(): Promise<LocalConfig> {

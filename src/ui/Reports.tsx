@@ -5,10 +5,12 @@ import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
 import type { Perm } from '../perms';
 import { Seg, Tabs, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t } from './kit';
-import { BarList, EXPENSE, INCOME, MonthColumns } from './Charts';
+import { BarList, EXPENSE, INCOME, MonthColumns, type Bar } from './Charts';
+import { useNav } from './Shell';
+import type { Trx } from '../domain/types';
 import { CurrencyFrame } from './Cash';
 
-type Tab = 'summary' | 'monthly' | 'accounts' | 'coverage' | 'funds' | 'exchange';
+type Tab = 'summary' | 'explore' | 'monthly' | 'accounts' | 'coverage' | 'funds' | 'exchange';
 
 const monthName = (ym: string) => {
   const m = Number(ym.slice(5, 7)) - 1;
@@ -51,6 +53,7 @@ export function Reports() {
       </div>
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'summary', label: t('الملخص', 'Summary'), hidden: !can('reports.summary') },
+        { value: 'explore', label: t('التحليل', 'Explore'), hidden: !can('reports.summary') },
         { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
         { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') },
         { value: 'coverage', label: t('التغطية', 'Coverage'), hidden: !can('reports.coverage') },
@@ -58,6 +61,7 @@ export function Reports() {
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
       {tab === 'summary' && can('reports.summary') && <SummaryTab p={p} />}
+      {tab === 'explore' && can('reports.summary') && <ExploreTab p={p} />}
       {tab === 'monthly' && can('reports.monthly') && <MonthlyTab year={year} />}
       {tab === 'accounts' && can('reports.accounts') && <AccountsTab p={p} />}
       {tab === 'coverage' && can('reports.coverage') && <CoverageTab p={p} year={year} />}
@@ -78,6 +82,157 @@ function Card({ k, v, sub }: { k: string; v: string; sub?: string }) {
 }
 
 type Measure = 'eq' | 'SYP' | 'USD';
+
+/** Every month of a period, YYYY-MM. */
+function monthsBetween(p: Period): string[] {
+  const out: string[] = [];
+  let [y, m] = p.from.split('-').map(Number);
+  const [ty, tm] = p.to.split('-').map(Number);
+  while ((y < ty || (y === ty && m <= tm)) && out.length <= 60) {
+    out.push(`${y}-${String(m).padStart(2, '0')}`);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return out;
+}
+
+const shortMonth = (ym: string, many: boolean) => `${MONTHS_EN[Number(ym.slice(5, 7)) - 1].slice(0, 3)}${many ? ' ' + ym.slice(2, 4) : ''}`;
+
+/**
+ * Explore: choose expenses or income, a heading, a line — every chart follows the choice:
+ * its lines, month by month, by account, by holder, by party, and the rows themselves.
+ */
+function ExploreTab({ p }: { p: Period }) {
+  const { d } = useApp();
+  const names = useNames();
+  const nav = useNav();
+  const [kind, setKind] = useState<'Exp' | 'Income'>('Exp');
+  const [heading, setHeading] = useState<number | null>(null);
+  const [line, setLine] = useState<number | null>(null);
+  const [measure, setMeasure] = useState<Measure>('eq');
+  const L = d.lists;
+
+  const fmtM = measure === 'SYP' ? fmtSyp : fmtUsd;
+  const unit = measure === 'SYP' ? 'SYP' : measure === 'USD' ? 'USD' : 'USD-eq';
+  const color = kind === 'Exp' ? EXPENSE : INCOME;
+  const val = (r: Trx) =>
+    kind === 'Exp'
+      ? measure === 'SYP' ? r.exp_syp : measure === 'USD' ? r.exp_usd : d.comp.get(r.id)!.expUsdTot
+      : measure === 'SYP' ? r.inc_syp : measure === 'USD' ? r.inc_usd : d.comp.get(r.id)!.incUsdTot;
+
+  const ofKind = useMemo(() => d.rows.filter((r) => r.type === kind && inPeriod(r, p)), [d.rows, kind, p]);
+  const rows = ofKind.filter((r) => (heading == null || r.heading_id === heading) && (line == null || r.line_id === line)).filter((r) => val(r) !== 0);
+  const total = rows.reduce((a, r) => a + val(r), 0);
+  const allTotal = ofKind.reduce((a, r) => a + val(r), 0);
+  const months = monthsBetween(p);
+  const many = months.length > 12;
+
+  const group = (key: (r: Trx) => number | null, label: (k: number) => string): Bar[] => {
+    const m = new Map<number, number>();
+    for (const r of rows) {
+      const k = key(r) ?? -1;
+      m.set(k, (m.get(k) ?? 0) + val(r));
+    }
+    return [...m.entries()].map(([k, v]) => ({ key: k, label: k === -1 ? '—' : label(k), value: v }));
+  };
+
+  const headingOpts = L.headings.filter((h) => L.headingTypes.some((x) => x.heading_id === h.id && x.type === kind));
+  const lineOpts = heading == null ? [] : L.lines.filter((l) => l.heading_id === heading);
+  const title = line != null ? names.line(line) : heading != null ? names.heading(heading) : kind === 'Exp' ? t('كل النفقات', 'All expenses') : t('كل الإيرادات', 'All income');
+  const byParty = group((r) => r.party_id, names.party).sort((a, b) => b.value - a.value).slice(0, 12);
+
+  return (
+    <>
+      <div className="panel explore-bar">
+        <Seg<'Exp' | 'Income'> value={kind} onChange={(k) => { setKind(k); setHeading(null); setLine(null); }} options={[
+          { value: 'Exp', label: t('النفقات', 'Expenses') },
+          { value: 'Income', label: t('الإيرادات', 'Income') },
+        ]} />
+        <select className="inp" value={heading ?? ''} onChange={(e) => { setHeading(e.target.value ? Number(e.target.value) : null); setLine(null); }}>
+          <option value="">{t('كل البنود', 'All headings')}</option>
+          {headingOpts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+        </select>
+        <select className="inp" value={line ?? ''} disabled={heading == null} onChange={(e) => setLine(e.target.value ? Number(e.target.value) : null)}>
+          <option value="">{t('كل الخطوط', 'All lines')}</option>
+          {lineOpts.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select>
+        <Seg<Measure> value={measure} onChange={setMeasure} options={[
+          { value: 'eq', label: t('الكل بالدولار', 'All in USD') },
+          { value: 'SYP', label: t('ليرة فقط', 'SYP only') },
+          { value: 'USD', label: t('دولار فقط', 'USD only') },
+        ]} />
+        {(heading != null || line != null) && <button className="btn small ghost" onClick={() => { setHeading(null); setLine(null); }}>✕ {t('مسح', 'Clear')}</button>}
+      </div>
+
+      <h2>{title}</h2>
+      <div className="cards" style={{ marginBottom: 16 }}>
+        <Card k={t('المجموع', 'Total')} v={fmtM(total)} sub={unit} />
+        <Card k={t('عدد الحركات', 'Rows')} v={String(rows.length)} />
+        <Card k={t('المعدّل الشهري', 'Average per month')} v={fmtM(total / Math.max(1, months.length))} sub={unit} />
+        <Card k={kind === 'Exp' ? t('من كل النفقات', 'Share of all expenses') : t('من كل الإيرادات', 'Share of all income')} v={allTotal ? fmtPct(total / allTotal) : '-'} />
+      </div>
+
+      <div className="grid2 dash-charts">
+        {line == null && (
+          <div className="panel">
+            {heading == null ? (
+              <>
+                <h3>{t('حسب البند', 'By heading')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
+                <BarList bars={group((r) => r.heading_id, names.heading)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setHeading(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
+              </>
+            ) : (
+              <>
+                <h3>{t('حسب الخط', 'By line')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
+                <BarList bars={group((r) => r.line_id, names.line)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setLine(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
+              </>
+            )}
+          </div>
+        )}
+        <div className="panel">
+          <h3>{t('شهراً بشهر', 'Month by month')} <span className="muted small">· {unit}</span></h3>
+          <MonthColumns
+            labels={months.map((m) => shortMonth(m, many))}
+            series={[{ name: title, color, values: months.map((m) => rows.filter((r) => r.date?.startsWith(m)).reduce((a, r) => a + val(r), 0)) }]}
+            fmt={(n) => (measure === 'SYP' ? fmtSyp(n) : Math.round(n).toLocaleString('en-US'))} unit={unit} />
+        </div>
+        <div className="panel">
+          <h3>{t('حسب الحساب', 'By account')} <span className="muted small">· {unit}</span></h3>
+          <BarList bars={group((r) => r.account_id, names.account)} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
+        </div>
+        <div className="panel">
+          <h3>{t('حسب الصندوق', 'By holder')} <span className="muted small">· {unit}</span></h3>
+          <BarList bars={group((r) => r.book_id, names.book)} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
+        </div>
+        <div className="panel">
+          <h3>{kind === 'Exp' ? t('لمن دُفع', 'Paid to') : t('ممّن قُبض', 'Received from')} <span className="muted small">· {unit} · {t('أعلى 12', 'top 12')}</span></h3>
+          <BarList bars={byParty} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
+        </div>
+      </div>
+
+      <div className="panel">
+        <h3>{t('السطور', 'The rows')} <span className="muted small">· {rows.length}</span></h3>
+        <div className="tbl-wrap" style={{ maxHeight: 420 }}>
+          <table className="t">
+            <thead><tr><th>N</th><th>{t('التاريخ', 'Date')}</th><th>{t('الصندوق', 'Holder')}</th><th>{t('الخط', 'Line')}</th><th>{t('الشرح', 'Explanation')}</th><th>{t('الجهة', 'Party')}</th><th className="n">{unit}</th></tr></thead>
+            <tbody>
+              {[...rows].sort((a, b) => ((a.date ?? '') < (b.date ?? '') ? 1 : -1)).map((r) => (
+                <tr key={r.id} className="click" onClick={() => nav.entry(r)}>
+                  <td className="code">{d.attachments.some((x) => x.trx_id === r.id) ? '📎' : ''}{r.n == null ? '' : String(r.n).padStart(4, '0')}</td>
+                  <td className="nowrap">{fmtDate(r.date)}</td><td>{names.book(r.book_id)}</td><td>{names.line(r.line_id)}</td>
+                  <td>{r.explanation}</td><td>{names.party(r.party_id)}</td><td className="n">{fmtM(val(r))}</td>
+                </tr>
+              ))}
+              <tr className="total"><td colSpan={6}>{t('المجموع', 'Total')}</td><td className="n">{fmtM(total)}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
 
 /** The dashboard: the figures of the period in three separate frames (pounds, dollars,
  *  all in dollars), the top lines, and charts — expenses by heading (click to see its
@@ -204,7 +359,13 @@ function SummaryTab({ p }: { p: Period }) {
 
       <div className="panel">
         <h3>{t('شهراً بشهر', 'Month by month')} <span className="muted small">· {unit}</span></h3>
-        <MonthColumns months={cols} fmt={(n) => (measure === 'SYP' ? fmtSyp(n) : Math.round(n).toLocaleString('en-US'))} unit={unit} />
+        <MonthColumns
+          labels={cols.map((c) => c.label)}
+          series={[
+            { name: t('إيرادات', 'Income'), color: INCOME, values: cols.map((c) => c.income) },
+            { name: t('نفقات', 'Expenses'), color: EXPENSE, values: cols.map((c) => c.expense) },
+          ]}
+          fmt={(n) => (measure === 'SYP' ? fmtSyp(n) : Math.round(n).toLocaleString('en-US'))} unit={unit} />
       </div>
       {undated > 0 && <p className="warn small">{t(`${undated} سطراً بلا تاريخ غير محسوبة في أي فترة`, `${undated} undated rows are not counted in any period`)}</p>}
     </>

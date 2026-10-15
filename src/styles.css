@@ -344,3 +344,5 @@ body { background: var(--bg); }
   .dash-frames { grid-template-columns: 1fr; }
   .bar-row { grid-template-columns: minmax(90px, 40%) 1fr; }
 }
+.explore-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 10px; }
+.explore-bar select.inp { width: auto; min-width: 180px; }

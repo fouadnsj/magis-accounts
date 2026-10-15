@@ -52,13 +52,19 @@ export function BarList({ bars, color, fmt, onPick, unit, empty }: {
   );
 }
 
-/** Income and expenses per month, side by side, on one scale. */
-export function MonthColumns({ months, fmt, unit }: { months: { label: string; income: number; expense: number }[]; fmt: (n: number) => string; unit: string }) {
+export interface Series {
+  name: string;
+  color: string;
+  values: number[];
+}
+
+/** Columns per month, one or more series side by side, on ONE scale. */
+export function MonthColumns({ labels, series, fmt, unit }: { labels: string[]; series: Series[]; fmt: (n: number) => string; unit: string }) {
   const tip = useTip();
   const W = 720;
   const H = 230;
   const pad = { l: 56, r: 8, t: 10, b: 28 };
-  const max = Math.max(1, ...months.flatMap((m) => [m.income, m.expense]));
+  const max = Math.max(1, ...series.flatMap((s) => s.values));
   // clean ticks: 0, step, 2·step… (step = 1, 2 or 5 × a power of ten)
   const raw = max / 4;
   const p10 = 10 ** Math.floor(Math.log10(raw));
@@ -67,8 +73,9 @@ export function MonthColumns({ months, fmt, unit }: { months: { label: string; i
   const ticks = Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step);
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
-  const slot = plotW / Math.max(1, months.length);
-  const bw = Math.min(16, (slot - 8) / 2);
+  const slot = plotW / Math.max(1, labels.length);
+  const n = series.length;
+  const bw = Math.min(n === 1 ? 24 : 16, (slot - 8 - 2 * (n - 1)) / n);
   const y = (v: number) => pad.t + plotH - (v / top) * plotH;
   const bar = (x: number, v: number, c: string) => {
     const h = Math.max(0, plotH - (y(v) - pad.t));
@@ -79,10 +86,11 @@ export function MonthColumns({ months, fmt, unit }: { months: { label: string; i
   };
   return (
     <div className="month-cols">
-      <div className="legend">
-        <span><i style={{ background: INCOME }} /> {'إيرادات · Income'}</span>
-        <span><i style={{ background: EXPENSE }} /> {'نفقات · Expenses'}</span>
-      </div>
+      {n > 1 && (
+        <div className="legend">
+          {series.map((s) => <span key={s.name}><i style={{ background: s.color }} /> {s.name}</span>)}
+        </div>
+      )}
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" style={{ direction: 'ltr' }}>
         {ticks.map((tv) => (
           <g key={tv}>
@@ -90,16 +98,16 @@ export function MonthColumns({ months, fmt, unit }: { months: { label: string; i
             <text x={pad.l - 6} y={y(tv) + 4} textAnchor="end" fontSize="10" fill="#8A8577">{fmt(tv)}</text>
           </g>
         ))}
-        {months.map((m, i) => {
-          const x0 = pad.l + i * slot + (slot - (bw * 2 + 2)) / 2;
+        {labels.map((label, i) => {
+          const group = n * bw + 2 * (n - 1);
+          const x0 = pad.l + i * slot + (slot - group) / 2;
           return (
-            <g key={m.label}
-              onMouseMove={(e) => tip.show(e, <><b>{m.label}</b><div className="ltr"><i className="dot" style={{ background: INCOME }} /> {fmt(m.income)} {unit}</div><div className="ltr"><i className="dot" style={{ background: EXPENSE }} /> {fmt(m.expense)} {unit}</div></>)}
+            <g key={label}
+              onMouseMove={(e) => tip.show(e, <><b>{label}</b>{series.map((s) => <div key={s.name} className="ltr"><i className="dot" style={{ background: s.color }} /> {n > 1 ? `${s.name}: ` : ''}{fmt(s.values[i])} {unit}</div>)}</>)}
               onMouseLeave={tip.hide}>
               <rect x={pad.l + i * slot} y={pad.t} width={slot} height={plotH} fill="transparent" />
-              {bar(x0, m.income, INCOME)}
-              {bar(x0 + bw + 2, m.expense, EXPENSE)}
-              <text x={pad.l + i * slot + slot / 2} y={H - 10} textAnchor="middle" fontSize="10" fill="#5d6b7a">{m.label}</text>
+              {series.map((s, k) => <g key={s.name}>{bar(x0 + k * (bw + 2), s.values[i], s.color)}</g>)}
+              <text x={pad.l + i * slot + slot / 2} y={H - 10} textAnchor="middle" fontSize="10" fill="#5d6b7a">{label}</text>
             </g>
           );
         })}

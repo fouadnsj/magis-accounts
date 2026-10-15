@@ -4,6 +4,7 @@ import type { Trx, TrxType } from '../domain/types';
 import { getLang } from '../i18n';
 import type { Perm } from '../perms';
 import { t } from './kit';
+import { centreStyle } from '../brand';
 import { Home } from './Home';
 import { EntryForm } from './EntryForm';
 import { Register } from './Register';
@@ -51,12 +52,19 @@ export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onTo
     </button>
   );
 
+  const st = centreStyle(s.centre);
+  const theme = { '--brand': st.deep, '--brand-2': st.deep, '--centre': st.color } as React.CSSProperties;
+
   return (
     <NavCtx.Provider value={nav}>
+      <div style={theme}>
       <div className="shell">
         <nav className={`side ${menuOpen ? 'open' : ''}`} onClick={(e) => (e.target as HTMLElement).closest('button:not(.menu-toggle)') && setMenuOpen(false)}>
           <div className="top">
-            <div>
+            <div className="side-brand">
+              <img src={st.mark ?? '/brand/magis-sun.png'} alt="" />
+            </div>
+            <div style={{ flex: 1 }}>
               <div className="org">{s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}</div>
               <div className="who">
                 {s.profile.name}
@@ -90,6 +98,7 @@ export function Shell({ onCloseDb, onToggleLang }: { onCloseDb: () => void; onTo
         </main>
       </div>
       {editing && <EntryForm start={editing} onClose={() => setEditing(null)} />}
+      </div>
     </NavCtx.Provider>
   );
 }

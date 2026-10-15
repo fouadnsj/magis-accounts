@@ -12,7 +12,10 @@ import { dailyBackup, desktopFiles } from '../db/backup';
 import { listProfiles, login, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
-import { hello, httpApi, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type Hello } from '../net';
+import { hello, httpApi, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
+import { centreStyle, guessCentre } from '../brand';
+import { tx } from '../i18n';
+import { BrandFrame, Landing } from './Landing';
 import { AppProvider, type Install, type Session } from '../state';
 import { getLang, setLang } from '../i18n';
 import type { Role } from '../domain/types';
@@ -26,10 +29,14 @@ interface Opened {
   dbPath: string | null;
   install: Install;
   organisation: string;
+  centre: string;
 }
 
 export function App() {
   const [server, setServer] = useState<Hello | null>(null);
+  /** server: the database chosen on the welcome page, and whether it is being set up */
+  const [serverDb, setServerDb] = useState<DbInfo | null>(null);
+  const [settingUp, setSettingUp] = useState(false);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [mustChange, setMustChange] = useState(false);
@@ -48,14 +55,23 @@ export function App() {
     await dailyBackup(dbPath);
     const install = ((await getMeta(tauriDb, 'install')) ?? 'office') as Install;
     const organisation = (await getMeta(tauriDb, 'organisation')) ?? '';
+    const centre = (await getMeta(tauriDb, 'centre')) ?? guessCentre(organisation);
     const cfg = await getConfig();
-    await setConfig({ ...cfg, dbPath, recent: [dbPath, ...(cfg.recent ?? []).filter((p) => p !== dbPath)].slice(0, 5) });
-    setOpened({ db: tauriDb, dbPath, install, organisation });
+    await setConfig({ ...cfg, dbPath, recent: [dbPath, ...(cfg.recent ?? []).filter((p) => p !== dbPath)].slice(0, 8) });
+    setOpened({ db: tauriDb, dbPath, install, organisation, centre });
   }, []);
 
-  const serverSession = useCallback((h: Hello, profile: Profile): Session => ({
-    api: httpApi, mode: 'server', dbPath: null, install: 'office', organisation: h.organisation, profile, version: serverVersion,
+  const serverSession = useCallback((db: DbInfo, profile: Profile): Session => ({
+    api: httpApi, mode: 'server', dbPath: null, install: 'office', organisation: db.organisation, centre: db.centre, profile, version: serverVersion,
   }), []);
+
+  /** Asks the server again for its databases (after a creation or a setup). */
+  const refreshServer = useCallback(async (select?: string) => {
+    const h = await hello();
+    setServer(h);
+    if (h && select) setServerDb(h.dbs.find((d) => d.slug === select) ?? null);
+    return h;
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -69,9 +85,11 @@ export function App() {
         if (h) {
           setServer(h);
           const me = await serverMe();
-          if (me?.profile) {
+          const db = me ? h.dbs.find((d) => d.slug === me.db) : undefined;
+          if (me?.profile && db) {
+            setServerDb(db);
             setMustChange(me.mustChange);
-            setSession(serverSession(h, me.profile));
+            setSession(serverSession(db, me.profile));
           }
         }
       } catch (e) {
@@ -93,7 +111,8 @@ export function App() {
     if (dbPath) await openPath(dbPath);
     else {
       const install = ((await getMeta(db, 'install')) ?? 'office') as Install;
-      setOpened({ db, dbPath: null, install, organisation: (await getMeta(db, 'organisation')) ?? '' });
+      const organisation = (await getMeta(db, 'organisation')) ?? '';
+      setOpened({ db, dbPath: null, install, organisation, centre: (await getMeta(db, 'centre')) ?? guessCentre(organisation) });
     }
   }, [openPath]);
 
@@ -108,10 +127,13 @@ export function App() {
   }, []);
 
   const logout = useCallback(() => {
-    if (server) void serverLogout();
+    if (server) {
+      void serverLogout();
+      void refreshServer();
+    }
     setSession(null);
     setMustChange(false);
-  }, [server]);
+  }, [server, refreshServer]);
 
   const toggleLang = () => {
     setLang(getLang() === 'en' ? 'both' : 'en');
@@ -125,24 +147,60 @@ export function App() {
     const files = desktopFiles(o.dbPath);
     setSession({
       api: localApi({ db: o.db, profile, who, install: o.install, files }),
-      mode: o.dbPath ? 'desktop' : 'preview', dbPath: o.dbPath, install: o.install, organisation: o.organisation, profile,
+      mode: o.dbPath ? 'desktop' : 'preview', dbPath: o.dbPath, install: o.install, organisation: o.organisation, centre: o.centre, profile,
     });
   };
 
   let body;
   if (booting) body = <div className="center-page muted">…</div>;
-  else if (server && server.setupNeeded) body = <ServerSetup hello={server} />;
-  else if (server && !session)
+  else if (server && !session && !serverDb)
+    body = (
+      <Landing
+        dbs={server.dbs}
+        canCreate={server.canCreate}
+        onOpen={(db) => {
+          setServerDb(db);
+          setSettingUp(db.setupNeeded);
+        }}
+        onCreated={async (slug) => {
+          await refreshServer(slug);
+          setSettingUp(true);
+        }}
+      />
+    );
+  else if (server && !session && serverDb && (settingUp || serverDb.setupNeeded))
+    body = server.canCreate ? (
+      <ServerSetup
+        db={serverDb}
+        onDone={async () => {
+          setSettingUp(false);
+          await refreshServer(serverDb.slug);
+        }}
+        onBack={() => setServerDb(null)}
+      />
+    ) : (
+      <BrandFrame centre={serverDb.centre}>
+        <div className="panel">
+          <h2>{serverDb.organisation}</h2>
+          <p>{t('لم تُعدّ بعد. تُعدّ على حاسوب الخادم نفسه.', 'Not set up yet. It is set up on the server computer itself.')}</p>
+          <button className="btn" onClick={() => setServerDb(null)}>{t('كل قواعد البيانات', 'All databases')}</button>
+        </div>
+      </BrandFrame>
+    );
+  else if (server && !session && serverDb)
     body = (
       <Login
-        title={server.organisation}
-        subtitle={t('خادم المركز', "Centre's server")}
-        loadProfiles={serverProfiles}
+        key={serverDb.slug}
+        title={serverDb.organisation}
+        subtitle={tx(centreStyle(serverDb.centre).name)}
+        centre={serverDb.centre}
+        loadProfiles={() => serverProfiles(serverDb.slug)}
         onLogin={async (id, pw) => {
-          const r = await serverLogin(id, pw);
+          const r = await serverLogin(serverDb.slug, id, pw);
           setMustChange(r.mustChange);
-          setSession(serverSession(server, r.profile));
+          setSession(serverSession(serverDb, r.profile));
         }}
+        onBack={() => setServerDb(null)}
       />
     );
   else if (session && mustChange)
@@ -154,6 +212,7 @@ export function App() {
       <Login
         title={opened.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}
         subtitle={opened.dbPath ?? t('معاينة', 'Preview')}
+        centre={opened.centre}
         loadProfiles={() => listProfiles(opened.db)}
         onLogin={localLogin(opened)}
         onClose={closeDb}
@@ -179,9 +238,11 @@ export function App() {
 
 export const roleName = (r: Role) => (r === 'sup' ? t('الرئيس', 'Superior') : r === 'com' ? t('المحاسب', 'Accountant') : t('أمين الصندوق', 'Cash holder'));
 
-function Login({ title, subtitle, loadProfiles, onLogin, onClose }: {
+function Login({ title, subtitle, centre, loadProfiles, onLogin, onClose, onBack }: {
   title: string;
   subtitle: string;
+  centre?: string;
+  onBack?: () => void;
   loadProfiles: () => Promise<{ id: number; name: string; role: Role; access_name?: string }[]>;
   onLogin: (profileId: number, secret: string) => Promise<void>;
   onClose?: () => void;
@@ -210,10 +271,10 @@ function Login({ title, subtitle, loadProfiles, onLogin, onClose }: {
     }
   };
   return (
-    <div className="center-page">
-      <div className="panel" style={{ width: 'min(420px, 100%)' }}>
-        <h1>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h1>
-        <p className="muted small">{subtitle}</p>
+    <BrandFrame centre={centre}>
+      <div className="panel login-panel">
+        <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>
         <div className="profiles">
           {profiles.map((p) => (
             <button key={p.id} className={pick === p.id ? 'on' : ''} onClick={() => setPick(p.id)}>
@@ -230,11 +291,12 @@ function Login({ title, subtitle, loadProfiles, onLogin, onClose }: {
           {err && <div className="alert err" style={{ marginTop: 10 }}>{err}</div>}
           <div className="modal-foot">
             {onClose && <button type="button" className="btn ghost" onClick={onClose}>{t('فتح ملف آخر', 'Open another file')}</button>}
+            {onBack && <button type="button" className="btn ghost" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button>}
             <button className="btn primary" disabled={pick == null || !pin || busy}>{t('دخول', 'Enter')}</button>
           </div>
         </form>
       </div>
-    </div>
+    </BrandFrame>
   );
 }
 

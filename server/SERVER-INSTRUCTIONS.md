@@ -17,7 +17,10 @@ One small computer in the centre keeps the accounts. Everyone else (computers an
 
 From then on, the server **starts by itself** every time the mini-PC is switched on, even before anyone logs in to Windows.
 
-## 3. Bring your data in (once, on the mini-PC)
+## 3. Databases (on the welcome page)
+The welcome page shows **one card per database**, in its centre's colour (Jaramana gold, Aleppo navy, Homs maroon). **"＋ New database"** creates another: a centre, a test, a new year. Choose its name and centre, then how it starts (below). Each database has its own users, backups and numbering. Creating one is possible on the server computer itself, or for someone who manages users.
+
+## 3b. Bring your data in (once per database)
 The setup page offers two choices:
 - **Move the current office database** (recommended). Your accounts, lists and users come across exactly as they are.
   1. On your Mac, in the desktop app: **Admin → Backups → Back up now**.
@@ -55,7 +58,7 @@ At the first login over the network, anyone who still has an old 4-digit PIN is 
   2. The office closes the whole month. After that nobody can change it. **Only the Superior can reopen.**
 
 ## 7. Backups
-- Every day, by itself, in `C:\ProgramData\MAGIS\backups`. The last 60 days are kept.
+- Every day, by itself, for every database, in `C:\ProgramData\MAGIS\dbs\<database>\backups`. The last 60 days are kept.
 - **A second copy on the USB key**: Admin → Server → "Second copy in", e.g. `E:\MAGIS-backups`. A ✓ shows when the key is found.
 - Before every import or restore, a copy is taken first.
 

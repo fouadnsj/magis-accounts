@@ -220,3 +220,69 @@ table.t tr.click:hover td { background: #f2f7fc; }
   .big-actions button { padding: 18px 8px; font-size: 16px; }
   .reg { height: calc(100vh - 220px); }
 }
+
+/* ================= MAGIS design (Concept Note 2027) ================= */
+:root {
+  --bg: #FDFCF9;
+  --ink: #26292E;
+  --line: #E4DED0;
+  --gold: #B8891B;
+  --gold-d: #8A6A1A;
+  --panel-warm: #EFEAE0;
+  --soft: #8A8577;
+}
+body { background: var(--bg); }
+.panel, .card, table.t { border-color: var(--line); }
+.side { background: var(--brand); border-inline-start: 4px solid var(--gold); }
+.side .top { display: flex; align-items: center; gap: 10px; }
+.side-brand { background: #FDFCF9; border-radius: 10px; padding: 4px; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; flex: none; }
+.side-brand img { max-width: 100%; max-height: 100%; }
+.btn.primary { background: var(--brand-2); border-color: var(--brand-2); }
+.btn.primary:hover { filter: brightness(1.12); background: var(--brand-2); }
+.tabs button.on { border-bottom-color: var(--gold); }
+.badge { background: var(--gold); color: #fff; }
+
+/* welcome, login and setup pages */
+.brand-page { min-height: 100vh; background: var(--bg); position: relative; display: flex; flex-direction: column; padding: 0 20px; }
+.brand-spine { position: fixed; inset-block: 0; inset-inline-start: 0; width: 6px; background: var(--gold); }
+.brand-head { display: grid; grid-template-columns: 110px 1fr 110px; align-items: center; gap: 16px; max-width: 980px; width: 100%; margin: 28px auto 10px; }
+.brand-jesuits { width: 110px; }
+.brand-sun { width: 96px; justify-self: end; }
+.brand-title { text-align: center; }
+.brand-title h1 { font-size: 34px; letter-spacing: 0.02em; margin: 4px 0; color: var(--ink); }
+.brand-eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold-d); }
+.brand-cities { color: var(--soft); font-size: 14px; }
+.brand-main { width: 100%; max-width: 460px; margin: 18px auto 30px; flex: 1; }
+.brand-main.wide { max-width: 980px; }
+.brand-main .panel { border-top: 4px solid var(--centre, var(--gold)); }
+.brand-main .btn.primary { background: var(--centre-deep, var(--ink)); border-color: var(--centre-deep, var(--ink)); }
+.brand-h2 { text-align: center; color: var(--ink); font-weight: 600; margin: 8px 0 18px; }
+.brand-foot { display: flex; align-items: center; justify-content: center; gap: 14px; color: var(--soft); font-size: 12px; padding: 14px 0 22px; border-top: 1px solid var(--line); max-width: 980px; width: 100%; margin: 0 auto; text-align: center; }
+.brand-foot img { height: 46px; }
+.login-panel { width: min(440px, 100%); margin: 0 auto; }
+
+.db-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.db-card { display: flex; align-items: center; gap: 16px; text-align: start; background: #fff; border: 1px solid var(--line); border-inline-start: 6px solid var(--centre); border-radius: 12px; padding: 16px; cursor: pointer; transition: transform 0.08s, box-shadow 0.08s; }
+.db-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(38, 41, 46, 0.1); }
+.db-card-mark { width: 72px; height: 72px; flex: none; display: flex; align-items: center; justify-content: center; }
+.db-card-mark img { max-width: 72px; max-height: 72px; }
+.db-card-mark span { font-size: 40px; color: var(--gold); }
+.db-card-text { display: flex; flex-direction: column; gap: 4px; }
+.db-card-text b { font-size: 17px; color: var(--ink); }
+.db-card-text span { color: var(--soft); font-size: 13px; }
+.db-new { border-style: dashed; border-inline-start: 6px dashed var(--gold); background: transparent; }
+
+.centre-pick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.centre-pick button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; background: #fff; border: 2px solid var(--line); border-radius: 10px; cursor: pointer; }
+.centre-pick button img { height: 56px; }
+.centre-pick button.on { border-color: var(--centre-deep); box-shadow: 0 0 0 3px color-mix(in srgb, var(--centre) 35%, transparent); }
+
+@media (max-width: 640px) {
+  .brand-head { grid-template-columns: 64px 1fr 64px; margin-top: 16px; gap: 8px; }
+  .brand-jesuits { width: 64px; }
+  .brand-sun { width: 56px; }
+  .brand-title h1 { font-size: 24px; }
+  .brand-eyebrow { font-size: 10px; }
+  .centre-pick { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .brand-foot span { display: none; }
+}

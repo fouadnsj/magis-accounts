@@ -14,6 +14,8 @@ const WORKBOOK = decodeURIComponent(new URL('../../template/Master Sup.xlsx', im
 let srv: Running;
 let base: string;
 let dir: string;
+/** the database used by most tests (created in "first setup") */
+let DB = '';
 
 beforeAll(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-test-'));
@@ -39,9 +41,9 @@ async function call(url: string, body?: unknown, cookie?: string) {
 }
 
 async function loginAs(name: string, password: string) {
-  const ps = (await call('/api/profiles')).body as { id: number; name: string }[];
+  const ps = (await call(`/api/profiles?db=${DB}`)).body as { id: number; name: string }[];
   const p = ps.find((x) => x.name === name)!;
-  const r = await call('/api/login', { profileId: p.id, password });
+  const r = await call('/api/login', { db: DB, profileId: p.id, password });
   expect(r.status).toBe(200);
   // An account made by the Superior: the person chooses his own password first (here, he keeps the same one).
   if (r.body.mustChange) expect((await call('/api/op/profile.setPin', { id: r.body.profile.id, pin: password }, r.cookie!)).status).toBe(200);
@@ -51,13 +53,19 @@ async function loginAs(name: string, password: string) {
 const op = (name: string, args: unknown, cookie: string) => call(`/api/op/${name}`, args ?? {}, cookie);
 
 describe('server: first setup', () => {
-  it('needs setup, from this computer only', async () => {
+  it('starts with no database; this computer may create one', async () => {
     const h = (await call('/api/hello')).body;
-    expect(h).toMatchObject({ server: true, setupNeeded: true, local: true });
+    expect(h).toMatchObject({ server: true, local: true, canCreate: true, dbs: [] });
   });
 
-  it('creates the office database from Master Sup.xlsx', async () => {
+  it('creates a database, then sets it up from Master Sup.xlsx', async () => {
+    const c = await call('/api/dbs/create', { organisation: 'Test centre', centre: 'homs' });
+    expect(c.status).toBe(200);
+    DB = c.body.slug;
+    expect(DB).toBe('test-centre');
+    expect((await call('/api/hello')).body.dbs).toEqual([{ slug: DB, organisation: 'Test centre', centre: 'homs', setupNeeded: true }]);
     const r = await call('/api/setup/new', {
+      db: DB,
       organisation: 'Test centre', supName: 'Fouad', supPin: 'sup-secret', comName: 'Comptable', comPin: 'com-secret',
       workbook: fs.readFileSync(WORKBOOK).toString('base64'), workbookName: 'Master Sup.xlsx',
     });
@@ -66,21 +74,21 @@ describe('server: first setup', () => {
   }, 60000);
 
   it('cannot be set up twice', async () => {
-    const r = await call('/api/setup/new', { organisation: 'x', supName: 'a', supPin: '123456', comName: 'b', comPin: '123456' });
+    const r = await call('/api/setup/new', { db: DB, organisation: 'x', supName: 'a', supPin: '123456', comName: 'b', comPin: '123456' });
     expect(r.status).toBe(409);
   });
 });
 
 describe('server: logins', () => {
   it('refuses a wrong password, and anything without a session', async () => {
-    const ps = (await call('/api/profiles')).body as { id: number }[];
-    expect((await call('/api/login', { profileId: ps[0].id, password: 'nope' })).status).toBe(400);
+    const ps = (await call(`/api/profiles?db=${DB}`)).body as { id: number }[];
+    expect((await call('/api/login', { db: DB, profileId: ps[0].id, password: 'nope' })).status).toBe(400);
     expect((await call('/api/op/data', {})).status).toBe(401);
   });
 
   it('logs in with an HttpOnly cookie', async () => {
-    const ps = (await call('/api/profiles')).body as { id: number; name: string }[];
-    const r = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId: ps.find((p) => p.name === 'Comptable')!.id, password: 'com-secret' }) });
+    const ps = (await call(`/api/profiles?db=${DB}`)).body as { id: number; name: string }[];
+    const r = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db: DB, profileId: ps.find((p) => p.name === 'Comptable')!.id, password: 'com-secret' }) });
     expect(r.headers.get('set-cookie')).toMatch(/HttpOnly; SameSite=Strict/);
   });
 });
@@ -274,14 +282,71 @@ describe('server: accounts for all book keepers', () => {
     expect(made.length).toBeGreaterThan(0);
     expect(made.some((x) => x.book === 'Roula')).toBe(false); // Roula already has her account
     const first = made[0];
-    const ps = (await call('/api/profiles')).body as { id: number; name: string }[];
-    const r = await call('/api/login', { profileId: ps.find((p) => p.name === first.name)!.id, password: first.password });
+    const ps = (await call(`/api/profiles?db=${DB}`)).body as { id: number; name: string }[];
+    const r = await call('/api/login', { db: DB, profileId: ps.find((p) => p.name === first.name)!.id, password: first.password });
     expect(r.body.mustChange).toBe(true);
     expect((await op('data', {}, r.cookie!)).status).toBe(403); // nothing before choosing a password
     expect((await op('profile.setPin', { id: r.body.profile.id, pin: 'my-own-pass' }, r.cookie!)).status).toBe(200);
     expect((await op('data', {}, r.cookie!)).status).toBe(200);
     // a second run creates nobody
     expect(((await op('users.createKeepers', {}, sup)).body as unknown[]).length).toBe(0);
+  });
+});
+
+describe('server: several databases', () => {
+  it('a second database is fully separate: its own users, its own data, its own sessions', async () => {
+    const c = await call('/api/dbs/create', { organisation: 'Jaramana 2027', centre: 'jaramana' });
+    const J = c.body.slug;
+    expect((await call('/api/setup/new', { db: J, organisation: 'Jaramana 2027', supName: 'Supj', supPin: 'supj-pass', comName: 'Comj', comPin: 'comj-pass' })).status).toBe(200);
+    const ps = (await call(`/api/profiles?db=${J}`)).body as { id: number; name: string }[];
+    expect(ps.map((p) => p.name).sort()).toEqual(['Comj', 'Supj']);
+    // a user of the first database cannot log in to this one
+    const fouadId = ((await call(`/api/profiles?db=${DB}`)).body as { id: number; name: string }[]).find((p) => p.name === 'Fouad')!.id;
+    expect((await call('/api/login', { db: J, profileId: fouadId, password: 'sup-secret' })).status).toBe(400);
+    const r = await call('/api/login', { db: J, profileId: ps.find((p) => p.name === 'Supj')!.id, password: 'supj-pass' });
+    const d = (await op('data', {}, r.cookie!)).body as DataPayload;
+    expect(d.rows.length).toBe(0);
+    expect((await call('/api/me', undefined, r.cookie!)).body.db).toBe(J);
+  });
+
+  it('a number N is never given twice, even after deleting the last row', async () => {
+    const com = await loginAs('Comptable', 'com-secret');
+    const d = (await op('data', {}, com)).body as DataPayload;
+    const L = d.lists;
+    const row = (): Trx => ({
+      ...blankTrx(), city_id: L.cities[0].id, account_id: L.accounts.find((a) => a.name === 'Center')!.id, book_id: L.books.find((b) => b.is_main)!.id,
+      date: '2026-12-01', type: 'Exp', heading_id: L.headings.find((h) => h.name === 'Operations')!.id, line_id: L.lines.find((l) => l.name === 'Internet')!.id,
+      explanation: 'n test', exp_syp: 111,
+    });
+    const a = row();
+    await op('trx.save', { rows: [a] }, com);
+    const nA = ((await op('data', {}, com)).body as DataPayload).rows.find((x) => x.id === a.id)!.n!;
+    await op('trx.delete', { ids: [a.id] }, com);
+    const b = row();
+    await op('trx.save', { rows: [b] }, com);
+    const nB = ((await op('data', {}, com)).body as DataPayload).rows.find((x) => x.id === b.id)!.n!;
+    expect(nB).toBe(nA + 1);
+  });
+});
+
+describe('server: a database from an earlier version is moved in', () => {
+  it('magis.db at the top of the data folder becomes one database of the list', async () => {
+    const { nodeDb } = await import('./nodeDb');
+    const { createOffice } = await import('../src/setup');
+    const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-old-'));
+    await createOffice(nodeDb(path.join(dir3, 'magis.db')), { organisation: 'MAGIS Homs', supName: 'S', supPin: 'sup-pass', comName: 'C', comPin: 'com-pass' });
+    fs.mkdirSync(path.join(dir3, 'backups'));
+    fs.writeFileSync(path.join(dir3, 'backups', 'old-copy.db'), 'x');
+    const srv3 = await startServer({ dataDir: dir3, webRoot: dir3, config: { httpMode: 'serve', httpPort: 0 }, log: () => undefined });
+    try {
+      const hello = await (await fetch(`http://127.0.0.1:${srv3.httpPort}/api/hello`)).json();
+      expect(hello.dbs).toEqual([{ slug: 'magis-homs', organisation: 'MAGIS Homs', centre: 'homs', setupNeeded: false }]);
+      expect(fs.existsSync(path.join(dir3, 'magis.db'))).toBe(false);
+      expect(fs.existsSync(path.join(dir3, 'dbs', 'magis-homs', 'backups', 'old-copy.db'))).toBe(true);
+    } finally {
+      await srv3.close();
+      fs.rmSync(dir3, { recursive: true, force: true });
+    }
   });
 });
 
@@ -310,13 +375,15 @@ describe('server: moving the desktop database in', () => {
 
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-srv2-'));
     const srv2 = await startServer({ dataDir: dir2, webRoot: dir2, config: { httpMode: 'serve', httpPort: 0 }, log: () => undefined });
-    const post = (body: unknown) => fetch(`http://127.0.0.1:${srv2.httpPort}/api/setup/upload-db`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const create = await (await fetch(`http://127.0.0.1:${srv2.httpPort}/api/dbs/create`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ organisation: 'From desktop', centre: 'aleppo' }) })).json();
+    const post = (body: Record<string, unknown>) => fetch(`http://127.0.0.1:${srv2.httpPort}/api/setup/upload-db`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db: create.slug, ...body }) });
     try {
       expect((await post({ base64: fs.readFileSync(holderFile).toString('base64') })).status).toBe(400);
       expect((await post({ base64: fs.readFileSync(officeFile).toString('base64') })).status).toBe(200);
       const hello = await (await fetch(`http://127.0.0.1:${srv2.httpPort}/api/hello`)).json();
-      expect(hello).toMatchObject({ setupNeeded: false, organisation: 'Desk' });
-      const ps = await (await fetch(`http://127.0.0.1:${srv2.httpPort}/api/profiles`)).json();
+      // the desktop file's own name comes in; the colour chosen for the database stays
+      expect(hello.dbs[0]).toMatchObject({ setupNeeded: false, organisation: 'Desk', centre: 'aleppo' });
+      const ps = await (await fetch(`http://127.0.0.1:${srv2.httpPort}/api/profiles?db=${create.slug}`)).json();
       expect(ps.map((p: { name: string }) => p.name).sort()).toEqual(['C', 'S']);
     } finally {
       await srv2.close();
@@ -342,7 +409,7 @@ describe('server: restore from an uploaded file (Superior only)', () => {
     const before = ((await op('backup.list', {}, sup)).body as { name: string }[]).length;
     expect((await call('/api/server/restore-upload', { base64: 'bm90IGEgZGF0YWJhc2U=', fileName: 'x.db' }, sup)).status).toBe(400);
     expect((await call('/api/server/restore-upload', body, sup)).status).toBe(200);
-    expect((await call('/api/hello')).body.organisation).toBe('Restored');
+    expect((await call('/api/hello')).body.dbs.find((d: { slug: string }) => d.slug === DB).organisation).toBe('Restored');
     expect((await call('/api/op/data', {}, sup)).status).toBe(401); // everybody logs in again
     const sup2 = await loginAs('S2', 'sup2-pass');
     expect(((await op('backup.list', {}, sup2)).body as { name: string }[]).length).toBeGreaterThan(before); // safety copies kept
@@ -353,9 +420,9 @@ describe('server: restore from an uploaded file (Superior only)', () => {
 // Last: it blocks this computer's address for 5 minutes.
 describe('server: too many wrong passwords', () => {
   it('blocks the address for 5 minutes after 8 failures', async () => {
-    const ps = (await call('/api/profiles')).body as { id: number }[];
+    const ps = (await call(`/api/profiles?db=${DB}`)).body as { id: number }[];
     let last = 0;
-    for (let i = 0; i < 9; i++) last = (await call('/api/login', { profileId: ps[0].id, password: 'wrong' })).status;
+    for (let i = 0; i < 9; i++) last = (await call('/api/login', { db: DB, profileId: ps[0].id, password: 'wrong' })).status;
     expect(last).toBe(429);
   });
 });

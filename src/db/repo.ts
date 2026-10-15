@@ -310,10 +310,16 @@ function updateTrxStmt(t: Trx): Stmt {
   };
 }
 
-/** Office databases number rows 0001…; a holder's rows get their number when imported. */
+/**
+ * Office databases number rows 0001…; a holder's rows get their number when imported.
+ * A number is NEVER reused: the last one given is kept in meta.last_n, so a row deleted
+ * at the end of the register leaves a gap instead of lending its number to the next row.
+ * Every row also has its permanent identity, Entry_ID (a UUID), whatever its number.
+ */
 export async function nextN(db: Db): Promise<number> {
   const r = await one<{ n: number | null }>(db, 'SELECT MAX(n) AS n FROM trx');
-  return (r?.n ?? 0) + 1;
+  const last = Number((await getMeta(db, 'last_n')) ?? 0) || 0;
+  return Math.max(r?.n ?? 0, last) + 1;
 }
 
 export function blankTrx(): Trx {
@@ -344,6 +350,7 @@ export async function saveTrxRows(db: Db, rows: Trx[], who: string, numbered: bo
       stmts.push(insertTrxStmt(fresh), auditStmt(who, 'add', 'trx', t.id, null, fresh));
     }
   }
+  if (numbered) stmts.push(setMetaStmt('last_n', String(n - 1)));
   await db.batch(stmts);
 }
 

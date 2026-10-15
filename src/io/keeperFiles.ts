@@ -150,6 +150,7 @@ export async function importEntries(db: Db, text: string, fileName: string, who:
     stmts.push(insertTrxStmt(t));
   }
 
+  stmts.push(setMetaStmt('last_n', String(n - 1)));
   stmts.push(auditStmt(who, 'import_entries', 'trx', null, null, { file: fileName, added: added.length, skipped: skipped.length }));
   stmts.push({
     sql: 'INSERT INTO import_log (at, who, kind, file_name, added, skipped, detail) VALUES (?,?,?,?,?,?,?)',

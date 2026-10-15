@@ -1,39 +1,21 @@
-// First start of the centre's server: bring the data in.
-// Only possible on the server computer itself, and only while it has no user.
+// Setting up a new database on the server: bring the data in.
+// Allowed on the server computer itself, or to someone who manages users.
 import { useState } from 'react';
-import type { Hello } from '../net';
+import { serverSetup, type DbInfo } from '../net';
 import { pickFile, toBase64 } from '../platform';
 import type { ImportReport } from '../io/importWorkbook';
 import { Field, errText, t } from './kit';
 import { MigrationReport } from './Welcome';
+import { BrandFrame } from './Landing';
 
-async function post(url: string, body: unknown) {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(j.error?.en ?? 'Error'), { msg: j.error });
-  return j;
-}
-
-export function ServerSetup({ hello }: { hello: Hello }) {
+export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => void; onBack: () => void }) {
   const [mode, setMode] = useState<'choose' | 'upload' | 'new'>('choose');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
-  const [f, setF] = useState({ organisation: 'MAGIS Homs', supName: '', supPin: '', comName: '', comPin: '' });
+  const [f, setF] = useState({ organisation: db.organisation, supName: '', supPin: '', comName: '', comPin: '' });
   const [wbName, setWbName] = useState<string | null>(null);
   const [wb64, setWb64] = useState<string | null>(null);
-
-  if (!hello.local)
-    return (
-      <div className="center-page">
-        <div className="panel" style={{ maxWidth: 520 }}>
-          <h1>{t('الخادم غير مُعدّ بعد', 'The server is not set up yet')}</h1>
-          <p>{t('افتح هذه الصفحة على حاسوب الخادم نفسه: https://localhost:8443', 'Open this page on the server computer itself: https://localhost:8443')}</p>
-        </div>
-      </div>
-    );
-
-  const done = () => window.location.reload();
 
   const uploadDb = async () => {
     setErr(null);
@@ -41,8 +23,8 @@ export function ServerSetup({ hello }: { hello: Hello }) {
     if (!file) return;
     setBusy(true);
     try {
-      await post('/api/setup/upload-db', { base64: toBase64(file.bytes) });
-      done();
+      await serverSetup('upload-db', { db: db.slug, base64: toBase64(file.bytes) });
+      onDone();
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -54,9 +36,9 @@ export function ServerSetup({ hello }: { hello: Hello }) {
     setErr(null);
     setBusy(true);
     try {
-      const r = await post('/api/setup/new', { ...f, workbook: wb64, workbookName: wbName });
+      const r = await serverSetup<{ report: ImportReport | null }>('new', { db: db.slug, ...f, workbook: wb64, workbookName: wbName });
       if (r.report) setReport(r.report);
-      else done();
+      else onDone();
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -65,43 +47,45 @@ export function ServerSetup({ hello }: { hello: Hello }) {
   };
 
   return (
-    <div className="center-page">
-      <div className="welcome">
-        <h1>{t('إعداد خادم المركز', "Setting up the centre's server")}</h1>
+    <BrandFrame centre={db.centre}>
+      <div className="panel">
+        <h2>{t('إعداد', 'Setting up')} · {db.organisation}</h2>
         <p className="muted">{t('مرة واحدة فقط. بعدها يفتح الجميع البرنامج من المتصفح.', 'Only once. Afterwards everyone opens the program from a browser.')}</p>
         {err && <div className="alert err">{err}</div>}
         {report ? (
-          <div className="panel">
+          <>
             <MigrationReport r={report} />
-            <div className="modal-foot"><button className="btn primary" onClick={done}>{t('متابعة', 'Continue')}</button></div>
-          </div>
+            <div className="modal-foot"><button className="btn primary" onClick={onDone}>{t('متابعة', 'Continue')}</button></div>
+          </>
         ) : mode === 'choose' ? (
-          <div className="choice" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
-            <button onClick={() => setMode('upload')}>
-              <b>{t('نقل قاعدة المكتب الحالية', 'Move the current office database')}</b>
-              <span className="muted small">{t('الملف ‎.db الذي يستعمله البرنامج المكتبي الآن (موصى به).', 'The .db file the desktop program uses now (recommended).')}</span>
-            </button>
-            <button onClick={() => setMode('new')}>
-              <b>{t('قاعدة جديدة', 'A new database')}</b>
-              <span className="muted small">{t('من ملف Excel، أو فارغة.', 'From the Excel workbook, or empty.')}</span>
-            </button>
-          </div>
+          <>
+            <div className="choice" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+              <button onClick={() => setMode('upload')}>
+                <b>{t('من ملف البرنامج المكتبي', "From the desktop program's file")}</b>
+                <span className="muted small">{t('ملف ‎.db (أو نسخة احتياطية منه): الحسابات والقوائم والمستخدمون كما هم.', 'A .db file (or a backup copy of it): accounts, lists and users as they are.')}</span>
+              </button>
+              <button onClick={() => setMode('new')}>
+                <b>{t('قاعدة جديدة', 'A new database')}</b>
+                <span className="muted small">{t('من ملف Excel، أو فارغة.', 'From the Excel workbook, or empty.')}</span>
+              </button>
+            </div>
+            <div className="modal-foot"><button className="btn" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button></div>
+          </>
         ) : mode === 'upload' ? (
-          <div className="panel">
+          <>
             <ol>
-              <li>{t('على حاسوب المكتب: البرنامج ← الإدارة ← النسخ الاحتياطية ← «نسخة الآن».', 'On the office computer: program → Admin → Backups → "Back up now".')}</li>
-              <li>{t('انسخ ملف ‎.db (أو النسخة الأخيرة من مجلد backups) إلى هذا الحاسوب.', 'Copy the .db file (or the latest copy from the backups folder) to this computer.')}</li>
-              <li>{t('اختره هنا. المستخدمون وكلمات السر تبقى كما هي.', 'Choose it here. Users and passwords stay the same.')}</li>
+              <li>{t('في البرنامج المكتبي: الإدارة ← النسخ الاحتياطية ← «نسخة الآن».', 'In the desktop program: Admin → Backups → "Back up now".')}</li>
+              <li>{t('اختر الملف ‎.db أو النسخة الأخيرة من مجلد backups.', 'Choose the .db file, or the latest copy from the backups folder.')}</li>
             </ol>
             <div className="modal-foot">
               <button className="btn" onClick={() => setMode('choose')}>{t('رجوع', 'Back')}</button>
               <button className="btn primary" disabled={busy} onClick={uploadDb}>{busy ? '…' : t('اختيار الملف…', 'Choose the file…')}</button>
             </div>
-          </div>
+          </>
         ) : (
-          <div className="panel">
+          <>
             <div className="grid2">
-              <Field label={t('اسم المركز', 'Centre name')} className="span2"><input value={f.organisation} onChange={(e) => setF({ ...f, organisation: e.target.value })} /></Field>
+              <Field label={t('الاسم', 'Name')} className="span2"><input value={f.organisation} onChange={(e) => setF({ ...f, organisation: e.target.value })} /></Field>
               <Field label={t('اسم الرئيس', 'Superior name')}><input value={f.supName} onChange={(e) => setF({ ...f, supName: e.target.value })} /></Field>
               <Field label={t('كلمة سره (6+)', 'Password (6+)')}><input type="password" value={f.supPin} onChange={(e) => setF({ ...f, supPin: e.target.value })} /></Field>
               <Field label={t('اسم المحاسب', 'Accountant name')}><input value={f.comName} onChange={(e) => setF({ ...f, comName: e.target.value })} /></Field>
@@ -121,9 +105,9 @@ export function ServerSetup({ hello }: { hello: Hello }) {
               <button className="btn" onClick={() => setMode('choose')}>{t('رجوع', 'Back')}</button>
               <button className="btn primary" disabled={busy || !f.supName.trim() || !f.comName.trim()} onClick={create}>{busy ? '…' : t('إنشاء', 'Create')}</button>
             </div>
-          </div>
+          </>
         )}
       </div>
-    </div>
+    </BrandFrame>
   );
 }

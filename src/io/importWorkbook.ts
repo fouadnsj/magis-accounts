@@ -525,6 +525,7 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
     stmts.push(insertTrxStmt(t));
   }
 
+  stmts.push(setMetaStmt('last_n', String(n - 1)));
   stmts.push(setMetaStmt('migrated_from', sourceFile));
   stmts.push(setMetaStmt('migrated_at', nowIso()));
   stmts.push(auditStmt(who, 'migrate', 'trx', null, null, { file: sourceFile, rows: rows.length, toReview: report.toReview }));

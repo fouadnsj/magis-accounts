@@ -1,8 +1,9 @@
 // MAGIS Accounts — the centre's server on the local network.
 //
-// One computer in the centre (the mini-PC) runs this program. It keeps the only
-// database, serves the screens to every browser on the LAN (computers and
-// phones), checks every password and every permission, and backs up every day.
+// One computer in the centre (the mini-PC) runs this program. It keeps the
+// databases (one per centre, or per purpose: Homs, a test, a new year…), serves
+// the screens to every browser on the LAN (computers and phones), checks every
+// password and every permission, and backs up every database every day.
 // The accounting rules are the same files as the desktop app (src/ops.ts,
 // src/domain/*), so the two can never disagree.
 //
@@ -22,14 +23,14 @@ import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one } from '../src/db/db';
-import { getMeta } from '../src/db/repo';
+import { getMeta, setMetaStmt } from '../src/db/repo';
 import { has, listProfiles, loadProfile, login, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
 import { createOffice } from '../src/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 
-export const SERVER_VERSION = '0.3.1';
+export const SERVER_VERSION = '0.4.0';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -130,9 +131,40 @@ async function certificate(dataDir: string): Promise<{ key: string; cert: string
   return { key: pems.private, cert: pems.cert };
 }
 
-// ---------------------------------------------------------------- the server
+// ---------------------------------------------------------------- centres (one database each)
+
+/** The colour code of the MAGIS design: Jaramana gold, Aleppo navy, Homs maroon. */
+export const CENTRE_KEYS = ['jaramana', 'aleppo', 'homs', 'other'] as const;
+export type CentreKey = (typeof CENTRE_KEYS)[number];
+
+/** Guess the centre from a name (for databases made before centres existed). */
+function guessCentre(name: string): CentreKey {
+  const n = name.toLowerCase();
+  if (/homs|حمص/.test(n)) return 'homs';
+  if (/alep|aleppo|حلب/.test(n)) return 'aleppo';
+  if (/jaramana|جرمانا|damas|دمشق|alberto/.test(n)) return 'jaramana';
+  return 'other';
+}
+
+/** Folder name for a database: latin letters, digits and dashes only. */
+function slugify(name: string): string {
+  const s = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return s || 'centre';
+}
+
+interface Centre {
+  slug: string;
+  dir: string;
+  file: string;
+  backupsDir: string;
+  handle: { db: Db; close: () => void };
+  /** Goes up by one after every change: browsers ask for it to know when to reload. */
+  version: number;
+  files: FileOps;
+}
 
 interface Session {
+  db: string; // slug of the database this session belongs to
   profile: Profile;
   mustChange: boolean;
   last: number;
@@ -163,87 +195,139 @@ class HttpError extends Error {
   }
 }
 
+const stamp = () => {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+};
+
 export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const dataDir = opts.dataDir ?? defaultDataDir();
   const log = opts.log ?? ((m: string) => console.log(`[${new Date().toISOString()}] ${m}`));
-  fs.mkdirSync(path.join(dataDir, 'backups'), { recursive: true });
+  const dbsDir = path.join(dataDir, 'dbs');
+  fs.mkdirSync(dbsDir, { recursive: true });
   let config = { ...readConfig(dataDir), ...opts.config };
   if (!fs.existsSync(path.join(dataDir, 'config.json'))) writeConfig(dataDir, config);
-
-  const dbFile = path.join(dataDir, 'magis.db');
-  let handle = openDb(dbFile);
-  await migrate(handle.db);
   const webRoot = opts.webRoot ?? path.join(path.dirname(process.argv[1] ?? '.'), 'web');
 
-  /** Goes up by one after every change: browsers ask for it to know when to reload. */
-  let version = 1;
+  const centres = new Map<string, Centre>();
   const sessions = new Map<string, Session>();
   const failures = new Map<string, { n: number; until: number }>();
 
-  const setupNeeded = async () => !(await one(handle.db, 'SELECT 1 FROM profile WHERE active = 1 LIMIT 1'));
-  const organisation = async () => (await getMeta(handle.db, 'organisation')) ?? '';
-
-  // ---------------------------------------------------------------- backups
-  const backupsDir = path.join(dataDir, 'backups');
-  const stamp = () => {
-    const d = new Date();
-    const p = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-  };
-  const files: FileOps = {
+  // ---------------------------------------------------------------- one centre = one folder
+  const makeFiles = (c: Centre): FileOps => ({
     async backupNow(reason) {
       // two copies in the same second get -2, -3… instead of failing
       const base = `magis_${stamp()}_${reason.replace(/[^\w-]/g, '')}`;
-      let dest = path.join(backupsDir, `${base}.db`);
-      for (let i = 2; fs.existsSync(dest); i++) dest = path.join(backupsDir, `${base}-${i}.db`);
-      await handle.db.query('VACUUM INTO ?', [dest]);
+      let dest = path.join(c.backupsDir, `${base}.db`);
+      for (let i = 2; fs.existsSync(dest); i++) dest = path.join(c.backupsDir, `${base}-${i}.db`);
+      await c.handle.db.query('VACUUM INTO ?', [dest]);
       if (config.backupMirror) {
         try {
-          fs.mkdirSync(config.backupMirror, { recursive: true });
-          fs.copyFileSync(dest, path.join(config.backupMirror, path.basename(dest)));
+          const mirror = path.join(config.backupMirror, c.slug);
+          fs.mkdirSync(mirror, { recursive: true });
+          fs.copyFileSync(dest, path.join(mirror, path.basename(dest)));
         } catch (e) {
           log(`backup mirror failed (${config.backupMirror}): ${e}`);
         }
       }
-      log(`backup ${path.basename(dest)}`);
+      log(`backup ${c.slug}/${path.basename(dest)}`);
       return dest;
     },
     async list(): Promise<BackupFile[]> {
       return fs
-        .readdirSync(backupsDir)
+        .readdirSync(c.backupsDir)
         .filter((f) => f.endsWith('.db'))
         .map((name) => {
-          const st = fs.statSync(path.join(backupsDir, name));
+          const st = fs.statSync(path.join(c.backupsDir, name));
           return { name, path: name, size: st.size, modified: st.mtimeMs };
         })
         .sort((a, b) => b.modified - a.modified);
     },
     async restore(name) {
-      // Only a file of the backups folder, by its bare name: never a path from the browser.
+      // Only a file of this database's backups folder, by its bare name: never a path from the browser.
       const base = path.basename(name);
-      const from = path.join(backupsDir, base);
+      const from = path.join(c.backupsDir, base);
       if (base !== name || !fs.existsSync(from)) throw new HttpError(400, { ar: 'نسخة غير موجودة', en: 'Backup not found' });
-      await files.backupNow('before-restore');
-      handle.close();
-      fs.copyFileSync(from, dbFile);
-      handle = openDb(dbFile);
-      await migrate(handle.db);
-      version++;
-      log(`restored ${base}`);
+      await c.files.backupNow('before-restore');
+      c.handle.close();
+      fs.copyFileSync(from, c.file);
+      c.handle = openDb(c.file);
+      await migrate(c.handle.db);
+      c.version++;
+      log(`restored ${c.slug}/${base}`);
     },
+  });
+
+  const openCentre = async (slug: string): Promise<Centre> => {
+    const dir = path.join(dbsDir, slug);
+    const backupsDir = path.join(dir, 'backups');
+    fs.mkdirSync(backupsDir, { recursive: true });
+    const file = path.join(dir, 'magis.db');
+    const handle = openDb(file);
+    await migrate(handle.db);
+    const c = { slug, dir, file, backupsDir, handle, version: 1 } as Centre;
+    c.files = makeFiles(c);
+    centres.set(slug, c);
+    return c;
   };
 
+  // A server of an earlier version kept ONE database at the top of its folder: move it in, once.
+  const oldFile = path.join(dataDir, 'magis.db');
+  if (fs.existsSync(oldFile)) {
+    const tmp = openDb(oldFile);
+    await migrate(tmp.db);
+    const org = (await getMeta(tmp.db, 'organisation')) ?? '';
+    const centre = (await getMeta(tmp.db, 'centre')) ?? guessCentre(org);
+    await tmp.db.batch([setMetaStmt('centre', centre)]);
+    tmp.close();
+    let slug = slugify(org);
+    for (let i = 2; fs.existsSync(path.join(dbsDir, slug)); i++) slug = `${slugify(org)}-${i}`;
+    fs.mkdirSync(path.join(dbsDir, slug, 'backups'), { recursive: true });
+    fs.renameSync(oldFile, path.join(dbsDir, slug, 'magis.db'));
+    const oldBackups = path.join(dataDir, 'backups');
+    if (fs.existsSync(oldBackups)) {
+      for (const f of fs.readdirSync(oldBackups)) fs.renameSync(path.join(oldBackups, f), path.join(dbsDir, slug, 'backups', f));
+      fs.rmSync(oldBackups, { recursive: true, force: true });
+    }
+    log(`moved the database into dbs/${slug}`);
+  }
+
+  for (const slug of fs.readdirSync(dbsDir)) {
+    if (fs.existsSync(path.join(dbsDir, slug, 'magis.db'))) await openCentre(slug);
+  }
+
+  const setupNeeded = async (c: Centre) => !(await one(c.handle.db, 'SELECT 1 FROM profile WHERE active = 1 LIMIT 1'));
+  const describe = async (c: Centre) => ({
+    slug: c.slug,
+    organisation: (await getMeta(c.handle.db, 'organisation')) ?? c.slug,
+    centre: ((await getMeta(c.handle.db, 'centre')) ?? 'other') as CentreKey,
+    setupNeeded: await setupNeeded(c),
+  });
+  const centreOf = (slug: unknown): Centre => {
+    const c = typeof slug === 'string' ? centres.get(slug) : undefined;
+    if (!c) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
+    return c;
+  };
+
+  // ---------------------------------------------------------------- backups, every day, for every database
   const dailyBackup = async () => {
     const today = stamp().slice(0, 10);
-    const all = await files.list();
-    if (await setupNeeded()) return;
-    if (all.some((b) => b.name.startsWith(`magis_${today}`) && b.name.endsWith('_daily.db'))) return;
-    await files.backupNow('daily');
-    const daily = (await files.list()).filter((b) => b.name.endsWith('_daily.db'));
-    for (const old of daily.slice(60)) fs.rmSync(path.join(backupsDir, old.name), { force: true });
+    for (const c of centres.values()) {
+      try {
+        if (await setupNeeded(c)) continue;
+        const all = await c.files.list();
+        if (all.some((b) => b.name.startsWith(`magis_${today}`) && b.name.endsWith('_daily.db'))) continue;
+        await c.files.backupNow('daily');
+        const daily = (await c.files.list()).filter((b) => b.name.endsWith('_daily.db'));
+        for (const old of daily.slice(60)) fs.rmSync(path.join(c.backupsDir, old.name), { force: true });
+      } catch (e) {
+        log(`daily backup failed (${c.slug}): ${e}`);
+      }
+    }
   };
-  await dailyBackup().catch((e) => log(`daily backup failed: ${e}`));
-  const dailyTimer = setInterval(() => dailyBackup().catch((e) => log(`daily backup failed: ${e}`)), 3600e3);
+  await dailyBackup();
+  const dailyTimer = setInterval(() => void dailyBackup(), 3600e3);
 
   // ---------------------------------------------------------------- helpers
   const ipOf = (req: http.IncomingMessage) => (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
@@ -272,24 +356,29 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
   const cookie = (req: http.IncomingMessage) => /(?:^|;\s*)magis_sid=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1] ?? null;
 
-  /** The person behind this request, re-read from the database (a deactivated user is out at once). */
-  const sessionOf = async (req: http.IncomingMessage): Promise<[string, Session] | null> => {
+  /** The person behind this request, re-read from his database (a deactivated user is out at once). */
+  const sessionOf = async (req: http.IncomingMessage): Promise<[string, Session, Centre] | null> => {
     const sid = cookie(req);
     const s = sid ? sessions.get(sid) : undefined;
     if (!sid || !s) return null;
-    if (Date.now() - s.last > SESSION_IDLE_MS) {
+    const c = centres.get(s.db);
+    if (!c || Date.now() - s.last > SESSION_IDLE_MS) {
       sessions.delete(sid);
       return null;
     }
-    const p = await loadProfile(handle.db, s.profile.id);
+    const p = await loadProfile(c.handle.db, s.profile.id);
     if (!p) {
       sessions.delete(sid);
       return null;
     }
     s.profile = p;
     s.last = Date.now();
-    return [sid, s];
+    return [sid, s, c];
   };
+
+  /** Creating or setting up a database: on the server computer itself, or by someone who manages users. */
+  const mayCreate = (req: http.IncomingMessage, found: [string, Session, Centre] | null) =>
+    isLocal(req) || (!!found && has(found[1].profile, 'users.manage'));
 
   const send = (res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
@@ -331,12 +420,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const secure = () => config.httpsPort > 0;
 
   /**
-   * Replaces the database by an uploaded office database (from the desktop app,
+   * Replaces a database by an uploaded office database (from the desktop app,
    * or a backup copy). Checked in a temporary file first: it must open, must be
    * an office database (not a holder's), and must have at least one user.
    */
-  const replaceDatabase = async (base64: string) => {
-    const tmp = path.join(dataDir, `upload-${Date.now()}.db`);
+  const replaceDatabase = async (c: Centre, base64: string) => {
+    const keepCentre = await getMeta(c.handle.db, 'centre');
+    const tmp = path.join(c.dir, `upload-${Date.now()}.db`);
     fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
     try {
       const test = openDb(tmp);
@@ -354,48 +444,73 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (e instanceof HttpError) throw e;
       throw new HttpError(400, { ar: 'ليس ملف قاعدة بيانات صالحاً', en: 'Not a valid database file' });
     }
-    handle.close();
-    fs.copyFileSync(tmp, dbFile);
+    c.handle.close();
+    fs.copyFileSync(tmp, c.file);
     fs.rmSync(tmp, { force: true });
-    handle = openDb(dbFile);
-    await migrate(handle.db);
-    version++;
+    c.handle = openDb(c.file);
+    await migrate(c.handle.db);
+    // the centre chosen for this database stays (its colour and mark)
+    if (keepCentre) await c.handle.db.batch([setMetaStmt('centre', keepCentre)]);
+    c.version++;
+    for (const [sid, x] of sessions) if (x.db === c.slug) sessions.delete(sid); // other users: everybody logs in again
   };
 
   // ---------------------------------------------------------------- API
-  const api = async (req: http.IncomingMessage, res: http.ServerResponse, url: string, viaHttps: boolean) => {
+  const api = async (req: http.IncomingMessage, res: http.ServerResponse, url: string, query: URLSearchParams, viaHttps: boolean) => {
     const method = req.method ?? 'GET';
     const ip = ipOf(req);
+    const found = await sessionOf(req);
 
-    if (url === '/api/hello' && method === 'GET')
-      return send(res, 200, { server: true, organisation: await organisation(), setupNeeded: await setupNeeded(), local: isLocal(req), version: SERVER_VERSION });
+    if (url === '/api/hello' && method === 'GET') {
+      const dbs = await Promise.all([...centres.values()].map(describe));
+      dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), dbs, current: found ? found[1].db : null });
+    }
 
-    // ---- first setup: only from the server computer itself, only while nobody exists
+    // ---- a new database (a centre, a test, a new year…)
+    if (url === '/api/dbs/create' && method === 'POST') {
+      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+      const body = (await readBody(req)) as { organisation?: string; centre?: string };
+      const organisation = (body.organisation ?? '').trim();
+      if (!organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات', en: 'Write the name of the database' });
+      const centre = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? (body.centre as CentreKey) : guessCentre(organisation);
+      let slug = slugify(organisation);
+      for (let i = 2; centres.has(slug) || fs.existsSync(path.join(dbsDir, slug)); i++) slug = `${slugify(organisation)}-${i}`;
+      const c = await openCentre(slug);
+      await c.handle.db.batch([setMetaStmt('organisation', organisation), setMetaStmt('centre', centre), setMetaStmt('install', 'office')]);
+      log(`new database ${slug} (${organisation}, ${centre})`);
+      return send(res, 200, { slug });
+    }
+
+    // ---- setting up a new database: only while it has nobody
     if (url.startsWith('/api/setup/')) {
-      if (!isLocal(req)) throw new HttpError(403, { ar: 'الإعداد من حاسوب الخادم نفسه فقط', en: 'Setup only from the server computer itself' });
-      if (!(await setupNeeded())) throw new HttpError(409, { ar: 'الخادم مُعدّ مسبقاً', en: 'The server is already set up' });
+      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'الإعداد من حاسوب الخادم نفسه', en: 'Setup only from the server computer itself' });
       const body = (await readBody(req)) as Record<string, string>;
+      const c = centreOf(body.db);
+      if (!(await setupNeeded(c))) throw new HttpError(409, { ar: 'قاعدة البيانات مُعدّة مسبقاً', en: 'This database is already set up' });
       if (url === '/api/setup/new') {
-        await createOffice(handle.db, { organisation: body.organisation ?? '', supName: body.supName ?? '', supPin: body.supPin ?? '', comName: body.comName ?? '', comPin: body.comPin ?? '' });
+        const organisation = body.organisation || ((await getMeta(c.handle.db, 'organisation')) ?? '');
+        await createOffice(c.handle.db, { organisation, supName: body.supName ?? '', supPin: body.supPin ?? '', comName: body.comName ?? '', comPin: body.comPin ?? '' });
         let report = null;
         if (body.workbook) {
           const wb = new ExcelJS.Workbook();
           await wb.xlsx.load(Buffer.from(body.workbook, 'base64'));
-          report = await applySeed(handle.db, readWorkbook(wb), body.comName || 'setup', body.workbookName || 'workbook.xlsx');
+          report = await applySeed(c.handle.db, readWorkbook(wb), body.comName || 'setup', body.workbookName || 'workbook.xlsx');
         }
-        version++;
-        log(`setup: new database for ${body.organisation}`);
+        c.version++;
+        log(`setup: ${c.slug} (${organisation})`);
         return send(res, 200, { ok: true, report });
       }
       if (url === '/api/setup/upload-db') {
-        await replaceDatabase(body.base64 ?? '');
-        log('setup: database uploaded from the desktop app');
+        await replaceDatabase(c, body.base64 ?? '');
+        log(`setup: ${c.slug} from a desktop database`);
         return send(res, 200, { ok: true });
       }
     }
 
     if (url === '/api/profiles' && method === 'GET') {
-      const ps = await listProfiles(handle.db);
+      const c = centreOf(query.get('db'));
+      const ps = await listProfiles(c.handle.db);
       return send(res, 200, ps.map((p) => ({ id: p.id, name: p.name, role: p.role, access_name: p.access_name })));
     }
 
@@ -403,15 +518,17 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const f = failures.get(ip);
       if (f && f.until > Date.now())
         throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
-      const body = (await readBody(req)) as { profileId?: number; password?: string };
+      const body = (await readBody(req)) as { db?: string; profileId?: number; password?: string };
+      const c = centreOf(body.db);
       try {
-        const { profile, weak, given } = await login(handle.db, Number(body.profileId), String(body.password ?? ''));
+        const { profile, weak, given } = await login(c.handle.db, Number(body.profileId), String(body.password ?? ''));
         failures.delete(ip);
+        if (found) sessions.delete(found[0]); // one session per browser
         const sid = randomBytes(32).toString('base64url');
-        // An old 4-digit PIN (or any old-style hash) must be replaced on the network.
+        // An old 4-digit PIN, or a password given by the Superior, must be replaced first.
         const mustChange = weak || given;
-        sessions.set(sid, { profile, mustChange, last: Date.now(), ip });
-        log(`login ${profile.name} (${profile.access_name}) from ${ip}`);
+        sessions.set(sid, { db: c.slug, profile, mustChange, last: Date.now(), ip });
+        log(`login ${c.slug}: ${profile.name} (${profile.access_name}) from ${ip}`);
         return send(res, 200, { profile, mustChange, install: 'office' }, {
           'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Strict; Path=/${viaHttps ? '; Secure' : ''}`,
         });
@@ -424,41 +541,40 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
     }
 
-    const found = await sessionOf(req);
     if (url === '/api/logout') {
       if (found) sessions.delete(found[0]);
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'magis_sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
     }
-    if (url === '/api/me') return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
+    if (url === '/api/me')
+      return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange, db: found[1].db } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
     if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
-    const [, s] = found;
+    const [, s, c] = found;
 
-    if (url === '/api/version') return send(res, 200, { v: version });
+    if (url === '/api/version') return send(res, 200, { v: c.version });
 
     if (url === '/api/server/status' && method === 'GET') {
       if (!has(s.profile, 'data.backup') && !has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      const backups = await files.list();
+      const backups = await c.files.list();
       return send(res, 200, {
         version: SERVER_VERSION,
         addresses: lanAddresses().map((a) => (secure() ? `https://${a}:${config.httpsPort}` : `http://${a}:${config.httpPort}`)),
         hostname: os.hostname(),
-        dataDir,
-        dbSize: fs.statSync(dbFile).size,
+        dataDir: c.dir,
+        dbSize: fs.statSync(c.file).size,
         lastBackup: backups[0] ?? null,
         backupCount: backups.length,
         backupMirror: config.backupMirror,
         mirrorOk: config.backupMirror ? fs.existsSync(config.backupMirror) : null,
-        users: [...new Set([...sessions.values()].filter((x) => Date.now() - x.last < 15 * 60e3).map((x) => x.profile.name))],
+        users: [...new Set([...sessions.values()].filter((x) => x.db === c.slug && Date.now() - x.last < 15 * 60e3).map((x) => x.profile.name))],
         startedAt,
       });
     }
     if (url === '/api/server/restore-upload' && method === 'POST') {
       if (!has(s.profile, 'data.restore')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const body = (await readBody(req)) as { base64?: string; fileName?: string };
-      await files.backupNow('before-restore');
-      await replaceDatabase(body.base64 ?? '');
-      sessions.clear(); // the restored file may hold other users: everybody logs in again
-      log(`restored from uploaded file ${body.fileName ?? ''} by ${s.profile.name}`);
+      await c.files.backupNow('before-restore');
+      await replaceDatabase(c, body.base64 ?? '');
+      log(`restored ${c.slug} from uploaded file ${body.fileName ?? ''} by ${s.profile.name}`);
       return send(res, 200, { ok: true });
     }
     if (url === '/api/server/config' && method === 'POST') {
@@ -476,13 +592,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (s.mustChange && op !== 'profile.setPin')
         throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
       const args = await readBody(req);
-      const ctx: OpCtx = { db: handle.db, profile: s.profile, who: s.profile.name, install: 'office', files };
+      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: s.profile.name, install: 'office', files: c.files };
       const result = await runOp(ctx, op, args);
       if (op === 'profile.setPin' && (args as { id?: number }).id === s.profile.id) s.mustChange = false;
-      if (!READ_ONLY.has(op)) version++;
-      // A restored database may hold other users: everybody logs in again.
-      if (op === 'backup.restore') sessions.clear();
-      // backups are listed by bare names; nothing else of the disk is shown
+      if (!READ_ONLY.has(op)) c.version++;
+      // A restored database may hold other users: everybody of that database logs in again.
+      if (op === 'backup.restore') for (const [sid, x] of sessions) if (x.db === c.slug) sessions.delete(sid);
       return send(res, 200, result);
     }
     throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
@@ -491,9 +606,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const startedAt = new Date().toISOString();
 
   const handler = (viaHttps: boolean) => async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const url = (req.url ?? '/').split('?')[0];
+    const [url, qs] = (req.url ?? '/').split('?');
     try {
-      if (url.startsWith('/api/')) await api(req, res, url, viaHttps);
+      if (url.startsWith('/api/')) await api(req, res, url, new URLSearchParams(qs ?? ''), viaHttps);
       else serveStatic(req, res);
     } catch (e) {
       if (e instanceof HttpError) return send(res, e.status, { error: e.msg });
@@ -531,7 +646,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     servers.push(srv);
   }
 
-  log(`MAGIS server ${SERVER_VERSION} · data ${dataDir}`);
+  log(`MAGIS server ${SERVER_VERSION} · data ${dataDir} · ${centres.size} database(s)`);
   for (const a of lanAddresses()) log(`open: ${httpsPort ? `https://${a}:${httpsPort}` : `http://${a}:${httpPort}`}`);
 
   return {
@@ -541,7 +656,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     close: async () => {
       clearInterval(dailyTimer);
       await Promise.all(servers.map((srv) => new Promise((r) => { srv.closeAllConnections?.(); srv.close(r); })));
-      handle.close();
+      for (const c of centres.values()) c.handle.close();
     },
   };
 }

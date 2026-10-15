@@ -1,6 +1,6 @@
 // First screen when no database is open: create the office database, set up
 // a holder's computer, or open an existing file.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { invoke } from '@tauri-apps/api/core';
 import type { Db } from '../db/db';
@@ -8,8 +8,9 @@ import { tauriDb } from '../db/tauriDb';
 import { createHolder, createOffice } from '../setup';
 import { applySeed, readWorkbook, type ImportReport } from '../io/importWorkbook';
 import { parseListsPackage, type ListsPackage } from '../io/keeperFiles';
-import { baseName, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath } from '../platform';
+import { baseName, getConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath } from '../platform';
 import { Field, errText, t } from './kit';
+import { BrandFrame } from './Landing';
 
 type Mode = 'choose' | 'office' | 'holder';
 
@@ -21,6 +22,23 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr }: {
 }) {
   const [mode, setMode] = useState<Mode>('choose');
   const [err, setErr] = useState<string | null>(bootErr);
+  // the databases opened recently on this computer
+  const [recent, setRecent] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isDesktop()) return;
+    getConfig().then(async (c) => {
+      const all = c.recent ?? [];
+      const exist = await Promise.all(all.map((p) => invoke<boolean>('file_exists', { path: p }).catch(() => false)));
+      setRecent(all.filter((_, i) => exist[i]));
+    });
+  }, []);
+  const open = async (p: string) => {
+    try {
+      await onOpenPath(p);
+    } catch (e) {
+      setErr(errText(e));
+    }
+  };
 
   const openExisting = async () => {
     try {
@@ -32,11 +50,21 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr }: {
   };
 
   return (
-    <div className="center-page">
-      <div className="welcome">
-        <h1>{t('حسابات ماجيس', 'MAGIS Accounts')}</h1>
-        <p className="muted">{t('الصندوق النقدي بالليرة والدولار — بلا إنترنت', 'Cash accounts in SYP and USD — fully offline')}</p>
+    <BrandFrame wide>
         {err && <div className="alert err">{err}</div>}
+        {mode === 'choose' && recent.length > 0 && (
+          <>
+            <h2 className="brand-h2">{t('قواعد البيانات على هذا الحاسوب', 'Databases on this computer')}</h2>
+            <div className="db-grid" style={{ marginBottom: 22 }}>
+              {recent.map((p) => (
+                <button key={p} className="db-card" style={{ '--centre': '#B8891B' } as React.CSSProperties} onClick={() => open(p)}>
+                  <div className="db-card-mark"><img src="/brand/magis-sun.png" alt="" /></div>
+                  <div className="db-card-text"><b>{baseName(p).replace(/\.db$/i, '')}</b><span className="ltr" style={{ textAlign: 'start' }}>{p}</span></div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
         {mode === 'choose' && (
           <div className="choice">
             <button onClick={() => setMode('office')}>
@@ -55,8 +83,7 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr }: {
         )}
         {mode === 'office' && <OfficeForm onBack={() => setMode('choose')} onCreated={onCreated} newWebDb={newWebDb} />}
         {mode === 'holder' && <HolderForm onBack={() => setMode('choose')} onCreated={onCreated} newWebDb={newWebDb} />}
-      </div>
-    </div>
+    </BrandFrame>
   );
 }
 

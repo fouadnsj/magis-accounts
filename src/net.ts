@@ -5,13 +5,23 @@ import type { Api } from './ops';
 import type { Profile } from './auth';
 import type { Msg } from './i18n';
 
+export interface DbInfo {
+  slug: string;
+  organisation: string;
+  centre: string;
+  setupNeeded: boolean;
+}
+
 export interface Hello {
   server: true;
-  organisation: string;
-  setupNeeded: boolean;
+  version: string;
   /** true when the page is opened on the server computer itself */
   local: boolean;
-  version: string;
+  /** may create / set up databases from this browser */
+  canCreate: boolean;
+  dbs: DbInfo[];
+  /** the database of the session already open in this browser, if any */
+  current: string | null;
 }
 
 /** Thrown with the server's bilingual message, so screens show it like any other refusal. */
@@ -53,15 +63,18 @@ export async function hello(): Promise<Hello | null> {
   }
 }
 
-export const serverProfiles = () => get<{ id: number; name: string; role: Profile['role']; access_name: string }[]>('/api/profiles');
+export const serverProfiles = (db: string) => get<{ id: number; name: string; role: Profile['role']; access_name: string }[]>(`/api/profiles?db=${encodeURIComponent(db)}`);
 
-export const serverLogin = (profileId: number, password: string) =>
-  post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { profileId, password });
+export const serverLogin = (db: string, profileId: number, password: string) =>
+  post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { db, profileId, password });
+
+export const serverCreateDb = (organisation: string, centre: string) => post<{ slug: string }>('/api/dbs/create', { organisation, centre });
+export const serverSetup = <T,>(kind: 'new' | 'upload-db', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
 
 export const serverLogout = () => post('/api/logout', {}).catch(() => undefined);
 
 /** Already logged in (cookie still valid)? */
-export const serverMe = () => get<{ profile: Profile; mustChange: boolean } | null>('/api/me').catch(() => null);
+export const serverMe = () => get<{ profile: Profile; mustChange: boolean; db: string } | null>('/api/me').catch(() => null);
 
 export const serverVersion = async () => (await get<{ v: number }>('/api/version')).v;
 

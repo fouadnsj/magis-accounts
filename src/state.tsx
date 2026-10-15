@@ -22,6 +22,8 @@ export interface Session {
   dbPath: string | null;
   install: Install;
   organisation: string;
+  /** jaramana | aleppo | homs | other: the colour and mark of the menus */
+  centre?: string;
   profile: Profile;
   /** server mode: asks the server whether data changed since `v` */
   version?: () => Promise<number>;

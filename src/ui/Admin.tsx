@@ -56,7 +56,7 @@ function Months() {
     return [...set].sort().reverse();
   }, [d.rows]);
   const used = (bookId: number, ym: string) => d.rows.some((r) => r.book_id === bookId && r.date?.startsWith(ym));
-  const mayCloseBook = (bookId: number) => myBooks.includes(bookId) || (can('month.close') && can('register.edit'));
+  const mayCloseBook = (bookId: number) => myBooks.includes(bookId) || (can('month.close') && (can('register.edit') || can('register.view')));
 
   const run = async (f: () => Promise<unknown>, ok: string) => {
     try {

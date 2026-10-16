@@ -58,6 +58,8 @@ interface Ctx {
   can: (p: Perm) => boolean;
   /** The books this person keeps (none, one or several). */
   myBooks: number[];
+  /** the books he may write in: his own, plus Main with "writes in the Main book" */
+  writeBooks: number[];
   /** First book kept (or null). */
   myBook: number | null;
   /** Sees only his own books (no "see every book" permission). */
@@ -134,6 +136,10 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
       who: p.name,
       can: (perm: Perm) => has(p, perm),
       myBooks: p.books,
+      writeBooks: (() => {
+        const main = d.lists.books.find((b) => b.is_main)?.id;
+        return has(p, 'register.main') && main != null && !p.books.includes(main) ? [main, ...p.books] : p.books;
+      })(),
       myBook: p.books[0] ?? null,
       limited: !has(p, 'register.view'),
       fileHolder: session.install === 'holder',

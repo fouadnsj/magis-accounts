@@ -49,7 +49,7 @@ const recall = (k: string) => {
 
 export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: () => void }) {
   const app = useApp();
-  const { d, s, reload, can, myBooks, fileHolder } = app;
+  const { d, s, reload, can, writeBooks: myBooks, fileHolder } = app;
   const L = d.lists;
   const editing = typeof start === 'object' ? start : null;
   const mainId = L.books.find((b) => b.is_main)?.id ?? null;
@@ -61,7 +61,9 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
   const transfer = editing?.type === 'Transfer' ? d.transfers.find((x) => x.rowIds.includes(editing.id)) ?? null : null;
   const lockedTransfer = !!(restricted && transfer && (transfer.receivedAt || !myBooks.includes(transfer.from!)));
   const bookLocked = !!(restricted && editing?.date && d.bookClosed.has(`${editing.book_id}|${editing.date.slice(0, 7)}`));
-  const readOnly = !!(fileHolder && editing?.sent_at) || lockedTransfer || bookLocked;
+  // a row of a book he may not write in: shown, not changed
+  const notMine = !!(restricted && editing && editing.type !== 'Transfer' && !myBooks.includes(editing.book_id!));
+  const readOnly = !!(fileHolder && editing?.sent_at) || lockedTransfer || bookLocked || notMine;
 
   const usual = (type: TrxType) => {
     // Transfer/Exchange: the heading and line most often used for that type.
@@ -331,7 +333,9 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
         <div className="alert info">
           {fileHolder && editing?.sent_at
             ? t('أُرسل هذا القيد إلى المكتب ولا يمكن تعديله هنا. للتصحيح أضف قيداً جديداً.', 'This entry was sent to the office and cannot be changed here. To correct it, add a new entry.')
-            : bookLocked
+            : notMine
+              ? t('للقراءة فقط: لا تكتب في هذا الدفتر.', 'Read only: you do not write in this book.')
+              : bookLocked
               ? t('أغلقتَ هذا الشهر لدفترك. للتصحيح اطلب من المكتب.', 'You closed this month for your book. Ask the office for a correction.')
               : t('لا يعدّل هذا التحويل إلا من أعطى المال، قبل تأكيد المستلم. اطلب من المكتب.', 'Only the giver can change this transfer, before the receiver confirms. Ask the office.')}
         </div>

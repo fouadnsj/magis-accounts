@@ -120,6 +120,9 @@ export interface ImportLogRow { id: number; at: string; who: string; kind: strin
 
 const can = (c: OpCtx, p: Perm) => has(c.profile, p);
 const keeps = (c: OpCtx, bookId: number | null) => bookId != null && c.profile.books.includes(bookId);
+/** May write in this book: one he keeps, or Main with "writes in the Main book". */
+const writes = (c: OpCtx, bookId: number | null, mainId: number | null) => keeps(c, bookId) || (bookId != null && bookId === mainId && can(c, 'register.main'));
+const mainOf = async (db: Db) => (await one<{ id: number }>(db, 'SELECT id FROM book WHERE is_main = 1'))?.id ?? null;
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user'));
 
@@ -176,8 +179,8 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
 /**
  * Save register rows: permission checks, then the same validation as the form, then write.
  * A person without "write in every book" may only:
- *  - write income, expenses and exchanges in a book he keeps;
- *  - record a transfer he GIVES from a book he keeps, while it is not yet confirmed;
+ *  - write income, expenses and exchanges in a book he keeps (or Main, with "writes in the Main book");
+ *  - record a transfer he GIVES from such a book, while it is not yet confirmed;
  *  - change nothing in a month he (or the office) has closed for that book.
  */
 async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) {
@@ -186,7 +189,7 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) {
   const byId = new Map(all.map((r) => [r.id, r]));
   const lists = await loadLists(c.db);
   const editAll = can(c, 'register.edit');
-  if (!editAll) need(c, 'book.own');
+  if (!editAll) need(c, 'book.own', 'register.main');
 
   const mainId = lists.books.find((b) => b.is_main)?.id ?? null;
   const touched = [...a.rows, ...deletes.map((id) => byId.get(id)).filter((r): r is Trx => !!r)];
@@ -198,20 +201,21 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) {
   }
 
   if (!editAll) {
+    const w = (bookId: number | null) => writes(c, bookId, mainId);
     // What the rows will be (new) and were (old), seen as transfers or as ordinary rows.
     const newTransfers = buildTransfers(a.rows.filter((r) => r.type === 'Transfer'), lists.books);
     for (const t of newTransfers) {
-      if (!keeps(c, t.from) || t.from === mainId) throw new UserError(m('يسجّل التحويلَ من يعطي المال، من دفتره', 'A transfer is recorded by the giver, from his own book'));
+      if (!w(t.from)) throw new UserError(m('يسجّل التحويلَ من يعطي المال، من دفتره', 'A transfer is recorded by the giver, from his own book'));
     }
-    for (const r of a.rows) if (r.type !== 'Transfer' && !keeps(c, r.book_id)) throw new UserError(m('دفترك فقط', 'Your own book only'));
+    for (const r of a.rows) if (r.type !== 'Transfer' && !w(r.book_id)) throw new UserError(m('دفترك فقط', 'Your own book only'));
     for (const r of touched) {
       const old = byId.get(r.id);
       if (!old) continue;
       if (old.type === 'Transfer') {
         const t = transferOf(old);
-        if (!t || !keeps(c, t.from)) throw new UserError(m('يعدّل التحويلَ من أعطى المال فقط', 'Only the giver can change a transfer'));
+        if (!t || !w(t.from)) throw new UserError(m('يعدّل التحويلَ من أعطى المال فقط', 'Only the giver can change a transfer'));
         if (t.receivedAt) throw new UserError(m('أكّد المستلم هذا التحويل: اطلب من المكتب تصحيحه', 'The receiver confirmed this transfer: ask the office to correct it'));
-      } else if (!keeps(c, old.book_id)) throw new UserError(m('دفترك فقط', 'Your own book only'));
+      } else if (!w(old.book_id)) throw new UserError(m('دفترك فقط', 'Your own book only'));
     }
     // Step 1 of month closing: a closed book-month is locked for the holder.
     const bm = await bookMonths(c.db);
@@ -271,7 +275,7 @@ async function answerTransfer(c: OpCtx, a: { id: string; ok: boolean; note?: str
   const mainId = lists.books.find((b) => b.is_main)?.id ?? null;
   const kept = await keptBooks(c.db);
   // The receiver answers. For Main, the office does; for a book nobody uses, the office may answer for it.
-  const allowed = t.to === mainId ? can(c, 'register.edit') : keeps(c, t.to) || (can(c, 'register.edit') && !kept.includes(t.to!));
+  const allowed = t.to === mainId ? can(c, 'register.edit') || can(c, 'register.main') : keeps(c, t.to) || (can(c, 'register.edit') && !kept.includes(t.to!));
   if (!allowed) throw new UserError(m('يؤكد المستلم فقط', 'Only the receiver can answer'));
   const closed = await closedMonths(c.db);
   if (t.date && closed.has(t.date.slice(0, 7))) throw new UserError(m(`الشهر ${t.date.slice(0, 7)} مغلق`, `Month ${t.date.slice(0, 7)} is closed`));
@@ -327,8 +331,8 @@ async function docRights(c: OpCtx, trxId: string, write: boolean): Promise<Trx> 
   const month = ym(r.date);
   if (month && (await closedMonths(c.db)).has(month)) throw new UserError(m(`الشهر ${month} مغلق`, `Month ${month} is closed`));
   if (!can(c, 'register.edit')) {
-    need(c, 'book.own');
-    if (!keeps(c, r.book_id)) throw refuse();
+    need(c, 'book.own', 'register.main');
+    if (!writes(c, r.book_id, await mainOf(c.db))) throw refuse();
     if ((await bookMonths(c.db)).some((b) => b.book_id === r.book_id && b.ym === month))
       throw new UserError(m('أغلقتَ هذا الشهر لدفترك', 'You closed this month for your book'));
   }
@@ -518,10 +522,10 @@ export const OPS = {
   },
 
   // ---------------------------------------------------------------- register
-  'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) => saveRows(c, a) },
-  'trx.delete': { check: (c: OpCtx) => need(c, 'register.edit', 'book.own'), run: (c: OpCtx, a: { ids: string[] }) => saveRows(c, { rows: [], deletes: a.ids }) },
+  'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) => saveRows(c, a) },
+  'trx.delete': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { ids: string[] }) => saveRows(c, { rows: [], deletes: a.ids }) },
   'transfer.answer': {
-    check: (c: OpCtx) => need(c, 'register.edit', 'book.own'),
+    check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'),
     run: (c: OpCtx, a: { id: string; ok: boolean; note?: string | null }) => answerTransfer(c, a),
   },
 
@@ -550,7 +554,7 @@ export const OPS = {
   },
 
   // ---------------------------------------------------------------- attached documents
-  'doc.add': { check: (c: OpCtx) => need(c, 'register.edit', 'book.own'), run: (c: OpCtx, a: { trxId: string; base64: string; mime: string }) => addDocument(c, a) },
+  'doc.add': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { trxId: string; base64: string; mime: string }) => addDocument(c, a) },
   'doc.get': {
     check: anyone,
     run: async (c: OpCtx, a: { id: string }) => {
@@ -561,7 +565,7 @@ export const OPS = {
     },
   },
   'doc.delete': {
-    check: (c: OpCtx) => need(c, 'register.edit', 'book.own'),
+    check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'),
     run: async (c: OpCtx, a: { id: string }) => {
       const d = await one<{ trx_id: string; name: string }>(c.db, 'SELECT trx_id, name FROM attachment WHERE id = ? AND deleted_at IS NULL', [a.id]);
       if (!d) throw new UserError(m('الملف غير موجود', 'Document not found'));
@@ -607,7 +611,7 @@ export const OPS = {
   'cash.saveCount': {
     check: anyone,
     run: async (c: OpCtx, a: { bookId: number; counts: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] }) => {
-      if (!keeps(c, a.bookId)) need(c, 'register.edit');
+      if (!writes(c, a.bookId, await mainOf(c.db))) need(c, 'register.edit');
       const at = nowIso();
       await c.db.batch([
         { sql: 'DELETE FROM cash_count WHERE book_id = ?', params: [a.bookId] },
@@ -657,7 +661,7 @@ export const OPS = {
     check: anyone,
     run: async (c: OpCtx, a: { bookId: number; ym: string }) => {
       if (!keeps(c, a.bookId)) need(c, 'month.close'); // the office may close a book for its keeper
-      if (!keeps(c, a.bookId) && !can(c, 'register.edit')) throw refuse();
+      if (!keeps(c, a.bookId) && !can(c, 'register.edit') && !can(c, 'register.view')) throw refuse();
       if ((await closedMonths(c.db)).has(a.ym)) throw new UserError(m('الشهر مغلق مسبقاً', 'The month is already closed'));
       throwIf(await closingProblems(c, a.ym, a.bookId));
       await c.db.batch([

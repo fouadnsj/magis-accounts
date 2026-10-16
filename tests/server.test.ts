@@ -157,10 +157,33 @@ describe('server: permissions are checked by the server', () => {
     expect((await call('/api/version', undefined, holder)).body.v).toBeGreaterThan(before);
   });
 
+  it('the accountant sees every book but writes only in Main; the superior writes everywhere', async () => {
+    const d = (await op('data', {}, com)).body as DataPayload;
+    const L = d.lists;
+    const mainId = L.books.find((b) => b.is_main)!.id;
+    expect(d.rows.some((r) => r.book_id === roulaId)).toBe(true); // sees Roula's book
+    const row = (book: number): Trx => ({
+      ...blankTrx(), city_id: L.cities[0].id, account_id: L.accounts.find((a) => a.name === 'Center')!.id, book_id: book, date: '2026-10-13', type: 'Exp',
+      heading_id: L.headings.find((h) => h.name === 'Operations')!.id, line_id: L.lines.find((l) => l.name === 'Internet')!.id, explanation: 'acc test', exp_syp: 500,
+    });
+    expect((await op('trx.save', { rows: [row(roulaId)] }, com)).status).toBe(400);
+    // nor change or delete an old row of Roula's book
+    const old = d.rows.find((r) => r.book_id === roulaId && r.type !== 'Transfer' && !r.review)!;
+    expect((await op('trx.save', { rows: [{ ...old, explanation: 'changed' }] }, com)).status).toBe(400);
+    expect((await op('trx.delete', { ids: [old.id] }, com)).status).toBe(400);
+    const inMain = row(mainId);
+    expect((await op('trx.save', { rows: [inMain] }, com)).status).toBe(200);
+    expect((await op('trx.delete', { ids: [inMain.id] }, com)).status).toBe(200);
+    // the superior may write in any book
+    const bySup = row(roulaId);
+    expect((await op('trx.save', { rows: [bySup] }, sup)).status).toBe(200);
+    expect((await op('trx.delete', { ids: [bySup.id] }, sup)).status).toBe(200);
+  });
+
   it('the server validates rows itself (a blank date is refused even if the screen is bypassed)', async () => {
     const d = (await op('data', {}, com)).body as DataPayload;
     const bad = { ...d.rows.find((r) => !r.review)!, id: crypto.randomUUID(), n: null, date: null };
-    const r = await op('trx.save', { rows: [bad] }, com);
+    const r = await op('trx.save', { rows: [bad] }, sup);
     expect(r.status).toBe(400);
     expect(r.body.error.en).toMatch(/Date is required/);
   });
@@ -229,9 +252,10 @@ describe('server: transfers recorded once by the giver, confirmed by the receive
     let r = await op('bookMonth.close', { bookId: roulaId, ym: '2026-11' }, roula);
     expect(r.status).toBe(400);
     expect(r.body.error.en).toMatch(/not received/);
-    // the office fixes it: delete the disputed transfer, record the right amount, confirm
+    // the giver fixes it (the accountant writes only in Main): delete the disputed transfer, record the right amount, Main confirms
     const disputed = (await transfersOf(com)).find((x) => x.disputedAt)!;
-    expect((await op('trx.delete', { ids: disputed.rowIds }, com)).status).toBe(200);
+    expect((await op('trx.delete', { ids: disputed.rowIds }, com)).status).toBe(400);
+    expect((await op('trx.delete', { ids: disputed.rowIds }, roula)).status).toBe(200);
     const fixed = leg(roulaId, -2000, null);
     expect((await op('trx.save', { rows: [fixed] }, roula)).status).toBe(200);
     expect((await op('transfer.answer', { id: fixed.id, ok: true }, com)).status).toBe(200);

@@ -13,7 +13,7 @@ export function Home() {
   const nav = useNav();
   const names = useNames();
   const mainId = d.lists.books.find((b) => b.is_main)?.id ?? null;
-  const writes = can('register.edit') || (can('book.own') && myBooks.length > 0);
+  const writes = can('register.edit') || can('register.main') || (can('book.own') && myBooks.length > 0);
   const types: TrxType[] = writes ? ['Income', 'Exp', 'Transfer', 'Exchange'] : [];
   if (fileHolder) types.splice(types.indexOf('Transfer'), 1);
   const hint: Record<TrxType, string> = {
@@ -32,8 +32,8 @@ export function Home() {
 
   // Transfers: what I must confirm, and what I gave that is waiting or refused.
   const iReceive = (t: TransferInfo) =>
-    myBooks.includes(t.to!) || (can('register.edit') && (t.to === mainId || !d.keptBooks.includes(t.to!)));
-  const iGave = (t: TransferInfo) => myBooks.includes(t.from!) || (can('register.edit') && t.from === mainId);
+    myBooks.includes(t.to!) || ((can('register.edit') || can('register.main')) && t.to === mainId) || (can('register.edit') && !d.keptBooks.includes(t.to!));
+  const iGave = (t: TransferInfo) => myBooks.includes(t.from!) || ((can('register.edit') || can('register.main')) && t.from === mainId);
   const toConfirm = d.transfers.filter((x) => !x.receivedAt && !x.disputedAt && iReceive(x) && !d.closed.has((x.date ?? '').slice(0, 7)));
   const waiting = d.transfers.filter((x) => !x.receivedAt && !x.disputedAt && iGave(x) && !iReceive(x));
   const disputed = d.transfers.filter((x) => x.disputedAt && (iGave(x) || iReceive(x) || can('register.edit')));

@@ -314,4 +314,14 @@ CREATE TABLE attachment (
 CREATE INDEX attachment_trx ON attachment(trx_id);
 `,
   },
+  {
+    n: 5,
+    name: 'the Accountant writes in the Main book only (sees every book)',
+    sql: `
+-- Superior: every book. Accountant: sees every book, writes only in Main.
+-- Book holder: his own book only. A renamed or hand-made profile is left alone.
+UPDATE access_profile SET perms = replace(perms, '"register.edit"', '"register.main"')
+ WHERE id = 2 AND name = 'المحاسب · Accountant';
+`,
+  },
 ];

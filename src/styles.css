@@ -346,3 +346,7 @@ body { background: var(--bg); }
 }
 .explore-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 10px; }
 .explore-bar select.inp { width: auto; min-width: 180px; }
+
+/* sign-out for inactivity: the one-minute warning, above everything */
+.idle-warning { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px; background: rgba(30, 26, 18, 0.45); }
+.idle-warning .panel { width: min(420px, 100%); margin: 0; }

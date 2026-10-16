@@ -1,6 +1,6 @@
 // The network server: setup, logins, and above all PERMISSIONS checked by the
 // server itself (a browser can send anything; the server must refuse).
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -455,6 +455,42 @@ describe('server: moving the desktop database in', () => {
       fs.rmSync(dir2, { recursive: true, force: true });
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+describe('server: signed out after 15 minutes without activity', () => {
+  it('the screen\'s automatic checks do not keep the session open; what the person does does', async () => {
+    const sup = await loginAs('Fouad', 'sup-secret');
+    expect((await call('/api/hello')).body.idleMinutes).toBe(15);
+    const bg = (url: string, body?: unknown) =>
+      fetch(base + url, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', Cookie: sup, 'X-Magis-Background': '1' }, body: body === undefined ? undefined : JSON.stringify(body) }).then((r) => r.status);
+    const t0 = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'], now: t0 });
+    try {
+      // 10 minutes later the person does something: the session goes on
+      vi.setSystemTime(t0 + 10 * 60e3);
+      expect((await op('data', {}, sup)).status).toBe(200);
+      // then only automatic checks, for 14 more minutes: still open (24 min since login)
+      vi.setSystemTime(t0 + 24 * 60e3);
+      expect(await bg('/api/version')).toBe(200);
+      expect(await bg('/api/op/data', {})).toBe(200);
+      // 16 minutes after the last real action: out, even for the automatic check
+      vi.setSystemTime(t0 + 26 * 60e3);
+      expect(await bg('/api/version')).toBe(401);
+      expect((await op('data', {}, sup)).status).toBe(401);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the time can be changed by someone who manages users, between 1 and 480 minutes', async () => {
+    const sup = await loginAs('Fouad', 'sup-secret');
+    const com = await loginAs('Comptable', 'com-secret');
+    expect((await call('/api/server/config', { idleMinutes: 30 }, com)).status).toBe(403);
+    expect((await call('/api/server/config', { idleMinutes: 0 }, sup)).status).toBe(400);
+    expect((await call('/api/server/config', { idleMinutes: 30 }, sup)).status).toBe(200);
+    expect((await call('/api/hello')).body.idleMinutes).toBe(30);
+    expect((await call('/api/server/config', { idleMinutes: 15 }, sup)).status).toBe(200);
   });
 });
 

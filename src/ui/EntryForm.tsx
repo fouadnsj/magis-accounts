@@ -1,6 +1,7 @@
 // The entry form: the only way a movement enters the register.
 // Every rule of validate.ts is checked before saving; warnings need a second click.
-import { useMemo, useState } from 'react';
+import { draftFor, draftKey, dropDraft, keepDraft } from './draft';
+import { useEffect, useMemo, useState } from 'react';
 import { DocsPanel, uploadPending, type PendingDoc } from './Docs';
 import { useApp } from '../state';
 import { blankTrx } from '../db/repo';
@@ -47,8 +48,12 @@ const recall = (k: string) => {
   }
 };
 
-export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: () => void }) {
+export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onClose: () => void }) {
   const app = useApp();
+  const onClose = () => {
+    dropDraft();
+    close();
+  };
   const { d, s, reload, can, writeBooks: myBooks, fileHolder } = app;
   const L = d.lists;
   const editing = typeof start === 'object' ? start : null;
@@ -129,7 +134,12 @@ export function EntryForm({ start, onClose }: { start: TrxType | Trx; onClose: (
     };
   };
 
-  const [f, setF] = useState<FormState>(initial);
+  const key = draftKey(app.s);
+  const [f, setF] = useState<FormState>(() => (draftFor(key)?.form as FormState | undefined) ?? initial());
+  // kept in memory while typing: a sign-out for inactivity does not lose it
+  useEffect(() => {
+    keepDraft(key, start, f);
+  }, [key, start, f]);
   const [errors, setErrors] = useState<Msg[]>([]);
   const [warnings, setWarnings] = useState<Msg[]>([]);
   const [warnAccepted, setWarnAccepted] = useState(false);

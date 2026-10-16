@@ -14,6 +14,7 @@ import { Grants } from './Grants';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
+import { draftFor, draftKey } from './draft';
 
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.coverage', 'reports.funds'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
@@ -33,7 +34,8 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
   const { s, d, logout, can, myBooks, limited, fileHolder } = useApp();
   const [page, setPage] = useState<Page>('home');
   const [reviewOnly, setReviewOnly] = useState(false);
-  const [editing, setEditing] = useState<TrxType | Trx | null>(null);
+  // an entry left half-typed at a sign-out for inactivity comes back
+  const [editing, setEditing] = useState<TrxType | Trx | null>(() => (draftFor(draftKey(s))?.start as TrxType | Trx | undefined) ?? null);
   const [menuOpen, setMenuOpen] = useState(false);
   const nav: Nav = {
     go: (p, o) => {

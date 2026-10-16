@@ -103,9 +103,13 @@ fn agent_for(pin: Option<String>) -> Result<(ureq::Agent, Arc<PinVerifier>), Str
     Ok((agent, verifier))
 }
 
-fn send(c: &mut Conn, method: &str, path: &str, body: Option<&str>) -> Result<Reply, String> {
+fn send(c: &mut Conn, method: &str, path: &str, body: Option<&str>, background: bool) -> Result<Reply, String> {
     let url = format!("{}{}", c.base, path);
     let mut req = c.agent.request(method, &url);
+    if background {
+        // an automatic check by the screen: does not keep the session open
+        req = req.set("X-Magis-Background", "1");
+    }
     if !c.cookies.is_empty() {
         let jar = c.cookies.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join("; ");
         req = req.set("Cookie", &jar);
@@ -141,7 +145,7 @@ fn send(c: &mut Conn, method: &str, path: &str, body: Option<&str>) -> Result<Re
 pub fn srv_connect(state: State<RemoteState>, base: String, pin: Option<String>) -> Result<Connected, String> {
     let (agent, verifier) = agent_for(pin)?;
     let mut c = Conn { base: base.trim_end_matches('/').to_string(), agent, verifier, cookies: BTreeMap::new() };
-    let r = send(&mut c, "GET", "/api/hello", None)?;
+    let r = send(&mut c, "GET", "/api/hello", None, false)?;
     let hello: Value = serde_json::from_str(&r.body).map_err(|_| "NOT_MAGIS".to_string())?;
     if hello.get("server") != Some(&Value::Bool(true)) {
         return Err("NOT_MAGIS".into());
@@ -152,10 +156,10 @@ pub fn srv_connect(state: State<RemoteState>, base: String, pin: Option<String>)
 }
 
 #[tauri::command(async)]
-pub fn srv_request(state: State<RemoteState>, method: String, path: String, body: Option<String>) -> Result<Reply, String> {
+pub fn srv_request(state: State<RemoteState>, method: String, path: String, body: Option<String>, background: Option<bool>) -> Result<Reply, String> {
     let mut g = state.0.lock().unwrap();
     let c = g.as_mut().ok_or("NOT_CONNECTED")?;
-    send(c, &method, &path, body.as_deref())
+    send(c, &method, &path, body.as_deref(), background.unwrap_or(false))
 }
 
 #[tauri::command]
@@ -173,20 +177,20 @@ mod tests {
         let Ok(base) = std::env::var("MAGIS_TEST_SERVER") else { return };
         let (agent, verifier) = agent_for(None).unwrap();
         let mut c = Conn { base: base.clone(), agent, verifier, cookies: BTreeMap::new() };
-        let r = send(&mut c, "GET", "/api/hello", None).unwrap();
+        let r = send(&mut c, "GET", "/api/hello", None, false).unwrap();
         assert_eq!(r.status, 200, "{}", r.body);
         assert!(r.body.contains("\"server\":true"));
         let fp = c.verifier.seen.lock().unwrap().clone().unwrap();
         assert_eq!(fp.len(), 95);
         // a POST with a JSON body reaches the server (refused: not signed in)
-        let r = send(&mut c, "POST", "/api/op/data", Some("{}")).unwrap();
+        let r = send(&mut c, "POST", "/api/op/data", Some("{}"), false).unwrap();
         assert_eq!(r.status, 401);
         // same certificate pinned: accepted; another pin: refused
         let (agent, verifier) = agent_for(Some(fp.clone())).unwrap();
         let mut ok = Conn { base: base.clone(), agent, verifier, cookies: BTreeMap::new() };
-        assert_eq!(send(&mut ok, "GET", "/api/hello", None).unwrap().status, 200);
+        assert_eq!(send(&mut ok, "GET", "/api/hello", None, false).unwrap().status, 200);
         let (agent, verifier) = agent_for(Some("00".into())).unwrap();
         let mut bad = Conn { base, agent, verifier, cookies: BTreeMap::new() };
-        assert_eq!(send(&mut bad, "GET", "/api/hello", None).err().unwrap(), "CERT_CHANGED");
+        assert_eq!(send(&mut bad, "GET", "/api/hello", None, false).err().unwrap(), "CERT_CHANGED");
     }
 }

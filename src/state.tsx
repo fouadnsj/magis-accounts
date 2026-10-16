@@ -77,8 +77,8 @@ export function useApp(): Ctx {
   return c;
 }
 
-async function loadData(s: Session): Promise<Data> {
-  const p = await s.api.call('data');
+async function loadData(s: Session, background = false): Promise<Data> {
+  const p = await s.api.call('data', undefined, { background });
   return {
     lists: p.lists,
     rows: p.rows,
@@ -100,10 +100,11 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const seen = useRef<number | null>(null);
-  const reload = useCallback(async () => {
+  /** `background`: asked by the automatic check, not by the person */
+  const reload = useCallback(async (background = false) => {
     try {
       if (session.version) seen.current = await session.version();
-      setD(await loadData(session));
+      setD(await loadData(session, background));
     } catch (e) {
       setErr(String(e));
     }
@@ -118,7 +119,7 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
     const timer = window.setInterval(async () => {
       try {
         const v = await session.version!();
-        if (seen.current != null && v !== seen.current && !document.querySelector('.overlay')) await reload();
+        if (seen.current != null && v !== seen.current && !document.querySelector('.overlay')) await reload(true);
       } catch {
         /* server unreachable for a moment: try again later */
       }
@@ -132,7 +133,7 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
     return {
       s: session,
       d,
-      reload,
+      reload: () => reload(false),
       who: p.name,
       can: (perm: Perm) => has(p, perm),
       myBooks: p.books,

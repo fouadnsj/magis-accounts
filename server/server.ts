@@ -43,9 +43,11 @@ export interface ServerConfig {
   httpMode: 'redirect' | 'serve' | 'off';
   /** A second folder (USB key / external disk) that receives a copy of every backup. */
   backupMirror: string | null;
+  /** Signed out after this many minutes without real activity (clicks, typing). */
+  idleMinutes: number;
 }
 
-const DEFAULT_CONFIG: ServerConfig = { httpsPort: 8443, httpPort: 8080, httpMode: 'redirect', backupMirror: null };
+const DEFAULT_CONFIG: ServerConfig = { httpsPort: 8443, httpPort: 8080, httpMode: 'redirect', backupMirror: null, idleMinutes: 15 };
 
 export function defaultDataDir(): string {
   if (process.env.MAGIS_DATA) return process.env.MAGIS_DATA;
@@ -186,7 +188,6 @@ export interface Running {
   dataDir: string;
 }
 
-const SESSION_IDLE_MS = 12 * 3600e3;
 const MAX_BODY = 40 * 1024 * 1024;
 
 class HttpError extends Error {
@@ -385,12 +386,14 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const cookie = (req: http.IncomingMessage) => /(?:^|;\s*)magis_sid=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1] ?? null;
 
   /** The person behind this request, re-read from his database (a deactivated user is out at once). */
+  const idleMs = () => Math.max(1, Number(config.idleMinutes) || 15) * 60e3;
+
   const sessionOf = async (req: http.IncomingMessage): Promise<[string, Session, Centre] | null> => {
     const sid = cookie(req);
     const s = sid ? sessions.get(sid) : undefined;
     if (!sid || !s) return null;
     const c = centres.get(s.db);
-    if (!c || Date.now() - s.last > SESSION_IDLE_MS) {
+    if (!c || Date.now() - s.last > idleMs()) {
       sessions.delete(sid);
       return null;
     }
@@ -400,7 +403,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return null;
     }
     s.profile = p;
-    s.last = Date.now();
+    // The screen's automatic checks (every 15 s) do not count as activity:
+    // only what the person does keeps the session open.
+    if (req.headers['x-magis-background'] !== '1') s.last = Date.now();
     return [sid, s, c];
   };
 
@@ -492,7 +497,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (url === '/api/hello' && method === 'GET') {
       const dbs = await Promise.all([...centres.values()].map(describe));
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), dbs, current: found ? found[1].db : null });
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes });
     }
 
     // ---- a new database (a centre, a test, a new year…)
@@ -597,6 +602,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         lastBackup: backups[0] ?? null,
         backupCount: backups.length,
         backupMirror: config.backupMirror,
+        idleMinutes: config.idleMinutes,
         mirrorOk: config.backupMirror ? fs.existsSync(config.backupMirror) : null,
         users: [...new Set([...sessions.values()].filter((x) => x.db === c.slug && Date.now() - x.last < 15 * 60e3).map((x) => x.profile.name))],
         startedAt,
@@ -612,11 +618,19 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     if (url === '/api/server/config' && method === 'POST') {
       if (!has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      const body = (await readBody(req)) as { backupMirror?: string | null };
-      const mirror = body.backupMirror?.trim() || null;
-      config = { ...config, backupMirror: mirror };
+      const body = (await readBody(req)) as { backupMirror?: string | null; idleMinutes?: number };
+      if (body.idleMinutes !== undefined) {
+        const n = Math.round(Number(body.idleMinutes));
+        if (!(n >= 1 && n <= 480)) throw new HttpError(400, { ar: 'بين 1 و480 دقيقة', en: 'Between 1 and 480 minutes' });
+        config = { ...config, idleMinutes: n };
+        log(`idle sign-out set to ${n} min`);
+      }
+      if (body.backupMirror !== undefined) {
+        const mirror = body.backupMirror?.trim() || null;
+        config = { ...config, backupMirror: mirror };
+        log(`backup mirror set to ${mirror}`);
+      }
       writeConfig(dataDir, config);
-      log(`backup mirror set to ${mirror}`);
       return send(res, 200, { ok: true });
     }
 

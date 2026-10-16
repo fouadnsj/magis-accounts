@@ -14,6 +14,7 @@ interface Status {
   backupCount: number;
   backupMirror: string | null;
   mirrorOk: boolean | null;
+  idleMinutes: number;
   users: string[];
   startedAt: string;
 }
@@ -23,10 +24,12 @@ export function ServerTab() {
   const isSup = can('users.manage');
   const [st, setSt] = useState<Status | null>(null);
   const [mirror, setMirror] = useState('');
+  const [idle, setIdle] = useState('15');
   const load = () =>
     serverStatus<Status>().then((x) => {
       setSt(x);
       setMirror(x.backupMirror ?? '');
+      setIdle(String(x.idleMinutes ?? 15));
     }).catch((e) => toast(errText(e), true));
   useEffect(() => {
     void load();
@@ -64,6 +67,26 @@ export function ServerTab() {
               try {
                 await serverConfig({ backupMirror: mirror || null });
                 toast(t('حُفظ', 'Saved'));
+                await load();
+              } catch (e) {
+                toast(errText(e), true);
+              }
+            }}>{t('احفظ', 'Save')}</button>
+          </div>
+        )}
+      </div>
+      <div className="panel">
+        <h3>{t('الخروج التلقائي', 'Automatic sign-out')}</h3>
+        <p className="muted small">{t('يخرج الشخص بعد هذه المدة بلا نشاط (نقر، كتابة). قبل دقيقة تظهر رسالة «البقاء متصلاً».', 'A person is signed out after this long without activity (clicks, typing). One minute before, a "Stay signed in" message appears.')}</p>
+        <Field label={t('دقائق', 'Minutes')}>
+          <input type="number" min={1} max={480} value={idle} disabled={!isSup} onChange={(e) => setIdle(e.target.value)} style={{ width: 110 }} />
+        </Field>
+        {isSup && (
+          <div className="modal-foot">
+            <button className="btn primary" onClick={async () => {
+              try {
+                await serverConfig({ idleMinutes: Number(idle) });
+                toast(t('حُفظ — يسري عند الدخول التالي', 'Saved — applies at the next sign-in'));
                 await load();
               } catch (e) {
                 toast(errText(e), true);

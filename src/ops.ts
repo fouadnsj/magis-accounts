@@ -778,7 +778,8 @@ export async function runOp(c: OpCtx, name: string, args: unknown): Promise<unkn
 
 /** How the screens reach the operations: locally or over the network. */
 export interface Api {
-  call<K extends OpName>(name: K, args?: OpArgs<K>): Promise<OpResult<K>>;
+  /** `background`: an automatic reload by the screen (on the server it does not count as activity). */
+  call<K extends OpName>(name: K, args?: OpArgs<K>, opts?: { background?: boolean }): Promise<OpResult<K>>;
 }
 
 export function localApi(ctx: OpCtx): Api {

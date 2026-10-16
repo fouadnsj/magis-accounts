@@ -24,6 +24,8 @@ export interface Hello {
   dbs: DbInfo[];
   /** the database of the session already open in this browser, if any */
   current: string | null;
+  /** signed out after this many minutes without activity */
+  idleMinutes?: number;
 }
 
 /** Thrown with the server's bilingual message, so screens show it like any other refusal. */
@@ -36,18 +38,20 @@ export class ServerError extends Error {
 // Where requests go. In a browser: the page's own server (fetch). In the desktop
 // app connected to a server: through the app (src-tauri/src/remote.rs), which
 // keeps the session and checks the server's certificate.
-type Raw = (method: 'GET' | 'POST', path: string, body?: unknown) => Promise<{ status: number; json: unknown }>;
+/** `background`: an automatic check by the screen, not something the person did (it does not keep the session open). */
+type Raw = (method: 'GET' | 'POST', path: string, body?: unknown, background?: boolean) => Promise<{ status: number; json: unknown }>;
 
-const viaFetch: Raw = async (method, path, body) => {
+const viaFetch: Raw = async (method, path, body, background) => {
+  const bg: Record<string, string> = background ? { 'X-Magis-Background': '1' } : {};
   const r = await fetch(path, method === 'POST'
-    ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}), credentials: 'same-origin' }
-    : { credentials: 'same-origin' });
+    ? { method, headers: { 'Content-Type': 'application/json', ...bg }, body: JSON.stringify(body ?? {}), credentials: 'same-origin' }
+    : { headers: bg, credentials: 'same-origin' });
   return { status: r.status, json: await r.json().catch(() => ({})) };
 };
 
-const viaApp: Raw = async (method, path, body) => {
+const viaApp: Raw = async (method, path, body, background) => {
   const { invoke } = await import('@tauri-apps/api/core');
-  const r = await invoke<{ status: number; body: string }>('srv_request', { method, path, body: method === 'POST' ? JSON.stringify(body ?? {}) : null });
+  const r = await invoke<{ status: number; body: string }>('srv_request', { method, path, body: method === 'POST' ? JSON.stringify(body ?? {}) : null, background: !!background });
   let json: unknown = {};
   try {
     json = JSON.parse(r.body);
@@ -61,8 +65,8 @@ let raw: Raw = viaFetch;
 /** The address of the server the desktop app is connected to (null in a browser). */
 export let remoteBase: string | null = null;
 
-async function call<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
-  const { status, json } = await raw(method, url, body);
+async function call<T>(method: 'GET' | 'POST', url: string, body?: unknown, background?: boolean): Promise<T> {
+  const { status, json } = await raw(method, url, body, background);
   const j = (json ?? {}) as { error?: Msg };
   if (status < 200 || status >= 300) {
     if (status === 401) window.dispatchEvent(new Event('magis-logged-out'));
@@ -131,10 +135,14 @@ export const serverLogout = () => post('/api/logout', {}).catch(() => undefined)
 /** Already logged in (cookie still valid)? */
 export const serverMe = () => get<{ profile: Profile; mustChange: boolean; db: string } | null>('/api/me').catch(() => null);
 
-export const serverVersion = async () => (await get<{ v: number }>('/api/version')).v;
+/** Asked every 15 s by the screen: an automatic check, never counted as activity. */
+export const serverVersion = async () => (await call<{ v: number }>('GET', '/api/version', undefined, true)).v;
+
+/** Something the person did: keeps the session open on the server. */
+export const serverTouch = () => get<unknown>('/api/me');
 
 export const httpApi: Api = {
-  call: (name, args) => post(`/api/op/${encodeURIComponent(name)}`, args ?? {}) as never,
+  call: (name, args, opts) => call('POST', `/api/op/${encodeURIComponent(name)}`, args ?? {}, opts?.background) as never,
 };
 
 export const serverStatus = <T,>() => get<T>('/api/server/status');

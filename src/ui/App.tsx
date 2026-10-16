@@ -2,7 +2,7 @@
 //  - desktop: the Mac/Windows app, on a database file of this computer;
 //  - server:  a browser page served by the centre's server (LAN);
 //  - preview: a browser page without server, in memory (for testing).
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { type Db, migrate } from '../db/db';
 import { getMeta } from '../db/repo';
@@ -12,7 +12,7 @@ import { dailyBackup, desktopFiles } from '../db/backup';
 import { listProfiles, login, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
-import { connectRemote, disconnectRemote, hello, httpApi, remoteBase, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
+import { connectRemote, disconnectRemote, hello, httpApi, remoteBase, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
 import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
@@ -23,6 +23,8 @@ import { ConfirmHost, PromptHost, ToastHost, biName, errText, t } from './kit';
 import { Welcome } from './Welcome';
 import { Shell } from './Shell';
 import { ServerSetup } from './ServerSetup';
+import { IdleGuard } from './Idle';
+import { dropDraft } from './draft';
 
 interface Opened {
   db: Db;
@@ -41,8 +43,15 @@ export function App() {
   const [settingUp, setSettingUp] = useState(false);
   /** logged in, but looking at the list of databases (to create one, or change) */
   const [browsing, setBrowsing] = useState(false);
+  /** signed out for inactivity: said on the login page */
+  const [idleOut, setIdleOut] = useState(false);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  useEffect(() => {
+    sessionRef.current = session;
+    if (session) setIdleOut(false);
+  }, [session]);
   const [mustChange, setMustChange] = useState(false);
   const [booting, setBooting] = useState(true);
   const [bootErr, setBootErr] = useState<string | null>(null);
@@ -134,7 +143,11 @@ export function App() {
 
   // The server ended the session (timeout, restart): back to the login page.
   useEffect(() => {
-    const out = () => setSession(null);
+    // (a refused password also answers 401: only a session that was open counts)
+    const out = () => {
+      if (sessionRef.current) setIdleOut(true);
+      setSession(null);
+    };
     window.addEventListener('magis-logged-out', out);
     return () => window.removeEventListener('magis-logged-out', out);
   }, []);
@@ -163,9 +176,21 @@ export function App() {
       void serverLogout();
       void refreshServer();
     }
+    dropDraft();
+    setIdleOut(false);
     setSession(null);
     setMustChange(false);
   }, [server, refreshServer]);
+
+  /** No activity for too long: out, but a half-typed entry is kept for the same person. */
+  const idleLogout = useCallback(() => {
+    if (server) void serverLogout();
+    setBrowsing(false);
+    setSettingUp(false);
+    setSession(null);
+    setMustChange(false);
+    setIdleOut(true);
+  }, [server]);
 
   const toggleLang = () => {
     setLang(getLang() === 'en' ? 'both' : 'en');
@@ -265,6 +290,7 @@ export function App() {
           setSession(serverSession(serverDb, r.profile));
         }}
         onBack={() => setServerDb(null)}
+        notice={idleOut}
       />
     );
   else if (session && mustChange)
@@ -280,11 +306,13 @@ export function App() {
         loadProfiles={() => listProfiles(opened.db)}
         onLogin={localLogin(opened)}
         onClose={closeDb}
+        notice={idleOut}
       />
     );
   else
     body = (
       <AppProvider session={session!} onLogout={logout}>
+        <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
         <Shell onCloseDb={closeDb} onToggleLang={toggleLang} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} />
       </AppProvider>
     );
@@ -302,7 +330,9 @@ export function App() {
 
 export const roleName = (r: Role) => (r === 'sup' ? t('الرئيس', 'Superior') : r === 'com' ? t('المحاسب', 'Accountant') : t('أمين الصندوق', 'Cash holder'));
 
-function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack }: {
+function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack, notice }: {
+  /** signed out for inactivity */
+  notice?: boolean;
   title: string;
   subtitle: string;
   brand?: BrandInfo;
@@ -339,6 +369,7 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack 
       <div className="panel login-panel">
         <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>
+        {notice && <div className="alert info">{t('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.')}</div>}
         <div className="profiles">
           {profiles.map((p) => (
             <button key={p.id} className={pick === p.id ? 'on' : ''} onClick={() => setPick(p.id)}>

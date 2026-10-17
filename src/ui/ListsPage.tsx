@@ -128,6 +128,16 @@ function BudgetTab() {
             </div>
           </div>
           <p className="muted small">{counts.heading.get(h.id) ?? 0} {t('سطراً في السجل', 'rows in the register')}</p>
+          {!!L.settings.building && L.headingTypes.some((x) => x.heading_id === h.id && x.type === 'Exp') && (
+            <div className="row" style={{ marginBottom: 12 }}>
+              <span className="small muted">{t('الموازنة بالدولار:', 'Budget in USD:')}</span>
+              <input key={`${h.id}|${h.budget_usd ?? ''}`} className="inp num" style={{ width: 160 }} inputMode="decimal" defaultValue={h.budget_usd ?? ''}
+                onBlur={(e) => {
+                  const v = e.target.value.trim() === '' ? null : parseAmount(e.target.value);
+                  if (v !== (h.budget_usd ?? null)) void act(() => s.api.call('heading.budget', { id: h.id, usd: v }), t('حُفظ', 'Saved'));
+                }} />
+            </div>
+          )}
           <div className="row" style={{ marginBottom: 12 }}>
             <span className="small muted">{t('يظهر مع النوع:', 'Offered for type:')}</span>
             <div className="chips">

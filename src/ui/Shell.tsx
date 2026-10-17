@@ -11,6 +11,7 @@ import { Register } from './Register';
 import { Cash } from './Cash';
 import { Reports } from './Reports';
 import { BudgetPage } from './Budget';
+import { BuildingBudget } from './BuildingBudget';
 import { Grants } from './Grants';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
@@ -52,6 +53,9 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
     bookOnly,
   };
   const toReview = d.rows.filter((r) => r.review).length;
+  // a building site: its own budget page (per heading), no grants
+  const building = !!d.lists.settings.building;
+  const seesBudget = building ? can('budget.view') || can('reports.summary') : can('budget.view');
 
   const item = (p: Page, label: string, extra?: React.ReactNode) => (
     <button className={page === p ? 'on' : ''} onClick={() => nav.go(p)}>
@@ -85,8 +89,8 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
           {(myBooks.length > 0 || can('reports.cash')) && item('cash', t('النقد', 'Cash'))}
           {REPORT_PERMS.some(can) && item('reports', t('التقارير', 'Reports'))}
-          {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
-          {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
+          {seesBudget && item('budget', t('الموازنة', 'Budget'))}
+          {!building && can('lists.donors') && item('grants', t('المنح', 'Grants'))}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
           {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
@@ -101,8 +105,8 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {page === 'register' && <Register key={`${reviewOnly}|${bookOnly}`} />}
           {page === 'cash' && <Cash />}
           {page === 'reports' && <Reports />}
-          {page === 'budget' && can('budget.view') && <BudgetPage />}
-          {page === 'grants' && can('lists.donors') && <Grants />}
+          {page === 'budget' && seesBudget && (building ? <BuildingBudget /> : <BudgetPage />)}
+          {page === 'grants' && !building && can('lists.donors') && <Grants />}
           {page === 'lists' && <ListsPage />}
           {page === 'files' && <Files />}
           {page === 'admin' && <Admin />}

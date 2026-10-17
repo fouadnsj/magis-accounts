@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   approval_profile_id: null,
   doc_since: null,
   approval_since: null,
+  building: 0,
 };
 
 async function loadSettings(db: Db): Promise<Settings> {
@@ -48,6 +49,7 @@ async function loadSettings(db: Db): Promise<Settings> {
       case 'doc_required_usd':
       case 'approval_on':
       case 'approval_usd':
+      case 'building':
         s[key] = Number(value);
         break;
       case 'approval_profile_id':
@@ -200,14 +202,25 @@ export async function addHeading(db: Db, name: string, types: TrxType[], who: st
   if (!types.length) throw new UserError(m('اختر نوعاً واحداً على الأقل', 'Choose at least one type'));
   if (await one(db, 'SELECT id FROM heading WHERE name = ?', [clean]))
     throw new UserError(m(`"${clean}" موجود مسبقاً`, `"${clean}" already exists`));
-  const prefix = HEADING_PREFIX[types[0]];
-  const codes = await db.query<{ code: string }>('SELECT code FROM heading WHERE code LIKE ?', [prefix + '%']);
-  const next = Math.max(0, ...codes.map((c) => Number(c.code.slice(1)) || 0)) + 1;
-  const code = prefix + String(next).padStart(2, '0');
+  const building = (await one<{ value: string }>(db, "SELECT value FROM setting WHERE key = 'building'"))?.value === '1';
+  let code: string;
+  if (building) {
+    // building sites: a letter, as in the workbook (A, B, … — the next one nobody has), and its three kinds
+    const used = new Set((await db.query<{ code: string }>('SELECT code FROM heading')).map((c) => c.code.toUpperCase()));
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    code = letters.find((x) => !used.has(x)) ?? letters.flatMap((a) => letters.map((b) => a + b)).find((x) => !used.has(x))!;
+  } else {
+    const prefix = HEADING_PREFIX[types[0]];
+    const codes = await db.query<{ code: string }>('SELECT code FROM heading WHERE code LIKE ?', [prefix + '%']);
+    const next = Math.max(0, ...codes.map((c) => Number(c.code.slice(1)) || 0)) + 1;
+    code = prefix + String(next).padStart(2, '0');
+  }
   const id = await nextId(db, 'heading');
+  const kinds = building ? [['Materials', 'M'], ['Wages', 'W'], ['Other', 'O']] : [];
   await db.batch([
     { sql: 'INSERT INTO heading (id, name, code) VALUES (?, ?, ?)', params: [id, clean, code] },
     ...types.map((t) => ({ sql: 'INSERT INTO heading_type (heading_id, type) VALUES (?, ?)', params: [id, t] })),
+    ...kinds.map(([name, letter]) => ({ sql: 'INSERT INTO budget_line (heading_id, name, code) VALUES (?, ?, ?)', params: [id, name, code + letter] })),
     auditStmt(who, 'add', 'heading', String(id), null, { name: clean, code, types }),
   ]);
 }
@@ -234,12 +247,30 @@ export async function addLine(db: Db, headingId: number, name: string, who: stri
     throw new UserError(m(`"${clean}" موجود مسبقاً في هذا البند`, `"${clean}" already exists under this heading`));
   const h = await one<{ code: string }>(db, 'SELECT code FROM heading WHERE id = ?', [headingId]);
   if (!h) throw new UserError(m('البند غير موجود', 'Heading not found'));
-  const codes = await db.query<{ code: string }>('SELECT code FROM budget_line WHERE code LIKE ?', [h.code + '.%']);
-  const next = Math.max(0, ...codes.map((c) => Number(c.code.split('.')[1]) || 0)) + 1;
-  const code = `${h.code}.${next}`;
+  let code: string;
+  if ((await one<{ value: string }>(db, "SELECT value FROM setting WHERE key = 'building'"))?.value === '1') {
+    // building sites: heading + the kind's first letter (the bill code takes it, as Excel's LEFT(Kind,1))
+    code = h.code + clean.charAt(0).toUpperCase();
+    if (await one(db, 'SELECT 1 FROM budget_line WHERE code = ?', [code]))
+      throw new UserError(m(`الرمز ${code} مستعمل: اختر اسماً يبدأ بحرف آخر`, `Code ${code} is taken: choose a name starting with another letter`));
+  } else {
+    const codes = await db.query<{ code: string }>('SELECT code FROM budget_line WHERE code LIKE ?', [h.code + '.%']);
+    const next = Math.max(0, ...codes.map((c) => Number(c.code.split('.')[1]) || 0)) + 1;
+    code = `${h.code}.${next}`;
+  }
   await db.batch([
     { sql: 'INSERT INTO budget_line (heading_id, name, code) VALUES (?, ?, ?)', params: [headingId, clean, code] },
     auditStmt(who, 'add', 'budget_line', null, null, { heading_id: headingId, name: clean, code }),
+  ]);
+}
+
+/** building sites: the budget of a heading, in USD (null = none) */
+export async function setHeadingBudget(db: Db, headingId: number, usd: number | null, who: string): Promise<void> {
+  if (usd != null && !(usd >= 0)) throw new UserError(m('المبلغ غير صالح', 'The amount is not valid'));
+  const before = await one(db, 'SELECT budget_usd FROM heading WHERE id = ?', [headingId]);
+  await db.batch([
+    { sql: 'UPDATE heading SET budget_usd = ? WHERE id = ?', params: [usd, headingId] },
+    auditStmt(who, 'budget', 'heading', String(headingId), before, { budget_usd: usd }),
   ]);
 }
 
@@ -303,6 +334,7 @@ const TRX_COLS = [
   'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd', 'transfer_group', 'review', 'sent_at',
   'created_at', 'created_by', 'updated_at', 'source_file',
   'received_at', 'received_by', 'disputed_at', 'dispute_note', 'approved_at', 'approved_by', 'grant_id',
+  'bill_date', 'rate', 'cancelled_at', 'cancelled_by', 'cancel_reason',
 ] as const;
 
 export async function loadTrx(db: Db): Promise<Trx[]> {
@@ -343,6 +375,7 @@ export function blankTrx(): Trx {
     inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0,
     transfer_group: null, review: null, sent_at: null, created_at: nowIso(), created_by: null, updated_at: null, source_file: null,
     received_at: null, received_by: null, disputed_at: null, dispute_note: null, approved_at: null, approved_by: null, grant_id: null,
+    bill_date: null, rate: null, cancelled_at: null, cancelled_by: null, cancel_reason: null,
   };
 }
 

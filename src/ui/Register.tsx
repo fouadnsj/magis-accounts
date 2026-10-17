@@ -13,7 +13,9 @@ type Layout = { order: string[]; hidden: string[] };
 
 export function Register() {
   const { s, d, limited, myBooks } = useApp();
-  const holder = limited && myBooks.length <= 1; // one book only: no Book column
+  const building = !!d.lists.settings.building;
+  // one book only: no Book column (a building site has one cash box, and one account)
+  const holder = (limited && myBooks.length <= 1) || (building && d.lists.books.filter((b) => b.active).length <= 1);
   const nav = useNav();
   const names = useNames();
   const [month, setMonth] = useState('');
@@ -53,13 +55,13 @@ export function Register() {
       if (type && r.type !== type) return false;
       if (heading != null && r.heading_id !== heading) return false;
       if (qq) {
-        const hay = [r.explanation, r.receipt, names.party(r.party_id), names.line(r.line_id), names.heading(r.heading_id), r.n == null ? '' : String(r.n).padStart(4, '0'),
+        const hay = [r.explanation, r.receipt, r.cancel_reason, d.comp.get(r.id)?.billCode, names.party(r.party_id), names.line(r.line_id), names.heading(r.heading_id), r.n == null ? '' : String(r.n).padStart(4, '0'),
           r.inc_syp, r.exp_syp, r.inc_usd, r.exp_usd, r.trf_syp, r.trf_usd].join(' ').toLowerCase();
         if (!hay.includes(qq)) return false;
       }
       return true;
     });
-  }, [d.rows, review, month, book, account, type, heading, q, names]);
+  }, [d.rows, d.comp, review, month, book, account, type, heading, q, names]);
 
   // what each column sorts by
   const sortValue = useMemo((): Record<string, (r: Trx) => string | number> => ({
@@ -78,6 +80,8 @@ export function Register() {
     rate: (r) => d.comp.get(r.id)?.rate ?? 0,
     net: (r) => (d.comp.get(r.id)?.incUsdTot ?? 0) - (d.comp.get(r.id)?.expUsdTot ?? 0),
     code: (r) => d.comp.get(r.id)?.code ?? '',
+    bill_code: (r) => r.n ?? -1,
+    bill_date: (r) => r.bill_date ?? '',
   }), [names, d.comp]);
   const sorted = useMemo(() => {
     if (!sort) return rows;
@@ -121,15 +125,18 @@ export function Register() {
   type Col = { key: string; label: string; n?: boolean; td: (r: Trx) => ReactNode; foot?: () => ReactNode };
   const COLS: Col[] = [
     { key: 'n', label: 'N', td: (r) => <>{withDocs.has(r.id) ? '📎' : ''}{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</> },
-    { key: 'date', label: t('التاريخ', 'Date'), td: (r) => <span className="ltr">{fmtDate(r.date)}</span> },
+    ...(building ? [{ key: 'bill_code', label: t('رمز الفاتورة', 'Bill code'), td: (r: Trx) => <span className="ltr nowrap">{d.comp.get(r.id)!.billCode}</span> }] : []),
+    { key: 'date', label: building ? t('تاريخ الدفع', 'Paid on') : t('التاريخ', 'Date'), td: (r) => <span className="ltr">{fmtDate(r.date)}</span> },
+    ...(building ? [{ key: 'bill_date', label: t('تاريخ الفاتورة', 'Bill date'), td: (r: Trx) => <span className="ltr">{fmtDate(r.bill_date ?? null)}</span> }] : []),
     ...(holder ? [] : [{ key: 'book', label: t('الدفتر', 'Book'), td: (r: Trx) => names.book(r.book_id) }]),
-    { key: 'account', label: t('الحساب', 'Account'), td: (r) => names.account(r.account_id) },
+    ...(building ? [] : [{ key: 'account', label: t('الحساب', 'Account'), td: (r: Trx) => names.account(r.account_id) }]),
     { key: 'type', label: t('النوع', 'Type'), td: (r) => <>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</> },
     { key: 'heading', label: t('البند', 'Heading'), td: (r) => names.heading(r.heading_id) },
-    { key: 'line', label: t('الخط', 'Line'), td: (r) => names.line(r.line_id) },
-    { key: 'explanation', label: t('الشرح', 'Explanation'), td: (r) => r.explanation },
-    { key: 'party', label: t('الجهة', 'Party'), td: (r) => names.party(r.party_id) },
-    { key: 'receipt', label: t('الوصل', 'Receipt'), td: (r) => r.receipt },
+    { key: 'line', label: building ? t('النوع', 'Kind') : t('الخط', 'Line'), td: (r) => names.line(r.line_id) },
+    { key: 'explanation', label: building ? t('التفاصيل', 'Details') : t('الشرح', 'Explanation'),
+      td: (r) => (r.cancelled_at ? <><b>✕ {t('ملغى', 'Cancelled')}:</b> {r.cancel_reason}{r.explanation && r.explanation !== r.cancel_reason ? ` · ${r.explanation}` : ''}</> : r.explanation) },
+    { key: 'party', label: building ? t('من', 'From') : t('الجهة', 'Party'), td: (r) => names.party(r.party_id) },
+    { key: 'receipt', label: building ? t('رقم الفاتورة', 'Bill no.') : t('الوصل', 'Receipt'), td: (r) => r.receipt },
     { key: 'inc_syp', label: 'Inc SYP', n: true, td: (r) => fmtSyp(r.inc_syp), foot: () => fmtSyp(tot.inc_syp) },
     { key: 'exp_syp', label: 'Exp SYP', n: true, td: (r) => fmtSyp(r.exp_syp), foot: () => fmtSyp(tot.exp_syp) },
     { key: 'inc_usd', label: 'Inc USD', n: true, td: (r) => fmtUsd(r.inc_usd), foot: () => fmtUsd(tot.inc_usd) },
@@ -159,7 +166,7 @@ export function Register() {
     save({ ...layout, hidden: layout.hidden.includes(key) ? layout.hidden.filter((k) => k !== key) : [...layout.hidden, key] });
 
   const cell = (r: Trx) => (
-    <tr key={r.id} className={r.type ?? ''} onClick={() => !r.private_total && nav.entry(r)} title={r.private_total ? t('مجموع الشهر فقط', "The month's total only") : r.review ?? undefined}>
+    <tr key={r.id} className={`${r.type ?? ''}${r.cancelled_at ? ' cancelled' : ''}`} onClick={() => !r.private_total && nav.entry(r)} title={r.private_total ? t('مجموع الشهر فقط', "The month's total only") : r.review ?? undefined}>
       {shown.map((c) => (
         <td key={c.key} className={c.n ? 'n' : c.key === 'n' || c.key === 'code' ? 'code' : ''} style={c.key === 'explanation' ? { maxWidth: 280 } : undefined}>{c.td(r)}</td>
       ))}
@@ -188,9 +195,9 @@ export function Register() {
             <Select value={book} options={d.lists.books.map((b) => ({ value: b.id, label: b.name }))} onChange={setBook} placeholder={t('كل الدفاتر', 'All books')} />
           </div>
         )}
-        <div style={{ minWidth: 190, width: 'auto' }} className="field">
+        {!building && <div style={{ minWidth: 190, width: 'auto' }} className="field">
           <Select value={account} options={d.lists.accounts.map((b) => ({ value: b.id, label: b.name }))} onChange={setAccount} placeholder={t('كل الحسابات', 'All accounts')} />
-        </div>
+        </div>}
         <select className="inp" style={{ minWidth: 180, width: 'auto' }} value={type} onChange={(e) => setType(e.target.value)}>
           <option value="">{t('كل الأنواع', 'All types')}</option>
           {TYPES.map((ty) => <option key={ty} value={ty}>{tx(TYPE_LABEL[ty])}</option>)}

@@ -40,6 +40,14 @@ export interface Trx {
   private_book?: boolean;
   /** one month's expenses of a private book, as a total, for those who do not keep it */
   private_total?: boolean;
+  /** building sites: the date on the bill (date = the day it was paid) */
+  bill_date?: string | null;
+  /** building sites: the rate typed for this row; null = the rate of the last exchange */
+  rate?: number | null;
+  /** building sites: a row is cancelled instead of deleted (its number and bill code stay) */
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancel_reason?: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;
@@ -79,6 +87,8 @@ export interface Book extends Named {
 
 export interface Heading extends Named {
   code: string;
+  /** building sites: the budget of the heading, in USD */
+  budget_usd?: number | null;
 }
 
 export interface BudgetLine {
@@ -134,6 +144,8 @@ export interface Settings {
   /** the rules apply to entries made from these moments on (when each was switched on) */
   doc_since: string | null;
   approval_since: string | null;
+  /** 1 = a building-site database (Homs building): typed rates, bill codes "0003 TO 24 2", cancel instead of delete */
+  building: number;
 }
 
 export const MONTHS_EN = [

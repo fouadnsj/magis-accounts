@@ -607,4 +607,21 @@ INSERT INTO grant_part (grant_id, account_id, amount)
     name: 'the Respo book: grants and the Province money arrive there, and go to the books by transfers',
     sql: RESPO_SQL,
   },
+  {
+    n: 12,
+    name: 'building-site databases: bill date, typed rate, cancelled rows, budget per heading',
+    sql: `
+-- A building-site database (setting "building" = 1) keeps, on each row, the date of the
+-- bill (the row's "date" is the day it was paid) and the rate typed for that row (NULL = the
+-- rate of the last exchange). A row is never deleted there: it is cancelled, keeping its
+-- number and bill code, with the reason.
+ALTER TABLE trx ADD COLUMN bill_date TEXT;
+ALTER TABLE trx ADD COLUMN rate REAL;
+ALTER TABLE trx ADD COLUMN cancelled_at TEXT;
+ALTER TABLE trx ADD COLUMN cancelled_by TEXT;
+ALTER TABLE trx ADD COLUMN cancel_reason TEXT;
+-- the budget of a heading, in USD (building sites budget headings, not lines)
+ALTER TABLE heading ADD COLUMN budget_usd REAL;
+`,
+  },
 ];

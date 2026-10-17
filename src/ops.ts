@@ -9,14 +9,14 @@ import ExcelJS from 'exceljs';
 import { type Db, type Stmt, nowIso, one, uuid } from './db/db';
 import {
   addHeading, addLine, addNamed, auditStmt, blankTrx, closedMonths, deleteRule, deleteUnused, getMeta, loadLists, loadTrx, setMetaStmt,
-  moveRow, renameRow, saveBook, saveDonor, saveRule, saveSettings, saveTrxRows, setActive, setHeadingTypes, setProjectFund,
+  moveRow, renameRow, saveBook, saveDonor, saveRule, saveSettings, saveTrxRows, setActive, setHeadingBudget, setHeadingTypes, setProjectFund,
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, roleFor, type Profile } from './auth';
 import { cleanPerms, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
-import { billCode, computeAll } from './domain/compute';
+import { billCode, buildingBillCode, computeAll } from './domain/compute';
 import {
   addMonths, cellsOf, defaultBudgetName, itemTotal, periodEnd, proposeFromSpending, prorateItems, spentInRange, totalsOf,
   type Budget,
@@ -304,6 +304,14 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
   const editAll = can(c, 'register.edit');
   if (!editAll) need(c, 'book.own', 'register.main');
 
+  // Building sites: nothing is deleted (the numbers and bill codes would leave gaps) except by
+  // whoever manages users (the Superior); a cancelled row is read-only.
+  if (lists.settings.building) {
+    if (deletes.length && !can(c, 'users.manage'))
+      throw new UserError(m('لا يُحذف سطر هنا: ألغِه مع ذكر السبب', 'A row is not deleted here: cancel it, with the reason'));
+    if (!a.restoring) for (const r of a.rows) if (byId.get(r.id)?.cancelled_at) throw new UserError(m(`السطر ${byId.get(r.id)!.n} ملغى ولا يُعدَّل`, `Row ${byId.get(r.id)!.n} is cancelled: it cannot be changed`));
+  }
+
   const mainId = lists.books.find((b) => b.is_main)?.id ?? null;
   const touched = [...a.rows, ...deletes.map((id) => byId.get(id)).filter((r): r is Trx => !!r)];
   const oldTransfers = buildTransfers(all, lists.books);
@@ -362,7 +370,7 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
   if (errors.length) throw new UserError({ ar: errors.map((e) => e.ar).join(' · '), en: errors.map((e) => e.en).join(' · ') });
 
   // Changing or deleting a row already saved: say why (kept in the audit log).
-  const SAME = (x: Trx, y: Trx) => (['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd'] as const).every((k) => (x[k] ?? null) === (y[k] ?? null));
+  const SAME = (x: Trx, y: Trx) => (['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd', 'bill_date', 'rate'] as const).every((k) => (x[k] ?? null) === (y[k] ?? null));
   const changesOld = deletes.some((id) => byId.has(id)) || a.rows.some((r) => byId.has(r.id) && !SAME(byId.get(r.id)!, r));
   const reason = (a.reason ?? '').trim() || null;
   if (changesOld && !reason) throw new UserError(m('اكتب سبب التعديل أو الحذف', 'Write the reason for this change or deletion'));
@@ -385,6 +393,10 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
       // an approval stays only while the amount, date, book and line stay the same
       approved_at: old && SAME(old, r) ? old.approved_at ?? null : null,
       approved_by: old && SAME(old, r) ? old.approved_by ?? null : null,
+      // only "cancel" cancels a row (or a backup puts one back as it was)
+      cancelled_at: a.restoring ? r.cancelled_at ?? null : old?.cancelled_at ?? null,
+      cancelled_by: a.restoring ? r.cancelled_by ?? null : old?.cancelled_by ?? null,
+      cancel_reason: a.restoring ? r.cancel_reason ?? null : old?.cancel_reason ?? null,
     };
   });
   // If one leg of a two-row transfer changed, the other leg loses its confirmation too.
@@ -393,6 +405,33 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
       for (const x of clean) if (x.transfer_group === r.transfer_group) Object.assign(x, { received_at: null, received_by: null, disputed_at: null, dispute_note: null });
   }
   await saveTrxRows(c.db, clean, c.who, c.install === 'office', deletes, reason);
+}
+
+/**
+ * Building sites: cancel a row instead of deleting it. It keeps its number and its bill code;
+ * its amounts go to 0 (the audit log keeps them) and the reason is shown on the row.
+ */
+async function cancelRow(c: OpCtx, a: { id: string; reason: string }) {
+  const reason = (a.reason ?? '').trim();
+  if (!reason) throw new UserError(m('اكتب سبب الإلغاء', 'Write why the row is cancelled'));
+  const lists = await loadLists(c.db);
+  if (!lists.settings.building) throw new UserError(m('الإلغاء لقواعد الورشة فقط', 'Cancelling is for building-site databases only'));
+  const old = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [a.id]);
+  if (!old) throw new UserError(m('السطر غير موجود', 'Row not found'));
+  if (old.cancelled_at) throw new UserError(m('السطر ملغى مسبقاً', 'The row is already cancelled'));
+  if (!can(c, 'register.edit') && !writes(c, old.book_id, lists.books.find((b) => b.is_main)?.id ?? null))
+    throw new UserError(m('دفترك فقط', 'Your own book only'));
+  if (old.date && (await closedMonths(c.db)).has(old.date.slice(0, 7)))
+    throw new UserError(m(`الشهر ${old.date.slice(0, 7)} مغلق`, `Month ${old.date.slice(0, 7)} is closed`));
+  const after: Trx = {
+    ...old, inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0,
+    cancelled_at: nowIso(), cancelled_by: c.who, cancel_reason: reason, review: null, updated_at: nowIso(),
+  };
+  await c.db.batch([
+    { sql: 'UPDATE trx SET inc_syp = 0, exp_syp = 0, inc_usd = 0, exp_usd = 0, trf_syp = 0, trf_usd = 0, cancelled_at = ?, cancelled_by = ?, cancel_reason = ?, review = NULL, updated_at = ? WHERE id = ?',
+      params: [after.cancelled_at!, c.who, reason, after.updated_at!, a.id] },
+    auditStmt(c.who, 'cancel', 'trx', a.id, old, { ...after, reason }),
+  ]);
 }
 
 const reopenMonth = (c: OpCtx, a: { ym: string }) =>
@@ -916,7 +955,10 @@ async function addDocument(c: OpCtx, a: { trxId: string; base64: string; mime: s
   const code = lists.lines.find((l) => l.id === r.line_id)?.code ?? '';
   const month = r.date ? Number(r.date.slice(5, 7)) : null;
   const year = r.date ? Number(r.date.slice(0, 4)) : null;
-  const base = `${billCode(r, code, month, year)}${r.n != null ? `_N${String(r.n).padStart(4, '0')}` : ''}`.replace(/[^\w.-]/g, '_');
+  // building sites: the file carries the row's bill code ("0003 TO 24 2" → 0003_TO_24_2.pdf)
+  const base = (lists.settings.building
+    ? buildingBillCode(r, code)
+    : `${billCode(r, code, month, year)}${r.n != null ? `_N${String(r.n).padStart(4, '0')}` : ''}`).replace(/[^\w.-]/g, '_');
   const folder = year ? String(year) : 'undated';
   let rel = `${folder}/${base}.${ext}`;
   for (let i = 2; await c.files.docExists(rel); i++) rel = `${folder}/${base}-${i}.${ext}`;
@@ -1086,6 +1128,7 @@ export const OPS = {
   // ---------------------------------------------------------------- register
   'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null }) => saveRows(c, { rows: a.rows, deletes: a.deletes, reason: a.reason }) },
   'trx.delete': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { ids: string[]; reason?: string | null }) => saveRows(c, { rows: [], deletes: a.ids, reason: a.reason }) },
+  'trx.cancel': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { id: string; reason: string }) => cancelRow(c, a) },
   'trx.approve': { check: anyone, run: (c: OpCtx, a: { ids: string[] }) => approveRows(c, a) },
   'transfer.answer': {
     check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'),
@@ -1162,6 +1205,7 @@ export const OPS = {
   'list.move': { check: anyone, run: (c: OpCtx, a: { table: SimpleList; id: number; dir: -1 | 1 }) => moveRow(c.db, listTable(c, a.table), a.id, a.dir, c.who) },
   'heading.add': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { name: string; types: TrxType[] }) => addHeading(c.db, a.name, a.types, c.who) },
   'heading.types': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number; types: TrxType[] }) => setHeadingTypes(c.db, a.id, a.types, c.who) },
+  'heading.budget': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number; usd: number | null }) => setHeadingBudget(c.db, a.id, a.usd, c.who) },
   'line.add': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { headingId: number; name: string }) => addLine(c.db, a.headingId, a.name, c.who) },
   'line.fund': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number; on: boolean }) => setProjectFund(c.db, a.id, a.on, c.who) },
   'book.save': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: Partial<Book> & { name: string }) => saveBook(c.db, a, c.who) },

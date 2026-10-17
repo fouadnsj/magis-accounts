@@ -16,6 +16,7 @@ const FIELD_LABEL: Record<EntryField, () => string> = {
   city_id: () => t('المدينة', 'City'), heading_id: () => t('البند', 'Heading'), line_id: () => t('الخط', 'Line'), party_id: () => t('الجهة', 'Party'),
   explanation: () => t('الشرح', 'Explanation'), receipt: () => t('الوصل', 'Receipt'),
   inc_syp: () => 'Inc SYP', exp_syp: () => 'Exp SYP', inc_usd: () => 'Inc USD', exp_usd: () => 'Exp USD', trf_syp: () => 'Trf SYP', trf_usd: () => 'Trf USD',
+  bill_date: () => t('تاريخ الفاتورة', 'Bill date'), rate: () => t('السعر', 'Rate'), cancelled_at: () => t('ملغى', 'Cancelled'), cancel_reason: () => t('سبب الإلغاء', 'Why cancelled'),
 };
 
 export function CompareModal({ backup, onClose }: { backup: BackupFile; onClose: () => void }) {

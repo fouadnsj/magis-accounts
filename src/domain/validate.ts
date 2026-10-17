@@ -33,6 +33,9 @@ export function validateTrx(t: Trx, ctx: ValidateContext): Check {
   const errors: Msg[] = [];
   const warnings: Msg[] = [];
   const { lists } = ctx;
+  const building = !!lists.settings.building;
+  // a cancelled row keeps its number and bill code, nothing else is checked
+  if (t.cancelled_at) return { errors, warnings };
 
   // ---- Date
   if (!t.date) errors.push(m('التاريخ مطلوب', 'Date is required'));
@@ -73,8 +76,9 @@ export function validateTrx(t: Trx, ctx: ValidateContext): Check {
   if (t.type === 'Income' || t.type === 'Exp') {
     const allowed = t.type === 'Income' ? ['inc_syp', 'inc_usd'] : ['exp_syp', 'exp_usd'];
     if (nonZero.length === 0) errors.push(m('أدخل مبلغاً', 'Enter an amount'));
-    else if (nonZero.length > 1) errors.push(m('مبلغ واحد فقط بعملة واحدة — قسّم السطر إلى سطرين', 'Only one amount in one currency — split into two rows'));
-    else if (!allowed.includes(nonZero[0][0]))
+    // building sites: a bill may be paid partly in dollars and partly in pounds
+    else if (!building && nonZero.length > 1) errors.push(m('مبلغ واحد فقط بعملة واحدة — قسّم السطر إلى سطرين', 'Only one amount in one currency — split into two rows'));
+    else if (nonZero.some(([k]) => !allowed.includes(k)))
       errors.push(m('المبلغ في العمود الخطأ (إيراد/نفقة)', 'Amount is in the wrong column (income/expense)'));
     if (nonZero.some(([, v]) => v < 0)) errors.push(m('المبلغ يجب أن يكون موجباً', 'Amount must be positive'));
     if (hasTrf) errors.push(m('لا تحويل ولا تصريف في سطر إيراد/نفقة', 'No transfer/exchange amount on an income/expense row'));
@@ -111,12 +115,20 @@ export function validateTrx(t: Trx, ctx: ValidateContext): Check {
     }
   }
 
+  // ---- Building sites: the bill's date and the rate
+  if (building) {
+    if (t.bill_date && !isDate(t.bill_date)) errors.push(m('تاريخ الفاتورة غير صالح', 'Bill date is not valid'));
+    if (t.bill_date && t.date && isDate(t.bill_date) && t.bill_date > t.date)
+      warnings.push(m('تاريخ الفاتورة بعد تاريخ الدفع', 'The bill is dated after the payment'));
+    if (t.rate != null && !(t.rate > 0)) errors.push(m('السعر يجب أن يكون موجباً', 'The rate must be positive'));
+  }
+
   // ---- Probable duplicate: same date, type, amount, party, book
   if (t.date) {
     const sig = (r: Trx) =>
       [r.date, r.type, r.book_id, r.party_id, r.inc_syp, r.exp_syp, r.inc_usd, r.exp_usd, r.trf_syp, r.trf_usd].join('|');
     const mine = sig(t);
-    const dup = ctx.rows.find((r) => r.id !== t.id && sig(r) === mine);
+    const dup = ctx.rows.find((r) => r.id !== t.id && !r.cancelled_at && sig(r) === mine);
     if (dup)
       warnings.push(
         m(

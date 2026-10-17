@@ -415,3 +415,39 @@ export function exchangeLog(rows: Trx[], p: Period | null) {
     syp: sum(ex, (r) => r.trf_syp),
   };
 }
+
+// ---------------------------------------------------------------- building sites: budget per heading
+
+export interface BuildingBudgetLine {
+  heading: Lists['headings'][number];
+  budget: number; // USD
+  usd: number; // paid in dollars
+  conv: number; // paid in pounds, in USD at each row's rate
+  total: number;
+  rest: number;
+  /** spent by kind: line name (Materials, Wages, Other) → USD-eq */
+  byLine: { line: Lists['lines'][number]; total: number }[];
+}
+
+/**
+ * The Data sheet of a building-site workbook: for each expense heading, its budget,
+ * what was paid in USD, the pounds converted (Syp / Rate), the total and what is left.
+ * Exchanges are not spending (Excel counted them under "Exchange"; Fouad, 17 Oct 2026).
+ * Cancelled rows hold no amount.
+ */
+export function buildingBudget(rows: Trx[], comp: Map<string, Computed>, lists: Lists, p: Period | null = null): BuildingBudgetLine[] {
+  const expHeadings = new Set(lists.headingTypes.filter((x) => x.type === 'Exp').map((x) => x.heading_id));
+  const exps = rows.filter((r) => r.type === 'Exp' && inPeriod(r, p));
+  return lists.headings
+    .filter((h) => expHeadings.has(h.id))
+    .map((h) => {
+      const mine = exps.filter((r) => r.heading_id === h.id);
+      const usd = sum(mine, (r) => r.exp_usd);
+      const conv = sum(mine, (r) => (comp.get(r.id)?.expUsdTot ?? 0) - r.exp_usd);
+      const budget = h.budget_usd ?? 0;
+      const byLine = lists.lines
+        .filter((l) => l.heading_id === h.id)
+        .map((line) => ({ line, total: sum(mine.filter((r) => r.line_id === line.id), (r) => comp.get(r.id)?.expUsdTot ?? 0) }));
+      return { heading: h, budget, usd, conv, total: usd + conv, rest: budget - usd - conv, byLine };
+    });
+}

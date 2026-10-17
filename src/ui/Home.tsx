@@ -17,7 +17,7 @@ export function Home() {
   const mainId = d.lists.books.find((b) => b.is_main)?.id ?? null;
   const writes = can('register.edit') || can('register.main') || (can('book.own') && myBooks.length > 0);
   const types: TrxType[] = writes ? ['Income', 'Exp', 'Transfer', 'Exchange'] : [];
-  if (fileHolder) types.splice(types.indexOf('Transfer'), 1);
+  if (fileHolder || d.lists.settings.building) types.splice(types.indexOf('Transfer'), 1);
   const hint: Record<TrxType, string> = {
     Income: t('مال يدخل', 'money in'),
     Exp: t('مال يخرج', 'money out'),

@@ -19,6 +19,8 @@ export interface ValidateContext {
   today: string; // 'YYYY-MM-DD'
   /** The row's date before this edit: a row cannot be moved out of a closed month either. */
   previousDate?: string | null;
+  /** an income or a transfer needs an explanation too (new rows, and rows that had one) */
+  explainAll?: boolean;
 }
 
 const isDate = (s: string | null): s is string => {
@@ -77,9 +79,11 @@ export function validateTrx(t: Trx, ctx: ValidateContext): Check {
     if (nonZero.some(([, v]) => v < 0)) errors.push(m('المبلغ يجب أن يكون موجباً', 'Amount must be positive'));
     if (hasTrf) errors.push(m('لا تحويل ولا تصريف في سطر إيراد/نفقة', 'No transfer/exchange amount on an income/expense row'));
     if (t.type === 'Exp' && !(t.explanation ?? '').trim()) errors.push(m('الشرح مطلوب للنفقة', 'Explanation is required for an expense'));
+    if (t.type === 'Income' && ctx.explainAll && !(t.explanation ?? '').trim()) errors.push(m('الشرح مطلوب للإيراد: من أين جاء المال؟', 'Explanation is required for an income: where does the money come from?'));
   }
 
   if (t.type === 'Transfer') {
+    if (ctx.explainAll && !(t.explanation ?? '').trim()) errors.push(m('الشرح مطلوب للتحويل', 'Explanation is required for a transfer'));
     if (nonZero.length) errors.push(m('التحويل ليس إيراداً ولا نفقة', 'A transfer is neither income nor expense'));
     if (!hasTrf) errors.push(m('أدخل مبلغ التحويل', 'Enter the transfer amount'));
     else if (t.trf_syp !== 0 && t.trf_usd !== 0) errors.push(m('عملة واحدة في كل سطر تحويل', 'One currency per transfer row'));

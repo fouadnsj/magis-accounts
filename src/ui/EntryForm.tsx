@@ -264,7 +264,8 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
     const all = { errors: [...formErrors], warnings: [] as Msg[] };
     for (const r of rows) {
       const before = d.rows.find((x) => x.id === r.id);
-      const v = validateTrx(r, { lists: L, rows: others, closedMonths: d.closed, today: todayIso(), previousDate: before?.date ?? null });
+      const explainAll = !(before && before.type === r.type && !(before.explanation ?? '').trim());
+      const v = validateTrx(r, { lists: L, rows: others, closedMonths: d.closed, today: todayIso(), previousDate: before?.date ?? null, explainAll });
       for (const e of v.errors) if (!all.errors.some((x) => x.en === e.en)) all.errors.push(e);
       for (const w of v.warnings) if (!all.warnings.some((x) => x.en === w.en)) all.warnings.push(w);
     }
@@ -488,7 +489,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
             </>
           )}
 
-          <Field label={t('الشرح', 'Explanation')} className="span2">
+          <Field label={`${t('الشرح', 'Explanation')}${f.type === 'Exchange' ? '' : ' *'}`} className="span2">
             <input value={f.explanation} onChange={(e) => set('explanation', e.target.value)} />
           </Field>
           <Field label={t('الجهة', 'Party')}>

@@ -30,6 +30,9 @@ const RESPO_ID = `(SELECT id FROM book WHERE name = 'Respo' COLLATE NOCASE)`;
 // the book where grants arrived until now (the Superior's)
 const OLD_GRANTS = `COALESCE((SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'grants_book_id'),
   (SELECT id FROM book WHERE private = 1 AND name <> 'Respo' COLLATE NOCASE ORDER BY id LIMIT 1))`;
+// pounds "From the Respo" came from the Superior's own book (Fouad, 2026-10-17); dollars from the Respo
+const SUP_BOOK = `COALESCE((SELECT id FROM book WHERE private = 1 AND name <> 'Respo' COLLATE NOCASE ORDER BY id LIMIT 1), ${RESPO_ID})`;
+const FROM_BOOK = (syp: string) => `CASE WHEN ${syp} <> 0 THEN ${SUP_BOOK} ELSE ${RESPO_ID} END`;
 const TRANSFER_HEADING = `(SELECT id FROM heading WHERE name = 'Transfer' COLLATE NOCASE)`;
 const TRANSFER_LINE = `(SELECT l.id FROM budget_line l WHERE l.heading_id = ${TRANSFER_HEADING} AND l.name = 'Transfer' COLLATE NOCASE)`;
 const RESPO_LINE = `(SELECT id FROM budget_line WHERE is_project_fund = 1)`;
@@ -65,7 +68,7 @@ INSERT INTO trx (id, n, city_id, account_id, book_id, date, type, heading_id, li
 -- In a book other than Main: two rows, the Respo's (−) and the book's (+).
 INSERT INTO trx (id, n, city_id, account_id, book_id, date, type, heading_id, line_id, explanation, inc_syp, exp_syp, inc_usd, exp_usd,
                  trf_syp, trf_usd, transfer_group, received_at, received_by, created_at, created_by, updated_at)
-  SELECT 'respo-' || r.id, (SELECT MAX(n) FROM trx) + ROW_NUMBER() OVER (ORDER BY r.date, r.n), r.city_id, r.account_id, ${RESPO_ID}, r.date,
+  SELECT 'respo-' || r.id, (SELECT MAX(n) FROM trx) + ROW_NUMBER() OVER (ORDER BY r.date, r.n), r.city_id, r.account_id, ${FROM_BOOK('r.inc_syp')}, r.date,
          'Transfer', ${TRANSFER_HEADING}, ${TRANSFER_LINE}, r.explanation, 0, 0, 0, 0, -r.inc_syp, -r.inc_usd, r.id,
          COALESCE(r.received_at, r.created_at), COALESCE(r.received_by, r.created_by), r.created_at, r.created_by, r.updated_at
     FROM trx r JOIN book b ON b.id = r.book_id
@@ -74,8 +77,8 @@ UPDATE trx SET type = 'Transfer', heading_id = ${TRANSFER_HEADING}, line_id = ${
                inc_syp = 0, inc_usd = 0, transfer_group = id, received_at = COALESCE(received_at, created_at), received_by = COALESCE(received_by, created_by)
  WHERE type = 'Income' AND line_id IN ${RESPO_LINE} AND (inc_syp = 0 OR inc_usd = 0)
    AND book_id IN (SELECT id FROM book WHERE is_main = 0);
--- In Main: one row, on the Respo's book (Main's side is implicit).
-UPDATE trx SET type = 'Transfer', book_id = ${RESPO_ID}, heading_id = ${TRANSFER_HEADING}, line_id = ${TRANSFER_LINE},
+-- In Main: one row, on the giver's book (Main's side is implicit).
+UPDATE trx SET type = 'Transfer', book_id = ${FROM_BOOK('inc_syp')}, heading_id = ${TRANSFER_HEADING}, line_id = ${TRANSFER_LINE},
                trf_syp = -inc_syp, trf_usd = -inc_usd, inc_syp = 0, inc_usd = 0,
                received_at = COALESCE(received_at, created_at), received_by = COALESCE(received_by, created_by)
  WHERE type = 'Income' AND line_id IN ${RESPO_LINE} AND (inc_syp = 0 OR inc_usd = 0)

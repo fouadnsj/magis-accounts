@@ -209,7 +209,7 @@ describe('server: transfers recorded once by the giver, confirmed by the receive
   const leg = (book: number, amount: number, group: string | null, over: Partial<Trx> = {}): Trx => ({
     ...blankTrx(), city_id: L.cities[0].id, account_id: L.accounts.find((a) => a.name === 'Center')!.id, book_id: book, date: NOV, type: 'Transfer',
     heading_id: L.headings.find((h) => h.name === 'Other / Unallocated')!.id, line_id: L.lines.find((l) => l.name === 'Unallocated')!.id,
-    trf_syp: amount, transfer_group: group, ...over,
+    trf_syp: amount, transfer_group: group, explanation: 'cash for the week', ...over,
   });
   const transfersOf = async (cookie: string) => ((await op('data', {}, cookie)).body as DataPayload).transfers;
 

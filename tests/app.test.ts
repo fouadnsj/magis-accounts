@@ -59,6 +59,11 @@ describe('validation — impossible to save', () => {
   it('no amount', () => expect(errs(expense({ exp_syp: 0 }))).toContain('Enter an amount'));
   it('amount in the wrong column', () => expect(errs(expense({ exp_syp: 0, inc_syp: 5000 }))[0]).toMatch(/wrong column/));
   it('expense without explanation', () => expect(errs(expense({ explanation: ' ' }))).toContain('Explanation is required for an expense'));
+  it('an income or a transfer without explanation (new rows; rows written before the rule may stay without)', () => {
+    const inc = expense({ type: 'Income', heading_id: id(lists.headings, 'Income'), line_id: lists.lines.find((l) => l.heading_id === id(lists.headings, 'Income'))!.id, exp_syp: 0, inc_syp: 5000, explanation: null });
+    expect(errs(inc, { ...ctx(), explainAll: true } as never)[0]).toMatch(/income: where does the money come from/);
+    expect(errs(inc)).toEqual([]);
+  });
   it('transfer booked on Main (one-legged)', () =>
     expect(
       errs(expense({ type: 'Transfer', book_id: id(lists.books, 'Main'), heading_id: id(lists.headings, 'Other / Unallocated'), line_id: line('Other / Unallocated', 'Unallocated'), exp_syp: 0, trf_syp: 1000 })),

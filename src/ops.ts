@@ -219,7 +219,7 @@ async function putBackRow(c: OpCtx, a: { path: string; id: string; reason: strin
   const back: Trx = { ...(now ?? { ...blankTrx(), ...then, approved_at: null, approved_by: null }), id: a.id };
   for (const f of ENTRY_FIELDS) (back as unknown as Record<string, unknown>)[f] = (then as unknown as Record<string, unknown>)[f] ?? null;
   back.transfer_group = then.transfer_group ?? null;
-  await saveRows(c, { rows: [back], reason });
+  await saveRows(c, { rows: [back], reason, restoring: true });
   // a row brought back keeps its old number, if nobody has it
   if (!now && then.n != null && !(await one(c.db, 'SELECT 1 FROM trx WHERE n = ? AND id <> ?', [then.n, a.id])))
     await c.db.batch([{ sql: 'UPDATE trx SET n = ? WHERE id = ?', params: [then.n, a.id] }]);
@@ -296,7 +296,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
  *  - record a transfer he GIVES from such a book, while it is not yet confirmed;
  *  - change nothing in a month he (or the office) has closed for that book.
  */
-async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null }) {
+async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null; restoring?: boolean }) {
   const deletes = a.deletes ?? [];
   const all = await loadTrx(c.db);
   const byId = new Map(all.map((r) => [r.id, r]));
@@ -349,7 +349,10 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
   const others = all.filter((r) => !a.rows.some((x) => x.id === r.id) && !deletes.includes(r.id));
   const errors: Msg[] = [];
   for (const r of a.rows) {
-    const v = validateTrx(r, { lists, rows: others, closedMonths: closed, today: '9999-12-31', previousDate: byId.get(r.id)?.date ?? null });
+    const old = byId.get(r.id);
+    // rows written before this rule, kept without an explanation, and rows put back from a backup, stay as they were
+    const explainAll = !a.restoring && !(old && old.type === r.type && !(old.explanation ?? '').trim());
+    const v = validateTrx(r, { lists, rows: others, closedMonths: closed, today: '9999-12-31', previousDate: old?.date ?? null, explainAll });
     errors.push(...v.errors);
   }
   for (const id of deletes) {
@@ -1081,7 +1084,7 @@ export const OPS = {
   },
 
   // ---------------------------------------------------------------- register
-  'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null }) => saveRows(c, a) },
+  'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null }) => saveRows(c, { rows: a.rows, deletes: a.deletes, reason: a.reason }) },
   'trx.delete': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { ids: string[]; reason?: string | null }) => saveRows(c, { rows: [], deletes: a.ids, reason: a.reason }) },
   'trx.approve': { check: anyone, run: (c: OpCtx, a: { ids: string[] }) => approveRows(c, a) },
   'transfer.answer': {

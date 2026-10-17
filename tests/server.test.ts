@@ -458,7 +458,7 @@ describe('server: moving the desktop database in', () => {
   });
 });
 
-describe('server: the yearly budget (Superior and Accountant only)', () => {
+describe('server: the yearly budget (Superior only)', () => {
   it('builds 2027 from what was spent in 2026, revises it, keeps the original, and hides it from holders', async () => {
     const sup = await loginAs('Fouad', 'sup-secret');
     const com = await loginAs('Comptable', 'com-secret');
@@ -467,26 +467,26 @@ describe('server: the yearly budget (Superior and Accountant only)', () => {
     expect((await op('budget.create', { year: 2027, rate_syp: 13000, rate_eur: 0.92, from: 'empty' }, roula)).status).toBe(400);
 
     // as is, then the same scaled to 12 months: scaling never gives less
-    expect((await op('budget.create', { year: 2027, rate_syp: 0, rate_eur: 0.92, from: 'last' }, com)).status).toBe(400);
-    const made = await op('budget.create', { year: 2027, rate_syp: 13000, rate_eur: 0.92, from: 'last', scale: false, pct: 0 }, com);
+    expect((await op('budget.create', { year: 2027, rate_syp: 0, rate_eur: 0.92, from: 'last' }, sup)).status).toBe(400);
+    const made = await op('budget.create', { year: 2027, rate_syp: 13000, rate_eur: 0.92, from: 'last', scale: false, pct: 0 }, sup);
     expect(made.status).toBe(200);
     expect(made.body).toBeGreaterThan(10);
-    let b = (await op('budget.get', { year: 2027 }, com)).body;
+    let b = (await op('budget.get', { year: 2027 }, sup)).body;
     expect(b.current.rev).toBe(0);
-    expect(b.allocs).toEqual([]); // the accountant does not see donors
+    expect((await op('budget.get', { year: 2027 }, com)).status).toBe(400); // for now, the Superior only
     const total0 = b.amounts.reduce((s: number, x: { amount_usd: number }) => s + x.amount_usd, 0);
     expect(total0).toBeGreaterThan(1000);
-    expect((await op('budget.create', { year: 2027, rate_syp: 13000, rate_eur: 0.92, from: 'empty' }, com)).status).toBe(400); // only once
+    expect((await op('budget.create', { year: 2027, rate_syp: 13000, rate_eur: 0.92, from: 'empty' }, sup)).status).toBe(400); // only once
 
     const cell = b.amounts[0];
-    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ ...cell, amount_usd: 5000 }] }, com)).status).toBe(200);
+    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ ...cell, amount_usd: 5000 }] }, sup)).status).toBe(200);
     // a revision: the original stays as it was, only the latest changes
     expect((await op('budget.revise', { year: 2027, note: 'mid-year' }, sup)).status).toBe(200);
-    b = (await op('budget.get', { year: 2027 }, com)).body;
+    b = (await op('budget.get', { year: 2027 }, sup)).body;
     expect(b.current.rev).toBe(1);
-    expect((await op('budget.saveAmounts', { versionId: b.versions[0].id, cells: [{ ...cell, amount_usd: 1 }] }, com)).status).toBe(400);
-    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ ...cell, amount_usd: 6500 }] }, com)).status).toBe(200);
-    b = (await op('budget.get', { year: 2027 }, com)).body;
+    expect((await op('budget.saveAmounts', { versionId: b.versions[0].id, cells: [{ ...cell, amount_usd: 1 }] }, sup)).status).toBe(400);
+    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ ...cell, amount_usd: 6500 }] }, sup)).status).toBe(200);
+    b = (await op('budget.get', { year: 2027 }, sup)).body;
     const find = (xs: { account_id: number; line_id: number; amount_usd: number }[]) => xs.find((x) => x.account_id === cell.account_id && x.line_id === cell.line_id)!.amount_usd;
     expect(find(b.original)).toBe(5000);
     expect(find(b.amounts)).toBe(6500);
@@ -498,23 +498,23 @@ describe('server: the yearly budget (Superior and Accountant only)', () => {
       { name: 'Centre Director', unit: 'person', qty: 1, times: 13, unit_cost: 350, note: null },
       { name: 'Reception', unit: 'person', qty: 2, times: 13, unit_cost: 200, note: null },
     ];
-    expect((await op('budget.saveItems', { versionId: b.current.id, account_id: acc, line_id: lineId, items: [{ ...items[0], qty: -1 }] }, com)).status).toBe(400);
-    expect((await op('budget.saveItems', { versionId: b.current.id, account_id: acc, line_id: lineId, items }, com)).status).toBe(200);
-    b = (await op('budget.get', { year: 2027 }, com)).body;
+    expect((await op('budget.saveItems', { versionId: b.current.id, account_id: acc, line_id: lineId, items: [{ ...items[0], qty: -1 }] }, sup)).status).toBe(400);
+    expect((await op('budget.saveItems', { versionId: b.current.id, account_id: acc, line_id: lineId, items }, sup)).status).toBe(200);
+    b = (await op('budget.get', { year: 2027 }, sup)).body;
     expect(b.amounts.find((x: { line_id: number; account_id: number }) => x.line_id === lineId && x.account_id === acc).amount_usd).toBe(4550 + 5200);
     expect(b.items.length).toBe(2);
     // a line with items is changed through its items only
-    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: acc, line_id: lineId, amount_usd: 1 }] }, com)).status).toBe(400);
-    expect((await op('budget.setAccount', { versionId: b.current.id, account_id: acc, contingency_pct: 10 }, com)).status).toBe(200);
+    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: acc, line_id: lineId, amount_usd: 1 }] }, sup)).status).toBe(400);
+    expect((await op('budget.setAccount', { versionId: b.current.id, account_id: acc, contingency_pct: 10 }, sup)).status).toBe(200);
 
     // 2026 from the 2027 budget, July–December: items for 6 months (staff 13 → 6.5)
-    expect((await op('budget.create', { year: 2026, rate_syp: 130, rate_eur: 0.92, start_month: 7, months: 6, from: 'budget', fromYear: 2027 }, com)).status).toBe(200);
-    const b26 = (await op('budget.get', { year: 2026 }, com)).body;
+    expect((await op('budget.create', { year: 2026, rate_syp: 130, rate_eur: 0.92, start_month: 7, months: 6, from: 'budget', fromYear: 2027 }, sup)).status).toBe(200);
+    const b26 = (await op('budget.get', { year: 2026 }, sup)).body;
     expect(b26.current).toMatchObject({ start_month: 7, months: 6 });
     expect(b26.items.find((i: { name: string }) => i.name === 'Centre Director').times).toBe(6.5);
     expect(b26.amounts.find((x: { line_id: number; account_id: number }) => x.line_id === lineId && x.account_id === acc).amount_usd).toBe((4550 + 5200) / 2);
     expect(b26.accounts.find((x: { account_id: number }) => x.account_id === acc).contingency_pct).toBe(10);
-    expect((await op('budget.create', { year: 2025, rate_syp: 130, rate_eur: 0.92, start_month: 9, months: 6, from: 'empty' }, com)).status).toBe(400); // past December
+    expect((await op('budget.create', { year: 2025, rate_syp: 130, rate_eur: 0.92, start_month: 9, months: 6, from: 'empty' }, sup)).status).toBe(400); // past December
 
     // donors: the Superior allocates; the accountant may not
     const L = ((await op('data', {}, sup)).body as DataPayload).lists;
@@ -530,14 +530,14 @@ describe('server: the yearly budget (Superior and Accountant only)', () => {
     expect((await op('alloc.save', { year: 2027, donor_id: sjId, account_id: null, heading_id: null, line_id: null, rest: 1, pct: 5, status: 'promised' }, sup)).status).toBe(400);
     // Harat: one amount for all its spending; its line amounts go, and lines cannot be typed while it has one
     const other = L.accounts.find((x) => x.id !== cell.account_id && x.id !== acc)!.id;
-    await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: other, line_id: cell.line_id, amount_usd: 300 }] }, com);
-    expect((await op('budget.setAccount', { versionId: b.current.id, account_id: other, lump_usd: 5000 }, com)).status).toBe(200);
-    const bh = (await op('budget.get', { year: 2027 }, com)).body;
+    await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: other, line_id: cell.line_id, amount_usd: 300 }] }, sup);
+    expect((await op('budget.setAccount', { versionId: b.current.id, account_id: other, lump_usd: 5000 }, sup)).status).toBe(200);
+    const bh = (await op('budget.get', { year: 2027 }, sup)).body;
     expect(bh.amounts.some((x: { account_id: number }) => x.account_id === other)).toBe(false);
     expect(bh.accounts.find((x: { account_id: number }) => x.account_id === other).lump_usd).toBe(5000);
-    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: other, line_id: cell.line_id, amount_usd: 1 }] }, com)).status).toBe(400);
+    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: other, line_id: cell.line_id, amount_usd: 1 }] }, sup)).status).toBe(400);
     expect((await op('budget.get', { year: 2027 }, sup)).body.allocs.length).toBe(3);
-    expect((await op('budget.get', { year: 2027 }, com)).body.allocs).toEqual([]);
+    expect((await op('budget.get', { year: 2027 }, com)).status).toBe(400);
   });
 });
 

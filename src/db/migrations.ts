@@ -400,10 +400,10 @@ CREATE INDEX budget_alloc_year ON budget_alloc(year);
 INSERT INTO donor (name) SELECT 'SJ' WHERE NOT EXISTS (SELECT 1 FROM donor WHERE name = 'SJ' COLLATE NOCASE);
 -- An account outside the centre (e.g. Deir): recorded, but not part of its budget.
 ALTER TABLE account ADD COLUMN outside_budget INTEGER NOT NULL DEFAULT 0;
--- The budget is seen and kept by those who see every book and keep the lists
--- (the Superior and the Accountant), never by the book holders.
+-- For now the budget is the Superior's only (those who manage users);
+-- it can be given to others by ticking it in their permission profile.
 UPDATE access_profile SET perms = replace(perms, ']', ',"budget.view","budget.manage"]')
- WHERE perms LIKE '%"register.view"%' AND perms LIKE '%"lists.manage"%';
+ WHERE perms LIKE '%"users.manage"%';
 `,
   },
 ];

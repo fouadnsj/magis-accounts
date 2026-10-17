@@ -327,6 +327,13 @@ describe('server: controls (reason for changes, approval of large expenses, docu
     expect((await op('trx.save', { rows: [{ ...r1, explanation: 'changed', exp_usd: 180 }], reason: 'real invoice' }, com)).status).toBe(200);
     const again = ((await op('data', {}, com)).body as DataPayload).rows.find((x) => x.id === r1.id)!;
     expect(again.approved_at).toBeNull();
+    // a year closes once it is over and all its months are closed; only the Superior reopens it
+    expect((await op('year.close', { year: 2026 }, com)).body.error.en).toMatch(/once it is over/);
+    expect((await op('year.close', { year: 2025 }, com)).status).toBe(200);
+    expect(((await op('data', {}, com)).body as DataPayload).closedYears).toContain(2025);
+    expect((await op('month.reopen', { ym: '2025-05' }, sup)).body.error.en).toMatch(/reopen the year first/);
+    expect((await op('year.reopen', { year: 2025 }, com)).status).toBe(400);
+    expect((await op('year.reopen', { year: 2025 }, sup)).status).toBe(200);
     // back to the defaults for the tests that follow
     expect((await op('trx.delete', { ids: [r1.id, old.id], reason: 'test row' }, com)).status).toBe(200);
     expect((await op('settings.save', { approval_on: 0, doc_required_usd: 0 }, sup)).status).toBe(200);

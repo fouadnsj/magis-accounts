@@ -16,7 +16,8 @@ import {
 } from '../domain/budget';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
-import { pickFile } from '../platform';
+import { pickFile, saveFile } from '../platform';
+import { donorReportXlsx } from '../io/donorReport';
 import { workbookGrids, type Grid } from '../io/budgetSheet';
 import { Field, Modal, Select, Seg, Tabs, confirmBox, errText, fmtPct, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast } from './kit';
 
@@ -852,6 +853,23 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
   const received = (donorId: number) => d.grants.filter((g) => g.donor_id === donorId && g.date?.startsWith(String(year))).reduce((sum, g) => sum + g.amount_usd, 0);
   const donorIds = [...new Set(b.allocs.map((a) => a.donor_id))];
 
+  /** The standard donor report, in Excel. */
+  const exportDonor = async (donorId: number) => {
+    try {
+      const docs = new Map<string, string[]>();
+      for (const a of d.attachments) docs.set(a.trx_id, [...(docs.get(a.trx_id) ?? []), a.name]);
+      const bytes = await donorReportXlsx({
+        donorId, year, organisation: s.organisation, lists: d.lists, rows: d.rows, comp: d.comp,
+        amounts: b.amounts, accounts: b.accounts, allocs: b.allocs, grants: d.grants, docs,
+      });
+      const file = `${s.organisation || 'MAGIS'} - ${names.donor(donorId)} - ${year}.xlsx`.replace(/[\\/:*?"<>|]/g, '-');
+      const path = await saveFile(file, ['xlsx'], bytes, t('احفظ تقرير المانح', 'Save the donor report'));
+      if (path !== null) toast(t('حُفظ التقرير', 'Report saved'));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+
   const remove = async (a: BudgetAlloc) => {
     if (!(await confirmBox(t('حذف هذا التخصيص؟', 'Delete this allocation?'), true))) return;
     try {
@@ -943,13 +961,14 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
           <h3 style={{ marginTop: 18 }}>{t('حسب المانح', 'Per donor')}</h3>
           <div className="table-wrap">
             <table className="t">
-              <thead><tr><th>{t('المانح', 'Donor')}</th><th className="n">{t('المخصّص', 'Allocated')} $</th><th className="n">{t(`منح مستلمة ${year}`, `Grants received ${year}`)} $</th></tr></thead>
+              <thead><tr><th>{t('المانح', 'Donor')}</th><th className="n">{t('المخصّص', 'Allocated')} $</th><th className="n">{t(`منح مستلمة ${year}`, `Grants received ${year}`)} $</th><th /></tr></thead>
               <tbody>
                 {donorIds.map((id) => (
                   <tr key={id}>
                     <td>{names.donor(id)}</td>
                     <td className="n">{fmtUsd(b.allocs.filter((a) => a.donor_id === id).reduce((sum, a) => sum + worth(a), 0))}</td>
                     <td className="n">{fmtUsd(received(id))}</td>
+                    <td className="right"><button className="btn small" onClick={() => exportDonor(id)}>⬇ {t('تقرير Excel', 'Excel report')}</button></td>
                   </tr>
                 ))}
               </tbody>

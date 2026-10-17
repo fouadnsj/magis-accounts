@@ -313,3 +313,43 @@ describe('budget arithmetic', () => {
     expect(guessLine({ category: 'Weekends & Retreats', name: 'Spiritual retreats' }, lines, headings)).toBe(30);
   });
 });
+
+describe('donor report', () => {
+  it("gives each donor his share of every expense he covers, with grants and missing documents", async () => {
+    const { donorReportData, donorReportXlsx } = await import('../src/io/donorReport');
+    const lists = {
+      accounts: [{ id: 1, name: 'Center', active: 1 }, { id: 2, name: 'Furniture', active: 1 }, { id: 3, name: 'harat', active: 1 }, { id: 4, name: 'Deir', active: 1, outside_budget: 1 }],
+      headings: [{ id: 10, name: 'Operations' }, { id: 16, name: 'Furniture' }],
+      lines: [{ id: 100, heading_id: 10, name: 'Internet' }, { id: 160, heading_id: 16, name: 'Chairs' }],
+      donors: [{ id: 1, name: 'UNDP' }, { id: 2, name: 'Belfast' }, { id: 3, name: 'SJ' }],
+      projects: [], parties: [],
+    } as never;
+    const row = (id: string, acc: number, line: number, usd: number): Trx => ({ ...blankTrx(), id, date: '2027-03-01', type: 'Exp', account_id: acc, line_id: line, heading_id: line === 100 ? 10 : 16, exp_usd: usd });
+    const rows = [row('a', 1, 100, 100), row('b', 2, 160, 4000), row('c', 3, 100, 300), row('d', 4, 100, 999)];
+    const comp = new Map(rows.map((r) => [r.id, { expUsdTot: r.exp_usd, billCode: `B-${r.id}` } as never]));
+    const base = {
+      year: 2027, organisation: 'MAGIS Homs', lists, rows, comp,
+      amounts: [{ version_id: 1, account_id: 1, line_id: 100, amount_usd: 1200 }, { version_id: 1, account_id: 2, line_id: 160, amount_usd: 20000 }],
+      accounts: [{ version_id: 1, account_id: 3, contingency_pct: 0, lump_usd: 5000 }],
+      allocs: [
+        { id: 1, year: 2027, donor_id: 1, account_id: 3, heading_id: null, line_id: null, pct: 100, amount_usd: null, rest: 0, status: 'promised' as const, note: null },
+        { id: 2, year: 2027, donor_id: 2, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, rest: 0, status: 'promised' as const, note: null },
+        { id: 3, year: 2027, donor_id: 3, account_id: null, heading_id: null, line_id: null, pct: null, amount_usd: null, rest: 1, status: 'promised' as const, note: null },
+      ],
+      grants: [{ id: 'g', date: '2027-02-01', donor_id: 2, project_id: null, amount_usd: 6000, reference: null, note: null }],
+      docs: new Map([['b', ['B-b.pdf']]]),
+    };
+    const undp = donorReportData({ ...base, donorId: 1 });
+    expect([undp.allocated, undp.spentShare, undp.lines.length]).toEqual([5000, 300, 1]); // Harat only, all of it
+    const belfast = donorReportData({ ...base, donorId: 2 });
+    expect([belfast.allocated, belfast.received, belfast.spentShare]).toEqual([10000, 6000, 2000]); // half of the furniture
+    expect(belfast.lines[0].doc).toBe(true);
+    const sj = donorReportData({ ...base, donorId: 3 });
+    expect(sj.spentShare).toBe(100 + 2000); // the rest of Center and of Furniture; never Deir (outside)
+    const bytes = await donorReportXlsx({ ...base, donorId: 2 });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(bytes as never);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Summary', 'Grants', 'Expenses']);
+    expect(wb.getWorksheet('Expenses')!.getRow(2).getCell(13).value).toBe('B-b.pdf');
+  });
+});

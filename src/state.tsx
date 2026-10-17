@@ -40,6 +40,7 @@ export interface Data {
   /** step 1 of month closing: 'bookId|YYYY-MM' */
   bookClosed: Set<string>;
   bookMonths: BookMonth[];
+  closedYears: Set<number>;
   transfers: TransferInfo[];
   keptBooks: number[];
   grants: GrantRow[];
@@ -86,6 +87,7 @@ async function loadData(s: Session, background = false): Promise<Data> {
     closed: new Set(p.closed),
     bookClosed: new Set(p.bookMonths.map((b) => `${b.book_id}|${b.ym}`)),
     bookMonths: p.bookMonths,
+    closedYears: new Set(p.closedYears ?? []),
     transfers: p.transfers,
     keptBooks: p.keptBooks,
     grants: p.grants,

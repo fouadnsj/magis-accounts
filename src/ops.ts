@@ -124,6 +124,7 @@ export interface DataPayload {
   rows: Trx[];
   closed: string[];
   bookMonths: BookMonth[];
+  closedYears: number[];
   transfers: TransferInfo[];
   /** books that have at least one active person keeping them */
   keptBooks: number[];
@@ -201,6 +202,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     .filter((a) => visible.has(a.trx_id));
   return {
     lists, rows, closed: [...closed], bookMonths: all ? bm : bm.filter((b) => keeps(c, b.book_id)), transfers, keptBooks: kept,
+    closedYears: (await c.db.query<{ year: number }>('SELECT year FROM closed_year')).map((x) => x.year),
     grants, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
   };
 }
@@ -304,6 +306,9 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
   }
   await saveTrxRows(c.db, clean, c.who, c.install === 'office', deletes, reason);
 }
+
+const reopenMonth = (c: OpCtx, a: { ym: string }) =>
+  c.db.batch([{ sql: 'DELETE FROM closed_month WHERE ym = ?', params: [a.ym] }, auditStmt(c.who, 'reopen', 'closed_month', a.ym, null, null)]);
 
 /** Large expenses waiting for approval, and expenses missing their document. */
 async function controlProblems(c: OpCtx, rows: Trx[], lists: Lists): Promise<Msg[]> {
@@ -1053,10 +1058,34 @@ export const OPS = {
       ]);
     },
   },
+  /** A year is closed once every month that has rows is closed; nothing of it changes any more. */
+  'year.close': {
+    check: (c: OpCtx) => need(c, 'month.close'),
+    run: async (c: OpCtx, a: { year: number }) => {
+      const thisYear = Number(nowIso().slice(0, 4));
+      if (!(a.year < thisYear)) throw new UserError(m('تُغلق السنة بعد انتهائها', 'A year is closed once it is over'));
+      const closed = await closedMonths(c.db);
+      const months = [...new Set((await loadTrx(c.db)).filter((r) => r.date?.startsWith(String(a.year))).map((r) => r.date!.slice(0, 7)))].sort();
+      const open = months.filter((x) => !closed.has(x));
+      if (open.length) throw new UserError(m(`أشهر غير مغلقة: ${open.join('، ')}`, `Months not closed yet: ${open.join(', ')}`));
+      await c.db.batch([
+        { sql: 'INSERT OR IGNORE INTO closed_year (year, closed_at, closed_by) VALUES (?, ?, ?)', params: [a.year, nowIso(), c.who] },
+        auditStmt(c.who, 'close', 'closed_year', String(a.year), null, { months }),
+      ]);
+    },
+  },
+  'year.reopen': {
+    check: (c: OpCtx) => need(c, 'month.reopen'),
+    run: (c: OpCtx, a: { year: number }) =>
+      c.db.batch([{ sql: 'DELETE FROM closed_year WHERE year = ?', params: [a.year] }, auditStmt(c.who, 'reopen', 'closed_year', String(a.year), null, null)]),
+  },
   'month.reopen': {
     check: (c: OpCtx) => need(c, 'month.reopen'),
-    run: (c: OpCtx, a: { ym: string }) =>
-      c.db.batch([{ sql: 'DELETE FROM closed_month WHERE ym = ?', params: [a.ym] }, auditStmt(c.who, 'reopen', 'closed_month', a.ym, null, null)]),
+    run: async (c: OpCtx, a: { ym: string }) => {
+      if (await one(c.db, 'SELECT 1 FROM closed_year WHERE year = ?', [Number(a.ym.slice(0, 4))]))
+        throw new UserError(m('السنة مغلقة: أعد فتح السنة أولاً', 'The year is closed: reopen the year first'));
+      return reopenMonth(c, a);
+    },
   },
 
   // ---------------------------------------------------------------- users and permission profiles

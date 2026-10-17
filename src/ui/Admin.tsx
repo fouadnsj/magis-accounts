@@ -86,8 +86,34 @@ function Months() {
     await run(() => s.api.call('month.close', { ym }), t('أُغلق الشهر', 'Month closed'));
   };
 
+  // years: closed once every month with rows is closed and the year is over
+  const years = [...new Set(months.map((x) => Number(x.slice(0, 4))))].sort().reverse();
+  const thisYear = new Date().getFullYear();
+  const yearBar = !limited && years.length > 0 && (
+    <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+      {years.map((y) => {
+        const closedY = d.closedYears.has(y);
+        const allClosed = months.filter((x) => x.startsWith(String(y))).every((x) => d.closed.has(x));
+        return (
+          <span key={y} className="pill" style={{ padding: '4px 10px' }}>
+            {y}: {closedY ? `🔒 ${t('السنة مغلقة', 'year closed')}` : allClosed && y < thisYear ? t('كل الأشهر مغلقة', 'all months closed') : t('مفتوحة', 'open')}{' '}
+            {!closedY && allClosed && y < thisYear && can('month.close') && (
+              <button className="btn small primary" onClick={async () => (await confirmBox(t(`إغلاق سنة ${y}؟ تبقى الأرصدة كما هي وتستمر في ${y + 1}.`, `Close the year ${y}? Balances stay as they are and carry on into ${y + 1}.`))) && run(() => s.api.call('year.close', { year: y }), t('أُغلقت السنة', 'Year closed'))}>
+                {t('إغلاق السنة', 'Close the year')}
+              </button>
+            )}
+            {closedY && can('month.reopen') && (
+              <button className="btn small ghost" onClick={async () => (await confirmBox(t(`إعادة فتح سنة ${y}؟`, `Reopen the year ${y}?`))) && run(() => s.api.call('year.reopen', { year: y }), t('أعيد الفتح', 'Reopened'))}>↺</button>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+
   return (
     <div className="panel">
+      {yearBar}
       <p className="muted small">
         {t('١ — كل أمين يغلق شهر دفتره بعد عدّ نقده. ٢ — ثم يغلق المكتب الشهر كله. الرئيس وحده يعيد الفتح.',
           '1 — Each holder closes his book\'s month after counting his cash. 2 — Then the office closes the whole month. Only the Superior can reopen.')}

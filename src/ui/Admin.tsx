@@ -8,6 +8,7 @@ import { tx } from '../i18n';
 import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 import type { CashCountRow } from '../ops';
 import { ServerTab } from './ServerTab';
+import { MonthReport } from './MonthReport';
 import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { serverRestoreUpload } from '../net';
@@ -72,6 +73,7 @@ function Months() {
   };
 
   const [closing, setClosing] = useState<{ bookId: number; ym: string } | null>(null);
+  const [report, setReport] = useState<string | null>(null);
   const closeBook = async (bookId: number, ym: string) => {
     const problems = await s.api.call('closing.problems', { ym, bookId });
     if (problems.length) return toast(problems.map(tx).join(' · '), true);
@@ -97,6 +99,7 @@ function Months() {
               <th>{t('الشهر', 'Month')}</th>
               {books.map((b) => <th key={b.id} className="center">{b.name}</th>)}
               {!limited && <th className="center">{t('المكتب', 'Office')}</th>}
+              {!limited && <th />}
             </tr>
           </thead>
           <tbody>
@@ -133,12 +136,14 @@ function Months() {
                       )}
                     </td>
                   )}
+                  {!limited && <td><button className="btn small ghost" onClick={() => setReport(ym)}>📄 {t('التقرير', 'Report')}</button></td>}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      {report && <MonthReport ym={report} onClose={() => setReport(null)} />}
       {closing && <CloseBook {...closing} onClose={() => setClosing(null)} onDone={async () => { setClosing(null); await reload(); toast(t('أُغلق', 'Closed')); }} />}
     </div>
   );

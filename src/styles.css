@@ -387,3 +387,31 @@ body { background: var(--bg); }
 .pill.st-promised { background: #FFF1CC; }
 .pill.st-received { background: #DCEFE0; }
 .controls-note { background: #FFF8E6; border: 1px solid #F0D68A; border-radius: 6px; padding: 6px 10px; }
+
+/* month-end report: on screen above everything, and alone on paper */
+.report-overlay { position: fixed; inset: 0; z-index: 1500; background: #EDEAE2; overflow: auto; padding: 0 0 40px; }
+.report-bar { position: sticky; top: 0; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--line); }
+.report-page { background: #fff; max-width: 920px; margin: 18px auto; padding: 28px 34px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.report-head { display: flex; gap: 16px; align-items: center; border-bottom: 2px solid var(--gold, #B8891B); padding-bottom: 12px; margin-bottom: 8px; }
+.report-head img { height: 64px; }
+.report-head h1 { margin: 0; font-size: 22px; }
+.report-title { font-size: 16px; font-weight: 600; }
+.report-page h2 { font-size: 15px; margin: 18px 0 6px; }
+.t.rep th, .t.rep td { padding: 3px 6px; font-size: 12.5px; }
+.t.rep tr.sub td { border-top: 0; }
+.rep-list { margin: 0; padding-inline-start: 20px; }
+.signs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 18px 24px; margin-top: 10px; }
+.sign-role { font-size: 12px; color: var(--muted); }
+.sign-name { font-weight: 600; min-height: 1.3em; }
+.sign-line { border-top: 1px solid #333; margin-top: 46px; padding-top: 3px; font-size: 11px; color: var(--muted); }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .report-overlay { position: static; background: #fff; padding: 0; overflow: visible; }
+  .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; box-shadow: none; margin: 0; padding: 0; max-width: none; }
+  .no-print { display: none !important; }
+  .t.rep tr { break-inside: avoid; }
+}
+table.t.rep th, table.t.rep th.n { white-space: normal; font-size: 11px; line-height: 1.25; vertical-align: bottom; position: static; padding: 3px 5px; }
+table.t.rep td, table.t.rep td.n { font-size: 11.5px; padding: 3px 5px; }

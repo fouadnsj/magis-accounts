@@ -197,14 +197,15 @@ describe('cash month by month', () => {
 });
 
 describe('budget arithmetic', () => {
-  it('proposes from last year (as is, or scaled to 12 months), shares lines between donors, follows the pace', async () => {
-    const { proposeFromYear, cover, effectivePct, followUp, paceOf, usedBand, prorateItems, itemTotal, contingencyOf } = await import('../src/domain/budget');
+  it('proposes from the 12 months before (as is, or scaled), shares lines between donors, follows the pace', async () => {
+    const { proposeFromSpending, cover, effectivePct, followUp, paceOf, usedBand, prorateItems, itemTotal, contingencyOf } = await import('../src/domain/budget');
     const row = (id: string, date: string, usd: number, line = 7): Trx => ({ ...blankTrx(), id, date, type: 'Exp', account_id: 1, line_id: line, exp_usd: usd });
     const rows = [row('a', '2026-10-05', 100), row('b', '2026-11-05', 100), row('c', '2026-12-05', 100)];
     const comp = new Map(rows.map((r) => [r.id, { expUsdTot: r.exp_usd, incUsdTot: 0 } as never]));
-    expect(proposeFromYear(rows, comp, 2026, { scale: false, pct: 0 })[0].amount_usd).toBe(300);
-    expect(proposeFromYear(rows, comp, 2026, { scale: true, pct: 0 })[0].amount_usd).toBe(1200); // 3 months → 12
-    expect(proposeFromYear(rows, comp, 2026, { scale: true, pct: 10 })[0].amount_usd).toBe(1320);
+    expect(proposeFromSpending(rows, comp, '2027-01', 12, { scale: false, pct: 0 })[0].amount_usd).toBe(300);
+    expect(proposeFromSpending(rows, comp, '2027-01', 12, { scale: true, pct: 0 })[0].amount_usd).toBe(1200); // 3 months → 12
+    expect(proposeFromSpending(rows, comp, '2027-01', 12, { scale: true, pct: 10 })[0].amount_usd).toBe(1320);
+    expect(proposeFromSpending(rows, comp, '2027-01', 18, { scale: true, pct: 0 })[0].amount_usd).toBe(1800); // an 18-month budget
 
     // staff 13 months, for 6 months: 6.5
     const staff = { account_id: 1, line_id: 7, name: 'Director', unit: 'person', qty: 1, times: 13, unit_cost: 350, note: null };
@@ -214,9 +215,9 @@ describe('budget arithmetic', () => {
     const amounts = [{ version_id: 1, account_id: 1, line_id: 7, amount_usd: 1000 }, { version_id: 1, account_id: 1, line_id: 8, amount_usd: 1000 }, { version_id: 1, account_id: 2, line_id: 7, amount_usd: 41730 }];
     const headingOf = new Map([[7, 3], [8, 4], [9, 3]]);
     const allocs = [
-      { id: 1, year: 2027, donor_id: 1, account_id: 1, heading_id: null, line_id: null, pct: 50, amount_usd: null, rest: 0, status: 'promised' as const, note: null }, // whole account
-      { id: 2, year: 2027, donor_id: 2, account_id: 1, heading_id: 3, line_id: null, pct: 30, amount_usd: null, rest: 0, status: 'requested' as const, note: null }, // heading 3
-      { id: 3, year: 2027, donor_id: 3, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, rest: 0, status: 'promised' as const, note: null }, // Belfast: $10,000 of furniture
+      { id: 1, budget_id: 1, donor_id: 1, account_id: 1, heading_id: null, line_id: null, pct: 50, amount_usd: null, rest: 0, status: 'promised' as const, note: null }, // whole account
+      { id: 2, budget_id: 1, donor_id: 2, account_id: 1, heading_id: 3, line_id: null, pct: 30, amount_usd: null, rest: 0, status: 'requested' as const, note: null }, // heading 3
+      { id: 3, budget_id: 1, donor_id: 3, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, rest: 0, status: 'promised' as const, note: null }, // Belfast: $10,000 of furniture
     ];
     const eff = effectivePct(allocs, amounts, headingOf);
     const c = cover(allocs, eff, 1, 7, 3, 1000);
@@ -234,17 +235,17 @@ describe('budget arithmetic', () => {
     expect(paceOf(0, 50, 0.5)).toBe('nobudget');
     expect([usedBand(0.3), usedBand(0.6), usedBand(0.8), usedBand(0.95), usedBand(1.2)]).toEqual([0, 50, 75, 90, 100]);
 
-    // the 2026 budget covers July–December: by the end of September half of it is gone
-    const version = { id: 1, year: 2027, rev: 0, rate_syp: 130, rate_eur: 0.92, start_month: 7, months: 6, note: null, created_at: '', created_by: null };
+    // a budget from July for 6 months: by the end of September half of it is gone
+    const version = { id: 1, start_ym: '2027-07', months: 6 };
     const later = [...rows, { ...row('d', '2027-08-01', 900), id: 'd' }, { ...row('e', '2027-08-01', 50, 9), id: 'e' }, { ...row('f', '2027-08-01', 70), id: 'f', account_id: 5 }];
     const comp2 = new Map([...comp, ['d', { expUsdTot: 900 } as never], ['e', { expUsdTot: 50 } as never], ['f', { expUsdTot: 70 } as never]]);
-    const fu = followUp({ rows: later, comp: comp2, version, upToMonth: 9, amounts: amounts.slice(0, 1), original: null, headingOf, outside: new Set([5]) });
+    const fu = followUp({ rows: later, comp: comp2, budget: version, upToYm: '2027-09', amounts: amounts.slice(0, 1), original: null, headingOf, outside: new Set([5]) });
     const l7 = fu.find((x) => x.line_id === 7)!;
     expect([l7.spent, l7.left, l7.used, l7.lastYear, l7.pace]).toEqual([900, 100, 0.9, 0, 'ahead']);
     expect(fu.find((x) => x.line_id === 9)!.pace).toBe('nobudget'); // spent without any budget: shown
     expect(fu.some((x) => x.account_id === 5)).toBe(false); // an account outside the centre (Deir)
     // SJ takes the rest, everywhere in the centre: what the other donors leave
-    const sj = { id: 9, year: 2027, donor_id: 9, account_id: null, heading_id: null, line_id: null, pct: null, amount_usd: null, rest: 1, status: 'promised' as const, note: null };
+    const sj = { id: 9, budget_id: 1, donor_id: 9, account_id: null, heading_id: null, line_id: null, pct: null, amount_usd: null, rest: 1, status: 'promised' as const, note: null };
     const withSj = [...allocs, sj];
     const eff2 = effectivePct(withSj, amounts, headingOf);
     const c7 = cover(withSj, eff2, 1, 7, 3, 1000);
@@ -257,10 +258,10 @@ describe('budget arithmetic', () => {
     const harat = [{ version_id: 1, account_id: 6, contingency_pct: 0, lump_usd: 5000 }];
     const hRows = [{ ...row('h1', '2027-08-01', 300, 7), account_id: 6 }, { ...row('h2', '2027-08-02', 200, 9), account_id: 6 }];
     const hComp = new Map([['h1', { expUsdTot: 300 } as never], ['h2', { expUsdTot: 200 } as never]]);
-    const hf = followUp({ rows: hRows, comp: hComp, version, upToMonth: 9, amounts: [], original: null, headingOf, outside: new Set(), accounts: harat });
+    const hf = followUp({ rows: hRows, comp: hComp, budget: version, upToYm: '2027-09', amounts: [], original: null, headingOf, outside: new Set(), accounts: harat });
     expect(hf).toHaveLength(1);
     expect(hf[0]).toMatchObject({ account_id: 6, line_id: WHOLE, budget: 5000, spent: 500 });
-    const undp = { id: 10, year: 2027, donor_id: 7, account_id: 6, heading_id: null, line_id: null, pct: 100, amount_usd: null, rest: 0, status: 'promised' as const, note: null };
+    const undp = { id: 10, budget_id: 1, donor_id: 7, account_id: 6, heading_id: null, line_id: null, pct: 100, amount_usd: null, rest: 0, status: 'promised' as const, note: null };
     const cells = cellsOf([], harat);
     expect(cover([undp, sj], effectivePct([undp, sj], cells, headingOf), 6, WHOLE, WHOLE, 5000).donors.map((d) => d.usd)).toEqual([5000, 0]);
 
@@ -328,13 +329,13 @@ describe('donor report', () => {
     const rows = [row('a', 1, 100, 100), row('b', 2, 160, 4000), row('c', 3, 100, 300), row('d', 4, 100, 999)];
     const comp = new Map(rows.map((r) => [r.id, { expUsdTot: r.exp_usd, billCode: `B-${r.id}` } as never]));
     const base = {
-      year: 2027, organisation: 'MAGIS Homs', lists, rows, comp,
+      budget: { id: 1, name: '2027', start_ym: '2027-01', months: 12, carry_from_id: null }, organisation: 'MAGIS Homs', lists, rows, comp,
       amounts: [{ version_id: 1, account_id: 1, line_id: 100, amount_usd: 1200 }, { version_id: 1, account_id: 2, line_id: 160, amount_usd: 20000 }],
       accounts: [{ version_id: 1, account_id: 3, contingency_pct: 0, lump_usd: 5000 }],
       allocs: [
-        { id: 1, year: 2027, donor_id: 1, account_id: 3, heading_id: null, line_id: null, pct: 100, amount_usd: null, rest: 0, status: 'promised' as const, note: null },
-        { id: 2, year: 2027, donor_id: 2, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, rest: 0, status: 'promised' as const, note: null },
-        { id: 3, year: 2027, donor_id: 3, account_id: null, heading_id: null, line_id: null, pct: null, amount_usd: null, rest: 1, status: 'promised' as const, note: null },
+        { id: 1, budget_id: 1, donor_id: 1, account_id: 3, heading_id: null, line_id: null, pct: 100, amount_usd: null, rest: 0, status: 'promised' as const, note: null },
+        { id: 2, budget_id: 1, donor_id: 2, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, rest: 0, status: 'promised' as const, note: null },
+        { id: 3, budget_id: 1, donor_id: 3, account_id: null, heading_id: null, line_id: null, pct: null, amount_usd: null, rest: 1, status: 'promised' as const, note: null },
       ],
       grants: [{ id: 'g', date: '2027-02-01', donor_id: 2, project_id: null, amount_usd: 6000, reference: null, note: null }],
       docs: new Map([['b', ['B-b.pdf']]]),
@@ -351,5 +352,69 @@ describe('donor report', () => {
     await wb.xlsx.load(bytes as never);
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Summary', 'Grants', 'Expenses']);
     expect(wb.getWorksheet('Expenses')!.getRow(2).getCell(13).value).toBe('B-b.pdf');
+  });
+});
+
+describe('budgets with their own period, overlapping', () => {
+  it('names and months: a calendar year, or July for 18 months', async () => {
+    const { defaultBudgetName, periodEnd, addMonths, periodShare, prorateItems } = await import('../src/domain/budget');
+    expect(defaultBudgetName('2027-01', 12)).toBe('2027');
+    expect(defaultBudgetName('2026-07', 18)).toBe('Jul 2026 – Dec 2027');
+    expect(periodEnd({ start_ym: '2026-07', months: 18 })).toBe('2027-12');
+    expect(addMonths('2027-01', -1)).toBe('2026-12');
+    expect(periodShare({ start_ym: '2026-07', months: 18 }, '2027-03')).toBeCloseTo(9 / 18);
+    expect(prorateItems([{ account_id: 1, line_id: 1, name: 'x', unit: null, qty: 1, times: 13, unit_cost: 100, note: null }], 18)[0].times).toBe(19.5);
+  });
+
+  it('first in, first out: the first donation is finished, then the new one; the leftover is carried over', async () => {
+    const { assignExpenses, leftoverOf, followUp } = await import('../src/domain/budget');
+    const row = (id: string, date: string, usd: number, acc = 1): Trx => ({ ...blankTrx(), id, date, type: 'Exp', account_id: acc, line_id: 7, heading_id: 3, exp_usd: usd });
+    // A: Jan–Dec 2027, 1000 on the line. B: from Oct 2027 for 12 months, 2000, continues A.
+    const A = { budget: { id: 1, name: 'A', start_ym: '2027-01', months: 12, carry_from_id: null }, cells: [{ version_id: 1, account_id: 1, line_id: 7, amount_usd: 1000 }], lumped: new Set<number>() };
+    const B = { budget: { id: 2, name: 'B', start_ym: '2027-10', months: 12, carry_from_id: 1 }, cells: [{ version_id: 2, account_id: 1, line_id: 7, amount_usd: 2000 }], lumped: new Set<number>() };
+    const C = { budget: { id: 3, name: 'Harat', start_ym: '2027-01', months: 12, carry_from_id: null }, cells: [{ version_id: 3, account_id: 6, line_id: -1, amount_usd: 5000 }], lumped: new Set([6]) };
+    const rows = [
+      row('jan', '2027-01-10', 600), // A
+      row('oct', '2027-10-05', 300), // A still has 400: A
+      row('nov', '2027-11-05', 300), // A has 100 left (> 0): A, which goes over by 200
+      row('dec', '2027-12-05', 250), // A is used up: B
+      row('jan28', '2028-01-05', 100), // only B runs
+      row('h', '2027-05-01', 70, 6), // Harat: its own budget, whatever the line
+      row('x', '2027-05-01', 40, 9), // an account in no budget: none
+    ];
+    const comp = new Map(rows.map((r) => [r.id, { expUsdTot: r.exp_usd } as never]));
+    const assigned = assignExpenses(rows, comp, [B, A, C]);
+    expect(Object.fromEntries(assigned)).toEqual({ jan: 1, oct: 1, nov: 1, dec: 2, jan28: 2, h: 3 });
+    expect(leftoverOf(A, rows, comp, assigned)).toBe(-200);
+    expect(leftoverOf(B, rows, comp, assigned)).toBe(1650);
+    // each expense counts once: B's follow-up sees only its own
+    const headingOf = new Map([[7, 3]]);
+    const fb = followUp({ rows, comp, budget: B.budget, upToYm: '2028-09', amounts: B.cells, original: null, headingOf, outside: new Set(), assigned });
+    expect(fb.find((x) => x.line_id === 7)!.spent).toBe(350);
+    const fa = followUp({ rows, comp, budget: A.budget, upToYm: '2027-12', amounts: A.cells, original: null, headingOf, outside: new Set(), assigned });
+    expect(fa.find((x) => x.line_id === 7)!.spent).toBe(1200);
+  });
+
+  it('the budgets made before (one per year) become budgets with their period, with no loss', async () => {
+    const { MIGRATIONS } = await import('../src/db/migrations');
+    const { splitSql, migrate } = await import('../src/db/db');
+    const db = nodeDb();
+    await db.batch([{ sql: 'CREATE TABLE schema_migration (n INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)' }]);
+    for (const mg of MIGRATIONS.filter((x) => x.n <= 7)) {
+      await db.batch([...splitSql(mg.sql).map((sql) => ({ sql })), { sql: 'INSERT INTO schema_migration (n, name, applied_at) VALUES (?, ?, ?)', params: [mg.n, mg.name, 'x'] }]);
+    }
+    await db.batch([
+      { sql: "INSERT INTO account (id, name) VALUES (1, 'Center')" },
+      { sql: "INSERT INTO donor (name) VALUES ('Belfast')" },
+      { sql: "INSERT INTO budget_version (year, rev, rate_syp, rate_eur, start_month, months, created_at) VALUES (2026, 0, 130, 0.89, 7, 6, 'x'), (2027, 0, 130, 0.89, 1, 12, 'x'), (2027, 1, 130, 0.89, 1, 12, 'x')" },
+      { sql: "INSERT INTO budget_alloc (year, donor_id, account_id, pct, status) VALUES (2027, (SELECT id FROM donor WHERE name = 'Belfast'), 1, 50, 'promised')" },
+    ]);
+    expect(await migrate(db)).toEqual([8]);
+    expect(await db.query('SELECT id, name, start_ym, months FROM budget ORDER BY id')).toEqual([
+      { id: 2026, name: 'Jul 2026 – Dec 2026', start_ym: '2026-07', months: 6 },
+      { id: 2027, name: '2027', start_ym: '2027-01', months: 12 },
+    ]);
+    expect((await db.query<{ budget_id: number }>('SELECT budget_id FROM budget_version ORDER BY id')).map((x) => x.budget_id)).toEqual([2026, 2027, 2027]);
+    expect((await db.query<{ budget_id: number }>('SELECT budget_id FROM budget_alloc'))[0].budget_id).toBe(2027);
   });
 });

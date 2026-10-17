@@ -17,7 +17,8 @@ import { cleanPerms, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { billCode, computeAll } from './domain/compute';
 import {
-  itemTotal, proposeFromYear, prorateItems, spentByCell, totalsOf,
+  addMonths, cellsOf, defaultBudgetName, itemTotal, periodEnd, proposeFromSpending, prorateItems, spentInRange, totalsOf,
+  type Budget,
   type AllocStatus, type BudgetAccount, type BudgetAlloc, type BudgetAmount, type BudgetItem, type BudgetVersion,
 } from './domain/budget';
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
@@ -402,10 +403,16 @@ const throwIf = (problems: Msg[]) => {
 
 // ---------------------------------------------------------------- budget
 
+/** A budget's current cells, for deciding which budget each expense belongs to. */
+export interface BudgetBookRow { budget: Budget; cells: BudgetAmount[]; lumped: number[] }
+
 export interface BudgetPayload {
-  years: number[];
+  /** every budget, oldest first */
+  budgets: Budget[];
+  /** the budget shown, or null if none yet */
+  budget: Budget | null;
   versions: BudgetVersion[];
-  /** the current budget (latest revision) of the year, or null if none yet */
+  /** the current version (latest revision) of the budget shown */
   current: BudgetVersion | null;
   amounts: BudgetAmount[];
   items: BudgetItem[];
@@ -414,45 +421,66 @@ export interface BudgetPayload {
   original: BudgetAmount[] | null;
   /** donor allocations: only for those who see the donors */
   allocs: BudgetAlloc[];
+  /** all budgets with what they hold (overlapping budgets share the spending, first in first out) */
+  books: BudgetBookRow[];
 }
 
-async function loadBudget(c: OpCtx, year: number): Promise<BudgetPayload> {
-  const years = (await c.db.query<{ year: number }>('SELECT DISTINCT year FROM budget_version ORDER BY year')).map((r) => r.year);
-  const versions = await c.db.query<BudgetVersion>('SELECT * FROM budget_version WHERE year = ? ORDER BY rev', [year]);
+const latestOf = (c: OpCtx, budgetId: number) => one<BudgetVersion>(c.db, 'SELECT * FROM budget_version WHERE budget_id = ? ORDER BY rev DESC LIMIT 1', [budgetId]);
+
+async function bookOf(c: OpCtx, b: Budget): Promise<BudgetBookRow> {
+  const v = await latestOf(c, b.id);
+  if (!v) return { budget: b, cells: [], lumped: [] };
+  const amounts = await c.db.query<BudgetAmount>('SELECT * FROM budget_amount WHERE version_id = ?', [v.id]);
+  const accounts = await c.db.query<BudgetAccount>('SELECT * FROM budget_account WHERE version_id = ?', [v.id]);
+  return { budget: b, cells: cellsOf(amounts, accounts), lumped: accounts.filter((x) => x.lump_usd != null && x.lump_usd > 0).map((x) => x.account_id) };
+}
+
+/** One budget (by default: the one running this month, else the latest), and all the others for the shared spending. */
+async function loadBudget(c: OpCtx, budgetId: number | null | undefined): Promise<BudgetPayload> {
+  const budgets = await c.db.query<Budget>('SELECT * FROM budget ORDER BY start_ym, id');
+  const now = nowIso().slice(0, 7);
+  const budget = budgets.find((b) => b.id === budgetId)
+    ?? (budgetId == null ? [...budgets].reverse().find((b) => now >= b.start_ym && now <= addMonths(b.start_ym, b.months - 1)) ?? budgets[budgets.length - 1] : undefined)
+    ?? null;
+  const versions = budget ? await c.db.query<BudgetVersion>('SELECT * FROM budget_version WHERE budget_id = ? ORDER BY rev', [budget.id]) : [];
   const current = versions[versions.length - 1] ?? null;
   const amountsOf = (id: number) => c.db.query<BudgetAmount>('SELECT * FROM budget_amount WHERE version_id = ?', [id]);
   const amounts = current ? await amountsOf(current.id) : [];
   const items = current ? await c.db.query<BudgetItem>('SELECT * FROM budget_item WHERE version_id = ? ORDER BY account_id, line_id, sort, id', [current.id]) : [];
   const accounts = current ? await c.db.query<BudgetAccount>('SELECT * FROM budget_account WHERE version_id = ?', [current.id]) : [];
   const original = current && current.rev > 0 ? await amountsOf(versions[0].id) : null;
-  const allocs = can(c, 'lists.donors') ? await c.db.query<BudgetAlloc>('SELECT * FROM budget_alloc WHERE year = ? ORDER BY id', [year]) : [];
-  return { years, versions, current, amounts, items, accounts, original, allocs };
+  const allocs = budget && can(c, 'lists.donors') ? await c.db.query<BudgetAlloc>('SELECT * FROM budget_alloc WHERE budget_id = ? ORDER BY id', [budget.id]) : [];
+  const books = await Promise.all(budgets.map((b) => bookOf(c, b)));
+  return { budgets, budget, versions, current, amounts, items, accounts, original, allocs, books };
 }
 
 const goodRate = (x: unknown) => typeof x === 'number' && Number.isFinite(x) && x > 0;
 const goodNum = (x: unknown) => typeof x === 'number' && Number.isFinite(x) && x >= 0;
+const goodYm = (x: unknown) => typeof x === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(x);
 
-/** The latest revision of its year: the only one that may still change. */
+/** The latest revision of its budget: the only one that may still change. */
 async function latestVersion(c: OpCtx, versionId: number): Promise<BudgetVersion> {
   const v = await one<BudgetVersion>(c.db, 'SELECT * FROM budget_version WHERE id = ?', [versionId]);
   if (!v) throw new UserError(m('الموازنة غير موجودة', 'Budget not found'));
-  const last = await one<{ rev: number }>(c.db, 'SELECT MAX(rev) AS rev FROM budget_version WHERE year = ?', [v.year]);
+  const last = await one<{ rev: number }>(c.db, 'SELECT MAX(rev) AS rev FROM budget_version WHERE budget_id = ?', [v.budget_id]);
   if (last && last.rev !== v.rev) throw new UserError(m('هذه نسخة سابقة: تُحفظ كما هي', 'This is an earlier version: it is kept as it was'));
   return v;
 }
+const budgetOfVersion = async (c: OpCtx, v: BudgetVersion) => (await one<Budget>(c.db, 'SELECT * FROM budget WHERE id = ?', [v.budget_id]))!;
 
-const VID = '(SELECT id FROM budget_version WHERE year = ? AND rev = ?)';
+// (budget_version.year holds the budget's number: (year, rev) is unique per budget)
+const VID = '(SELECT id FROM budget_version WHERE budget_id = ? AND rev = ?)';
 
-function itemStmts(year: number, rev: number, items: BudgetItem[]): Stmt[] {
+function itemStmts(budgetId: number, rev: number, items: BudgetItem[]): Stmt[] {
   return items.map((i, k) => ({
     sql: `INSERT INTO budget_item (version_id, account_id, line_id, name, unit, qty, times, unit_cost, note, sort) VALUES (${VID}, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    params: [year, rev, i.account_id, i.line_id, i.name, i.unit ?? null, i.qty, i.times, i.unit_cost, i.note ?? null, i.sort ?? k],
+    params: [budgetId, rev, i.account_id, i.line_id, i.name, i.unit ?? null, i.qty, i.times, i.unit_cost, i.note ?? null, i.sort ?? k],
   }));
 }
-function amountStmts(year: number, rev: number, cells: { account_id: number; line_id: number; amount_usd: number }[]): Stmt[] {
+function amountStmts(budgetId: number, rev: number, cells: { account_id: number; line_id: number; amount_usd: number }[]): Stmt[] {
   return cells.filter((x) => x.amount_usd > 0).map((x) => ({
     sql: `INSERT INTO budget_amount (version_id, account_id, line_id, amount_usd) VALUES (${VID}, ?, ?, ?)`,
-    params: [year, rev, x.account_id, x.line_id, Math.round(x.amount_usd * 100) / 100],
+    params: [budgetId, rev, x.account_id, x.line_id, Math.round(x.amount_usd * 100) / 100],
   }));
 }
 
@@ -465,38 +493,51 @@ function checkItems(items: BudgetItem[]) {
 }
 
 interface CreateArgs {
-  year: number;
+  /** default: its dates ("2027", "Jul 2026 – Dec 2027") */
+  name?: string | null;
+  start_ym: string;
+  months: number;
   rate_syp: number;
   rate_eur: number;
-  start_month?: number;
-  months?: number;
-  /** empty; last = from last year's spending; budget = from another year's budget, for this period */
+  /** empty; last = from the spending of the 12 months before; budget = from another budget, for this length */
   from: 'empty' | 'last' | 'budget';
-  fromYear?: number;
+  fromBudgetId?: number | null;
   scale?: boolean;
   pct?: number;
+  /** the budget it continues: its leftover is carried over */
+  carry_from_id?: number | null;
   note?: string | null;
 }
 
+async function checkPeriod(c: OpCtx, start_ym: unknown, months: unknown, carry: number | null | undefined, self: number | null) {
+  if (!goodYm(start_ym)) throw new UserError(m('اختر شهر البداية', 'Choose the starting month'));
+  if (!(Number.isInteger(months) && (months as number) >= 1 && (months as number) <= 36)) throw new UserError(m('عدد الأشهر بين 1 و36', 'The number of months is between 1 and 36'));
+  if (carry != null) {
+    if (carry === self) throw new UserError(m('لا تكمل الموازنة نفسها', 'A budget cannot continue itself'));
+    const prev = await one<Budget>(c.db, 'SELECT * FROM budget WHERE id = ?', [carry]);
+    if (!prev) throw new UserError(m('الموازنة السابقة غير موجودة', 'The earlier budget does not exist'));
+    if (prev.start_ym > (start_ym as string)) throw new UserError(m('الموازنة التي تكملها يجب أن تبدأ قبلها', 'The budget it continues must start before it'));
+  }
+}
+
 async function createBudget(c: OpCtx, a: CreateArgs) {
-  if (!Number.isInteger(a.year) || a.year < 2000 || a.year > 2100) throw new UserError(m('سنة غير صحيحة', 'Wrong year'));
+  await checkPeriod(c, a.start_ym, a.months, a.carry_from_id, null);
   if (!goodRate(a.rate_syp) || !goodRate(a.rate_eur)) throw new UserError(m('اكتب سعري التصريف التقديريين', 'Write both estimated exchange rates'));
-  const start = a.start_month ?? 1;
-  const months = a.months ?? 12;
-  if (!(start >= 1 && start <= 12 && months >= 1 && start + months - 1 <= 12)) throw new UserError(m('الفترة يجب أن تبقى ضمن السنة', 'The period must stay inside the year'));
-  if (await one(c.db, 'SELECT 1 FROM budget_version WHERE year = ?', [a.year])) throw new UserError(m(`موازنة ${a.year} موجودة: عدّلها أو أنشئ مراجعة`, `The ${a.year} budget exists: edit it or make a revision`));
+  const id = ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(id), 0) AS n FROM budget'))?.n ?? 0) + 1;
+  const name = (a.name ?? '').trim() || defaultBudgetName(a.start_ym, a.months);
   let cells: { account_id: number; line_id: number; amount_usd: number }[] = [];
   let items: BudgetItem[] = [];
   let accounts: { account_id: number; contingency_pct: number; lump_usd: number | null }[] = [];
   if (a.from === 'last') {
     const lists = await loadLists(c.db);
     const rows = await loadTrx(c.db);
-    cells = proposeFromYear(rows, computeAll(rows, lists), a.year - 1, { scale: !!a.scale, pct: Number(a.pct) || 0 });
+    cells = proposeFromSpending(rows, computeAll(rows, lists), a.start_ym, a.months, { scale: !!a.scale, pct: Number(a.pct) || 0 });
   } else if (a.from === 'budget') {
-    const src = await one<BudgetVersion>(c.db, 'SELECT * FROM budget_version WHERE year = ? ORDER BY rev DESC LIMIT 1', [a.fromYear ?? -1]);
-    if (!src) throw new UserError(m(`لا موازنة لسنة ${a.fromYear}`, `No budget for ${a.fromYear}`));
-    const f = months / src.months; // e.g. 6 months out of 12
-    items = prorateItems(await c.db.query<BudgetItem>('SELECT * FROM budget_item WHERE version_id = ?', [src.id]), (12 * months) / src.months);
+    const srcB = await one<Budget>(c.db, 'SELECT * FROM budget WHERE id = ?', [a.fromBudgetId ?? -1]);
+    const src = srcB ? await latestOf(c, srcB.id) : null;
+    if (!srcB || !src) throw new UserError(m('الموازنة المصدر غير موجودة', 'The budget to copy does not exist'));
+    const f = a.months / srcB.months; // e.g. 6 months out of 12, or 18 out of 12
+    items = prorateItems(await c.db.query<BudgetItem>('SELECT * FROM budget_item WHERE version_id = ?', [src.id]), 12 * f);
     const withItems = new Set(items.map((i) => `${i.account_id}|${i.line_id}`));
     const totals = totalsOf(items);
     cells = (await c.db.query<BudgetAmount>('SELECT * FROM budget_amount WHERE version_id = ?', [src.id])).map((x) => {
@@ -507,25 +548,39 @@ async function createBudget(c: OpCtx, a: CreateArgs) {
       .map((x) => ({ ...x, lump_usd: x.lump_usd != null ? Math.round(x.lump_usd * f * 100) / 100 : null }));
   }
   await c.db.batch([
-    { sql: 'INSERT INTO budget_version (year, rev, rate_syp, rate_eur, start_month, months, note, created_at, created_by) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)', params: [a.year, a.rate_syp, a.rate_eur, start, months, a.note ?? null, nowIso(), c.who] },
-    ...amountStmts(a.year, 0, cells),
-    ...itemStmts(a.year, 0, items),
-    ...accounts.map((x) => ({ sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) VALUES (${VID}, ?, ?, ?)`, params: [a.year, 0, x.account_id, x.contingency_pct, x.lump_usd] })),
-    auditStmt(c.who, 'add', 'budget_version', String(a.year), null, { rev: 0, from: a.from, fromYear: a.fromYear ?? null, start, months, scale: !!a.scale, pct: a.pct ?? 0, lines: cells.length, items: items.length }),
+    { sql: 'INSERT INTO budget (id, name, start_ym, months, carry_from_id, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)', params: [id, name, a.start_ym, a.months, a.carry_from_id ?? null, nowIso(), c.who] },
+    { sql: 'INSERT INTO budget_version (year, budget_id, rev, rate_syp, rate_eur, start_month, months, note, created_at, created_by) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)', params: [id, id, a.rate_syp, a.rate_eur, Number(a.start_ym.slice(5, 7)), Math.min(12, a.months), a.note ?? null, nowIso(), c.who] },
+    ...amountStmts(id, 0, cells),
+    ...itemStmts(id, 0, items),
+    ...accounts.map((x) => ({ sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) VALUES (${VID}, ?, ?, ?)`, params: [id, 0, x.account_id, x.contingency_pct, x.lump_usd] })),
+    auditStmt(c.who, 'add', 'budget', String(id), null, { name, start_ym: a.start_ym, months: a.months, from: a.from, fromBudgetId: a.fromBudgetId ?? null, carry: a.carry_from_id ?? null, lines: cells.length, items: items.length }),
   ]);
-  return cells.length;
+  return id;
 }
 
-async function reviseBudget(c: OpCtx, a: { year: number; note?: string | null }) {
-  const last = await one<BudgetVersion>(c.db, 'SELECT * FROM budget_version WHERE year = ? ORDER BY rev DESC LIMIT 1', [a.year]);
-  if (!last) throw new UserError(m('لا موازنة لهذه السنة', 'No budget for this year'));
-  const rev = last.rev + 1;
+/** A budget's name, period, or the budget it continues. */
+async function setBudgetPeriod(c: OpCtx, a: { budgetId: number; name?: string; start_ym?: string; months?: number; carry_from_id?: number | null }) {
+  const b = await one<Budget>(c.db, 'SELECT * FROM budget WHERE id = ?', [a.budgetId]);
+  if (!b) throw new UserError(m('الموازنة غير موجودة', 'Budget not found'));
+  const next = { name: (a.name ?? b.name).trim() || defaultBudgetName(a.start_ym ?? b.start_ym, a.months ?? b.months), start_ym: a.start_ym ?? b.start_ym, months: a.months ?? b.months, carry_from_id: a.carry_from_id === undefined ? b.carry_from_id : a.carry_from_id };
+  await checkPeriod(c, next.start_ym, next.months, next.carry_from_id, b.id);
   await c.db.batch([
-    { sql: 'INSERT INTO budget_version (year, rev, rate_syp, rate_eur, start_month, months, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [a.year, rev, last.rate_syp, last.rate_eur, last.start_month, last.months, a.note ?? null, nowIso(), c.who] },
-    { sql: `INSERT INTO budget_amount (version_id, account_id, line_id, amount_usd) SELECT ${VID}, account_id, line_id, amount_usd FROM budget_amount WHERE version_id = ?`, params: [a.year, rev, last.id] },
-    { sql: `INSERT INTO budget_item (version_id, account_id, line_id, name, unit, qty, times, unit_cost, note, sort) SELECT ${VID}, account_id, line_id, name, unit, qty, times, unit_cost, note, sort FROM budget_item WHERE version_id = ?`, params: [a.year, rev, last.id] },
-    { sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) SELECT ${VID}, account_id, contingency_pct, lump_usd FROM budget_account WHERE version_id = ?`, params: [a.year, rev, last.id] },
-    auditStmt(c.who, 'revise', 'budget_version', String(a.year), { rev: last.rev }, { rev, note: a.note ?? null }),
+    { sql: 'UPDATE budget SET name = ?, start_ym = ?, months = ?, carry_from_id = ? WHERE id = ?', params: [next.name, next.start_ym, next.months, next.carry_from_id, b.id] },
+    auditStmt(c.who, 'edit', 'budget', String(b.id), b, next),
+  ]);
+}
+
+async function reviseBudget(c: OpCtx, a: { budgetId: number; note?: string | null }) {
+  const last = await latestOf(c, a.budgetId);
+  if (!last) throw new UserError(m('لا موازنة', 'No budget'));
+  const rev = last.rev + 1;
+  const B = a.budgetId;
+  await c.db.batch([
+    { sql: 'INSERT INTO budget_version (year, budget_id, rev, rate_syp, rate_eur, start_month, months, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, 1, 12, ?, ?, ?)', params: [B, B, rev, last.rate_syp, last.rate_eur, a.note ?? null, nowIso(), c.who] },
+    { sql: `INSERT INTO budget_amount (version_id, account_id, line_id, amount_usd) SELECT ${VID}, account_id, line_id, amount_usd FROM budget_amount WHERE version_id = ?`, params: [B, rev, last.id] },
+    { sql: `INSERT INTO budget_item (version_id, account_id, line_id, name, unit, qty, times, unit_cost, note, sort) SELECT ${VID}, account_id, line_id, name, unit, qty, times, unit_cost, note, sort FROM budget_item WHERE version_id = ?`, params: [B, rev, last.id] },
+    { sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) SELECT ${VID}, account_id, contingency_pct, lump_usd FROM budget_account WHERE version_id = ?`, params: [B, rev, last.id] },
+    auditStmt(c.who, 'revise', 'budget_version', String(B), { rev: last.rev }, { rev, note: a.note ?? null }),
   ]);
 }
 
@@ -550,7 +605,7 @@ async function saveBudgetAmounts(c: OpCtx, a: { versionId: number; cells: { acco
       ? { sql: 'DELETE FROM budget_amount WHERE version_id = ? AND account_id = ? AND line_id = ?', params: [v.id, x.account_id, x.line_id] }
       : { sql: 'INSERT INTO budget_amount (version_id, account_id, line_id, amount_usd) VALUES (?, ?, ?, ?) ON CONFLICT (version_id, account_id, line_id) DO UPDATE SET amount_usd = excluded.amount_usd', params: [v.id, x.account_id, x.line_id, usd] });
   }
-  stmts.push(auditStmt(c.who, 'edit', 'budget_amount', `${v.year}/${v.rev}`, null, a.cells));
+  stmts.push(auditStmt(c.who, 'edit', 'budget_amount', `${v.budget_id}/${v.rev}`, null, a.cells));
   await c.db.batch(stmts);
 }
 
@@ -565,9 +620,9 @@ async function saveBudgetItems(c: OpCtx, a: { versionId: number; account_id: num
   await c.db.batch([
     { sql: 'DELETE FROM budget_item WHERE version_id = ? AND account_id = ? AND line_id = ?', params: [v.id, a.account_id, a.line_id] },
     { sql: 'DELETE FROM budget_amount WHERE version_id = ? AND account_id = ? AND line_id = ?', params: [v.id, a.account_id, a.line_id] },
-    ...itemStmts(v.year, v.rev, items),
-    ...amountStmts(v.year, v.rev, [{ account_id: a.account_id, line_id: a.line_id, amount_usd: total }]),
-    auditStmt(c.who, 'edit', 'budget_item', `${v.year}/${v.rev}/${a.account_id}/${a.line_id}`, before, items),
+    ...itemStmts(v.budget_id, v.rev, items),
+    ...amountStmts(v.budget_id, v.rev, [{ account_id: a.account_id, line_id: a.line_id, amount_usd: total }]),
+    auditStmt(c.who, 'edit', 'budget_item', `${v.budget_id}/${v.rev}/${a.account_id}/${a.line_id}`, before, items),
   ]);
 }
 
@@ -593,37 +648,40 @@ async function importBudgetItems(c: OpCtx, a: { versionId: number; account_id: n
   await c.db.batch([
     { sql: 'DELETE FROM budget_item WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
     { sql: 'DELETE FROM budget_amount WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
-    ...itemStmts(v.year, v.rev, items),
-    ...amountStmts(v.year, v.rev, [...totals].map(([k, amount_usd]) => {
+    ...itemStmts(v.budget_id, v.rev, items),
+    ...amountStmts(v.budget_id, v.rev, [...totals].map(([k, amount_usd]) => {
       const [account_id, line_id] = k.split('|').map(Number);
       return { account_id, line_id, amount_usd };
     })),
     { sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct) VALUES (?, ?, ?) ON CONFLICT (version_id, account_id) DO UPDATE SET contingency_pct = excluded.contingency_pct, lump_usd = NULL', params: [v.id, a.account_id, a.contingency_pct] },
-    auditStmt(c.who, 'import', 'budget_item', `${v.year}/${v.rev}/${a.account_id}`, null, { source: a.source ?? null, items: items.length, contingency: a.contingency_pct }),
+    auditStmt(c.who, 'import', 'budget_item', `${v.budget_id}/${v.rev}/${a.account_id}`, null, { source: a.source ?? null, items: items.length, contingency: a.contingency_pct }),
   ]);
   return items.length;
 }
 
-/** An account's budget = what was really spent on it this year (e.g. furniture already bought). */
+/** An account's budget = what was really spent on it during the budget's period (e.g. furniture already bought). */
 async function fillFromActual(c: OpCtx, a: { versionId: number; account_id: number }) {
   const v = await latestVersion(c, a.versionId);
   const lists = await loadLists(c.db);
   const rows = await loadTrx(c.db);
-  const { spent } = spentByCell(rows, computeAll(rows, lists), v.year);
+  const b = await budgetOfVersion(c, v);
+  const { spent } = spentInRange(rows, computeAll(rows, lists), b.start_ym, periodEnd(b));
   const cells = [...spent].filter(([k, x]) => x > 0 && Number(k.split('|')[0]) === a.account_id).map(([k, amount_usd]) => ({ account_id: a.account_id, line_id: Number(k.split('|')[1]), amount_usd: Math.round(amount_usd) }));
   await c.db.batch([
     { sql: 'DELETE FROM budget_item WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
     { sql: 'DELETE FROM budget_amount WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
-    ...amountStmts(v.year, v.rev, cells),
+    ...amountStmts(v.budget_id, v.rev, cells),
     { sql: 'UPDATE budget_account SET lump_usd = NULL WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
-    auditStmt(c.who, 'fill-actual', 'budget_amount', `${v.year}/${v.rev}/${a.account_id}`, null, cells),
+    auditStmt(c.who, 'fill-actual', 'budget_amount', `${v.budget_id}/${v.rev}/${a.account_id}`, null, cells),
   ]);
   return cells.length;
 }
 
 const STATUSES: AllocStatus[] = ['requested', 'promised', 'received'];
 
-async function saveAlloc(c: OpCtx, a: Partial<BudgetAlloc> & { year: number; donor_id: number; account_id: number | null; status: AllocStatus }) {
+async function saveAlloc(c: OpCtx, a: Partial<BudgetAlloc> & { budget_id: number; donor_id: number; account_id: number | null; status: AllocStatus }) {
+  const b = await one<Budget>(c.db, 'SELECT * FROM budget WHERE id = ?', [a.budget_id]);
+  if (!b) throw new UserError(m('اختر الموازنة', 'Choose the budget'));
   const pct = a.pct ?? null;
   const amount = a.amount_usd ?? null;
   const rest = a.rest ? 1 : 0;
@@ -636,11 +694,12 @@ async function saveAlloc(c: OpCtx, a: Partial<BudgetAlloc> & { year: number; don
   const line = a.line_id ?? null;
   if (a.account_id == null && (heading != null || line != null)) throw new UserError(m('اختر الحساب', 'Choose the account'));
   if (line != null) heading = (await one<{ heading_id: number }>(c.db, 'SELECT heading_id FROM budget_line WHERE id = ?', [line]))?.heading_id ?? null;
-  const vals = [a.year, a.donor_id, a.account_id ?? null, heading, line, pct, amount, rest, a.status, a.note ?? null];
+  // (year: the budget's first year, kept for the record; the link is budget_id)
+  const vals = [Number(b.start_ym.slice(0, 4)), b.id, a.donor_id, a.account_id ?? null, heading, line, pct, amount, rest, a.status, a.note ?? null];
   await c.db.batch([
     a.id
-      ? { sql: 'UPDATE budget_alloc SET year = ?, donor_id = ?, account_id = ?, heading_id = ?, line_id = ?, pct = ?, amount_usd = ?, rest = ?, status = ?, note = ? WHERE id = ?', params: [...vals, a.id] }
-      : { sql: 'INSERT INTO budget_alloc (year, donor_id, account_id, heading_id, line_id, pct, amount_usd, rest, status, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: vals },
+      ? { sql: 'UPDATE budget_alloc SET year = ?, budget_id = ?, donor_id = ?, account_id = ?, heading_id = ?, line_id = ?, pct = ?, amount_usd = ?, rest = ?, status = ?, note = ? WHERE id = ?', params: [...vals, a.id] }
+      : { sql: 'INSERT INTO budget_alloc (year, budget_id, donor_id, account_id, heading_id, line_id, pct, amount_usd, rest, status, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: vals },
     auditStmt(c.who, a.id ? 'edit' : 'add', 'budget_alloc', a.id ? String(a.id) : null, null, a),
   ]);
 }
@@ -1145,24 +1204,31 @@ export const OPS = {
   },
 
   // ---------------------------------------------------------------- budget
-  'budget.get': { check: (c: OpCtx) => need(c, 'budget.view'), run: (c: OpCtx, a: { year: number }) => loadBudget(c, a.year) },
+  'budget.get': { check: (c: OpCtx) => need(c, 'budget.view'), run: (c: OpCtx, a: { budgetId?: number | null }) => loadBudget(c, a?.budgetId) },
   'budget.create': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: CreateArgs) => createBudget(c, a) },
-  'budget.revise': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: { year: number; note?: string | null }) => reviseBudget(c, a) },
-  /** Delete the latest revision (back to the one before), or the whole budget of a year. A backup is taken first. */
+  'budget.setPeriod': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof setBudgetPeriod>[1]) => setBudgetPeriod(c, a) },
+  'budget.revise': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: { budgetId: number; note?: string | null }) => reviseBudget(c, a) },
+  /** Delete the latest revision (back to the one before), or the whole budget. A backup is taken first. */
   'budget.delete': {
     check: (c: OpCtx) => need(c, 'budget.manage'),
-    run: async (c: OpCtx, a: { year: number; onlyLatest?: boolean }) => {
-      const versions = await c.db.query<BudgetVersion>('SELECT * FROM budget_version WHERE year = ? ORDER BY rev', [a.year]);
-      if (!versions.length) throw new UserError(m('لا موازنة لهذه السنة', 'No budget for this year'));
+    run: async (c: OpCtx, a: { budgetId: number; onlyLatest?: boolean }) => {
+      const versions = await c.db.query<BudgetVersion>('SELECT * FROM budget_version WHERE budget_id = ? ORDER BY rev', [a.budgetId]);
+      if (!versions.length) throw new UserError(m('لا موازنة', 'No budget'));
       const gone = a.onlyLatest ? versions.slice(-1) : versions;
-      if (a.onlyLatest && gone[0].rev === 0) throw new UserError(m('هذه الموازنة الأصلية: احذف موازنة السنة كلها', 'This is the original budget: delete the whole year instead'));
+      if (a.onlyLatest && gone[0].rev === 0) throw new UserError(m('هذه الموازنة الأصلية: احذف الموازنة كلها', 'This is the original budget: delete the whole budget instead'));
       await c.files.backupNow('before-budget-delete');
       const stmts: Stmt[] = [];
       for (const v of gone) {
         for (const t of ['budget_item', 'budget_amount', 'budget_account']) stmts.push({ sql: `DELETE FROM ${t} WHERE version_id = ?`, params: [v.id] });
         stmts.push({ sql: 'DELETE FROM budget_version WHERE id = ?', params: [v.id] });
       }
-      stmts.push(auditStmt(c.who, 'delete', 'budget_version', String(a.year), { revs: gone.map((v) => v.rev) }, null));
+      if (!a.onlyLatest) {
+        // the budget itself goes; one that continued it no longer carries anything; its allocations are kept, unlinked
+        stmts.push({ sql: 'UPDATE budget SET carry_from_id = NULL WHERE carry_from_id = ?', params: [a.budgetId] });
+        stmts.push({ sql: 'UPDATE budget_alloc SET budget_id = NULL WHERE budget_id = ?', params: [a.budgetId] });
+        stmts.push({ sql: 'DELETE FROM budget WHERE id = ?', params: [a.budgetId] });
+      }
+      stmts.push(auditStmt(c.who, 'delete', 'budget', String(a.budgetId), { revs: gone.map((v) => v.rev) }, null));
       await c.db.batch(stmts);
     },
   },
@@ -1182,7 +1248,7 @@ export const OPS = {
       const lump = a.lump_usd === undefined ? cur?.lump_usd ?? null : a.lump_usd;
       const stmts: Stmt[] = [
         { sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) VALUES (?, ?, ?, ?) ON CONFLICT (version_id, account_id) DO UPDATE SET contingency_pct = excluded.contingency_pct, lump_usd = excluded.lump_usd', params: [v.id, a.account_id, cont, lump] },
-        auditStmt(c.who, 'edit', 'budget_account', `${v.year}/${v.rev}/${a.account_id}`, cur ?? null, { contingency_pct: cont, lump_usd: lump }),
+        auditStmt(c.who, 'edit', 'budget_account', `${v.budget_id}/${v.rev}/${a.account_id}`, cur ?? null, { contingency_pct: cont, lump_usd: lump }),
       ];
       // one amount for the whole account replaces its line amounts
       if (lump != null) stmts.unshift(
@@ -1199,7 +1265,7 @@ export const OPS = {
       const v = await latestVersion(c, a.versionId);
       await c.db.batch([
         { sql: 'UPDATE budget_version SET rate_syp = ?, rate_eur = ? WHERE id = ?', params: [a.rate_syp, a.rate_eur, v.id] },
-        auditStmt(c.who, 'edit', 'budget_version', `${v.year}/${v.rev}`, { rate_syp: v.rate_syp, rate_eur: v.rate_eur }, { rate_syp: a.rate_syp, rate_eur: a.rate_eur }),
+        auditStmt(c.who, 'edit', 'budget_version', `${v.budget_id}/${v.rev}`, { rate_syp: v.rate_syp, rate_eur: v.rate_eur }, { rate_syp: a.rate_syp, rate_eur: a.rate_eur }),
       ]);
     },
   },

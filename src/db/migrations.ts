@@ -429,4 +429,34 @@ CREATE TABLE closed_year (
 );
 `,
   },
+  {
+    n: 8,
+    name: 'budgets with their own period (start month, 1-36 months), may overlap, leftover carried over',
+    sql: `
+-- A budget: a name (by default its dates), a period, and the budget it continues.
+-- The budgets made before keep their number: the year (2026, 2027).
+CREATE TABLE budget (
+  id            INTEGER PRIMARY KEY,
+  name          TEXT NOT NULL,
+  start_ym      TEXT NOT NULL,
+  months        INTEGER NOT NULL CHECK (months BETWEEN 1 AND 36),
+  carry_from_id INTEGER REFERENCES budget(id),
+  created_at    TEXT NOT NULL,
+  created_by    TEXT
+);
+INSERT INTO budget (id, name, start_ym, months, carry_from_id, created_at, created_by)
+  SELECT year,
+         CASE WHEN start_month = 1 AND months = 12 THEN CAST(year AS TEXT)
+              ELSE substr('JanFebMarAprMayJunJulAugSepOctNovDec', (start_month - 1) * 3 + 1, 3) || ' ' || year || ' – ' ||
+                   substr('JanFebMarAprMayJunJulAugSepOctNovDec', (start_month + months - 2) * 3 + 1, 3) || ' ' || year END,
+         printf('%d-%02d', year, start_month), months, NULL, created_at, created_by
+    FROM budget_version WHERE rev = 0;
+-- Versions and donor allocations now point at their budget. (In budget_version,
+-- the old "year" column holds the budget's number, so (year, rev) stays unique.)
+ALTER TABLE budget_version ADD COLUMN budget_id INTEGER REFERENCES budget(id);
+UPDATE budget_version SET budget_id = year;
+ALTER TABLE budget_alloc ADD COLUMN budget_id INTEGER REFERENCES budget(id);
+UPDATE budget_alloc SET budget_id = year WHERE year IN (SELECT id FROM budget);
+`,
+  },
 ];

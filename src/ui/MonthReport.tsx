@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
 import { holdersMonth } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
-import { followUp, type BudgetRow } from '../domain/budget';
+import { WHOLE, assignExpenses, followUp, inPeriod, type BudgetBook } from '../domain/budget';
 import { needsApproval, needsDoc, type BudgetPayload, type UserRow } from '../ops';
 import { brandStyle } from '../brand';
 import { fmtDate, fmtPct, fmtSyp, fmtUsd, t } from './kit';
@@ -19,7 +19,7 @@ export function MonthReport({ ym, onClose }: { ym: string; onClose: () => void }
   const year = Number(ym.slice(0, 4));
   const month = Number(ym.slice(5, 7));
   useEffect(() => {
-    if (can('budget.view')) s.api.call('budget.get', { year }).then(setBudget).catch(() => undefined);
+    if (can('budget.view')) s.api.call('budget.get', {}).then(setBudget).catch(() => undefined);
     s.api.call('users.list').then(setUsers).catch(() => undefined);
   }, [s, can, year]);
 
@@ -54,20 +54,29 @@ export function MonthReport({ ym, onClose }: { ym: string; onClose: () => void }
   const waiting = rows.filter((r) => needsApproval(S, r, comp.get(r.id)?.expUsdTot ?? 0)).length;
   const review = rows.filter((r) => r.review).length;
 
-  const budgetRows: BudgetRow[] = useMemo(() => {
-    if (!budget?.current) return [];
+  // every budget running this month, each with only the expenses that belong to it
+  const budgetTables = useMemo(() => {
+    if (!budget) return [];
+    const books: BudgetBook[] = budget.books.map((x) => ({ budget: x.budget, cells: x.cells, lumped: new Set(x.lumped) }));
+    const assigned = assignExpenses(d.rows, comp, books);
     const headingOf = new Map(L.lines.map((l) => [l.id, l.heading_id]));
     const outside = new Set(L.accounts.filter((a) => a.outside_budget).map((a) => a.id));
-    return followUp({ rows: d.rows, comp, version: budget.current, upToMonth: month, amounts: budget.amounts, original: budget.original, headingOf, outside, accounts: budget.accounts });
-  }, [budget, d, comp, L, month]);
-  const budgetByHeading = useMemo(() => {
-    const m = new Map<number, { budget: number; spent: number }>();
-    for (const r of budgetRows) {
-      const x = m.get(r.heading_id) ?? { budget: 0, spent: 0 };
-      m.set(r.heading_id, { budget: x.budget + r.budget, spent: x.spent + r.spent });
-    }
-    return [...m].map(([h, x]) => ({ name: h === -1 ? t('حسابات بمبلغ واحد', 'Accounts with one amount') : L.headings.find((y) => y.id === h)?.name ?? '?', ...x }));
-  }, [budgetRows, L]);
+    return books.filter((bk) => inPeriod(bk.budget, ym)).map((bk) => {
+      const amounts = bk.cells.filter((c) => c.line_id !== WHOLE);
+      const accounts = bk.cells.filter((c) => c.line_id === WHOLE).map((c) => ({ version_id: 0, account_id: c.account_id, contingency_pct: 0, lump_usd: c.amount_usd }));
+      const rowsB = followUp({ rows: d.rows, comp, budget: bk.budget, upToYm: ym, amounts, original: null, headingOf, outside, accounts, assigned: books.length > 1 ? assigned : undefined });
+      const m = new Map<number, { budget: number; spent: number }>();
+      for (const r of rowsB) {
+        const x = m.get(r.heading_id) ?? { budget: 0, spent: 0 };
+        m.set(r.heading_id, { budget: x.budget + r.budget, spent: x.spent + r.spent });
+      }
+      return {
+        name: bk.budget.name,
+        rows: [...m].map(([h, x]) => ({ name: h === WHOLE ? t('حسابات بمبلغ واحد', 'Accounts with one amount') : L.headings.find((y) => y.id === h)?.name ?? '?', ...x })),
+      };
+    });
+  }, [budget, d, comp, L, ym]);
+  const hasBudget = budgetTables.some((x) => x.rows.length > 0);
 
   const monthLabel = `${MONTHS_EN[month - 1]} ${year} · ${MONTHS_AR[month - 1]} ${year}`;
   const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
@@ -159,21 +168,23 @@ export function MonthReport({ ym, onClose }: { ym: string; onClose: () => void }
           </table>
         )}
 
-        {budgetByHeading.length > 0 && budget?.current && (
+        {hasBudget && (
           <>
-            <h2>4. {t(`الموازنة: المصروف حتى نهاية الشهر`, 'Budget: spent up to the end of the month')}</h2>
-            <table className="t rep">
-              <thead><tr><th>{t('البند', 'Heading')}</th><th className="n">{t('الموازنة', 'Budget')} $</th><th className="n">{t('المصروف', 'Spent')} $</th><th className="n">%</th></tr></thead>
-              <tbody>
-                {budgetByHeading.map((x) => (
-                  <tr key={x.name}><td>{x.name}</td><td className="n">{fmtUsd(x.budget)}</td><td className="n">{fmtUsd(x.spent)}</td><td className={`n ${x.budget > 0 && x.spent > x.budget ? 'bad' : ''}`}>{x.budget > 0 ? fmtPct(x.spent / x.budget) : '—'}</td></tr>
-                ))}
-              </tbody>
-            </table>
+            <h2>4. {t('الموازنة: المصروف حتى نهاية الشهر', 'Budget: spent up to the end of the month')}</h2>
+            {budgetTables.filter((x) => x.rows.length).map((bt) => (
+              <table key={bt.name} className="t rep" style={{ marginBottom: 8 }}>
+                <thead><tr><th>{bt.name}</th><th className="n">{t('الموازنة', 'Budget')} $</th><th className="n">{t('المصروف', 'Spent')} $</th><th className="n">%</th></tr></thead>
+                <tbody>
+                  {bt.rows.map((x) => (
+                    <tr key={x.name}><td>{x.name}</td><td className="n">{fmtUsd(x.budget)}</td><td className="n">{fmtUsd(x.spent)}</td><td className={`n ${x.budget > 0 && x.spent > x.budget ? 'bad' : ''}`}>{x.budget > 0 ? fmtPct(x.spent / x.budget) : '—'}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            ))}
           </>
         )}
 
-        <h2>{budgetByHeading.length > 0 ? 5 : 4}. {t('ما ينقص', 'What is still missing')}</h2>
+        <h2>{hasBudget ? 5 : 4}. {t('ما ينقص', 'What is still missing')}</h2>
         <ul className="rep-list">
           <li>{t('نفقات بلا مستند', 'Expenses without their document')}: <b>{missingDocs}</b></li>
           {!!S.approval_on && <li>{t('نفقات تنتظر الموافقة', 'Expenses waiting for approval')}: <b>{waiting}</b></li>}

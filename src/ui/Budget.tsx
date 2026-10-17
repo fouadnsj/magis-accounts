@@ -1,18 +1,22 @@
-// The yearly budget, for the Superior and the Accountant (never the book holders).
+// Budgets, for the Superior (and whoever is given the budget in a profile; never the book holders).
+// A budget covers a period: a start month and 1–36 months. Budgets may overlap: each
+// expense then belongs to one of them (the oldest that still has money on its line),
+// and the leftover of a budget can be carried over to the one that continues it.
 //  - Follow-up: each line's budget against what was really spent, with a colour
 //    for 50 / 75 / 90 % spent, the pace against the months gone (under- or
 //    over-spending), and how much of the contingency is used.
 //  - Budget: per account, each line built from items (Quantity × Times × Cost,
 //    as in MAGIS 2027 Budget.xlsx) or typed directly; SYP and EUR calculated;
-//    import of a budget sheet; a budget from last year or from another year's.
+//    import of a budget sheet; a budget from the year's spending or from another budget.
 //  - Donors: who covers which part (a % or an amount of an account, a heading
 //    or a line), and what is still to find.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, useNames } from '../state';
 import type { BudgetPayload } from '../ops';
 import {
-  WHOLE, allocWorth, cellKey, cellsOf, contingencyOf, cover, effectivePct, followUp, guessLine, itemTotal, periodShare, readBudgetSheet, usedBand,
-  type AllocStatus, type BudgetAlloc, type BudgetItem, type BudgetRow, type Pace, type SheetRead,
+  WHOLE, addMonths, allocWorth, assignExpenses, cellKey, cellsOf, contingencyOf, cover, defaultBudgetName, effectivePct, followUp, guessLine, inPeriod, itemTotal,
+  leftoverOf, periodEnd, periodMonths, periodShare, readBudgetSheet, spentInRange, usedBand,
+  type AllocStatus, type Budget, type BudgetAlloc, type BudgetBook, type BudgetItem, type BudgetRow, type Pace, type SheetRead,
 } from '../domain/budget';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
@@ -28,46 +32,66 @@ const fmtEur = (n: number) => `€${Math.round(n).toLocaleString('en-US')}`;
 const usd = (n: number) => (Math.abs(n) < 0.005 ? '$0' : n < 0 ? `-$${fmtUsd(-n)}` : `$${fmtUsd(n)}`);
 const num = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
 const monthName = (m: number) => (getLang() === 'en' ? MONTHS_EN[m - 1] : `${MONTHS_AR[m - 1]} · ${MONTHS_EN[m - 1]}`);
-const periodName = (start: number, months: number) =>
-  months === 12 ? t('السنة كلها', 'the whole year') : `${monthName(start)} → ${monthName(start + months - 1)} (${months} ${t('أشهر', 'months')})`;
+/** 'YYYY-MM' → "July 2026" */
+const ymName = (ym: string) => `${monthName(Number(ym.slice(5, 7)))} ${ym.slice(0, 4)}`;
+const periodName = (b: Pick<Budget, 'start_ym' | 'months'>) => `${ymName(b.start_ym)} → ${ymName(periodEnd(b))} · ${b.months} ${t('شهراً', 'months')}`;
+
+/** Every budget with what it holds, and which budget each expense belongs to (overlaps: first in, first out). */
+function useAssignment(b: BudgetPayload) {
+  const { d } = useApp();
+  return useMemo(() => {
+    const books: BudgetBook[] = b.books.map((x) => ({ budget: x.budget, cells: x.cells, lumped: new Set(x.lumped) }));
+    return { books, assigned: assignExpenses(d.rows, d.comp, books) };
+  }, [b, d]);
+}
 
 export function BudgetPage() {
   const { s, can } = useApp();
-  const thisYear = new Date().getFullYear();
-  const [year, setYear] = useState(thisYear);
+  const [budgetId, setBudgetId] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
   const [b, setB] = useState<BudgetPayload | null>(null);
   const [tab, setTab] = useState<Tab>('follow');
+  const [editPeriod, setEditPeriod] = useState(false);
   const load = useCallback(async () => {
     try {
-      setB(await s.api.call('budget.get', { year }));
+      setB(await s.api.call('budget.get', { budgetId }));
     } catch (e) {
       toast(errText(e), true);
     }
-  }, [s, year]);
+  }, [s, budgetId]);
   useEffect(() => {
     void load();
   }, [load]);
 
-  const years = useMemo(() => [...new Set([...(b?.years ?? []), thisYear - 1, thisYear, thisYear + 1])].sort(), [b, thisYear]);
-
+  const showCreate = creating || (b != null && !b.budget);
   return (
     <>
       <div className="page-head">
         <h1>{t('الموازنة', 'Budget')}</h1>
-        <div className="row">
-          <span className="muted small">{t('السنة', 'Year')}</span>
-          <select className="inp" style={{ width: 'auto' }} value={year} onChange={(e) => setYear(Number(e.target.value))}>
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-          {b?.current && (
-            <span className="pill">
-              {b.current.rev === 0 ? t('الأصلية', 'Original') : t(`المراجعة ${b.current.rev}`, `Revision ${b.current.rev}`)} · {periodName(b.current.start_month, b.current.months)}
-            </span>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          {b && b.budgets.length > 0 && (
+            <select className="inp" style={{ width: 'auto', minWidth: 220 }} value={creating ? '' : b.budget?.id ?? ''} onChange={(e) => { setCreating(false); setBudgetId(Number(e.target.value)); }}>
+              {creating && <option value="">{t('موازنة جديدة…', 'New budget…')}</option>}
+              {b.budgets.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.start_ym} → {periodEnd(x)}</option>)}
+            </select>
           )}
+          {can('budget.manage') && !showCreate && <button className="btn" onClick={() => setCreating(true)}>＋ {t('موازنة جديدة', 'New budget')}</button>}
         </div>
       </div>
-      {!b ? <p className="muted">…</p> : !b.current ? (
-        can('budget.manage') ? <CreateBudget year={year} years={b.years} onDone={load} /> : <div className="panel"><p>{t(`لا موازنة لسنة ${year} بعد.`, `No budget for ${year} yet.`)}</p></div>
+      {b?.budget && !showCreate && (
+        <div className="row muted small" style={{ margin: '-6px 0 10px', flexWrap: 'wrap' }}>
+          <span className="pill">{b.current?.rev ? t(`المراجعة ${b.current.rev}`, `Revision ${b.current.rev}`) : t('الأصلية', 'Original')}</span>
+          <span>{periodName(b.budget)}</span>
+          {b.budget.carry_from_id != null && <span>· {t('تكمل', 'continues')} «{b.budgets.find((x) => x.id === b.budget!.carry_from_id)?.name}»</span>}
+          {can('budget.manage') && <button className="btn small ghost" onClick={() => setEditPeriod(true)}>✎ {t('الاسم والفترة', 'Name and period')}</button>}
+        </div>
+      )}
+      {!b ? <p className="muted">…</p> : showCreate ? (
+        can('budget.manage')
+          ? <CreateBudget budgets={b.budgets} onCancel={b.budget ? () => setCreating(false) : undefined} onDone={async (id) => { setCreating(false); setBudgetId(id); }} />
+          : <div className="panel"><p>{t('لا موازنة بعد.', 'No budget yet.')}</p></div>
+      ) : !b.current ? (
+        <div className="panel"><p>{t('هذه الموازنة بلا مبالغ.', 'This budget has no amounts.')}</p></div>
       ) : (
         <>
           <Tabs value={tab} onChange={setTab} tabs={[
@@ -75,39 +99,70 @@ export function BudgetPage() {
             { value: 'edit', label: t('الموازنة', 'Budget') },
             { value: 'donors', label: t('المانحون', 'Donors'), hidden: !can('lists.donors') },
           ]} />
-          {tab === 'follow' && <FollowUp b={b} />}
-          {tab === 'edit' && <EditBudget b={b} reload={load} />}
-          {tab === 'donors' && can('lists.donors') && <Donors b={b} year={year} reload={load} />}
+          {tab === 'follow' && <FollowUp key={b.budget!.id} b={b} />}
+          {tab === 'edit' && <EditBudget key={b.budget!.id} b={b} reload={load} onDeleted={() => setBudgetId(null)} />}
+          {tab === 'donors' && can('lists.donors') && <Donors key={b.budget!.id} b={b} reload={load} />}
         </>
       )}
+      {editPeriod && b?.budget && <PeriodModal budget={b.budget} budgets={b.budgets} onClose={() => setEditPeriod(false)} onDone={async () => { setEditPeriod(false); await load(); }} />}
+    </>
+  );
+}
+
+/** Start month (month + year) and number of months. */
+function PeriodFields({ start, setStart, months, setMonths }: { start: string; setStart: (v: string) => void; months: number; setMonths: (n: number) => void }) {
+  const y = Number(start.slice(0, 4));
+  const mo = Number(start.slice(5, 7));
+  const set = (yy: number, mm: number) => setStart(`${yy}-${String(mm).padStart(2, '0')}`);
+  return (
+    <>
+      <Field label={t('تبدأ في', 'Starts in')}>
+        <div className="row">
+          <select className="inp" value={mo} onChange={(e) => set(y, Number(e.target.value))}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
+          </select>
+          <input className="ltr" type="number" min={2000} max={2100} value={y} onChange={(e) => set(Number(e.target.value) || y, mo)} style={{ width: 90 }} />
+        </div>
+      </Field>
+      <Field label={t('عدد الأشهر', 'Number of months')}>
+        <div className="row">
+          <input className="ltr" type="number" min={1} max={36} value={months} onChange={(e) => setMonths(Math.max(1, Math.min(36, Number(e.target.value) || 1)))} style={{ width: 80 }} />
+          <span className="muted small">→ {ymName(addMonths(start, months - 1))}</span>
+        </div>
+      </Field>
     </>
   );
 }
 
 // ---------------------------------------------------------------- a new budget
 
-function CreateBudget({ year, years, onDone }: { year: number; years: number[]; onDone: () => Promise<void> }) {
+function CreateBudget({ budgets, onCancel, onDone }: { budgets: Budget[]; onCancel?: () => void; onDone: (id: number) => Promise<void> }) {
   const { s, d } = useApp();
+  const now = new Date();
+  const [start, setStart] = useState(`${now.getFullYear() + (now.getMonth() >= 9 ? 1 : 0)}-01`);
+  const [months, setMonths] = useState(12);
+  const [name, setName] = useState('');
   const [rateSyp, setRateSyp] = useState(String(d.lists.settings.usd_rate || '130'));
   const [rateEur, setRateEur] = useState('0.89'); // mid-October 2026: 1 € ≈ 1.12 $
-  const [start, setStart] = useState(1);
-  const [months, setMonths] = useState(12);
-  const [from, setFrom] = useState<'empty' | 'last' | 'budget'>(years.length ? 'budget' : 'empty');
-  const [fromYear, setFromYear] = useState<number | null>(years.find((y) => y !== year) ?? null);
+  const [from, setFrom] = useState<'empty' | 'last' | 'budget'>(budgets.length ? 'budget' : 'empty');
+  const [fromBudget, setFromBudget] = useState<number | null>(budgets[budgets.length - 1]?.id ?? null);
+  const [carry, setCarry] = useState<number | null>(null);
   const [scale, setScale] = useState<'scale' | 'keep'>('scale');
   const [pct, setPct] = useState('0');
   const [busy, setBusy] = useState(false);
-  const hasLast = d.rows.some((r) => r.type === 'Exp' && r.date?.startsWith(String(year - 1)));
-  const others = years.filter((y) => y !== year);
+  const before = addMonths(start, -12);
+  const hasLast = d.rows.some((r) => r.type === 'Exp' && r.date && r.date.slice(0, 7) >= before && r.date.slice(0, 7) < start);
+  const src = budgets.find((x) => x.id === fromBudget);
+  const earlier = budgets.filter((x) => x.start_ym < start);
   const go = async () => {
     setBusy(true);
     try {
-      await s.api.call('budget.create', {
-        year, rate_syp: parseAmount(rateSyp), rate_eur: parseAmount(rateEur), start_month: start, months,
-        from, fromYear: fromYear ?? undefined, scale: scale === 'scale', pct: Number(pct) || 0,
+      const id = await s.api.call('budget.create', {
+        name: name.trim() || null, start_ym: start, months, rate_syp: parseAmount(rateSyp), rate_eur: parseAmount(rateEur),
+        from, fromBudgetId: fromBudget, scale: scale === 'scale', pct: Number(pct) || 0, carry_from_id: carry,
       });
       toast(t('أُنشئت الموازنة', 'Budget created'));
-      await onDone();
+      await onDone(id);
     } catch (e) {
       toast(errText(e), true);
     } finally {
@@ -115,45 +170,46 @@ function CreateBudget({ year, years, onDone }: { year: number; years: number[]; 
     }
   };
   return (
-    <div className="panel" style={{ maxWidth: 760 }}>
-      <h2>{t(`موازنة ${year}`, `Budget ${year}`)}</h2>
-      <p className="muted">{t('تُكتب المبالغ بالدولار. الليرة واليورو يُحسبان بسعرين تقديريين لهذه الموازنة.', 'Amounts are written in USD. Pounds and euros are calculated with two estimated rates for this budget.')}</p>
+    <div className="panel" style={{ maxWidth: 780 }}>
+      <h2>{t('موازنة جديدة', 'New budget')}</h2>
       <div className="grid2">
+        <PeriodFields start={start} setStart={setStart} months={months} setMonths={setMonths} />
+        <Field label={t('الاسم', 'Name')} className="span2">
+          <input value={name} placeholder={defaultBudgetName(start, months)} onChange={(e) => setName(e.target.value)} />
+        </Field>
         <Field label={t('ليرة لكل دولار (تقديري)', 'SYP per USD (estimated)')}><input className="ltr" inputMode="decimal" value={rateSyp} onChange={(e) => setRateSyp(e.target.value)} /></Field>
         <Field label={t('يورو لكل دولار (تقديري)', 'EUR per USD (estimated)')}><input className="ltr" inputMode="decimal" value={rateEur} onChange={(e) => setRateEur(e.target.value)} /></Field>
-        <Field label={t('تبدأ في', 'Starts in')}>
-          <select className="inp" value={start} onChange={(e) => { const v = Number(e.target.value); setStart(v); setMonths(Math.min(months, 13 - v)); }}>
-            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{monthName(m)}</option>)}
-          </select>
-        </Field>
-        <Field label={t('عدد الأشهر', 'Number of months')}>
-          <select className="inp" value={months} onChange={(e) => setMonths(Number(e.target.value))}>
-            {Array.from({ length: 13 - start }, (_, i) => i + 1).map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </Field>
+        {earlier.length > 0 && (
+          <Field label={t('تكمل موازنة سابقة (يُنقل باقيها)', 'Continues an earlier budget (its leftover is carried over)')} className="span2">
+            <select className="inp" value={carry ?? ''} onChange={(e) => setCarry(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">{t('لا', 'No')}</option>
+              {earlier.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.start_ym} → {periodEnd(x)}</option>)}
+            </select>
+          </Field>
+        )}
       </div>
       <h3 style={{ marginTop: 14 }}>{t('البداية', 'Start from')}</h3>
       <Seg value={from} onChange={setFrom} options={[
-        ...(others.length ? [{ value: 'budget' as const, label: t('موازنة سنة أخرى', "Another year's budget") }] : []),
-        { value: 'last', label: t(`مصاريف ${year - 1}`, `What was spent in ${year - 1}`) },
+        ...(budgets.length ? [{ value: 'budget' as const, label: t('موازنة أخرى', 'Another budget') }] : []),
+        { value: 'last', label: t('مصاريف الأشهر الـ12 السابقة', 'What was spent in the 12 months before') },
         { value: 'empty', label: t('فارغة', 'Empty') },
       ]} />
       {from === 'budget' && (
         <div style={{ marginTop: 12 }}>
-          <Field label={t('السنة', 'Year')}>
-            <select className="inp" style={{ width: 'auto' }} value={fromYear ?? ''} onChange={(e) => setFromYear(Number(e.target.value))}>
-              {others.map((y) => <option key={y} value={y}>{y}</option>)}
+          <Field label={t('الموازنة', 'Budget')}>
+            <select className="inp" style={{ width: 'auto' }} value={fromBudget ?? ''} onChange={(e) => setFromBudget(Number(e.target.value))}>
+              {budgets.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.months} {t('شهراً', 'months')}</option>)}
             </select>
           </Field>
-          <p className="muted small">{t(`تُنسخ العناصر و«المرات» تُضرب بـ${months}/12 (الموظفون 13 ← ${num(13 * months / 12)}).`, `Items are copied and "Times" is multiplied by ${months}/12 (staff 13 → ${num((13 * months) / 12)}).`)}</p>
+          {src && <p className="muted small">{t(`تُنسخ العناصر و«المرات» تُضرب بـ${months}/${src.months}.`, `Items are copied and "Times" is multiplied by ${months}/${src.months}.`)} {t('مثلاً الموظفون 13 ←', 'E.g. staff 13 →')} {num((13 * months) / src.months)}</p>}
         </div>
       )}
       {from === 'last' && (
         <div style={{ marginTop: 12 }}>
-          {!hasLast && <div className="alert warn">{t(`لا مصاريف مسجّلة في ${year - 1}: ستكون الموازنة فارغة.`, `No expenses recorded in ${year - 1}: the budget will be empty.`)}</div>}
-          <p className="muted small">{t('خط بدأ خلال السنة (مثلاً إيجار منذ تشرين الأول):', 'A line that started during the year (e.g. rent since October):')}</p>
+          {!hasLast && <div className="alert warn">{t(`لا مصاريف مسجّلة بين ${before} و${addMonths(start, -1)}: ستكون الموازنة فارغة.`, `No expenses recorded from ${before} to ${addMonths(start, -1)}: the budget will be empty.`)}</div>}
+          <p className="muted small">{t(`ما صُرف في الأشهر الـ12 قبل البداية، محسوباً لـ${months} شهراً. خط بدأ خلالها (مثلاً إيجار منذ تشرين الأول):`, `What was spent in the 12 months before the start, for ${months} months. A line that started during them (e.g. rent since October):`)}</p>
           <Seg value={scale} onChange={setScale} options={[
-            { value: 'scale', label: t('يُمدّ إلى 12 شهراً', 'Scale to 12 months') },
+            { value: 'scale', label: t('يُمدّ إلى سنة كاملة', 'Scale to a full year') },
             { value: 'keep', label: t('يبقى كما هو', 'Keep as it is') },
           ]} />
           <Field label={t('تغيير لكل الخطوط (%)، مثلاً 10 للزيادة', 'Change for every line (%), e.g. 10 for an increase')}>
@@ -163,9 +219,48 @@ function CreateBudget({ year, years, onDone }: { year: number; years: number[]; 
       )}
       <p className="muted small">{t('بعدها تصحّح كل خط، أو تستورد ورقة من ملف الموازنة.', 'Afterwards you correct each line, or import a sheet from the budget workbook.')}</p>
       <div className="modal-foot">
-        <button className="btn primary" disabled={busy || !rateSyp || !rateEur || (from === 'budget' && !fromYear)} onClick={go}>{busy ? '…' : t('إنشاء الموازنة', 'Create the budget')}</button>
+        {onCancel && <button className="btn" onClick={onCancel}>{t('إلغاء', 'Cancel')}</button>}
+        <button className="btn primary" disabled={busy || !rateSyp || !rateEur || (from === 'budget' && !fromBudget)} onClick={go}>{busy ? '…' : t('إنشاء الموازنة', 'Create the budget')}</button>
       </div>
     </div>
+  );
+}
+
+/** A budget's name, period, and the budget it continues. */
+function PeriodModal({ budget, budgets, onClose, onDone }: { budget: Budget; budgets: Budget[]; onClose: () => void; onDone: () => Promise<void> }) {
+  const { s } = useApp();
+  const [name, setName] = useState(budget.name);
+  const [start, setStart] = useState(budget.start_ym);
+  const [months, setMonths] = useState(budget.months);
+  const [carry, setCarry] = useState<number | null>(budget.carry_from_id);
+  const earlier = budgets.filter((x) => x.id !== budget.id && x.start_ym < start);
+  const save = async () => {
+    try {
+      await s.api.call('budget.setPeriod', { budgetId: budget.id, name, start_ym: start, months, carry_from_id: carry });
+      toast(t('حُفظ', 'Saved'));
+      await onDone();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <Modal title={t('الاسم والفترة', 'Name and period')} onClose={onClose}>
+      <div className="grid2">
+        <Field label={t('الاسم', 'Name')} className="span2"><input value={name} placeholder={defaultBudgetName(start, months)} onChange={(e) => setName(e.target.value)} /></Field>
+        <PeriodFields start={start} setStart={setStart} months={months} setMonths={setMonths} />
+        <Field label={t('تكمل موازنة سابقة (يُنقل باقيها)', 'Continues an earlier budget (its leftover is carried over)')} className="span2">
+          <select className="inp" value={carry ?? ''} onChange={(e) => setCarry(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">{t('لا', 'No')}</option>
+            {earlier.map((x) => <option key={x.id} value={x.id}>{x.name} · {x.start_ym} → {periodEnd(x)}</option>)}
+          </select>
+        </Field>
+      </div>
+      {months !== budget.months && <div className="alert warn">{t('تغيير عدد الأشهر لا يغيّر المبالغ: صحّحها إن لزم.', 'Changing the number of months does not change the amounts: correct them if needed.')}</div>}
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" onClick={save}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -199,22 +294,31 @@ function PaceTag({ pace }: { pace: Pace }) {
 function FollowUp({ b }: { b: BudgetPayload }) {
   const { d } = useApp();
   const names = useNames();
-  const v = b.current!;
-  const now = new Date();
-  const lastMonth = v.start_month + v.months - 1;
-  const [upTo, setUpTo] = useState(() => (v.year === now.getFullYear() ? Math.min(lastMonth, Math.max(v.start_month, now.getMonth() + 1)) : v.year < now.getFullYear() ? lastMonth : v.start_month));
+  const B = b.budget!;
+  const months = periodMonths(B);
+  const nowYm = new Date().toISOString().slice(0, 7);
+  const [upTo, setUpTo] = useState(() => (nowYm < B.start_ym ? B.start_ym : nowYm > periodEnd(B) ? periodEnd(B) : nowYm));
+  const { books, assigned } = useAssignment(b);
+  const shared = books.length > 1;
   const [account, setAccount] = useState<number | null>(null);
   const [onlyFlags, setOnlyFlags] = useState(false);
   const headingOf = useMemo(() => new Map(d.lists.lines.map((l) => [l.id, l.heading_id])), [d]);
   const outside = useMemo(() => new Set(d.lists.accounts.filter((a) => a.outside_budget).map((a) => a.id)), [d]);
   const all = useMemo(
-    () => followUp({ rows: d.rows, comp: d.comp, version: v, upToMonth: upTo, amounts: b.amounts, original: b.original, headingOf, outside, accounts: b.accounts }),
-    [d, b, v, upTo, headingOf, outside],
+    () => followUp({ rows: d.rows, comp: d.comp, budget: B, upToYm: upTo, amounts: b.amounts, original: b.original, headingOf, outside, accounts: b.accounts, assigned: shared ? assigned : undefined }),
+    [d, b, B, upTo, headingOf, outside, shared, assigned],
   );
   const rows = all.filter((r) => (account == null || r.account_id === account) && (!onlyFlags || r.pace === 'over' || r.pace === 'under' || r.pace === 'nobudget' || r.pace === 'ahead'));
   const cont = contingencyOf(all, b.accounts);
   const revised = b.original != null;
-  const share = periodShare(v, upTo);
+  const share = periodShare(B, upTo);
+  // carried over: from the budget this one continues, and to the one that continues it
+  const leftover = (id: number) => {
+    const bk = books.find((x) => x.budget.id === id);
+    return bk ? leftoverOf(bk, d.rows, d.comp, assigned) : 0;
+  };
+  const carriedIn = B.carry_from_id != null ? Math.max(0, leftover(B.carry_from_id)) : 0;
+  const carriedTo = b.budgets.filter((x) => x.carry_from_id === B.id);
   const lineName = (id: number) => (id === WHOLE ? t('كل المصاريف، أياً كان الخط', 'All spending, whatever the line') : d.lists.lines.find((l) => l.id === id)?.name ?? '?');
   const sumOf = (xs: BudgetRow[]) => ({
     original: xs.reduce((s, r) => s + (r.original ?? 0), 0),
@@ -232,19 +336,19 @@ function FollowUp({ b }: { b: BudgetPayload }) {
   ];
   const count = (p: Pace) => scope.filter((r) => r.pace === p).length;
 
-  // income: a reference only (no budget): this year so far against last year, same months
+  // income: a reference only (no budget): this period so far, against the same months a year before
   const income = useMemo(() => {
-    const sum = (y: number) => d.rows.filter((r) => r.type === 'Income' && r.date?.startsWith(String(y)) && Number(r.date.slice(5, 7)) <= upTo && !outside.has(r.account_id ?? -1) && (account == null || r.account_id === account))
+    const sum = (from: string, to: string) => d.rows.filter((r) => r.type === 'Income' && r.date && r.date.slice(0, 7) >= from && r.date.slice(0, 7) <= to && !outside.has(r.account_id ?? -1) && (account == null || r.account_id === account))
       .reduce((s, r) => s + (d.comp.get(r.id)?.incUsdTot ?? 0), 0);
-    return { now: sum(v.year), last: sum(v.year - 1) };
-  }, [d, v, upTo, account, outside]);
+    return { now: sum(B.start_ym, upTo), last: sum(addMonths(B.start_ym, -12), addMonths(upTo, -12)) };
+  }, [d, B, upTo, account, outside]);
 
   return (
     <>
       <div className="row" style={{ margin: '10px 0', flexWrap: 'wrap' }}>
         <span className="muted small">{t('حتى نهاية', 'Up to the end of')}</span>
-        <select className="inp" style={{ width: 'auto' }} value={upTo} onChange={(e) => setUpTo(Number(e.target.value))}>
-          {Array.from({ length: v.months }, (_, i) => v.start_month + i).map((m) => <option key={m} value={m}>{monthName(m)} {v.year}</option>)}
+        <select className="inp" style={{ width: 'auto' }} value={upTo} onChange={(e) => setUpTo(e.target.value)}>
+          {months.map((m) => <option key={m} value={m}>{ymName(m)}</option>)}
         </select>
         <span className="muted small">{t('الحساب', 'Account')}</span>
         <div style={{ minWidth: 180 }}>
@@ -272,9 +376,17 @@ function FollowUp({ b }: { b: BudgetPayload }) {
         <div className="card">
           <div className="k">{t('الإيرادات (مرجع)', 'Income (reference)')}</div>
           <div className="v ltr">{usd(income.now)}</div>
-          <div className="muted small">{v.year - 1}: {usd(income.last)}</div>
+          <div className="muted small">{t('قبل سنة', 'a year before')}: {usd(income.last)}</div>
         </div>
       </div>
+
+      {(carriedIn > 0 || carriedTo.length > 0 || shared) && (
+        <div className="alert info small">
+          {carriedIn > 0 && <div>↪ {t('منقول من', 'Carried over from')} «{b.budgets.find((x) => x.id === B.carry_from_id)?.name}»: <b className="ltr">{usd(carriedIn)}</b> {t('يُضاف إلى ما هو متاح.', 'added to what is available.')}</div>}
+          {carriedTo.map((x) => <div key={x.id}>↩ {t('الباقي يُنقل إلى', 'The leftover is carried over to')} «{x.name}»: <b className="ltr">{usd(Math.max(0, leftover(B.id)))}</b></div>)}
+          {shared && <div className="muted">{t('موازنات متداخلة: كل نفقة تُحسب في موازنة واحدة، الأقدم التي ما زال فيها مال على خطها.', 'Overlapping budgets: each expense counts in one budget only, the oldest that still has money on its line.')}</div>}
+        </div>
+      )}
 
       <div className="pace-legend small">
         {(['over', 'ahead', 'ontrack', 'under', 'nobudget'] as Pace[]).map((p) => <span key={p}><PaceTag pace={p} /> {count(p)}</span>)}
@@ -293,7 +405,7 @@ function FollowUp({ b }: { b: BudgetPayload }) {
               <th className="n">{t('الباقي', 'Left')} $</th>
               <th>{t('نسبة الصرف', 'Used')}</th>
               <th>{t('الوتيرة', 'Pace')}</th>
-              <th className="n">{v.year - 1} $</th>
+              <th className="n">{t('قبل سنة', 'A year before')} $</th>
             </tr>
           </thead>
           <tbody>
@@ -333,7 +445,7 @@ function FollowUp({ b }: { b: BudgetPayload }) {
       <p className="muted small">
         {t('الوتيرة: ما صُرف مقارنة بما كان متوقعاً حتى هذا الشهر (الموازنة × الوقت المنقضي). «صرف أقل»: أقل من 75% من المتوقع. «أسرع من الوقت»: أكثر من 110%. ',
           'Pace: what was spent against what was expected by this month (budget × time gone). "Under-spending": less than 75 % of it. "Ahead of time": more than 110 %. ')}
-        {t(`عمود ${v.year - 1}: ما صُرف في الأشهر نفسها من السنة الماضية.`, `Column ${v.year - 1}: what was spent in the same months last year.`)}
+        {t('عمود «قبل سنة»: ما صُرف في الأشهر نفسها قبل سنة.', 'Column "A year before": what was spent in the same months one year earlier.')}
       </p>
     </>
   );
@@ -341,7 +453,8 @@ function FollowUp({ b }: { b: BudgetPayload }) {
 
 // ---------------------------------------------------------------- the budget, per account
 
-function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<void> }) {
+function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => Promise<void>; onDeleted: () => void }) {
+  const B = b.budget!;
   const { s, d, can } = useApp();
   const v = b.current!;
   const may = can('budget.manage');
@@ -363,14 +476,8 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
   const itemsOf = (lineId: number) => b.items.filter((i) => i.account_id === account && i.line_id === lineId);
   const contPct = b.accounts.find((x) => x.account_id === account)?.contingency_pct ?? 0;
   const lump = b.accounts.find((x) => x.account_id === account)?.lump_usd ?? null;
-  const lastYear = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const r of d.rows) if (r.type === 'Exp' && r.date?.startsWith(String(v.year - 1)) && r.account_id != null && r.line_id != null) {
-      const k = cellKey(r.account_id, r.line_id);
-      m.set(k, (m.get(k) ?? 0) + (d.comp.get(r.id)?.expUsdTot ?? 0));
-    }
-    return m;
-  }, [d, v]);
+  // reference: what was spent in the 12 months before the budget starts
+  const lastYear = useMemo(() => spentInRange(d.rows, d.comp, addMonths(B.start_ym, -12), addMonths(B.start_ym, -1)).spent, [d, B]);
   const rSyp = parseAmount(rates.syp) || v.rate_syp;
   const rEur = parseAmount(rates.eur) || v.rate_eur;
   const expHeadings = d.lists.headings.filter((h) => d.lists.headingTypes.some((x) => x.heading_id === h.id && x.type === 'Exp'));
@@ -417,14 +524,21 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
   const removeBudget = async (onlyLatest: boolean) => {
     const msg = onlyLatest
       ? t(`حذف المراجعة ${v.rev} والعودة إلى ما قبلها؟`, `Delete revision ${v.rev} and go back to the one before?`)
-      : t(`حذف موازنة ${v.year} كلها (الأصلية والمراجعات)؟ تُؤخذ نسخة احتياطية أولاً. تخصيصات المانحين لهذه السنة تبقى.`, `Delete the whole ${v.year} budget (original and revisions)? A backup is taken first. Donor allocations for the year are kept.`);
+      : t(`حذف الموازنة «${B.name}» كلها (الأصلية والمراجعات)؟ تُؤخذ نسخة احتياطية أولاً.`, `Delete the whole budget "${B.name}" (original and revisions)? A backup is taken first.`);
     if (!(await confirmBox(msg, true))) return;
-    await act(() => s.api.call('budget.delete', { year: v.year, onlyLatest }), t('حُذف', 'Deleted'));
+    try {
+      await s.api.call('budget.delete', { budgetId: B.id, onlyLatest });
+      toast(t('حُذف', 'Deleted'));
+      if (onlyLatest) await reload();
+      else onDeleted();
+    } catch (e) {
+      toast(errText(e), true);
+    }
   };
   const revise = async () => {
     const note = await promptBox(t('سبب المراجعة (مثلاً: منتصف السنة، منحة جديدة)', 'Reason for the revision (e.g. mid-year, a new grant)'), '');
     if (note == null) return;
-    await act(() => s.api.call('budget.revise', { year: v.year, note: note || null }), t('أُنشئت مراجعة. الأصلية محفوظة كما هي.', 'A revision is made. The original is kept as it was.'));
+    await act(() => s.api.call('budget.revise', { budgetId: B.id, note: note || null }), t('أُنشئت مراجعة. الأصلية محفوظة كما هي.', 'A revision is made. The original is kept as it was.'));
   };
   const setContingency = async () => {
     const x = await promptBox(t('نسبة الاحتياط لهذا الحساب (%)، مثلاً 10', 'Contingency for this account (%), e.g. 10'), String(contPct));
@@ -432,7 +546,7 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
     await act(() => s.api.call('budget.setAccount', { versionId: v.id, account_id: account, contingency_pct: Number(x) || 0 }), t('حُفظ', 'Saved'));
   };
   const fillActual = async () => {
-    if (!(await confirmBox(t(`استبدال موازنة «${acc?.name}» بما صُرف فعلاً في ${v.year}؟`, `Replace the budget of "${acc?.name}" with what was really spent in ${v.year}?`)))) return;
+    if (!(await confirmBox(t(`استبدال موازنة «${acc?.name}» بما صُرف فعلاً خلال فترة هذه الموازنة؟`, `Replace the budget of "${acc?.name}" with what was really spent during this budget's period?`)))) return;
     await act(() => s.api.call('budget.fillActual', { versionId: v.id, account_id: account }), t('حُفظ', 'Saved'));
   };
   const setLump = async () => {
@@ -474,12 +588,12 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
             <button className="btn" onClick={setContingency}>{t('نسبة الاحتياط…', 'Contingency…')}</button>
             <button className="btn" onClick={setLump}>{lump != null ? t('تغيير المبلغ الواحد…', 'Change the one amount…') : t('مبلغ واحد للحساب كله…', 'One amount for the whole account…')}</button>
             {lump != null && <button className="btn" onClick={clearLump}>{t('حسب الخطوط', 'Line by line')}</button>}
-            <button className="btn" onClick={fillActual}>{t(`= ما صُرف في ${v.year}`, `= What was spent in ${v.year}`)}</button>
+            <button className="btn" onClick={fillActual}>{t('= ما صُرف في الفترة', '= What was spent in the period')}</button>
             {can('lists.manage') && <button className="btn" onClick={toggleOutside}>{acc?.outside_budget ? t('إعادته إلى المركز', 'Back inside the centre') : t('خارج المركز', 'Outside the centre')}</button>}
             {can('lists.manage') && <button className="btn" onClick={() => setCleaning(true)}>{t('خطوط بلا موازنة…', 'Lines without budget…')}</button>}
             <button className="btn" onClick={revise} disabled={changed.length > 0 || ratesChanged}>{t('مراجعة الموازنة…', 'Revise the budget…')}</button>
             {v.rev > 0 && <button className="btn danger" onClick={() => removeBudget(true)}>{t('حذف هذه المراجعة…', 'Delete this revision…')}</button>}
-            <button className="btn danger" onClick={() => removeBudget(false)}>{t(`حذف موازنة ${v.year}…`, `Delete the ${v.year} budget…`)}</button>
+            <button className="btn danger" onClick={() => removeBudget(false)}>{t('حذف الموازنة…', 'Delete the budget…')}</button>
             <span style={{ flex: 1 }} />
             <button className="btn primary" disabled={busy || (!changed.length && !ratesChanged)} onClick={save}>{t('احفظ', 'Save')}{changed.length ? ` (${changed.length})` : ''}</button>
           </div>
@@ -504,7 +618,7 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
               <th className="n">{t('الموازنة', 'Budget')} $</th>
               <th className="n">SYP</th>
               <th className="n">EUR</th>
-              <th className="n">{t(`صُرف في ${v.year - 1}`, `Spent in ${v.year - 1}`)} $</th>
+              <th className="n">{t('صُرف في الأشهر الـ12 قبلها', 'Spent in the 12 months before')} $</th>
             </tr>
           </thead>
           <tbody>
@@ -829,7 +943,9 @@ const STATUS_LABEL: Record<AllocStatus, () => string> = {
   received: () => t('مستلم', 'Received'),
 };
 
-function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: () => Promise<void> }) {
+function Donors({ b, reload }: { b: BudgetPayload; reload: () => Promise<void> }) {
+  const B = b.budget!;
+  const { assigned, books } = useAssignment(b);
   const { s, d, can } = useApp();
   const names = useNames();
   const may = can('budget.manage');
@@ -859,7 +975,7 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
   }).filter((x) => x.budget > 0);
   const tot = perAccount.reduce((s2, x) => ({ budget: s2.budget + x.budget, toFind: s2.toFind + x.toFind, r: s2.r + x.byStatus.received, p: s2.p + x.byStatus.promised, q: s2.q + x.byStatus.requested }), { budget: 0, toFind: 0, r: 0, p: 0, q: 0 });
 
-  const received = (donorId: number) => d.grants.filter((g) => g.donor_id === donorId && g.date?.startsWith(String(year))).reduce((sum, g) => sum + g.amount_usd, 0);
+  const received = (donorId: number) => d.grants.filter((g) => g.donor_id === donorId && g.date && inPeriod(B, g.date.slice(0, 7))).reduce((sum, g) => sum + g.amount_usd, 0);
   const donorIds = [...new Set(b.allocs.map((a) => a.donor_id))];
 
   /** The standard donor report, in Excel. */
@@ -868,10 +984,10 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
       const docs = new Map<string, string[]>();
       for (const a of d.attachments) docs.set(a.trx_id, [...(docs.get(a.trx_id) ?? []), a.name]);
       const bytes = await donorReportXlsx({
-        donorId, year, organisation: s.organisation, lists: d.lists, rows: d.rows, comp: d.comp,
+        donorId, budget: B, organisation: s.organisation, lists: d.lists, rows: d.rows, comp: d.comp, assigned: books.length > 1 ? assigned : undefined,
         amounts: b.amounts, accounts: b.accounts, allocs: b.allocs, grants: d.grants, docs,
       });
-      const file = `${s.organisation || 'MAGIS'} - ${names.donor(donorId)} - ${year}.xlsx`.replace(/[\\/:*?"<>|]/g, '-');
+      const file = `${s.organisation || 'MAGIS'} - ${names.donor(donorId)} - ${B.name}.xlsx`.replace(/[\\/:*?"<>|]/g, '-');
       const path = await saveFile(file, ['xlsx'], bytes, t('احفظ تقرير المانح', 'Save the donor report'));
       if (path !== null) toast(t('حُفظ التقرير', 'Report saved'));
     } catch (e) {
@@ -933,7 +1049,7 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
 
       <div className="row" style={{ justifyContent: 'space-between', marginTop: 18 }}>
         <h3 style={{ margin: 0 }}>{t('التخصيصات', 'Allocations')}</h3>
-        {may && <button className="btn primary" onClick={() => setEditing({ year, status: 'promised', pct: 100, amount_usd: null, rest: 0 })}>＋ {t('تخصيص', 'Allocation')}</button>}
+        {may && <button className="btn primary" onClick={() => setEditing({ budget_id: B.id, status: 'promised', pct: 100, amount_usd: null, rest: 0 })}>＋ {t('تخصيص', 'Allocation')}</button>}
       </div>
       <div className="table-wrap">
         <table className="t">
@@ -970,7 +1086,7 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
           <h3 style={{ marginTop: 18 }}>{t('حسب المانح', 'Per donor')}</h3>
           <div className="table-wrap">
             <table className="t">
-              <thead><tr><th>{t('المانح', 'Donor')}</th><th className="n">{t('المخصّص', 'Allocated')} $</th><th className="n">{t(`منح مستلمة ${year}`, `Grants received ${year}`)} $</th><th /></tr></thead>
+              <thead><tr><th>{t('المانح', 'Donor')}</th><th className="n">{t('المخصّص', 'Allocated')} $</th><th className="n">{t('منح مستلمة في الفترة', 'Grants received in the period')} $</th><th /></tr></thead>
               <tbody>
                 {donorIds.map((id) => (
                   <tr key={id}>

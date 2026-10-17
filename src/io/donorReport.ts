@@ -1,14 +1,15 @@
-// The standard donor report (Excel): for one donor and one year, what he covers
-// in the budget, what he gave (Grants), and every expense of what he covers with
-// his share of it and whether its document (scan) is attached.
+// The standard donor report (Excel): for one donor and one budget (its period),
+// what he covers in the budget, what he gave (Grants) during the period, and every
+// expense of the budget that he covers, with his share and whether its document
+// (scan) is attached.
 import ExcelJS from 'exceljs';
 import type { Computed, Lists, Trx } from '../domain/types';
-import { WHOLE, cellsOf, cover, effectivePct, allocWorth, type BudgetAccount, type BudgetAlloc, type BudgetAmount } from '../domain/budget';
+import { WHOLE, cellsOf, cover, effectivePct, allocWorth, inPeriod, periodEnd, type Budget, type BudgetAccount, type BudgetAlloc, type BudgetAmount } from '../domain/budget';
 import type { GrantRow } from '../domain/reports';
 
 export interface DonorReportInput {
   donorId: number;
-  year: number;
+  budget: Budget;
   organisation: string;
   lists: Lists;
   rows: Trx[];
@@ -19,6 +20,8 @@ export interface DonorReportInput {
   grants: GrantRow[];
   /** trx id → names of its attached documents */
   docs: Map<string, string[]>;
+  /** expense id → the budget it belongs to (overlapping budgets); without it, every expense of the period */
+  assigned?: Map<string, number>;
 }
 
 export interface DonorReport {
@@ -43,11 +46,12 @@ export function donorReportData(i: DonorReportInput): DonorReport {
   const outside = new Set(i.lists.accounts.filter((a) => a.outside_budget).map((a) => a.id));
   const cells = cellsOf(i.amounts, i.accounts).filter((x) => !outside.has(x.account_id));
   const eff = effectivePct(i.allocs, cells, headingOf);
-  const mine = i.allocs.filter((a) => a.donor_id === i.donorId && a.year === i.year);
+  const mine = i.allocs.filter((a) => a.donor_id === i.donorId && a.budget_id === i.budget.id);
   const allocated = mine.reduce((s, a) => s + allocWorth(a, i.allocs, eff, cells, headingOf), 0);
-  const received = i.grants.filter((g) => g.donor_id === i.donorId && g.date?.startsWith(String(i.year))).reduce((s, g) => s + g.amount_usd, 0);
+  const received = i.grants.filter((g) => g.donor_id === i.donorId && g.date && inPeriod(i.budget, g.date.slice(0, 7))).reduce((s, g) => s + g.amount_usd, 0);
   const lines = i.rows
-    .filter((r) => r.type === 'Exp' && r.date?.startsWith(String(i.year)) && !outside.has(r.account_id ?? -1))
+    .filter((r) => r.type === 'Exp' && r.date && inPeriod(i.budget, r.date.slice(0, 7)) && !outside.has(r.account_id ?? -1))
+    .filter((r) => !i.assigned || i.assigned.get(r.id) === i.budget.id)
     .map((r) => ({ r, share: shareOf(i, eff, r) }))
     .filter((x) => x.share > 0.00001)
     .map(({ r, share }) => ({ id: r.id, date: r.date!, bill: i.comp.get(r.id)?.billCode ?? '', usd: i.comp.get(r.id)?.expUsdTot ?? 0, share, doc: (i.docs.get(r.id) ?? []).length > 0 }));
@@ -72,11 +76,11 @@ export async function donorReportXlsx(i: DonorReportInput): Promise<Uint8Array> 
   // ---- Summary
   const s = wb.addWorksheet('Summary');
   s.columns = [{ width: 46 }, { width: 14 }, { width: 18 }, { width: 14 }, { width: 18 }];
-  s.addRow([`${i.organisation} — ${donor} — ${i.year}`]).font = { bold: true, size: 14 };
+  s.addRow([`${i.organisation} — ${donor} — ${i.budget.name} (${i.budget.start_ym} → ${periodEnd(i.budget)})`]).font = { bold: true, size: 14 };
   s.addRow([`Donor report · printed ${new Date().toISOString().slice(0, 10)} · all amounts in USD (pounds converted at each row's rate)`]).font = { italic: true, color: { argb: 'FF666666' } };
   s.addRow([]);
   s.addRow(['What the donor covers in the budget', 'Share', 'Budget covered (USD)', 'Status', 'Note']).font = bold;
-  for (const a of i.allocs.filter((x) => x.donor_id === i.donorId && x.year === i.year)) {
+  for (const a of i.allocs.filter((x) => x.donor_id === i.donorId && x.budget_id === i.budget.id)) {
     const scope = a.account_id == null ? 'Every account of the centre'
       : a.line_id != null ? `${name(L.accounts, a.account_id)} › ${name(L.headings, a.heading_id)} › ${name(L.lines, a.line_id)}`
         : a.heading_id != null ? `${name(L.accounts, a.account_id)} › ${name(L.headings, a.heading_id)}` : `${name(L.accounts, a.account_id)} (whole account)`;
@@ -91,7 +95,7 @@ export async function donorReportXlsx(i: DonorReportInput): Promise<Uint8Array> 
     r.getCell(3).numFmt = money;
   };
   tot('Allocated in the budget', data.allocated);
-  tot(`Grants received in ${i.year}`, data.received);
+  tot('Grants received during the period', data.received);
   tot('Spent on what the donor covers (donor\'s share)', data.spentShare);
   tot('Received − spent', data.received - data.spentShare);
   const noDoc = data.lines.filter((x) => !x.doc).length;
@@ -101,7 +105,7 @@ export async function donorReportXlsx(i: DonorReportInput): Promise<Uint8Array> 
   const g = wb.addWorksheet('Grants');
   g.columns = [{ header: 'Date', width: 12 }, { header: 'Project', width: 22 }, { header: 'Amount (USD)', width: 16 }, { header: 'Reference', width: 22 }, { header: 'Note', width: 30 }];
   g.getRow(1).font = bold;
-  for (const x of i.grants.filter((y) => y.donor_id === i.donorId && y.date?.startsWith(String(i.year)))) {
+  for (const x of i.grants.filter((y) => y.donor_id === i.donorId && y.date && inPeriod(i.budget, y.date.slice(0, 7)))) {
     g.addRow([x.date, name(L.projects, x.project_id), x.amount_usd, x.reference ?? '', x.note ?? '']).getCell(3).numFmt = money;
   }
 

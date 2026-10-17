@@ -54,7 +54,10 @@ describe('juge: migration from Master Sup.xlsx', () => {
       if (!close(c.rate, ex.rate)) bad.push(`row ${seed.trx[i].excelRow} rate ${c.rate} ≠ ${ex.rate}`);
       if (!close(c.incUsdTot, ex.incUsdTot)) bad.push(`row ${seed.trx[i].excelRow} S ${c.incUsdTot} ≠ ${ex.incUsdTot}`);
       if (!close(c.expUsdTot, ex.expUsdTot)) bad.push(`row ${seed.trx[i].excelRow} T ${c.expUsdTot} ≠ ${ex.expUsdTot}`);
-      if ((ex.code ?? '') !== c.code) bad.push(`row ${seed.trx[i].excelRow} code ${c.code} ≠ ${ex.code}`);
+      // since 0.6.2 every transfer is coded "Transfer › Transfer" (T01.1), on Fouad's rule; all other codes = Excel
+      if (t.type === 'Transfer') {
+        if (c.code !== 'T01.1') bad.push(`row ${seed.trx[i].excelRow} transfer code ${c.code} ≠ T01.1`);
+      } else if ((ex.code ?? '') !== c.code) bad.push(`row ${seed.trx[i].excelRow} code ${c.code} ≠ ${ex.code}`);
     });
     expect(bad).toEqual([]);
   });

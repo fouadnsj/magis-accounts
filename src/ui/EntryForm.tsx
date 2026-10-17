@@ -74,8 +74,15 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
   const notMine = !!(restricted && editing && editing.type !== 'Transfer' && !myBooks.includes(editing.book_id!));
   const readOnly = !!(fileHolder && editing?.sent_at) || lockedTransfer || bookLocked || notMine;
 
+  // a transfer is always under the heading and line "Transfer" (details in the explanation)
+  const transferClass = (): [number | null, number | null] => {
+    const h = L.headings.find((x) => x.name.toLowerCase() === 'transfer') ?? L.headings.find((x) => L.headingTypes.some((ht) => ht.heading_id === x.id && ht.type === 'Transfer'));
+    const l = h ? L.lines.find((x) => x.heading_id === h.id && x.name.toLowerCase() === 'transfer') ?? L.lines.find((x) => x.heading_id === h.id) : undefined;
+    return [h?.id ?? null, l?.id ?? null];
+  };
   const usual = (type: TrxType) => {
-    // Transfer/Exchange: the heading and line most often used for that type.
+    if (type === 'Transfer') return transferClass();
+    // Exchange: the heading and line most often used for that type.
     const count = new Map<string, number>();
     for (const r of d.rows) if (r.type === type && r.heading_id != null && r.line_id != null) {
       const k = `${r.heading_id}|${r.line_id}`;
@@ -107,6 +114,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
         base.syp = tr.trf_syp ? String(tr.trf_syp) : '';
       }
       if (tr.type === 'Transfer') {
+        [base.headingId, base.lineId] = transferClass();
         const v = tr.trf_syp || tr.trf_usd;
         base.currency = tr.trf_syp ? 'SYP' : tr.trf_usd ? 'USD' : null;
         base.amount = v ? String(Math.abs(v)) : '';
@@ -418,12 +426,20 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
             </Field>
           )}
 
-          <Field label={t('بند الموازنة', 'Budget heading')} className="span2">
-            <Select value={f.headingId} options={headingOpts} onChange={(v) => setF((x) => ({ ...x, headingId: v, lineId: L.lines.filter((l) => l.heading_id === v && l.active).length === 1 ? L.lines.find((l) => l.heading_id === v && l.active)!.id : null }))} />
-          </Field>
-          <Field label={t('خط الموازنة', 'Budget line')} className="span2">
-            <Select value={f.lineId} options={lineOpts} onChange={(v) => set('lineId', v)} disabled={f.headingId == null} />
-          </Field>
+          {f.type === 'Transfer' ? (
+            <Field label={t('البند والخط', 'Heading and line')} className="span2">
+              <div className="muted" style={{ padding: '8px 0' }}>Transfer › Transfer <span className="small">({t('دائماً؛ التفاصيل في الشرح', 'always; details go in the explanation')})</span></div>
+            </Field>
+          ) : (
+            <>
+              <Field label={t('بند الموازنة', 'Budget heading')} className="span2">
+                <Select value={f.headingId} options={headingOpts} onChange={(v) => setF((x) => ({ ...x, headingId: v, lineId: L.lines.filter((l) => l.heading_id === v && l.active).length === 1 ? L.lines.find((l) => l.heading_id === v && l.active)!.id : null }))} />
+              </Field>
+              <Field label={t('خط الموازنة', 'Budget line')} className="span2">
+                <Select value={f.lineId} options={lineOpts} onChange={(v) => set('lineId', v)} disabled={f.headingId == null} />
+              </Field>
+            </>
+          )}
 
           {(f.type === 'Income' || f.type === 'Exp' || f.type === 'Transfer') && (
             <>

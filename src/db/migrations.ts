@@ -8,6 +8,21 @@ export interface Migration {
   sql: string;
 }
 
+/** Transfers always have the heading "Transfer" and the line "Transfer" (details go in the explanation). */
+export const TRANSFER_SQL = `
+INSERT INTO heading (name, code, sort)
+  SELECT 'Transfer', 'T01', 90 WHERE NOT EXISTS (SELECT 1 FROM heading WHERE name = 'Transfer' COLLATE NOCASE);
+DELETE FROM heading_type WHERE type = 'Transfer' AND heading_id <> (SELECT id FROM heading WHERE name = 'Transfer' COLLATE NOCASE);
+DELETE FROM heading_type WHERE heading_id = (SELECT id FROM heading WHERE name = 'Transfer' COLLATE NOCASE) AND type <> 'Transfer';
+INSERT OR IGNORE INTO heading_type (heading_id, type) SELECT id, 'Transfer' FROM heading WHERE name = 'Transfer' COLLATE NOCASE;
+INSERT INTO budget_line (heading_id, name, code)
+  SELECT h.id, 'Transfer', h.code || '.1' FROM heading h WHERE h.name = 'Transfer' COLLATE NOCASE
+     AND NOT EXISTS (SELECT 1 FROM budget_line l WHERE l.heading_id = h.id AND l.name = 'Transfer' COLLATE NOCASE);
+UPDATE trx SET heading_id = (SELECT id FROM heading WHERE name = 'Transfer' COLLATE NOCASE),
+               line_id = (SELECT l.id FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE h.name = 'Transfer' COLLATE NOCASE AND l.name = 'Transfer' COLLATE NOCASE)
+ WHERE type = 'Transfer';
+`;
+
 export const MIGRATIONS: Migration[] = [
   {
     n: 1,
@@ -507,5 +522,10 @@ INSERT INTO grant_part (grant_id, account_id, amount)
          g.amount_usd
     FROM grant_row g WHERE g.amount_usd > 0;
 `,
+  },
+  {
+    n: 10,
+    name: 'transfers always under the heading and line "Transfer"',
+    sql: TRANSFER_SQL,
   },
 ];

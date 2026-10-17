@@ -293,6 +293,11 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
     for (const r of touched) if (byId.get(r.id)?.sent_at) throw new UserError(m('أُرسل إلى المكتب ولا يُعدَّل', 'Already sent to the office: cannot be changed'));
   }
 
+  // a transfer is always under the heading and line "Transfer"
+  const th = lists.headings.find((h) => h.name.toLowerCase() === 'transfer');
+  const tl = th ? lists.lines.find((l) => l.heading_id === th.id && l.name.toLowerCase() === 'transfer') : undefined;
+  if (th && tl) a = { ...a, rows: a.rows.map((r) => (r.type === 'Transfer' ? { ...r, heading_id: th.id, line_id: tl.id } : r)) };
+
   if (!editAll) {
     const w = (bookId: number | null) => writes(c, bookId, mainId);
     // What the rows will be (new) and were (old), seen as transfers or as ordinary rows.

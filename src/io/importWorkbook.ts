@@ -5,6 +5,8 @@
 // the workbook. A row the app would refuse to save is imported with a "review"
 // note listing why. Nothing is guessed, nothing is dropped.
 
+import { TRANSFER_SQL } from '../db/migrations';
+import { splitSql } from '../db/db';
 import { DEFAULT_SETTINGS } from '../db/repo';
 import type ExcelJS from 'exceljs';
 import { type Db, type Stmt, nowIso, uuid } from '../db/db';
@@ -548,6 +550,8 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
     sql: 'INSERT INTO import_log (at, who, kind, file_name, added, skipped, detail) VALUES (?,?,?,?,?,?,?)',
     params: [nowIso(), who, 'workbook', sourceFile, rows.length, 0, JSON.stringify({ toReview: report.toReview, addedToLists })],
   });
+  // transfers always under the heading and line "Transfer"
+  stmts.push(...splitSql(TRANSFER_SQL).map((sql) => ({ sql })));
   await db.batch(stmts);
   return report;
 }

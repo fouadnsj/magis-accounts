@@ -15,6 +15,7 @@ import {
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, roleFor, type Profile } from './auth';
 import { cleanPerms, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
+import { ENTRY_FIELDS } from './domain/compare';
 import { billCode, computeAll } from './domain/compute';
 import {
   addMonths, cellsOf, defaultBudgetName, itemTotal, periodEnd, proposeFromSpending, prorateItems, spentInRange, totalsOf,
@@ -45,6 +46,8 @@ export interface FileOps {
   backupNow(reason: string): Promise<string | null>;
   list(): Promise<BackupFile[]>;
   restore(path: string): Promise<void>;
+  /** the register rows of a backup copy, read without changing it */
+  backupRows(path: string): Promise<Trx[]>;
   /** attached documents, by a path relative to the database's attachments folder */
   docWrite(rel: string, bytes: Uint8Array): Promise<void>;
   docRead(rel: string): Promise<Uint8Array>;
@@ -186,6 +189,17 @@ async function bookMonths(db: Db) {
 
 async function keptBooks(db: Db): Promise<number[]> {
   return (await db.query<{ book_id: number }>('SELECT DISTINCT ub.book_id FROM user_book ub JOIN profile p ON p.id = ub.profile_id WHERE p.active = 1')).map((r) => r.book_id);
+}
+
+/** Rows as this person may see them: a private book's rows only for its keepers (others: its transfers, without explanation). */
+function privateView(c: OpCtx, lists: Lists, rows: Trx[]): Trx[] {
+  const priv = new Set(lists.books.filter((b) => b.private).map((b) => b.id));
+  const all = can(c, 'register.view');
+  return rows.flatMap((r): Trx[] => {
+    if (!all && !keeps(c, r.book_id)) return [];
+    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id)) return [r];
+    return r.type === 'Transfer' ? [{ ...r, explanation: null, receipt: null, party_id: null, private_book: true }] : [];
+  });
 }
 
 async function loadData(c: OpCtx): Promise<DataPayload> {
@@ -1407,6 +1421,32 @@ export const OPS = {
   // ---------------------------------------------------------------- backups
   'backup.list': { check: (c: OpCtx) => need(c, 'data.backup', 'data.restore'), run: (c: OpCtx) => c.files.list() },
   'backup.now': { check: (c: OpCtx) => need(c, 'data.backup'), run: (c: OpCtx) => c.files.backupNow('manual') },
+  /** The register of a backup copy, as this person may see it (to compare with now). */
+  'backup.compare': {
+    check: (c: OpCtx) => need(c, 'data.restore'),
+    run: async (c: OpCtx, a: { path: string }) => {
+      const lists = await loadLists(c.db);
+      return privateView(c, lists, await c.files.backupRows(a.path));
+    },
+  },
+  /** One row back as it was in a backup: changed back, added again, or (if it is new since) deleted. */
+  'trx.putBack': {
+    check: (c: OpCtx) => need(c, 'data.restore'),
+    run: async (c: OpCtx, a: { path: string; id: string; reason: string }) => {
+      if (!(a.reason ?? '').trim()) throw new UserError(m('اكتب السبب', 'Write the reason'));
+      const then = (await c.files.backupRows(a.path)).find((r) => r.id === a.id) ?? null;
+      const now = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [a.id]);
+      const reason = `${a.reason.trim()} (${m('كما في النسخة', 'as in the backup').en} ${a.path.split(/[\\/]/).pop()})`;
+      if (!then && now) return saveRows(c, { rows: [], deletes: [a.id], reason });
+      if (!then) throw new UserError(m('السطر غير موجود', 'Row not found'));
+      const back: Trx = { ...(now ?? { ...blankTrx(), ...then, approved_at: null, approved_by: null }), id: a.id };
+      for (const f of ENTRY_FIELDS) (back as unknown as Record<string, unknown>)[f] = (then as unknown as Record<string, unknown>)[f] ?? null;
+      await saveRows(c, { rows: [back], reason });
+      // a row brought back keeps its old number, if nobody has it
+      if (!now && then.n != null && !(await one(c.db, 'SELECT 1 FROM trx WHERE n = ? AND id <> ?', [then.n, a.id])))
+        await c.db.batch([{ sql: 'UPDATE trx SET n = ? WHERE id = ?', params: [then.n, a.id] }]);
+    },
+  },
   'backup.restore': { check: (c: OpCtx) => need(c, 'data.restore'), run: (c: OpCtx, a: { path: string }) => c.files.restore(a.path) },
 } as const;
 
@@ -1417,7 +1457,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'cash.counts', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export',
+  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export',
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

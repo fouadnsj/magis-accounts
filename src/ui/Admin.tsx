@@ -9,6 +9,7 @@ import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseA
 import type { CashCountRow } from '../ops';
 import { ServerTab } from './ServerTab';
 import { MonthReport } from './MonthReport';
+import { CompareModal } from './Compare';
 import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { serverRestoreUpload } from '../net';
@@ -292,6 +293,7 @@ function Controls() {
 function Backups() {
   const { s, reload, can } = useApp();
   const [list, setList] = useState<BackupFile[]>([]);
+  const [comparing, setComparing] = useState<BackupFile | null>(null);
   const refresh = () => s.api.call('backup.list').then(setList).catch((e) => toast(errText(e), true));
   useEffect(() => {
     void refresh();
@@ -336,7 +338,7 @@ function Backups() {
   return (
     <div className="panel">
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
-        <p className="muted small" style={{ margin: 0 }}>{t('نسخة كل يوم، ونسخة قبل كل استيراد أو استرجاع.', 'One copy every day, and one before every import or restore.')}</p>
+        <p className="muted small" style={{ margin: 0 }}>{t('نسخة كل يوم، ونسخة قبل كل استيراد أو استرجاع. «مقارنة» تُظهر ما تغيّر منذ النسخة، وتعيد سطراً واحداً كما كان.', 'One copy every day, and one before every import or restore. "Compare" shows what changed since the copy, and puts one row back as it was.')}</p>
         <div className="row">
           {s.mode === 'server' && can('data.restore') && <button className="btn" onClick={fromFile}>{t('استرجاع من ملف…', 'Restore from a file…')}</button>}
           {can('data.backup') && <button className="btn primary" onClick={now}>{t('نسخة الآن', 'Back up now')}</button>}
@@ -347,10 +349,14 @@ function Backups() {
         <tbody>
           {list.map((b) => (
             <tr key={b.path}><td className="code">{b.name}</td><td className="ltr">{new Date(b.modified).toLocaleString('en-GB')}</td><td className="n">{Math.round(b.size / 1024)}</td>
-              <td className="right">{can('data.restore') && <button className="btn small" onClick={() => restore(b)}>{t('استرجاع', 'Restore')}</button>}</td></tr>
+              <td className="right nowrap">
+                {can('data.restore') && <button className="btn small primary" onClick={() => setComparing(b)}>⇄ {t('مقارنة', 'Compare')}</button>}{' '}
+                {can('data.restore') && <button className="btn small" onClick={() => restore(b)}>{t('استرجاع', 'Restore')}</button>}
+              </td></tr>
           ))}
         </tbody>
       </table>
+      {comparing && <CompareModal backup={comparing} onClose={() => setComparing(null)} />}
     </div>
   );
 }

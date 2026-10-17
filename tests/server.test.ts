@@ -395,6 +395,49 @@ describe("server: grants follow the money; the Superior's book is private", () =
   });
 });
 
+describe('server: compare with a backup, put one row back', () => {
+  it('shows what changed since a backup and puts back a changed, a deleted and an added row', async () => {
+    const sup = await loginAs('Fouad', 'sup-secret');
+    const com = await loginAs('Comptable', 'com-secret');
+    const { compareRows } = await import('../src/domain/compare');
+    const L = ((await op('data', {}, sup)).body as DataPayload).lists;
+    const exp = (usd: number, x = 'compare test'): Trx => ({
+      ...blankTrx(), city_id: L.cities[0].id, account_id: L.accounts.find((a) => a.name === 'Center')!.id, book_id: L.books.find((b) => b.is_main)!.id,
+      date: '2026-12-20', type: 'Exp', heading_id: L.headings.find((h) => h.name === 'Operations')!.id, line_id: L.lines.find((l) => l.name === 'Internet')!.id, explanation: x, exp_usd: usd,
+    });
+    const a = exp(40, 'to change');
+    const b = exp(30, 'to delete');
+    expect((await op('trx.save', { rows: [a, b] }, sup)).status).toBe(200);
+    const name = (await op('backup.now', {}, sup)).body as string;
+    const backups = (await op('backup.list', {}, sup)).body as { name: string; path: string }[];
+    const bk = backups.find((x) => x.name === name || x.path === name || x.path.endsWith(name)) ?? backups[0];
+    // the mistakes: a changed, b deleted, c added
+    expect((await op('trx.save', { rows: [{ ...a, exp_usd: 400 }], reason: 'oops' }, sup)).status).toBe(200);
+    expect((await op('trx.delete', { ids: [b.id], reason: 'oops' }, sup)).status).toBe(200);
+    const c = exp(55, 'added later');
+    expect((await op('trx.save', { rows: [c] }, sup)).status).toBe(200);
+
+    expect((await op('backup.compare', { path: bk.path }, com)).status).toBe(400); // the Superior only
+    const then = (await op('backup.compare', { path: bk.path }, sup)).body as Trx[];
+    const now = ((await op('data', {}, sup)).body as DataPayload).rows;
+    const diff = compareRows(then, now);
+    expect(diff.changed.find((x) => x.after.id === a.id)!.fields).toEqual(['exp_usd']);
+    expect(diff.deleted.map((x) => x.id)).toContain(b.id);
+    expect(diff.added.map((x) => x.id)).toContain(c.id);
+    expect((await op('backup.compare', { path: '../../etc/passwd' }, sup)).status).toBe(400);
+
+    // put back: each with a reason, kept in the audit log
+    expect((await op('trx.putBack', { path: bk.path, id: a.id, reason: '' }, sup)).status).toBe(400);
+    for (const id of [a.id, b.id, c.id]) expect((await op('trx.putBack', { path: bk.path, id, reason: 'mistake' }, sup)).status).toBe(200);
+    const after = ((await op('data', {}, sup)).body as DataPayload).rows;
+    expect(after.find((x) => x.id === a.id)!.exp_usd).toBe(40);
+    expect(after.find((x) => x.id === b.id)!.n).toBe(then.find((x) => x.id === b.id)!.n); // its old number
+    expect(after.some((x) => x.id === c.id)).toBe(false);
+    expect(compareRows(then, after).changed.length + compareRows(then, after).deleted.length).toBe(0);
+    await op('trx.delete', { ids: [a.id, b.id], reason: 'test rows' }, sup);
+  });
+});
+
 describe('server: permission profiles', () => {
   it('a profile can be changed, but someone must always keep "manage users"', async () => {
     const sup = await loginAs('Fouad', 'sup-secret');

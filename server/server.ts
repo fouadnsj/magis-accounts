@@ -29,6 +29,7 @@ import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../
 import { createOffice } from '../src/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
+import type { Trx } from '../src/domain/types';
 
 export const SERVER_VERSION = '0.6.1';
 
@@ -265,6 +266,17 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     },
     async docExists(rel) {
       return fs.existsSync(docPath(c, rel));
+    },
+    async backupRows(name) {
+      const base = path.basename(name);
+      const from = path.join(c.backupsDir, base);
+      if (base !== name || !fs.existsSync(from)) throw new HttpError(400, { ar: 'نسخة غير موجودة', en: 'Backup not found' });
+      const sq = new DatabaseSync(from, { readOnly: true });
+      try {
+        return sq.prepare('SELECT * FROM trx').all() as unknown as Trx[];
+      } finally {
+        sq.close();
+      }
     },
     async restore(name) {
       // Only a file of this database's backups folder, by its bare name: never a path from the browser.

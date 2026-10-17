@@ -59,7 +59,7 @@ export function desktopFiles(dbPath: string | null): import('../ops').FileOps {
     // browser preview: documents live in memory only
     const mem = new Map<string, Uint8Array>();
     return {
-      backupNow: async () => null, list: async () => [], restore: async () => undefined,
+      backupNow: async () => null, list: async () => [], restore: async () => undefined, backupRows: async () => [],
       docWrite: async (rel, bytes) => void mem.set(rel, bytes),
       docRead: async (rel) => mem.get(rel) ?? new Uint8Array(),
       docExists: async (rel) => mem.has(rel),
@@ -71,6 +71,10 @@ export function desktopFiles(dbPath: string | null): import('../ops').FileOps {
     backupNow: (reason) => backupNow(dbPath, reason),
     list: () => listBackups(dbPath),
     restore: (path) => restoreBackup(dbPath, path),
+    backupRows: async (path) => {
+      if (!(await listBackups(dbPath)).some((b) => b.path === path)) throw new Error('Backup not found');
+      return invoke('file_query', { path, sql: 'SELECT * FROM trx' });
+    },
     docWrite: (rel, bytes) => invoke('file_write_b64', { path: `${docs}/${rel}`, data: toBase64(bytes) }),
     docRead: async (rel) => new Uint8Array(await invoke<ArrayBuffer>('file_read', { path: `${docs}/${rel}` })),
     docExists: (rel) => invoke<boolean>('file_exists', { path: `${docs}/${rel}` }),

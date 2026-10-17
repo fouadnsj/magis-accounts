@@ -164,7 +164,7 @@ describe('desktop app path (local operations)', () => {
     const { localApi } = await import('../src/ops');
     const mem = new Map<string, Uint8Array>();
     const files = {
-      backupNow: async () => null, list: async () => [], restore: async () => undefined,
+      backupNow: async () => null, list: async () => [], restore: async () => undefined, backupRows: async () => [],
       docWrite: async (rel: string, b: Uint8Array) => void mem.set(rel, b), docRead: async (rel: string) => mem.get(rel)!, docExists: async (rel: string) => mem.has(rel),
     };
     const api = localApi({ db: office, profile: { id: 1, name: 'Com', role: 'com', book_id: null, active: 1, access_id: 2, access_name: 'Accountant', books: [], perms: ['register.view', 'register.edit', 'book.own', 'reports.summary'] }, who: 'Com (com)', install: 'office', files });

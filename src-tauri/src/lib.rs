@@ -101,6 +101,24 @@ fn db_query(state: State<DbState>, sql: String, params: Vec<Value>) -> Result<Ve
     })
 }
 
+/// Reads a backup copy without changing it (opened read-only, separately from the open database).
+#[tauri::command(async)]
+fn file_query(path: String, sql: String) -> Result<Vec<Map<String, Value>>, String> {
+    let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(err)?;
+    let mut stmt = conn.prepare(&sql).map_err(err)?;
+    let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let mut rows = stmt.query([]).map_err(err)?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().map_err(err)? {
+        let mut m = Map::new();
+        for (i, n) in names.iter().enumerate() {
+            m.insert(n.clone(), from_sql(row.get_ref(i).map_err(err)?));
+        }
+        out.push(m);
+    }
+    Ok(out)
+}
+
 /// All statements succeed together or none is written.
 #[tauri::command]
 fn db_batch(state: State<DbState>, stmts: Vec<Stmt>) -> Result<(), String> {
@@ -237,7 +255,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             db_open, db_close, db_query, db_batch, db_backup, db_restore,
             file_read, file_write_b64, file_exists, dir_list, file_delete,
-            config_get, config_set, documents_dir,
+            config_get, config_set, documents_dir, file_query,
             remote::srv_connect, remote::srv_request, remote::srv_disconnect
         ])
         .run(tauri::generate_context!())

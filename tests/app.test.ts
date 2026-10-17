@@ -447,12 +447,16 @@ describe('grants follow the money', () => {
       r('e1', '2027-01-25', 'Exp', 4, 4000), // furniture: Belfast
       r('e2', '2027-03-10', 'Exp', 6, 5500), // Harat: UNDP 5,000, then the whole-centre grant 500
       r('e3', '2026-12-01', 'Exp', 4, 900), // before Belfast was in hand: no grant
+      // Respo → a holder's book: two rows (− and +), counted once
+      r('t3', '2027-03-02', 'Transfer', 0, 500, { grant_id: 'eu', transfer_group: 'g3', received_at: '2027-03-02' }),
+      r('t3b', '2027-03-02', 'Transfer', 0, -500, { grant_id: 'eu', transfer_group: 'g3', received_at: '2027-03-02' }),
     ];
     const comp = new Map(rows.map((x) => [x.id, { expUsdTot: x.exp_usd, rate: 1 } as never]));
     const f = grantFlows(cards, parts, rows, comp);
     expect(f.get('belfast')).toMatchObject({ inHand: 10000, sent: 6000, sentWaiting: 1000, withSup: 3000, spent: 4000, left: 6000 });
     expect(f.get('undp')).toMatchObject({ spent: 5000, left: 0 });
     expect(f.get('eu')!.inHand).toBe(4400);
+    expect(f.get('eu')!.sent).toBe(500);
     expect(f.get('eu')!.spent).toBe(500);
     expect(f.get('later')).toMatchObject({ inHand: 0, spent: 0 });
   });

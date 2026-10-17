@@ -59,8 +59,8 @@ export function Grants() {
 
       <div className="cards" style={{ marginBottom: 14 }}>
         <div className="card"><div className="k">{t('في الطريق (قبل «باليد»)', 'On the way (before "in hand")')}</div><div className="v ltr">${fmtUsd(tot.coming)}{tot.comingEur ? ` + €${fmtUsd(tot.comingEur)}` : ''}</div></div>
-        <div className="card"><div className="k">{t('مع الرئيس', 'With the Superior')}</div><div className="v ltr">${fmtUsd(tot.withSup)}</div></div>
-        <div className="card"><div className="k">{t('حُوّل إلى الرئيسي', 'Transferred to Main')}</div><div className="v ltr">${fmtUsd(tot.sent)}</div></div>
+        <div className="card"><div className="k">{t('في دفتر المسؤول', 'In the Respo')}</div><div className="v ltr">${fmtUsd(tot.withSup)}</div></div>
+        <div className="card"><div className="k">{t('أُرسل من المسؤول', 'Sent from the Respo')}</div><div className="v ltr">${fmtUsd(tot.sent)}</div></div>
         <div className="card"><div className="k">{t('باقٍ لم يُصرف', 'Left, not yet spent')}</div><div className="v ltr">${fmtUsd(tot.left)}</div></div>
       </div>
 
@@ -94,8 +94,8 @@ export function Grants() {
               {g.status === 'hand' && (
                 <div className="grant-flow">
                   <div><span>{t('باليد', 'In hand')}</span><b className="ltr">${fmtUsd(f.inHand)}</b></div>
-                  <div><span>{t('مع الرئيس', 'With the Superior')}</span><b className="ltr">${fmtUsd(f.withSup)}</b></div>
-                  <div><span>{t('حُوّل إلى الرئيسي', 'To Main')}</span><b className="ltr">${fmtUsd(f.sent)}</b>{f.sentWaiting > 0.004 && <em className="small ltr"> +${fmtUsd(f.sentWaiting)} ⏳</em>}</div>
+                  <div><span>{t('في دفتر المسؤول', 'In the Respo')}</span><b className="ltr">${fmtUsd(f.withSup)}</b></div>
+                  <div><span>{t('أُرسل', 'Sent')}</span><b className="ltr">${fmtUsd(f.sent)}</b>{f.sentWaiting > 0.004 && <em className="small ltr"> +${fmtUsd(f.sentWaiting)} ⏳</em>}</div>
                   <div><span>{t('صُرف', 'Spent')}</span><b className="ltr">${fmtUsd(f.spent)}</b></div>
                   <div><span>{t('باقٍ', 'Left')}</span><b className={`ltr ${f.left < -0.5 ? 'bad' : ''}`}>${fmtUsd(f.left)}</b></div>
                   <div className="used-track" style={{ gridColumn: '1 / -1' }}><div className="used-fill" style={{ width: `${f.inHand ? Math.min(100, (f.spent / f.inHand) * 100) : 0}%`, background: '#8A8577' }} /></div>

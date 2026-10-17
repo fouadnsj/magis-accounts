@@ -38,10 +38,10 @@ export interface GrantPart {
 export interface GrantFlow {
   /** dollars in hand (0 before "in hand") */
   inHand: number;
-  /** transferred from the Superior's book to Main: confirmed, and waiting for confirmation */
+  /** sent from the Respo book: confirmed, and waiting for confirmation */
   sent: number;
   sentWaiting: number;
-  /** still with the Superior */
+  /** still in the Respo book */
   withSup: number;
   /** spent on the accounts it is for */
   spent: number;
@@ -86,7 +86,8 @@ export function grantFlows(cards: GrantCard[], parts: GrantPart[], rows: Trx[], 
   for (const g of cards) {
     const mine = slots.filter((s) => s.grant.id === g.id);
     const hand = g.status === 'hand' ? g.hand_usd ?? 0 : 0;
-    const transfers = rows.filter((r) => r.type === 'Transfer' && r.grant_id === g.id);
+    // the money leaving (a transfer between two books has two rows: count the giver's only)
+    const transfers = rows.filter((r) => r.type === 'Transfer' && r.grant_id === g.id && (r.trf_usd || r.trf_syp) < 0);
     const usdOf = (r: Trx) => Math.abs(r.trf_usd) + Math.abs(r.trf_syp) / (comp.get(r.id)?.rate || 1);
     const sent = transfers.filter((r) => r.received_at).reduce((s, r) => s + usdOf(r), 0);
     const sentWaiting = transfers.filter((r) => !r.received_at && !r.disputed_at).reduce((s, r) => s + usdOf(r), 0);

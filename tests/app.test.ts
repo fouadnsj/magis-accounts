@@ -214,9 +214,9 @@ describe('budget arithmetic', () => {
     const amounts = [{ version_id: 1, account_id: 1, line_id: 7, amount_usd: 1000 }, { version_id: 1, account_id: 1, line_id: 8, amount_usd: 1000 }, { version_id: 1, account_id: 2, line_id: 7, amount_usd: 41730 }];
     const headingOf = new Map([[7, 3], [8, 4], [9, 3]]);
     const allocs = [
-      { id: 1, year: 2027, donor_id: 1, account_id: 1, heading_id: null, line_id: null, pct: 50, amount_usd: null, status: 'promised' as const, note: null }, // whole account
-      { id: 2, year: 2027, donor_id: 2, account_id: 1, heading_id: 3, line_id: null, pct: 30, amount_usd: null, status: 'requested' as const, note: null }, // heading 3
-      { id: 3, year: 2027, donor_id: 3, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, status: 'promised' as const, note: null }, // Belfast: $10,000 of furniture
+      { id: 1, year: 2027, donor_id: 1, account_id: 1, heading_id: null, line_id: null, pct: 50, amount_usd: null, rest: 0, status: 'promised' as const, note: null }, // whole account
+      { id: 2, year: 2027, donor_id: 2, account_id: 1, heading_id: 3, line_id: null, pct: 30, amount_usd: null, rest: 0, status: 'requested' as const, note: null }, // heading 3
+      { id: 3, year: 2027, donor_id: 3, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, rest: 0, status: 'promised' as const, note: null }, // Belfast: $10,000 of furniture
     ];
     const eff = effectivePct(allocs, amounts, headingOf);
     const c = cover(allocs, eff, 1, 7, 3, 1000);
@@ -243,7 +243,28 @@ describe('budget arithmetic', () => {
     expect([l7.spent, l7.left, l7.used, l7.lastYear, l7.pace]).toEqual([900, 100, 0.9, 0, 'ahead']);
     expect(fu.find((x) => x.line_id === 9)!.pace).toBe('nobudget'); // spent without any budget: shown
     expect(fu.some((x) => x.account_id === 5)).toBe(false); // an account outside the centre (Deir)
-    const cont = contingencyOf([{ ...l7, spent: 1100 }], [{ version_id: 1, account_id: 1, contingency_pct: 10 }]).get(1)!;
+    // SJ takes the rest, everywhere in the centre: what the other donors leave
+    const sj = { id: 9, year: 2027, donor_id: 9, account_id: null, heading_id: null, line_id: null, pct: null, amount_usd: null, rest: 1, status: 'promised' as const, note: null };
+    const withSj = [...allocs, sj];
+    const eff2 = effectivePct(withSj, amounts, headingOf);
+    const c7 = cover(withSj, eff2, 1, 7, 3, 1000);
+    expect(c7.toFind).toBe(0);
+    expect(c7.donors.find((d) => d.donor_id === 9)!.usd).toBe(200); // 50 % + 30 % by others → SJ 20 %
+    expect(cover(withSj, eff2, 2, 7, 3, 41730).donors.find((d) => d.donor_id === 9)!.usd).toBeCloseTo(31730); // furniture: Belfast 10,000, SJ the rest
+
+    // Harat: one amount for all its spending, whatever the line
+    const { cellsOf, WHOLE } = await import('../src/domain/budget');
+    const harat = [{ version_id: 1, account_id: 6, contingency_pct: 0, lump_usd: 5000 }];
+    const hRows = [{ ...row('h1', '2027-08-01', 300, 7), account_id: 6 }, { ...row('h2', '2027-08-02', 200, 9), account_id: 6 }];
+    const hComp = new Map([['h1', { expUsdTot: 300 } as never], ['h2', { expUsdTot: 200 } as never]]);
+    const hf = followUp({ rows: hRows, comp: hComp, version, upToMonth: 9, amounts: [], original: null, headingOf, outside: new Set(), accounts: harat });
+    expect(hf).toHaveLength(1);
+    expect(hf[0]).toMatchObject({ account_id: 6, line_id: WHOLE, budget: 5000, spent: 500 });
+    const undp = { id: 10, year: 2027, donor_id: 7, account_id: 6, heading_id: null, line_id: null, pct: 100, amount_usd: null, rest: 0, status: 'promised' as const, note: null };
+    const cells = cellsOf([], harat);
+    expect(cover([undp, sj], effectivePct([undp, sj], cells, headingOf), 6, WHOLE, WHOLE, 5000).donors.map((d) => d.usd)).toEqual([5000, 0]);
+
+    const cont = contingencyOf([{ ...l7, spent: 1100 }], [{ version_id: 1, account_id: 1, contingency_pct: 10, lump_usd: null }]).get(1)!;
     expect([cont.reserve, cont.used]).toEqual([100, 100]);
   });
 

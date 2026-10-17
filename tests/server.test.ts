@@ -524,7 +524,19 @@ describe('server: the yearly budget (Superior and Accountant only)', () => {
     expect((await op('alloc.save', { ...alloc, amount_usd: 5000 }, sup)).status).toBe(400); // a % or an amount, not both
     expect((await op('alloc.save', alloc, sup)).status).toBe(200);
     expect((await op('alloc.save', { ...alloc, pct: null, amount_usd: 10000 }, sup)).status).toBe(200);
-    expect((await op('budget.get', { year: 2027 }, sup)).body.allocs.length).toBe(2);
+    // SJ is always a donor, and takes "the rest" of the whole centre
+    const sjId = L.donors.find((x) => x.name === 'SJ')!.id;
+    expect((await op('alloc.save', { year: 2027, donor_id: sjId, account_id: null, heading_id: null, line_id: null, rest: 1, status: 'promised' }, sup)).status).toBe(200);
+    expect((await op('alloc.save', { year: 2027, donor_id: sjId, account_id: null, heading_id: null, line_id: null, rest: 1, pct: 5, status: 'promised' }, sup)).status).toBe(400);
+    // Harat: one amount for all its spending; its line amounts go, and lines cannot be typed while it has one
+    const other = L.accounts.find((x) => x.id !== cell.account_id && x.id !== acc)!.id;
+    await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: other, line_id: cell.line_id, amount_usd: 300 }] }, com);
+    expect((await op('budget.setAccount', { versionId: b.current.id, account_id: other, lump_usd: 5000 }, com)).status).toBe(200);
+    const bh = (await op('budget.get', { year: 2027 }, com)).body;
+    expect(bh.amounts.some((x: { account_id: number }) => x.account_id === other)).toBe(false);
+    expect(bh.accounts.find((x: { account_id: number }) => x.account_id === other).lump_usd).toBe(5000);
+    expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: other, line_id: cell.line_id, amount_usd: 1 }] }, com)).status).toBe(400);
+    expect((await op('budget.get', { year: 2027 }, sup)).body.allocs.length).toBe(3);
     expect((await op('budget.get', { year: 2027 }, com)).body.allocs).toEqual([]);
   });
 });

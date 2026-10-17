@@ -47,6 +47,19 @@ export interface BudgetAccount {
   version_id: number;
   account_id: number;
   contingency_pct: number;
+  /** one amount for all the account's spending, whatever the line (e.g. Harat, funded by UNDP) */
+  lump_usd: number | null;
+}
+
+/** The "line" of an account budgeted as one amount. */
+export const WHOLE = -1;
+
+/** The budget's cells: line amounts, plus one cell per account budgeted as a single amount. */
+export function cellsOf(amounts: BudgetAmount[], accounts: BudgetAccount[]): BudgetAmount[] {
+  return [
+    ...amounts,
+    ...accounts.filter((a) => a.lump_usd != null && a.lump_usd > 0).map((a) => ({ version_id: a.version_id, account_id: a.account_id, line_id: WHOLE, amount_usd: a.lump_usd! })),
+  ];
 }
 
 export type AllocStatus = 'requested' | 'promised' | 'received';
@@ -55,15 +68,18 @@ export interface BudgetAlloc {
   id: number;
   year: number;
   donor_id: number;
-  account_id: number;
+  /** null: every account of the centre */
+  account_id: number | null;
   /** null with line_id null: the whole account */
   heading_id: number | null;
   /** a single line (then heading_id is that line's heading) */
   line_id: number | null;
   /** either a percentage… */
   pct: number | null;
-  /** …or a fixed amount in USD */
+  /** …or a fixed amount in USD… */
   amount_usd: number | null;
+  /** …or 1: the rest, what no other donor covers (e.g. SJ) */
+  rest: number;
   status: AllocStatus;
   note: string | null;
 }
@@ -158,32 +174,43 @@ export function usedBand(used: number | null): 0 | 50 | 75 | 90 | 100 {
 /** Which allocations apply to one cell (account + line of a heading). */
 export function allocsFor(allocs: BudgetAlloc[], accountId: number, lineId: number, headingId: number) {
   return allocs.filter((a) =>
-    a.account_id === accountId &&
+    (a.account_id == null || a.account_id === accountId) &&
     (a.line_id != null ? a.line_id === lineId : a.heading_id != null ? a.heading_id === headingId : true));
 }
+
+const inScope = (a: BudgetAlloc, x: BudgetAmount, headingOf: Map<number, number>) =>
+  (a.account_id == null || x.account_id === a.account_id) &&
+  (a.line_id != null ? x.line_id === a.line_id : a.heading_id != null ? headingOf.get(x.line_id) === a.heading_id : true);
 
 /**
  * The percentage each allocation really gives: its own %, or, for a fixed
  * amount, that amount against the budget of what it covers (at most 100 %).
  */
-export function effectivePct(allocs: BudgetAlloc[], amounts: BudgetAmount[], headingOf: Map<number, number>) {
+export function effectivePct(allocs: BudgetAlloc[], cells: BudgetAmount[], headingOf: Map<number, number>) {
   const out = new Map<number, number>();
   for (const a of allocs) {
+    if (a.rest) continue; // worked out cell by cell (see cover)
     if (a.pct != null) {
       out.set(a.id, a.pct);
       continue;
     }
-    const scope = amounts
-      .filter((x) => x.account_id === a.account_id && (a.line_id != null ? x.line_id === a.line_id : a.heading_id != null ? headingOf.get(x.line_id) === a.heading_id : true))
-      .reduce((s, x) => s + x.amount_usd, 0);
+    const scope = cells.filter((x) => inScope(a, x, headingOf)).reduce((s, x) => s + x.amount_usd, 0);
     out.set(a.id, scope > 0 ? Math.min(100, ((a.amount_usd ?? 0) / scope) * 100) : 0);
   }
   return out;
 }
 
+/** What an allocation is worth in USD over the budget it covers. */
+export function allocWorth(a: BudgetAlloc, allocs: BudgetAlloc[], eff: Map<number, number>, cells: BudgetAmount[], headingOf: Map<number, number>) {
+  return cells.filter((x) => inScope(a, x, headingOf)).reduce((s, x) => {
+    const c = cover(allocs, eff, x.account_id, x.line_id, headingOf.get(x.line_id) ?? WHOLE, x.amount_usd);
+    return s + c.donors.filter((d) => d.alloc_id === a.id).reduce((t, d) => t + d.usd, 0);
+  }, 0);
+}
+
 export interface CellCover {
-  /** per donor: USD of this cell he covers, and with which status */
-  donors: { donor_id: number; usd: number; status: AllocStatus }[];
+  /** per allocation: USD of this cell it covers, and with which status */
+  donors: { alloc_id: number; donor_id: number; usd: number; status: AllocStatus }[];
   /** total percentage given (can pass 100 %: shown as a warning) */
   pct: number;
   covered: number;
@@ -192,8 +219,14 @@ export interface CellCover {
 
 export function cover(allocs: BudgetAlloc[], eff: Map<number, number>, accountId: number, lineId: number, headingId: number, amount: number): CellCover {
   const mine = allocsFor(allocs, accountId, lineId, headingId);
-  const donors = mine.map((a) => ({ donor_id: a.donor_id, usd: (amount * (eff.get(a.id) ?? 0)) / 100, status: a.status }));
-  const pct = mine.reduce((s, a) => s + (eff.get(a.id) ?? 0), 0);
+  const fixed = mine.filter((a) => !a.rest);
+  const rests = mine.filter((a) => a.rest);
+  const given = fixed.reduce((s, a) => s + (eff.get(a.id) ?? 0), 0);
+  // "the rest": what the others leave, shared if several donors take the rest
+  const restPct = rests.length ? Math.max(0, 100 - given) / rests.length : 0;
+  const pctOf = (a: BudgetAlloc) => (a.rest ? restPct : eff.get(a.id) ?? 0);
+  const donors = mine.map((a) => ({ alloc_id: a.id, donor_id: a.donor_id, usd: (amount * pctOf(a)) / 100, status: a.status }));
+  const pct = given + restPct * rests.length;
   const covered = (amount * Math.min(pct, 100)) / 100;
   return { donors, pct, covered, toFind: Math.max(0, amount - covered) };
 }
@@ -227,18 +260,32 @@ export function followUp(args: {
   original: BudgetAmount[] | null;
   headingOf: Map<number, number>;
   outside: Set<number>;
+  /** accounts budgeted as one amount (their spending is gathered, whatever the line) */
+  accounts?: BudgetAccount[];
 }): BudgetRow[] {
   const { rows, comp, version, upToMonth, amounts, original, headingOf, outside } = args;
+  const lumps = (args.accounts ?? []).filter((a) => a.lump_usd != null && a.lump_usd > 0);
+  const lumped = new Set(lumps.map((a) => a.account_id));
   const year = version.year;
-  const { spent } = spentByCell(rows, comp, year, upToMonth);
-  const last = spentByCell(rows, comp, year - 1, upToMonth).spent;
-  const budget = new Map(amounts.map((a) => [cellKey(a.account_id, a.line_id), a.amount_usd]));
+  const gather = (m: Map<string, number>) => {
+    const out = new Map<string, number>();
+    for (const [k, v] of m) {
+      const acc = Number(k.split('|')[0]);
+      const key = lumped.has(acc) ? cellKey(acc, WHOLE) : k;
+      out.set(key, (out.get(key) ?? 0) + v);
+    }
+    return out;
+  };
+  const spent = gather(spentByCell(rows, comp, year, upToMonth).spent);
+  const last = gather(spentByCell(rows, comp, year - 1, upToMonth).spent);
+  const budget = new Map([...amounts.filter((a) => !lumped.has(a.account_id)), ...cellsOf([], lumps)].map((a) => [cellKey(a.account_id, a.line_id), a.amount_usd]));
+  const hOf = new Map([...headingOf, [WHOLE, WHOLE]]);
   const orig = original ? new Map(original.map((a) => [cellKey(a.account_id, a.line_id), a.amount_usd])) : null;
   const share = periodShare(version, upToMonth);
   const out: BudgetRow[] = [];
   for (const k of new Set([...budget.keys(), ...spent.keys()])) {
     const [account_id, line_id] = k.split('|').map(Number);
-    const heading_id = headingOf.get(line_id);
+    const heading_id = hOf.get(line_id);
     if (heading_id == null || outside.has(account_id)) continue;
     const b = budget.get(k) ?? 0;
     const s = spent.get(k) ?? 0;

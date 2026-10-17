@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, useNames } from '../state';
 import type { BudgetPayload } from '../ops';
 import {
-  cellKey, contingencyOf, cover, effectivePct, followUp, guessLine, itemTotal, periodShare, readBudgetSheet, usedBand,
+  WHOLE, allocWorth, cellKey, cellsOf, contingencyOf, cover, effectivePct, followUp, guessLine, itemTotal, periodShare, readBudgetSheet, usedBand,
   type AllocStatus, type BudgetAlloc, type BudgetItem, type BudgetRow, type Pace, type SheetRead,
 } from '../domain/budget';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
@@ -88,7 +88,7 @@ export function BudgetPage() {
 function CreateBudget({ year, years, onDone }: { year: number; years: number[]; onDone: () => Promise<void> }) {
   const { s, d } = useApp();
   const [rateSyp, setRateSyp] = useState(String(d.lists.settings.usd_rate || '130'));
-  const [rateEur, setRateEur] = useState('0.92');
+  const [rateEur, setRateEur] = useState('0.89'); // mid-October 2026: 1 € ≈ 1.12 $
   const [start, setStart] = useState(1);
   const [months, setMonths] = useState(12);
   const [from, setFrom] = useState<'empty' | 'last' | 'budget'>(years.length ? 'budget' : 'empty');
@@ -207,14 +207,14 @@ function FollowUp({ b }: { b: BudgetPayload }) {
   const headingOf = useMemo(() => new Map(d.lists.lines.map((l) => [l.id, l.heading_id])), [d]);
   const outside = useMemo(() => new Set(d.lists.accounts.filter((a) => a.outside_budget).map((a) => a.id)), [d]);
   const all = useMemo(
-    () => followUp({ rows: d.rows, comp: d.comp, version: v, upToMonth: upTo, amounts: b.amounts, original: b.original, headingOf, outside }),
+    () => followUp({ rows: d.rows, comp: d.comp, version: v, upToMonth: upTo, amounts: b.amounts, original: b.original, headingOf, outside, accounts: b.accounts }),
     [d, b, v, upTo, headingOf, outside],
   );
   const rows = all.filter((r) => (account == null || r.account_id === account) && (!onlyFlags || r.pace === 'over' || r.pace === 'under' || r.pace === 'nobudget' || r.pace === 'ahead'));
   const cont = contingencyOf(all, b.accounts);
   const revised = b.original != null;
   const share = periodShare(v, upTo);
-  const lineName = (id: number) => d.lists.lines.find((l) => l.id === id)?.name ?? '?';
+  const lineName = (id: number) => (id === WHOLE ? t('كل المصاريف، أياً كان الخط', 'All spending, whatever the line') : d.lists.lines.find((l) => l.id === id)?.name ?? '?');
   const sumOf = (xs: BudgetRow[]) => ({
     original: xs.reduce((s, r) => s + (r.original ?? 0), 0),
     budget: xs.reduce((s, r) => s + r.budget, 0),
@@ -225,7 +225,10 @@ function FollowUp({ b }: { b: BudgetPayload }) {
   const total = sumOf(scope);
   const reserve = [...cont].filter(([id]) => account == null || id === account).reduce((s, [, x]) => s + x.reserve, 0);
   const reserveUsed = [...cont].filter(([id]) => account == null || id === account).reduce((s, [, x]) => s + x.used, 0);
-  const headings = d.lists.headings.filter((h) => rows.some((r) => r.heading_id === h.id));
+  const headings = [
+    ...(rows.some((r) => r.heading_id === WHOLE) ? [{ id: WHOLE, name: t('حسابات بمبلغ واحد', 'Accounts with one amount') }] : []),
+    ...d.lists.headings.filter((h) => rows.some((r) => r.heading_id === h.id)),
+  ];
   const count = (p: Pace) => scope.filter((r) => r.pace === p).length;
 
   // income: a reference only (no budget): this year so far against last year, same months
@@ -358,6 +361,7 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
   const orig = b.original ? new Map(b.original.map((a) => [cellKey(a.account_id, a.line_id), a.amount_usd])) : null;
   const itemsOf = (lineId: number) => b.items.filter((i) => i.account_id === account && i.line_id === lineId);
   const contPct = b.accounts.find((x) => x.account_id === account)?.contingency_pct ?? 0;
+  const lump = b.accounts.find((x) => x.account_id === account)?.lump_usd ?? null;
   const lastYear = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of d.rows) if (r.type === 'Exp' && r.date?.startsWith(String(v.year - 1)) && r.account_id != null && r.line_id != null) {
@@ -372,7 +376,8 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
   const valueOf = (k: string) => (k in edits ? parseAmount(edits[k]) || 0 : amount.get(k) ?? 0);
   const changed = Object.keys(edits).filter((k) => valueOf(k) !== (amount.get(k) ?? 0));
   const base = b.amounts.filter((x) => x.account_id === account).reduce((sum, x) => sum + (changed.includes(cellKey(x.account_id, x.line_id)) ? 0 : x.amount_usd), 0) + changed.filter((k) => Number(k.split('|')[0]) === account).reduce((sum, k) => sum + valueOf(k), 0);
-  const reserve = (base * contPct) / 100;
+  const total0 = lump ?? base;
+  const reserve = (total0 * contPct) / 100;
   const ratesChanged = rSyp !== v.rate_syp || rEur !== v.rate_eur;
 
   const save = async () => {
@@ -422,6 +427,17 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
     if (!(await confirmBox(t(`استبدال موازنة «${acc?.name}» بما صُرف فعلاً في ${v.year}؟`, `Replace the budget of "${acc?.name}" with what was really spent in ${v.year}?`)))) return;
     await act(() => s.api.call('budget.fillActual', { versionId: v.id, account_id: account }), t('حُفظ', 'Saved'));
   };
+  const setLump = async () => {
+    const x = await promptBox(t(`مبلغ واحد بالدولار لكل مصاريف «${acc?.name}»، أياً كان الخط`, `One amount in USD for all the spending of "${acc?.name}", whatever the line`), lump ? String(lump) : '');
+    if (x == null) return;
+    const n = parseAmount(x);
+    if (!(n > 0)) return toast(t('مبلغ غير صحيح', 'Wrong amount'), true);
+    if (b.amounts.some((y) => y.account_id === account) && !(await confirmBox(t('سيحلّ هذا المبلغ محل مبالغ الخطوط في هذا الحساب. متابعة؟', 'This amount replaces the line amounts of this account. Continue?')))) return;
+    await act(() => s.api.call('budget.setAccount', { versionId: v.id, account_id: account, lump_usd: n }), t('حُفظ', 'Saved'));
+  };
+  const clearLump = async () => {
+    await act(() => s.api.call('budget.setAccount', { versionId: v.id, account_id: account, lump_usd: null }), t('حُفظ', 'Saved'));
+  };
   const toggleOutside = async () => {
     await act(() => s.api.call('account.setOutside', { id: account, outside: !acc?.outside_budget }), t('حُفظ', 'Saved'));
   };
@@ -437,17 +453,19 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
           <Field label={t('يورو لكل دولار (تقديري)', 'EUR per USD (estimated)')}><input className="ltr" inputMode="decimal" disabled={!may} value={rates.eur} onChange={(e) => setRates({ ...rates, eur: e.target.value })} /></Field>
         </div>
         <div className="budget-totals">
-          <div><span className="muted small">{t('الموازنة الأساسية', 'Base budget')}</span><b className="ltr">{usd(base)}</b></div>
+          <div><span className="muted small">{lump != null ? t('مبلغ واحد للحساب', 'One amount for the account') : t('الموازنة الأساسية', 'Base budget')}</span><b className="ltr">{usd(total0)}</b></div>
           <div><span className="muted small">{t('احتياط', 'Contingency')} {contPct}%</span><b className="ltr">{usd(reserve)}</b></div>
-          <div><span className="muted small">{t('المجموع', 'Total')}</span><b className="ltr">{usd(base + reserve)}</b></div>
-          <div><span className="muted small">SYP</span><b className="ltr">{fmtSyp((base + reserve) * rSyp)}</b></div>
-          <div><span className="muted small">EUR</span><b className="ltr">{fmtEur((base + reserve) * rEur)}</b></div>
+          <div><span className="muted small">{t('المجموع', 'Total')}</span><b className="ltr">{usd(total0 + reserve)}</b></div>
+          <div><span className="muted small">SYP</span><b className="ltr">{fmtSyp((total0 + reserve) * rSyp)}</b></div>
+          <div><span className="muted small">EUR</span><b className="ltr">{fmtEur((total0 + reserve) * rEur)}</b></div>
         </div>
         {acc?.outside_budget ? <div className="alert info">{t('هذا الحساب خارج المركز: لا يدخل في متابعة الموازنة.', 'This account is outside the centre: it is not in the budget follow-up.')}</div> : null}
         {may && (
           <div className="row" style={{ flexWrap: 'wrap', marginTop: 8 }}>
             <button className="btn" onClick={() => setImporting(true)}>{t('استيراد من Excel…', 'Import from Excel…')}</button>
             <button className="btn" onClick={setContingency}>{t('نسبة الاحتياط…', 'Contingency…')}</button>
+            <button className="btn" onClick={setLump}>{lump != null ? t('تغيير المبلغ الواحد…', 'Change the one amount…') : t('مبلغ واحد للحساب كله…', 'One amount for the whole account…')}</button>
+            {lump != null && <button className="btn" onClick={clearLump}>{t('حسب الخطوط', 'Line by line')}</button>}
             <button className="btn" onClick={fillActual}>{t(`= ما صُرف في ${v.year}`, `= What was spent in ${v.year}`)}</button>
             {can('lists.manage') && <button className="btn" onClick={toggleOutside}>{acc?.outside_budget ? t('إعادته إلى المركز', 'Back inside the centre') : t('خارج المركز', 'Outside the centre')}</button>}
             {can('lists.manage') && <button className="btn" onClick={() => setCleaning(true)}>{t('خطوط بلا موازنة…', 'Lines without budget…')}</button>}
@@ -461,6 +479,12 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
         )}
       </div>
 
+      {lump != null ? (
+        <div className="alert info">
+          {t(`لـ«${acc?.name}» مبلغ واحد (${usd(lump)}) لكل مصاريفه، أياً كان الخط: هكذا يُتابع في المتابعة وعند المانحين.`,
+            `"${acc?.name}" has one amount (${usd(lump)}) for all its spending, whatever the line: that is how it is followed and shown to donors.`)}
+        </div>
+      ) : (
       <div className="table-wrap">
         <table className="t budget-t">
           <thead>
@@ -527,6 +551,7 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
           </tbody>
         </table>
       </div>
+      )}
       {importing && <ImportSheet versionId={v.id} defaultAccount={account} onClose={() => setImporting(false)} onDone={async (accId) => { setImporting(false); setAccount(accId); await reload(); }} />}
       {cleaning && <UnbudgetedLines b={b} onClose={() => setCleaning(false)} onDone={async () => { setCleaning(false); await reload(); }} />}
     </>
@@ -800,21 +825,21 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
   const may = can('budget.manage');
   const [editing, setEditing] = useState<Partial<BudgetAlloc> | null>(null);
   const headingOf = useMemo(() => new Map(d.lists.lines.map((l) => [l.id, l.heading_id])), [d]);
-  const eff = useMemo(() => effectivePct(b.allocs, b.amounts, headingOf), [b, headingOf]);
+  const outside = new Set(d.lists.accounts.filter((a) => a.outside_budget).map((a) => a.id));
+  const cells = useMemo(() => cellsOf(b.amounts, b.accounts).filter((x) => !outside.has(x.account_id)), [b, outside]);
+  const eff = useMemo(() => effectivePct(b.allocs, cells, headingOf), [b, cells, headingOf]);
 
-  const worth = (a: BudgetAlloc) => b.amounts
-    .filter((x) => x.account_id === a.account_id && (a.line_id != null ? x.line_id === a.line_id : a.heading_id != null ? headingOf.get(x.line_id) === a.heading_id : true))
-    .reduce((sum, x) => sum + (x.amount_usd * (eff.get(a.id) ?? 0)) / 100, 0);
-  const scopeName = (a: BudgetAlloc) => a.line_id != null
+  const worth = (a: BudgetAlloc) => allocWorth(a, b.allocs, eff, cells, headingOf);
+  const scopeName = (a: BudgetAlloc) => a.account_id == null ? t('كل حسابات المركز', 'Every account of the centre') : a.line_id != null
     ? `${names.account(a.account_id)} › ${names.heading(a.heading_id)} › ${names.line(a.line_id)}`
     : a.heading_id != null ? `${names.account(a.account_id)} › ${names.heading(a.heading_id)}` : `${names.account(a.account_id)} (${t('كله', 'whole')})`;
 
   const perAccount = d.lists.accounts.filter((a) => !a.outside_budget).map((acc) => {
-    const cells = b.amounts.filter((x) => x.account_id === acc.id);
+    const mine = cells.filter((x) => x.account_id === acc.id);
     let budget = 0, toFind = 0, over = 0;
     const byStatus: Record<AllocStatus, number> = { requested: 0, promised: 0, received: 0 };
-    for (const x of cells) {
-      const c = cover(b.allocs, eff, x.account_id, x.line_id, headingOf.get(x.line_id)!, x.amount_usd);
+    for (const x of mine) {
+      const c = cover(b.allocs, eff, x.account_id, x.line_id, headingOf.get(x.line_id) ?? WHOLE, x.amount_usd);
       budget += x.amount_usd;
       toFind += c.toFind;
       if (c.pct > 100.001) over++;
@@ -881,7 +906,7 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
 
       <div className="row" style={{ justifyContent: 'space-between', marginTop: 18 }}>
         <h3 style={{ margin: 0 }}>{t('التخصيصات', 'Allocations')}</h3>
-        {may && <button className="btn primary" onClick={() => setEditing({ year, status: 'promised', pct: 100, amount_usd: null })}>＋ {t('تخصيص', 'Allocation')}</button>}
+        {may && <button className="btn primary" onClick={() => setEditing({ year, status: 'promised', pct: 100, amount_usd: null, rest: 0 })}>＋ {t('تخصيص', 'Allocation')}</button>}
       </div>
       <div className="table-wrap">
         <table className="t">
@@ -900,7 +925,7 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
               <tr key={a.id}>
                 <td>{names.donor(a.donor_id)}</td>
                 <td>{scopeName(a)}{a.note ? <span className="muted small"> · {a.note}</span> : null}</td>
-                <td className="n">{a.pct != null ? `${a.pct}%` : <span className="muted">{num(eff.get(a.id) ?? 0)}%</span>}</td>
+                <td className="n">{a.rest ? <span className="muted">{t('الباقي', 'the rest')}</span> : a.pct != null ? `${a.pct}%` : <span className="muted">{num(eff.get(a.id) ?? 0)}%</span>}</td>
                 <td className="n">{a.amount_usd != null ? <b>{fmtUsd(a.amount_usd)}</b> : fmtUsd(worth(a))}</td>
                 <td><span className={`pill st-${a.status}`}>{STATUS_LABEL[a.status]()}</span></td>
                 <td className="right nowrap">
@@ -940,19 +965,22 @@ function Donors({ b, year, reload }: { b: BudgetPayload; year: number; reload: (
 
 function AllocModal({ start, onClose, onSaved }: { start: Partial<BudgetAlloc>; onClose: () => void; onSaved: () => Promise<void> }) {
   const { s, d } = useApp();
-  const [a, setA] = useState<Partial<BudgetAlloc>>(start);
+  const [a, setA] = useState<Partial<BudgetAlloc>>(start.id && start.account_id == null ? { ...start, account_id: 0 } : start);
   const [scope, setScope] = useState<'account' | 'heading' | 'line'>(start.line_id != null ? 'line' : start.heading_id != null ? 'heading' : 'account');
-  const [kind, setKind] = useState<'pct' | 'amount'>(start.amount_usd != null ? 'amount' : 'pct');
+  const [kind, setKind] = useState<'pct' | 'amount' | 'rest'>(start.rest ? 'rest' : start.amount_usd != null ? 'amount' : 'pct');
+  const ALL = 0; // every account of the centre
   const [val, setVal] = useState(String(start.amount_usd ?? start.pct ?? 100));
   const expHeadings = d.lists.headings.filter((h) => d.lists.headingTypes.some((x) => x.heading_id === h.id && x.type === 'Exp'));
   const save = async () => {
     try {
       await s.api.call('alloc.save', {
         ...a,
+        account_id: a.account_id === ALL ? null : a.account_id,
         pct: kind === 'pct' ? parseAmount(val) : null,
         amount_usd: kind === 'amount' ? parseAmount(val) : null,
-        heading_id: scope === 'account' ? null : a.heading_id ?? null,
-        line_id: scope === 'line' ? a.line_id ?? null : null,
+        rest: kind === 'rest' ? 1 : 0,
+        heading_id: scope === 'account' || a.account_id === ALL ? null : a.heading_id ?? null,
+        line_id: scope === 'line' && a.account_id !== ALL ? a.line_id ?? null : null,
       } as never);
       toast(t('حُفظ', 'Saved'));
       await onSaved();
@@ -964,16 +992,16 @@ function AllocModal({ start, onClose, onSaved }: { start: Partial<BudgetAlloc>; 
     <Modal title={a.id ? t('تعديل التخصيص', 'Edit allocation') : t('تخصيص جديد', 'New allocation')} onClose={onClose}>
       <div className="grid2">
         <Field label={t('المانح', 'Donor')}><Select value={a.donor_id ?? null} options={d.lists.donors.filter((x) => x.active || x.id === a.donor_id).map((x) => ({ value: x.id, label: x.name }))} onChange={(v) => setA({ ...a, donor_id: v ?? undefined })} /></Field>
-        <Field label={t('الحساب', 'Account')}><Select value={a.account_id ?? null} options={d.lists.accounts.filter((x) => !x.outside_budget).map((x) => ({ value: x.id, label: x.name }))} onChange={(v) => setA({ ...a, account_id: v ?? undefined })} /></Field>
+        <Field label={t('الحساب', 'Account')}><Select value={a.account_id ?? null} options={[{ value: ALL, label: t('كل حسابات المركز', 'Every account of the centre') }, ...d.lists.accounts.filter((x) => !x.outside_budget).map((x) => ({ value: x.id, label: x.name }))]} onChange={(v) => setA({ ...a, account_id: v ?? undefined })} /></Field>
       </div>
-      <Field label={t('يغطي', 'Covers')}>
+      {a.account_id !== ALL && <Field label={t('يغطي', 'Covers')}>
         <Seg value={scope} onChange={setScope} options={[
           { value: 'account', label: t('الحساب كله', 'The whole account') },
           { value: 'heading', label: t('بنداً', 'A heading') },
           { value: 'line', label: t('خطاً', 'A line') },
         ]} />
-      </Field>
-      {scope !== 'account' && (
+      </Field>}
+      {scope !== 'account' && a.account_id !== ALL && (
         <div className="grid2">
           <Field label={t('البند', 'Heading')}><Select value={a.heading_id ?? null} options={expHeadings.map((h) => ({ value: h.id, label: h.name }))} onChange={(v) => setA({ ...a, heading_id: v, line_id: null })} /></Field>
           {scope === 'line' && (
@@ -984,8 +1012,8 @@ function AllocModal({ start, onClose, onSaved }: { start: Partial<BudgetAlloc>; 
       <div className="grid2">
         <Field label={t('المساهمة', 'Contribution')}>
           <div className="row">
-            <Seg value={kind} onChange={setKind} options={[{ value: 'pct', label: '%' }, { value: 'amount', label: t('مبلغ $', 'Amount $') }]} />
-            <input className="ltr" inputMode="decimal" value={val} onChange={(e) => setVal(e.target.value)} style={{ width: 120 }} />
+            <Seg value={kind} onChange={setKind} options={[{ value: 'pct', label: '%' }, { value: 'amount', label: t('مبلغ $', 'Amount $') }, { value: 'rest', label: t('الباقي', 'The rest') }]} />
+            {kind !== 'rest' && <input className="ltr" inputMode="decimal" value={val} onChange={(e) => setVal(e.target.value)} style={{ width: 120 }} />}
           </div>
         </Field>
         <Field label={t('الحالة', 'Status')}>
@@ -995,7 +1023,7 @@ function AllocModal({ start, onClose, onSaved }: { start: Partial<BudgetAlloc>; 
       <Field label={t('ملاحظة', 'Note')}><input value={a.note ?? ''} onChange={(e) => setA({ ...a, note: e.target.value || null })} /></Field>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
-        <button className="btn primary" disabled={!a.donor_id || !a.account_id || !val || (scope !== 'account' && !a.heading_id) || (scope === 'line' && !a.line_id)} onClick={save}>{t('احفظ', 'Save')}</button>
+        <button className="btn primary" disabled={!a.donor_id || a.account_id == null || (kind !== 'rest' && !val) || (a.account_id !== ALL && ((scope !== 'account' && !a.heading_id) || (scope === 'line' && !a.line_id)))} onClick={save}>{t('احفظ', 'Save')}</button>
       </div>
     </Modal>
   );

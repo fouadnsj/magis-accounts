@@ -408,7 +408,7 @@ async function createBudget(c: OpCtx, a: CreateArgs) {
   if (await one(c.db, 'SELECT 1 FROM budget_version WHERE year = ?', [a.year])) throw new UserError(m(`موازنة ${a.year} موجودة: عدّلها أو أنشئ مراجعة`, `The ${a.year} budget exists: edit it or make a revision`));
   let cells: { account_id: number; line_id: number; amount_usd: number }[] = [];
   let items: BudgetItem[] = [];
-  let accounts: { account_id: number; contingency_pct: number }[] = [];
+  let accounts: { account_id: number; contingency_pct: number; lump_usd: number | null }[] = [];
   if (a.from === 'last') {
     const lists = await loadLists(c.db);
     const rows = await loadTrx(c.db);
@@ -424,13 +424,14 @@ async function createBudget(c: OpCtx, a: CreateArgs) {
       const k = `${x.account_id}|${x.line_id}`;
       return { account_id: x.account_id, line_id: x.line_id, amount_usd: withItems.has(k) ? totals.get(k)! : x.amount_usd * f };
     });
-    accounts = await c.db.query<BudgetAccount>('SELECT account_id, contingency_pct FROM budget_account WHERE version_id = ?', [src.id]);
+    accounts = (await c.db.query<BudgetAccount>('SELECT account_id, contingency_pct, lump_usd FROM budget_account WHERE version_id = ?', [src.id]))
+      .map((x) => ({ ...x, lump_usd: x.lump_usd != null ? Math.round(x.lump_usd * f * 100) / 100 : null }));
   }
   await c.db.batch([
     { sql: 'INSERT INTO budget_version (year, rev, rate_syp, rate_eur, start_month, months, note, created_at, created_by) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)', params: [a.year, a.rate_syp, a.rate_eur, start, months, a.note ?? null, nowIso(), c.who] },
     ...amountStmts(a.year, 0, cells),
     ...itemStmts(a.year, 0, items),
-    ...accounts.map((x) => ({ sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct) VALUES (${VID}, ?, ?)`, params: [a.year, 0, x.account_id, x.contingency_pct] })),
+    ...accounts.map((x) => ({ sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) VALUES (${VID}, ?, ?, ?)`, params: [a.year, 0, x.account_id, x.contingency_pct, x.lump_usd] })),
     auditStmt(c.who, 'add', 'budget_version', String(a.year), null, { rev: 0, from: a.from, fromYear: a.fromYear ?? null, start, months, scale: !!a.scale, pct: a.pct ?? 0, lines: cells.length, items: items.length }),
   ]);
   return cells.length;
@@ -444,14 +445,22 @@ async function reviseBudget(c: OpCtx, a: { year: number; note?: string | null })
     { sql: 'INSERT INTO budget_version (year, rev, rate_syp, rate_eur, start_month, months, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [a.year, rev, last.rate_syp, last.rate_eur, last.start_month, last.months, a.note ?? null, nowIso(), c.who] },
     { sql: `INSERT INTO budget_amount (version_id, account_id, line_id, amount_usd) SELECT ${VID}, account_id, line_id, amount_usd FROM budget_amount WHERE version_id = ?`, params: [a.year, rev, last.id] },
     { sql: `INSERT INTO budget_item (version_id, account_id, line_id, name, unit, qty, times, unit_cost, note, sort) SELECT ${VID}, account_id, line_id, name, unit, qty, times, unit_cost, note, sort FROM budget_item WHERE version_id = ?`, params: [a.year, rev, last.id] },
-    { sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct) SELECT ${VID}, account_id, contingency_pct FROM budget_account WHERE version_id = ?`, params: [a.year, rev, last.id] },
+    { sql: `INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) SELECT ${VID}, account_id, contingency_pct, lump_usd FROM budget_account WHERE version_id = ?`, params: [a.year, rev, last.id] },
     auditStmt(c.who, 'revise', 'budget_version', String(a.year), { rev: last.rev }, { rev, note: a.note ?? null }),
   ]);
+}
+
+/** An account budgeted as one amount has no line amounts. */
+async function refuseIfWhole(c: OpCtx, versionId: number, accountIds: number[]) {
+  for (const id of new Set(accountIds))
+    if (await one(c.db, 'SELECT 1 FROM budget_account WHERE version_id = ? AND account_id = ? AND lump_usd IS NOT NULL', [versionId, id]))
+      throw new UserError(m('لهذا الحساب مبلغ واحد لكل مصاريفه: ألغِه أولاً لتكتب حسب الخطوط', 'This account has one amount for all its spending: remove it first to budget line by line'));
 }
 
 /** Amounts typed directly (lines without items). */
 async function saveBudgetAmounts(c: OpCtx, a: { versionId: number; cells: { account_id: number; line_id: number; amount_usd: number }[] }) {
   const v = await latestVersion(c, a.versionId);
+  await refuseIfWhole(c, v.id, a.cells.map((x) => x.account_id));
   const stmts: Stmt[] = [];
   for (const x of a.cells) {
     const usd = Number(x.amount_usd);
@@ -469,6 +478,7 @@ async function saveBudgetAmounts(c: OpCtx, a: { versionId: number; cells: { acco
 /** The items of one line (account + line): replaced, and the line's amount = their total. */
 async function saveBudgetItems(c: OpCtx, a: { versionId: number; account_id: number; line_id: number; items: BudgetItem[] }) {
   const v = await latestVersion(c, a.versionId);
+  await refuseIfWhole(c, v.id, [a.account_id]);
   const items = a.items.map((i) => ({ ...i, account_id: a.account_id, line_id: a.line_id }));
   checkItems(items);
   const total = items.reduce((s, i) => s + itemTotal(i), 0);
@@ -509,7 +519,7 @@ async function importBudgetItems(c: OpCtx, a: { versionId: number; account_id: n
       const [account_id, line_id] = k.split('|').map(Number);
       return { account_id, line_id, amount_usd };
     })),
-    { sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct) VALUES (?, ?, ?) ON CONFLICT (version_id, account_id) DO UPDATE SET contingency_pct = excluded.contingency_pct', params: [v.id, a.account_id, a.contingency_pct] },
+    { sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct) VALUES (?, ?, ?) ON CONFLICT (version_id, account_id) DO UPDATE SET contingency_pct = excluded.contingency_pct, lump_usd = NULL', params: [v.id, a.account_id, a.contingency_pct] },
     auditStmt(c.who, 'import', 'budget_item', `${v.year}/${v.rev}/${a.account_id}`, null, { source: a.source ?? null, items: items.length, contingency: a.contingency_pct }),
   ]);
   return items.length;
@@ -526,6 +536,7 @@ async function fillFromActual(c: OpCtx, a: { versionId: number; account_id: numb
     { sql: 'DELETE FROM budget_item WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
     { sql: 'DELETE FROM budget_amount WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
     ...amountStmts(v.year, v.rev, cells),
+    { sql: 'UPDATE budget_account SET lump_usd = NULL WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
     auditStmt(c.who, 'fill-actual', 'budget_amount', `${v.year}/${v.rev}/${a.account_id}`, null, cells),
   ]);
   return cells.length;
@@ -533,22 +544,24 @@ async function fillFromActual(c: OpCtx, a: { versionId: number; account_id: numb
 
 const STATUSES: AllocStatus[] = ['requested', 'promised', 'received'];
 
-async function saveAlloc(c: OpCtx, a: Partial<BudgetAlloc> & { year: number; donor_id: number; account_id: number; status: AllocStatus }) {
+async function saveAlloc(c: OpCtx, a: Partial<BudgetAlloc> & { year: number; donor_id: number; account_id: number | null; status: AllocStatus }) {
   const pct = a.pct ?? null;
   const amount = a.amount_usd ?? null;
-  if ((pct == null) === (amount == null)) throw new UserError(m('اكتب نسبة أو مبلغاً', 'Write a percentage or an amount'));
+  const rest = a.rest ? 1 : 0;
+  if ((pct != null ? 1 : 0) + (amount != null ? 1 : 0) + rest !== 1) throw new UserError(m('اكتب نسبة أو مبلغاً أو «الباقي»', 'Write a percentage, an amount, or "the rest"'));
   if (pct != null && !(pct > 0 && pct <= 100)) throw new UserError(m('النسبة بين 1 و100', 'The percentage is between 1 and 100'));
   if (amount != null && !(amount > 0)) throw new UserError(m('مبلغ غير صحيح', 'Wrong amount'));
   if (!STATUSES.includes(a.status)) throw new UserError(m('حالة غير صحيحة', 'Wrong status'));
-  if (!a.donor_id || !a.account_id) throw new UserError(m('اختر المانح والحساب', 'Choose the donor and the account'));
+  if (!a.donor_id) throw new UserError(m('اختر المانح', 'Choose the donor'));
   let heading = a.heading_id ?? null;
   const line = a.line_id ?? null;
+  if (a.account_id == null && (heading != null || line != null)) throw new UserError(m('اختر الحساب', 'Choose the account'));
   if (line != null) heading = (await one<{ heading_id: number }>(c.db, 'SELECT heading_id FROM budget_line WHERE id = ?', [line]))?.heading_id ?? null;
-  const vals = [a.year, a.donor_id, a.account_id, heading, line, pct, amount, a.status, a.note ?? null];
+  const vals = [a.year, a.donor_id, a.account_id ?? null, heading, line, pct, amount, rest, a.status, a.note ?? null];
   await c.db.batch([
     a.id
-      ? { sql: 'UPDATE budget_alloc SET year = ?, donor_id = ?, account_id = ?, heading_id = ?, line_id = ?, pct = ?, amount_usd = ?, status = ?, note = ? WHERE id = ?', params: [...vals, a.id] }
-      : { sql: 'INSERT INTO budget_alloc (year, donor_id, account_id, heading_id, line_id, pct, amount_usd, status, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: vals },
+      ? { sql: 'UPDATE budget_alloc SET year = ?, donor_id = ?, account_id = ?, heading_id = ?, line_id = ?, pct = ?, amount_usd = ?, rest = ?, status = ?, note = ? WHERE id = ?', params: [...vals, a.id] }
+      : { sql: 'INSERT INTO budget_alloc (year, donor_id, account_id, heading_id, line_id, pct, amount_usd, rest, status, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: vals },
     auditStmt(c.who, a.id ? 'edit' : 'add', 'budget_alloc', a.id ? String(a.id) : null, null, a),
   ]);
 }
@@ -998,13 +1011,24 @@ export const OPS = {
   'budget.fillActual': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: { versionId: number; account_id: number }) => fillFromActual(c, a) },
   'budget.setAccount': {
     check: (c: OpCtx) => need(c, 'budget.manage'),
-    run: async (c: OpCtx, a: { versionId: number; account_id: number; contingency_pct: number }) => {
-      if (!goodNum(a.contingency_pct) || a.contingency_pct > 100) throw new UserError(m('نسبة الاحتياط غير صحيحة', 'Wrong contingency percentage'));
+    /** contingency %; and lump_usd: one amount for the whole account (null: line by line) */
+    run: async (c: OpCtx, a: { versionId: number; account_id: number; contingency_pct?: number; lump_usd?: number | null }) => {
+      if (a.contingency_pct !== undefined && (!goodNum(a.contingency_pct) || a.contingency_pct > 100)) throw new UserError(m('نسبة الاحتياط غير صحيحة', 'Wrong contingency percentage'));
+      if (a.lump_usd != null && !(a.lump_usd > 0)) throw new UserError(m('مبلغ غير صحيح', 'Wrong amount'));
       const v = await latestVersion(c, a.versionId);
-      await c.db.batch([
-        { sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct) VALUES (?, ?, ?) ON CONFLICT (version_id, account_id) DO UPDATE SET contingency_pct = excluded.contingency_pct', params: [v.id, a.account_id, a.contingency_pct] },
-        auditStmt(c.who, 'edit', 'budget_account', `${v.year}/${v.rev}/${a.account_id}`, null, { contingency_pct: a.contingency_pct }),
-      ]);
+      const cur = await one<BudgetAccount>(c.db, 'SELECT * FROM budget_account WHERE version_id = ? AND account_id = ?', [v.id, a.account_id]);
+      const cont = a.contingency_pct ?? cur?.contingency_pct ?? 0;
+      const lump = a.lump_usd === undefined ? cur?.lump_usd ?? null : a.lump_usd;
+      const stmts: Stmt[] = [
+        { sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) VALUES (?, ?, ?, ?) ON CONFLICT (version_id, account_id) DO UPDATE SET contingency_pct = excluded.contingency_pct, lump_usd = excluded.lump_usd', params: [v.id, a.account_id, cont, lump] },
+        auditStmt(c.who, 'edit', 'budget_account', `${v.year}/${v.rev}/${a.account_id}`, cur ?? null, { contingency_pct: cont, lump_usd: lump }),
+      ];
+      // one amount for the whole account replaces its line amounts
+      if (lump != null) stmts.unshift(
+        { sql: 'DELETE FROM budget_item WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
+        { sql: 'DELETE FROM budget_amount WHERE version_id = ? AND account_id = ?', params: [v.id, a.account_id] },
+      );
+      await c.db.batch(stmts);
     },
   },
   'budget.setRates': {

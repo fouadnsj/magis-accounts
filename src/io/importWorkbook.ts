@@ -444,6 +444,12 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
     ids.donor.set(key(d.name), id);
     stmts.push({ sql: 'INSERT INTO donor (id, name, default_project_id, sort) VALUES (?,?,?,?)', params: [id, d.name, d.project ? ensure('project', d.project) : null, id] });
   });
+  // SJ (the Society of Jesus) covers what no other donor covers: always in the list
+  if (!seed.donors.some((d) => key(d.name) === 'sj')) {
+    const id = seed.donors.length + 1;
+    ids.donor.set('sj', id);
+    stmts.push({ sql: 'INSERT INTO donor (id, name, default_project_id, sort) VALUES (?,?,?,?)', params: [id, 'SJ', null, id] });
+  }
 
   seed.rules.forEach((r) => {
     const hid = r.heading ? ids.heading.get(key(r.heading)) ?? null : null;

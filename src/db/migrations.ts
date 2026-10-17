@@ -368,29 +368,36 @@ CREATE TABLE budget_item (
   sort       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX budget_item_cell ON budget_item(version_id, account_id, line_id);
--- Per account: the contingency added on top (e.g. 10 % on running costs, 0 on furniture).
+-- Per account: the contingency added on top (e.g. 10 % on running costs, 0 on furniture),
+-- and, for an account kept for one donor (e.g. Harat, UNDP), one amount for all its
+-- spending whatever the line (then the account has no line amounts).
 CREATE TABLE budget_account (
   version_id      INTEGER NOT NULL REFERENCES budget_version(id),
   account_id      INTEGER NOT NULL REFERENCES account(id),
   contingency_pct REAL NOT NULL DEFAULT 0,
+  lump_usd        REAL CHECK (lump_usd IS NULL OR lump_usd > 0),
   PRIMARY KEY (version_id, account_id)
 );
--- A donor covers a part: a percentage, or a fixed amount, of an account,
--- of a heading in it, or of one line.
+-- A donor covers a part: a percentage, a fixed amount, or "the rest" (what no
+-- other donor covers), of an account (null: every account of the centre), of a
+-- heading in it, or of one line.
 CREATE TABLE budget_alloc (
   id         INTEGER PRIMARY KEY,
   year       INTEGER NOT NULL,
   donor_id   INTEGER NOT NULL REFERENCES donor(id),
-  account_id INTEGER NOT NULL REFERENCES account(id),
+  account_id INTEGER REFERENCES account(id),
   heading_id INTEGER REFERENCES heading(id),
   line_id    INTEGER REFERENCES budget_line(id),
   pct        REAL CHECK (pct IS NULL OR (pct > 0 AND pct <= 100)),
   amount_usd REAL CHECK (amount_usd IS NULL OR amount_usd > 0),
+  rest       INTEGER NOT NULL DEFAULT 0,
   status     TEXT NOT NULL CHECK (status IN ('requested','promised','received')),
   note       TEXT,
-  CHECK ((pct IS NULL) <> (amount_usd IS NULL))
+  CHECK ((pct IS NOT NULL) + (amount_usd IS NOT NULL) + (rest = 1) = 1)
 );
 CREATE INDEX budget_alloc_year ON budget_alloc(year);
+-- SJ: the Society of Jesus, who covers what no other donor covers.
+INSERT INTO donor (name) SELECT 'SJ' WHERE NOT EXISTS (SELECT 1 FROM donor WHERE name = 'SJ' COLLATE NOCASE);
 -- An account outside the centre (e.g. Deir): recorded, but not part of its budget.
 ALTER TABLE account ADD COLUMN outside_budget INTEGER NOT NULL DEFAULT 0;
 -- The budget is seen and kept by those who see every book and keep the lists

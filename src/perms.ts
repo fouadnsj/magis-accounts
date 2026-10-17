@@ -29,8 +29,6 @@ export const PERM_GROUPS = [
       { key: 'reports.accounts', label: m('حسب الحساب', 'By account') },
       { key: 'reports.exchange', label: m('سجل التصريف', 'Exchange log') },
       { key: 'reports.cash', label: m('نقد كل الصناديق', 'Cash of every holder') },
-      { key: 'reports.coverage', label: m('التغطية (سرّي)', 'Coverage (confidential)') },
-      { key: 'reports.funds', label: m('أموال المشاريع (سرّي)', 'Project funds (confidential)') },
     ],
   },
   {

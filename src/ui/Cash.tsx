@@ -31,7 +31,7 @@ export function Cash() {
   const months = monthsOf(d.rows);
   const [view, setView] = useState<CashView>('total');
   const [ym, setYm] = useState(months[months.length - 1] ?? todayIso().slice(0, 7));
-  const bookChoices = d.lists.books.filter((b) => b.active || d.rows.some((r) => r.book_id === b.id)).map((b) => ({ id: b.id, name: b.name }));
+  const bookChoices = d.shownBooks.filter((b) => b.active || d.rows.some((r) => r.book_id === b.id)).map((b) => ({ id: b.id, name: b.name }));
   const [bookSel, setBookSel] = useState<number | null>(bookChoices.find((b) => !d.lists.books.find((x) => x.id === b.id)?.is_main)?.id ?? bookChoices[0]?.id ?? null);
 
   const loadCounts = useCallback(async () => {
@@ -58,8 +58,8 @@ export function Cash() {
 
   if (!can('reports.cash') && myBook != null) return <HolderCash bookId={myBook} switchTo={myBooks.length > 1 ? setMyBook : null} counted={counted} counts={counts} onCount={() => setCounting(myBook)} counting={counting} setCounting={setCounting} reloadCounts={loadCounts} />;
 
-  const syp = holders(d.rows, d.lists.books, 'SYP');
-  const usd = holders(d.rows, d.lists.books, 'USD');
+  const syp = holders(d.rows, d.shownBooks, 'SYP');
+  const usd = holders(d.rows, d.shownBooks, 'USD');
 
   const table = (lines: HolderLine[], cur: 'SYP' | 'USD') => {
     const f = cur === 'SYP' ? fmtSyp : fmtUsd;
@@ -119,8 +119,8 @@ export function Cash() {
       )}
       {view === 'month' && (
         <>
-          <CurrencyFrame cur="SYP"><MonthTable lines={holdersMonth(d.rows, d.lists.books, 'SYP', ym)} cur="SYP" /></CurrencyFrame>
-          <CurrencyFrame cur="USD"><MonthTable lines={holdersMonth(d.rows, d.lists.books, 'USD', ym)} cur="USD" /></CurrencyFrame>
+          <CurrencyFrame cur="SYP"><MonthTable lines={holdersMonth(d.rows, d.shownBooks, 'SYP', ym)} cur="SYP" /></CurrencyFrame>
+          <CurrencyFrame cur="USD"><MonthTable lines={holdersMonth(d.rows, d.shownBooks, 'USD', ym)} cur="USD" /></CurrencyFrame>
         </>
       )}
       {view === 'book' && bookSel != null && <BookMonths bookId={bookSel} />}

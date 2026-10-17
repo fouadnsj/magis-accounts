@@ -17,7 +17,7 @@ import { Files } from './Files';
 import { Admin } from './Admin';
 import { draftFor, draftKey } from './draft';
 
-export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.coverage', 'reports.funds'];
+export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
 
 export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'lists' | 'files' | 'admin';
@@ -32,7 +32,7 @@ const NavCtx = createContext<Nav | null>(null);
 export const useNav = () => useContext(NavCtx)!;
 
 export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void }) {
-  const { s, d, logout, can, myBooks, limited, fileHolder } = useApp();
+  const { s, d, logout, can, myBooks, limited } = useApp();
   const [page, setPage] = useState<Page>('home');
   const [reviewOnly, setReviewOnly] = useState(false);
   // an entry left half-typed at a sign-out for inactivity comes back
@@ -83,7 +83,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
           {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
-          {(fileHolder || can('data.export') || can('data.import')) && item('files', s.mode === 'server' ? t('التصدير', 'Export') : t('استيراد وتصدير', 'Import / Export'))}
+          {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
           <button onClick={onToggleLang}>{getLang() === 'en' ? 'عربي · English' : 'English only'}</button>

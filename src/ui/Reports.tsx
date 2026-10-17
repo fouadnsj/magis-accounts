@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp, useNames } from '../state';
-import { coverage, exchangeLog, monthly, projectFunds, summary, inPeriod, type Period } from '../domain/reports';
+import { exchangeLog, monthly, summary, inPeriod, type Period } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
 import type { Perm } from '../perms';
@@ -56,16 +56,13 @@ export function Reports() {
         { value: 'explore', label: t('التحليل', 'Explore'), hidden: !can('reports.summary') },
         { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
         { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') },
-        { value: 'coverage', label: t('التغطية', 'Coverage'), hidden: !can('reports.coverage') },
-        { value: 'funds', label: t('أموال المشاريع', 'Project funds'), hidden: !can('reports.funds') },
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
+      {can('users.manage') && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{t('من يرى أي تقرير: الإدارة ← ملفات الصلاحيات ← مجموعة «التقارير».', 'Who sees which report: Admin → Permission profiles → the "Reports" group.')}</p>}
       {tab === 'summary' && can('reports.summary') && <SummaryTab p={p} />}
       {tab === 'explore' && can('reports.summary') && <ExploreTab p={p} />}
       {tab === 'monthly' && can('reports.monthly') && <MonthlyTab year={year} />}
       {tab === 'accounts' && can('reports.accounts') && <AccountsTab p={p} />}
-      {tab === 'coverage' && can('reports.coverage') && <CoverageTab p={p} year={year} />}
-      {tab === 'funds' && can('reports.funds') && <FundsTab />}
       {tab === 'exchange' && can('reports.exchange') && <ExchangeTab p={p} names={names} />}
     </>
   );
@@ -450,108 +447,6 @@ function AccountsTab({ p }: { p: Period }) {
         </tbody>
       </table>
     </div>
-  );
-}
-
-function CoverageTab({ p, year }: { p: Period; year: number }) {
-  const { d } = useApp();
-  const c = coverage(d.rows, d.comp, d.lists, p, year);
-  const s = c.summary;
-  const accs = c.accounts.filter((a) => c.byHeading.some((h) => (h.perAccount.get(a.id) ?? 0) !== 0));
-  return (
-    <>
-      <div className="alert info small">{t('سرّي · الإيراد الذاتي = كل إيراد ما عدا خطوط أموال المشاريع. كل بند مغطى بنفس النسبة.', 'Confidential · Own income = every income line except the project-fund lines. Every heading is covered in the same %.')}</div>
-      <div className="cards">
-        <Card k={t('نفقات', 'Expenses')} v={fmtUsd(s.expenses)} />
-        <Card k={t('إيراد ذاتي', 'Own income')} v={fmtUsd(s.ownIncome)} sub={fmtPct(s.pctOwn)} />
-        <Card k={t('العجز', 'Funding gap')} v={fmtUsd(s.gap)} />
-        <Card k={t('أموال المشاريع', 'Project funds')} v={fmtUsd(s.projectFunds)} sub={fmtPct(s.pctFunds)} />
-        <Card k={t('فائض / (عجز)', 'Surplus / (shortfall)')} v={fmtUsd(s.surplus)} />
-        <Card k={t('% غير مغطى', '% not covered')} v={fmtPct(s.pctNot)} />
-      </div>
-      <h3 style={{ marginTop: 18 }}>{t('حسب البند والحساب', 'By heading and account')} (USD-eq)</h3>
-      <div className="tbl-wrap">
-        <table className="t">
-          <thead><tr><th>{t('البند', 'Heading')}</th>{accs.map((a) => <th key={a.id} className="n">{a.name}</th>)}<th className="n">{t('المجموع', 'Total')}</th><th className="n">{t('ذاتي', 'Own')}</th><th className="n">{t('مشاريع', 'Funds')}</th><th className="n">{t('غير مغطى', 'Not covered')}</th><th className="n">%</th></tr></thead>
-          <tbody>
-            {c.byHeading.filter((h) => h.total !== 0 || h.headingId != null).map((h) => (
-              <tr key={h.headingId ?? 'none'} className={h.total ? '' : 'off'}>
-                <td>{h.headingId == null ? <span className={Math.abs(h.total) > 0.005 ? 'bad' : 'muted'}>{t('بلا بند صالح — يجب أن يكون صفراً', 'No valid heading — must be nil')}</span> : h.name}</td>
-                {accs.map((a) => <td key={a.id} className="n">{fmtUsd(h.perAccount.get(a.id))}</td>)}
-                <td className="n"><b>{fmtUsd(h.total)}</b></td><td className="n">{fmtUsd(h.own)}</td><td className="n">{fmtUsd(h.funds)}</td><td className="n">{fmtUsd(h.notCovered)}</td><td className="n">{fmtPct(h.share)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <h3 style={{ marginTop: 18 }}>{t('حسب الشهر', 'By month')} · {year}</h3>
-      <div className="tbl-wrap">
-        <table className="t">
-          <thead><tr><th>{t('الشهر', 'Month')}</th><th className="n">{t('نفقات', 'Expenses')}</th><th className="n">{t('إيراد ذاتي', 'Own income')}</th><th className="n">{t('مشاريع', 'Funds')}</th><th className="n">{t('فائض/(عجز)', 'Surplus')}</th><th className="n">% {t('ذاتي', 'own')}</th></tr></thead>
-          <tbody>
-            {c.byMonth.map((m) => (
-              <tr key={m.ym} className={m.expenses || m.own || m.funds ? '' : 'off'}>
-                <td>{monthName(m.ym)}</td><td className="n">{fmtUsd(m.expenses)}</td><td className="n">{fmtUsd(m.own)}</td><td className="n">{fmtUsd(m.funds)}</td><td className="n">{fmtUsd(m.surplus)}</td><td className="n">{fmtPct(m.pctOwn)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-function FundsTab() {
-  const { d } = useApp();
-  const names = useNames();
-  const f = projectFunds(d.rows, d.comp, d.lists, d.grants);
-  const status: Record<string, string> = {
-    used: t('صُرف كله', 'fund used up'),
-    remaining: t('متبقٍ', 'remaining'),
-    overspent: t('⚠ صُرف أكثر من المُرسَل', '⚠ spent more than sent'),
-    enter_grant: t('⚠ أُرسل أكثر من المستلم — أدخل المنحة', '⚠ sent more than received — enter the grant'),
-    none: t('لا تمويل مسجل', 'no funds recorded'),
-  };
-  const nil = (x: number) => (Math.abs(x) < 0.5 ? <span className="ok">✓</span> : <span className="bad">{fmtUsd(x)}</span>);
-  return (
-    <>
-      <div className="alert info small">{t('سرّي · كل الفترات', 'Confidential · all periods')}</div>
-      <div className="grid2">
-        <div className="panel">
-          <h3>{t('مطابقة', 'Reconciliation')}</h3>
-          <table className="t"><tbody>
-            <tr><td>{t('مستلم من المانحين', 'Received from donors')}</td><td className="n">{fmtUsd(f.received)}</td></tr>
-            <tr><td>{t('مُرسَل إلى المركز', 'Sent to the centre')}</td><td className="n">{fmtUsd(f.sent)}</td></tr>
-            <tr><td>{t('منه بحساب بلا مشروع (يجب صفر)', 'of which in an account with no project (must be nil)')}</td><td className="n">{nil(f.sentNoProject)}</td></tr>
-            <tr><td>{t('عدد الحركات', 'Respo rows found')}</td><td className="n">{f.respoRows}</td></tr>
-            <tr><td>{t('لدى المسؤول', 'Still held by the Respo')}</td><td className="n">{fmtUsd(f.heldByRespo)}</td></tr>
-            <tr><td>{t('نفقات بلا مشروع (يجب صفر)', 'Expenses not linked to a project (must be nil)')}</td><td className="n">{nil(f.expensesNoProject)}</td></tr>
-          </tbody></table>
-        </div>
-        <div className="panel">
-          <h3>{t('المُرسَل إلى المركز', 'Sent to the centre')}</h3>
-          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-            <table className="t">
-              <thead><tr><th>{t('التاريخ', 'Date')}</th><th>{t('الحساب', 'Account')}</th><th>{t('المشروع', 'Project')}</th><th className="n">USD</th></tr></thead>
-              <tbody>{f.sentRows.map((r) => (
-                <tr key={r.trx.id}><td>{fmtDate(r.trx.date)}</td><td>{names.account(r.trx.account_id)}</td><td>{r.projectId == null ? <span className="bad">⚠</span> : names.project(r.projectId)}</td><td className="n">{fmtUsd(r.usd)}</td></tr>
-              ))}</tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      <div className="tbl-wrap">
-        <table className="t">
-          <thead><tr><th>{t('المشروع', 'Project')}</th><th className="n">{t('مستلم', 'Received')}</th><th className="n">{t('مُرسَل', 'Sent')}</th><th className="n">{t('لدى المسؤول', 'At the Respo')}</th><th className="n">{t('مصروف', 'Spent')}</th><th className="n">{t('متبقٍ في المركز', 'Unspent at centre')}</th><th>{t('الحالة', 'Status')}</th></tr></thead>
-          <tbody>
-            {f.lines.map((l) => (
-              <tr key={l.projectId}><td>{l.name}</td><td className="n">{fmtUsd(l.received)}</td><td className="n">{fmtUsd(l.sent)}</td><td className="n">{fmtUsd(l.atRespo)}</td><td className="n">{fmtUsd(l.spent)}</td><td className="n">{fmtUsd(l.unspent)}</td>
-                <td className={l.status === 'overspent' || l.status === 'enter_grant' ? 'warn' : 'muted'}>{status[l.status]}</td></tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
   );
 }
 

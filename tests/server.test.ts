@@ -114,7 +114,7 @@ describe('server: permissions are checked by the server', () => {
     const d = (await op('data', {}, com)).body as DataPayload;
     expect(d.rows.length).toBe(586);
     expect(d.lists.donors).toEqual([]);
-    expect((await op('grant.add', { date: '2026-10-01', donor_id: 1, project_id: null, amount_usd: 100, reference: null, note: null }, com)).status).toBe(400);
+    expect((await op('grant.save', { donor_id: 1, amount: 100, currency: 'USD', parts: [] }, com)).status).toBe(400);
   });
 
   it('the superior sees the donors', async () => {
@@ -337,6 +337,61 @@ describe('server: controls (reason for changes, approval of large expenses, docu
     // back to the defaults for the tests that follow
     expect((await op('trx.delete', { ids: [r1.id, old.id], reason: 'test row' }, com)).status).toBe(200);
     expect((await op('settings.save', { approval_on: 0, doc_required_usd: 0 }, sup)).status).toBe(200);
+  });
+});
+
+describe("server: grants follow the money; the Superior's book is private", () => {
+  it('promised → in hand (an income in his book) → transfer to Main confirmed by the Accountant; others never see his book', async () => {
+    const sup = await loginAs('Fouad', 'sup-secret');
+    const com = await loginAs('Comptable', 'com-secret');
+    let L = ((await op('data', {}, sup)).body as DataPayload).lists;
+    // the Superior gets his own book, private
+    expect((await op('book.save', { name: 'Sup book', keeper_name: 'Fouad', city_id: L.cities[0].id, account_id: null, opening_syp: 0, opening_usd: 0 }, sup)).status).toBe(200);
+    L = ((await op('data', {}, sup)).body as DataPayload).lists;
+    const supBook = L.books.find((b) => b.name === 'Sup book')!.id;
+    const me = ((await op('users.list', {}, sup)).body as { id: number; name: string; access_id: number; books: number[] }[]).find((u) => u.name === 'Fouad')!;
+    expect((await op('user.save', { id: me.id, name: 'Fouad', access_id: me.access_id, books: [...me.books, supBook] }, sup)).status).toBe(200);
+    expect((await op('book.setPrivate', { id: supBook, private: true }, com)).status).toBe(400);
+    expect((await op('book.setPrivate', { id: supBook, private: true }, sup)).status).toBe(200);
+    const sup2 = await loginAs('Fouad', 'sup-secret'); // his books are read at sign-in
+
+    // a grant: $5,000 for Furniture 2,000 + the whole centre 3,000
+    const furn = L.accounts.find((a) => a.name === 'Furniture')!.id;
+    const donor = L.donors.find((x) => x.name !== 'SJ')!.id;
+    expect((await op('grant.save', { donor_id: donor, amount: 5000, currency: 'USD', parts: [{ account_id: furn, amount: 2000 }, { account_id: null, amount: 2500 }] }, sup2)).status).toBe(400); // parts ≠ amount
+    const gid = (await op('grant.save', { donor_id: donor, amount: 5000, currency: 'USD', reference: 'AG-1', parts: [{ account_id: furn, amount: 2000 }, { account_id: null, amount: 3000 }] }, sup2)).body as string;
+    for (const st of ['approved', 'transferred', 'bank']) expect((await op('grant.step', { id: gid, status: st, date: '2026-12-02' }, sup2)).status).toBe(200);
+    expect((await op('grant.step', { id: gid, status: 'hand', date: '2026-12-03' }, sup2)).status).toBe(400); // the dollars in hand
+    expect((await op('grant.step', { id: gid, status: 'hand', date: '2026-12-03', hand_usd: 5000 }, sup2)).status).toBe(200);
+    let mine = (await op('data', {}, sup2)).body as DataPayload;
+    const income = mine.rows.find((r) => r.grant_id === gid && r.type === 'Income')!;
+    expect(income).toMatchObject({ book_id: supBook, inc_usd: 5000, date: '2026-12-03' });
+    expect(mine.grants.find((g) => g.id === gid)!.status).toBe('hand');
+
+    // the Accountant sees neither the grant nor the income in the Superior's book
+    let his = (await op('data', {}, com)).body as DataPayload;
+    expect(his.grants).toEqual([]);
+    expect(his.rows.some((r) => r.id === income.id)).toBe(false);
+
+    // $2,000 from the grant to Main: the Accountant sees the transfer (only) and confirms it
+    const t1 = { ...blankTrx(), id: crypto.randomUUID(), date: '2026-12-04', type: 'Transfer' as const, book_id: supBook, account_id: furn, city_id: L.cities[0].id,
+      heading_id: L.headings.find((h) => h.name === 'Other / Unallocated')!.id, line_id: L.lines.find((l) => l.name === 'Unallocated')!.id, trf_usd: -2000, grant_id: gid, explanation: 'to Main for the furniture' };
+    expect((await op('trx.save', { rows: [t1] }, sup2)).status).toBe(200);
+    his = (await op('data', {}, com)).body as DataPayload;
+    const seen = his.rows.find((r) => r.id === t1.id)!;
+    expect(seen.private_book).toBe(true);
+    expect(his.rows.filter((r) => r.book_id === supBook).every((r) => r.type === 'Transfer')).toBe(true);
+    expect(his.transfers.find((x) => x.rowIds.includes(t1.id))!.explanation).toBeNull();
+    expect((await op('transfer.answer', { id: t1.id, ok: true }, com)).status).toBe(200);
+
+    // once money left, the grant stays "in hand" and cannot be deleted
+    expect((await op('grant.step', { id: gid, status: 'bank', date: '2026-12-05' }, sup2)).status).toBe(400);
+    expect((await op('grant.delete', { id: gid }, sup2)).status).toBe(400);
+    // a promised grant can be deleted
+    const g2 = (await op('grant.save', { donor_id: donor, amount: 900, currency: 'EUR', parts: [] }, sup2)).body as string;
+    expect((await op('grant.delete', { id: g2 }, sup2)).status).toBe(200);
+    mine = (await op('data', {}, sup2)).body as DataPayload;
+    expect(mine.grants.some((g) => g.id === g2)).toBe(false);
   });
 });
 

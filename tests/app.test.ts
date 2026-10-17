@@ -116,7 +116,7 @@ describe('Excel export', () => {
     const rows = await loadTrx(office);
     const bytes = await exportWorkbook(rows, computeAll(rows, lists), lists, {
       period: null, bookId: null, accountId: null, registerOnly: false, withLists: true, withReports: true,
-      confidential: true, grants: [], organisation: null,
+      confidential: true, grants: [], grantParts: [], organisation: null,
     });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(bytes);
@@ -173,7 +173,7 @@ describe('desktop app path (local operations)', () => {
     const after = await api.call('data');
     expect(after.rows.length).toBe(before + 1);
     expect(after.lists.donors).toEqual([]); // the accountant never receives the donors
-    await expect(api.call('grant.add', { date: '2026-10-01', donor_id: 1, project_id: null, amount_usd: 5, reference: null, note: null })).rejects.toThrow(/Not allowed/);
+    await expect(api.call('grant.save', { donor_id: 1, amount: 5, currency: 'USD', parts: [] })).rejects.toThrow(/Not allowed/);
   });
 });
 
@@ -337,7 +337,7 @@ describe('donor report', () => {
         { id: 2, budget_id: 1, donor_id: 2, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, rest: 0, status: 'promised' as const, note: null },
         { id: 3, budget_id: 1, donor_id: 3, account_id: null, heading_id: null, line_id: null, pct: null, amount_usd: null, rest: 1, status: 'promised' as const, note: null },
       ],
-      grants: [{ id: 'g', date: '2027-02-01', donor_id: 2, project_id: null, amount_usd: 6000, reference: null, note: null }],
+      grants: [{ id: 'g', donor_id: 2, amount: 6000, currency: 'USD' as const, reference: null, note: null, status: 'hand' as const, promised_on: null, approved_on: null, transferred_on: null, bank_on: null, hand_on: '2027-02-01', hand_usd: 6000 }],
       docs: new Map([['b', ['B-b.pdf']]]),
     };
     const undp = donorReportData({ ...base, donorId: 1 });
@@ -409,12 +409,46 @@ describe('budgets with their own period, overlapping', () => {
       { sql: "INSERT INTO budget_version (year, rev, rate_syp, rate_eur, start_month, months, created_at) VALUES (2026, 0, 130, 0.89, 7, 6, 'x'), (2027, 0, 130, 0.89, 1, 12, 'x'), (2027, 1, 130, 0.89, 1, 12, 'x')" },
       { sql: "INSERT INTO budget_alloc (year, donor_id, account_id, pct, status) VALUES (2027, (SELECT id FROM donor WHERE name = 'Belfast'), 1, 50, 'promised')" },
     ]);
-    expect(await migrate(db)).toEqual([8]);
+    expect(await migrate(db)).toEqual([8, 9]);
     expect(await db.query('SELECT id, name, start_ym, months FROM budget ORDER BY id')).toEqual([
       { id: 2026, name: 'Jul 2026 – Dec 2026', start_ym: '2026-07', months: 6 },
       { id: 2027, name: '2027', start_ym: '2027-01', months: 12 },
     ]);
     expect((await db.query<{ budget_id: number }>('SELECT budget_id FROM budget_version ORDER BY id')).map((x) => x.budget_id)).toEqual([2026, 2027, 2027]);
     expect((await db.query<{ budget_id: number }>('SELECT budget_id FROM budget_alloc'))[0].budget_id).toBe(2027);
+  });
+});
+
+describe('grants follow the money', () => {
+  it('in hand, sent to Main, spent on its account (oldest grant first), what is left; EUR changed to USD', async () => {
+    const { grantFlows } = await import('../src/domain/grants');
+    const card = (id: string, donor: number, amount: number, hand_on: string, hand_usd: number, currency: 'USD' | 'EUR' = 'USD') =>
+      ({ id, donor_id: donor, amount, currency, reference: null, note: null, status: 'hand' as const, promised_on: null, approved_on: null, transferred_on: null, bank_on: null, hand_on, hand_usd });
+    const cards = [
+      card('belfast', 2, 10000, '2027-01-10', 10000), // Furniture
+      card('undp', 7, 5000, '2027-02-01', 5000), // Harat
+      card('eu', 9, 4000, '2027-03-01', 4400, 'EUR'), // € 4,000 → $4,400; the whole centre
+      { ...card('later', 2, 3000, '', 0), status: 'approved' as const, hand_on: null, hand_usd: null },
+    ];
+    const parts = [
+      { grant_id: 'belfast', account_id: 4, amount: 10000 },
+      { grant_id: 'undp', account_id: 6, amount: 5000 },
+      { grant_id: 'eu', account_id: null, amount: 4000 },
+    ];
+    const r = (id: string, date: string, type: Trx['type'], acc: number, usd: number, extra: Partial<Trx> = {}): Trx => ({ ...blankTrx(), id, date, type, account_id: acc, exp_usd: type === 'Exp' ? usd : 0, trf_usd: type === 'Transfer' ? -usd : 0, ...extra });
+    const rows = [
+      r('t1', '2027-01-15', 'Transfer', 0, 6000, { grant_id: 'belfast', received_at: '2027-01-16' }), // to Main, confirmed
+      r('t2', '2027-01-20', 'Transfer', 0, 1000, { grant_id: 'belfast' }), // waiting
+      r('e1', '2027-01-25', 'Exp', 4, 4000), // furniture: Belfast
+      r('e2', '2027-03-10', 'Exp', 6, 5500), // Harat: UNDP 5,000, then the whole-centre grant 500
+      r('e3', '2026-12-01', 'Exp', 4, 900), // before Belfast was in hand: no grant
+    ];
+    const comp = new Map(rows.map((x) => [x.id, { expUsdTot: x.exp_usd, rate: 1 } as never]));
+    const f = grantFlows(cards, parts, rows, comp);
+    expect(f.get('belfast')).toMatchObject({ inHand: 10000, sent: 6000, sentWaiting: 1000, withSup: 3000, spent: 4000, left: 6000 });
+    expect(f.get('undp')).toMatchObject({ spent: 5000, left: 0 });
+    expect(f.get('eu')!.inHand).toBe(4400);
+    expect(f.get('eu')!.spent).toBe(500);
+    expect(f.get('later')).toMatchObject({ inHand: 0, spent: 0 });
   });
 });

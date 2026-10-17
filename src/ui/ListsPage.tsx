@@ -8,7 +8,7 @@ import { TYPES, type Book, type TrxType } from '../domain/types';
 import { TYPE_LABEL, tx } from '../i18n';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 
-type Tab = 'budget' | 'city' | 'account' | 'project' | 'party' | 'books' | 'donors' | 'rules' | 'settings';
+type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'donors' | 'settings';
 
 export function ListsPage() {
   const { can } = useApp();
@@ -21,17 +21,14 @@ export function ListsPage() {
         { value: 'books', label: t('الدفاتر والأمناء', 'Books & keepers') },
         { value: 'party', label: t('الجهات', 'Parties') },
         { value: 'account', label: t('الحسابات', 'Accounts') },
-        { value: 'project', label: t('المشاريع', 'Projects') },
-        { value: 'rules', label: t('قواعد الصرف', 'Spending rules') },
         { value: 'donors', label: t('المانحون', 'Donors'), hidden: !can('lists.donors') },
         { value: 'city', label: t('المدن', 'Cities') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
       {tab === 'budget' && <BudgetTab />}
-      {(tab === 'city' || tab === 'account' || tab === 'project' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
+      {(tab === 'city' || tab === 'account' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
       {tab === 'books' && <BooksTab />}
       {tab === 'donors' && can('lists.donors') && <DonorsTab />}
-      {tab === 'rules' && <RulesTab />}
       {tab === 'settings' && <SettingsTab />}
     </>
   );
@@ -147,17 +144,13 @@ function BudgetTab() {
           </div>
 
           <table className="t">
-            <thead><tr><th>{t('الرمز', 'Code')}</th><th>{t('الخط', 'Line')}</th><th className="n">{t('سطور', 'Rows')}</th>
-              {types(h.id).includes('Income') && <th title={t('يُحسب من أموال المشاريع لا من الإيراد الذاتي', 'Counted as project funds, not own income')}>{t('أموال مشروع', 'Project fund')}</th>}<th /></tr></thead>
+            <thead><tr><th>{t('الرمز', 'Code')}</th><th>{t('الخط', 'Line')}</th><th className="n">{t('سطور', 'Rows')}</th><th /></tr></thead>
             <tbody>
               {lines.map((l) => (
                 <tr key={l.id} className={l.active ? '' : 'off'}>
                   <td className="code">{l.code}</td>
                   <td>{l.name}</td>
                   <td className="n">{counts.line.get(l.id) ?? 0}</td>
-                  {types(h.id).includes('Income') && (
-                    <td><input type="checkbox" checked={!!l.is_project_fund} onChange={(e) => act(() => s.api.call('line.fund', { id: l.id, on: e.target.checked }))} /></td>
-                  )}
                   <td className="nowrap">
                     <button className="btn small ghost" onClick={() => rename('budget_line', l.id, l.name)}>✎</button>
                     {l.active
@@ -193,7 +186,7 @@ function SimpleTab({ table }: { table: SimpleList }) {
   const [name, setName] = useState('');
   const [q, setQ] = useState('');
   const arr = { city: d.lists.cities, account: d.lists.accounts, project: d.lists.projects, party: d.lists.parties }[table];
-  const used = (id: number) => (table === 'project' ? d.lists.rules.filter((r) => r.project_id === id).length + d.lists.donors.filter((x) => x.default_project_id === id).length : counts[table as 'city'].get(id) ?? 0);
+  const used = (id: number) => counts[table as 'city'].get(id) ?? 0;
   const shown = arr.filter((x) => !q || x.name.toLowerCase().includes(q.toLowerCase()));
   return (
     <div className="panel" style={{ maxWidth: 760 }}>
@@ -239,7 +232,7 @@ function SimpleTab({ table }: { table: SimpleList }) {
 // ---------------------------------------------------------------- books
 
 function BooksTab() {
-  const { s, d } = useApp();
+  const { s, d, can } = useApp();
   const act = useAct();
   const counts = useCounts();
   const [edit, setEdit] = useState<Partial<Book> | null>(null);
@@ -256,11 +249,17 @@ function BooksTab() {
         <tbody>
           {L.books.map((b) => (
             <tr key={b.id} className={b.active ? '' : 'off'}>
-              <td><b>{b.name}</b>{b.is_main ? <span className="muted small"> · {t('رئيسي', 'main')}</span> : null}</td>
+              <td><b>{b.name}</b>{b.is_main ? <span className="muted small"> · {t('رئيسي', 'main')}</span> : null}{b.private ? <span className="muted small"> · 🔒 {t('خاص', 'private')}</span> : null}</td>
               <td>{b.keeper_name}</td><td>{name(L.cities, b.city_id)}</td><td>{name(L.accounts, b.account_id)}</td>
               <td className="n">{fmtSyp(b.opening_syp)}</td><td className="n">{fmtUsd(b.opening_usd)}</td><td className="n">{counts.book.get(b.id) ?? 0}</td>
               <td className="nowrap right">
                 <button className="btn small ghost" onClick={() => setEdit(b)}>✎</button>
+                {!b.is_main && can('users.manage') && (
+                  <button className="btn small ghost" title={t('خاص: يراه أمينه فقط (والآخرون يرون تحويلاته فقط)', 'Private: only its keeper sees it (others see only its transfers)')}
+                    onClick={() => act(() => s.api.call('book.setPrivate', { id: b.id, private: !b.private }), b.private ? t('لم يعد خاصاً', 'No longer private') : t('صار خاصاً', 'Now private'))}>
+                    {b.private ? '🔓' : '🔒'}
+                  </button>
+                )}
                 {!b.is_main && (b.active
                   ? <button className="btn small ghost" onClick={async () => (await confirmBox(t('إيقاف هذا الدفتر؟', 'Deactivate this book?'))) && act(() => s.api.call('list.setActive', { table: 'book', id: b.id, active: false }))}>✕</button>
                   : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'book', id: b.id, active: true }))}>↺</button>)}
@@ -308,23 +307,19 @@ function DonorsTab() {
   const { s, d, reload } = useApp();
   const act = useAct();
   const [name, setName] = useState('');
-  const [proj, setProj] = useState<number | null>(null);
-  const projects = d.lists.projects.filter((p) => p.active).map((p) => ({ value: p.id, label: p.name }));
   return (
     <div className="panel" style={{ maxWidth: 760 }}>
       <div className="alert info small">{t('سرّي — يراه الرئيس فقط.', 'Confidential — only the Superior sees this.')}</div>
       <div className="row" style={{ marginBottom: 10 }}>
         <input className="inp" style={{ flex: 1 }} placeholder={t('مانح جديد', 'New donor')} value={name} onChange={(e) => setName(e.target.value)} />
-        <div className="field" style={{ width: 180 }}><Select value={proj} options={projects} onChange={setProj} placeholder={t('بلا مشروع بعد', 'No project yet')} /></div>
-        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => s.api.call('donor.save', { name, default_project_id: proj }), t('أضيف', 'Added'))) && (setName(''), setProj(null))}>＋</button>
+        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => s.api.call('donor.save', { name, default_project_id: null }), t('أضيف', 'Added'))) && setName('')}>＋</button>
       </div>
       <table className="t">
-        <thead><tr><th>{t('المانح', 'Donor')}</th><th>{t('المشروع الافتراضي', 'Default project')}</th><th /></tr></thead>
+        <thead><tr><th>{t('المانح', 'Donor')}</th><th /></tr></thead>
         <tbody>
           {d.lists.donors.map((x) => (
             <tr key={x.id} className={x.active ? '' : 'off'}>
               <td>{x.name}</td>
-              <td style={{ width: 220 }} className="field"><Select value={x.default_project_id} options={projects} placeholder={t('بلا مشروع بعد', 'No project yet')} onChange={(v) => act(() => s.api.call('donor.save', { id: x.id, name: x.name, default_project_id: v }))} /></td>
               <td className="nowrap right">
                 <button className="btn small ghost" onClick={async () => {
                   const n = await promptBox(t('الاسم الجديد', 'New name'), x.name);
@@ -354,43 +349,6 @@ function DonorsTab() {
 }
 
 // ---------------------------------------------------------------- spending rules (ProjectMap)
-
-function RulesTab() {
-  const { s, d } = useApp();
-  const act = useAct();
-  const L = d.lists;
-  const [n, setN] = useState<{ project_id: number | null; account_id: number | null; heading_id: number | null }>({ project_id: null, account_id: null, heading_id: null });
-  const opt = (arr: { id: number; name: string; active: number }[]) => arr.filter((x) => x.active).map((x) => ({ value: x.id, label: x.name }));
-  const expHeadings = L.headings.filter((h) => L.headingTypes.some((x) => x.heading_id === h.id && x.type === 'Exp'));
-  const name = (arr: { id: number; name: string }[], id: number | null) => arr.find((x) => x.id === id)?.name ?? '';
-  return (
-    <div className="panel" style={{ maxWidth: 860 }}>
-      <ol className="muted small">
-        <li>{t('البند = الكل: كل نفقات الحساب تُنسب إلى المشروع.', 'Heading = All: every expense of that account belongs to the project.')}</li>
-        <li>{t('البند المحدد يتقدم على «الكل» للحساب نفسه.', 'A named heading takes priority over All for the same account.')}</li>
-        <li>{t('مال المسؤول يُسجَّل في حساب المشروع.', "Respo money must be booked in the project's account.")}</li>
-      </ol>
-      <table className="t">
-        <thead><tr><th>{t('المشروع', 'Project')}</th><th>{t('الحساب', 'Account')}</th><th>{t('البند', 'Heading')}</th><th /></tr></thead>
-        <tbody>
-          {L.rules.map((r) => (
-            <tr key={r.id}>
-              <td>{name(L.projects, r.project_id)}</td><td>{name(L.accounts, r.account_id)}</td><td>{r.heading_id == null ? <i>{t('الكل', 'All')}</i> : name(L.headings, r.heading_id)}</td>
-              <td className="right"><button className="btn small ghost" onClick={async () => (await confirmBox(t('حذف هذه القاعدة؟', 'Delete this rule?'), true)) && act(() => s.api.call('rule.delete', { id: r.id }))}>✕</button></td>
-            </tr>
-          ))}
-          <tr>
-            <td className="field"><Select value={n.project_id} options={opt(L.projects)} onChange={(v) => setN({ ...n, project_id: v })} /></td>
-            <td className="field"><Select value={n.account_id} options={opt(L.accounts)} onChange={(v) => setN({ ...n, account_id: v })} /></td>
-            <td className="field"><Select value={n.heading_id} options={expHeadings.map((h) => ({ value: h.id, label: h.name }))} placeholder={t('الكل', 'All')} onChange={(v) => setN({ ...n, heading_id: v })} /></td>
-            <td><button className="btn primary small" disabled={n.project_id == null || n.account_id == null}
-              onClick={async () => (await act(() => s.api.call('rule.save', { project_id: n.project_id!, account_id: n.account_id!, heading_id: n.heading_id }), t('أضيفت', 'Added'))) && setN({ project_id: null, account_id: null, heading_id: null })}>＋</button></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------- settings
 

@@ -25,7 +25,7 @@ export function MonthReport({ ym, onClose }: { ym: string; onClose: () => void }
 
   const L = d.lists;
   const rows = useMemo(() => d.rows.filter((r) => r.date?.startsWith(ym)), [d, ym]);
-  const books = L.books.filter((b) => b.is_main || d.rows.some((r) => r.book_id === b.id));
+  const books = d.shownBooks.filter((b) => b.is_main || d.rows.some((r) => r.book_id === b.id && !r.private_book));
   const syp = holdersMonth(d.rows, books, 'SYP', ym).filter((x) => x.book);
   const usd = holdersMonth(d.rows, books, 'USD', ym).filter((x) => x.book);
   const comp = d.comp;

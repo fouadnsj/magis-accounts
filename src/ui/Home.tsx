@@ -25,8 +25,8 @@ export function Home() {
     Exchange: t('دولار ← ليرة', 'USD → SYP'),
   };
 
-  const syp = useMemo(() => holders(d.rows, d.lists.books, 'SYP'), [d]);
-  const usd = useMemo(() => holders(d.rows, d.lists.books, 'USD'), [d]);
+  const syp = useMemo(() => holders(d.rows, d.shownBooks, 'SYP'), [d]);
+  const usd = useMemo(() => holders(d.rows, d.shownBooks, 'USD'), [d]);
   const toReview = d.rows.filter((r) => r.review).length;
   const noBook = syp[syp.length - 1].shouldHold !== 0 || usd[usd.length - 1].shouldHold !== 0;
   const last = d.rows.reduce<string | null>((m, r) => (r.date && (!m || r.date > m) ? r.date : m), null);

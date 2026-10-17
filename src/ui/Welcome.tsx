@@ -78,10 +78,6 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
               <b>{t('قاعدة المكتب', 'Office database')}</b>
               <span className="muted small">{t('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.')}</span>
             </button>
-            <button onClick={() => setMode('holder')}>
-              <b>{t('حاسوب أمين صندوق', "A cash holder's computer")}</b>
-              <span className="muted small">{t('يحتاج حزمة القوائم التي يرسلها المكتب.', 'Needs the lists package sent by the office.')}</span>
-            </button>
             <button onClick={openExisting} disabled={!isDesktop()}>
               <b>{t('فتح ملف موجود', 'Open an existing file')}</b>
               <span className="muted small">{t('ملف ‎.db أنشئ سابقاً', 'A .db file created before')}</span>

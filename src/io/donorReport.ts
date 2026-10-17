@@ -5,7 +5,7 @@
 import ExcelJS from 'exceljs';
 import type { Computed, Lists, Trx } from '../domain/types';
 import { WHOLE, cellsOf, cover, effectivePct, allocWorth, inPeriod, periodEnd, type Budget, type BudgetAccount, type BudgetAlloc, type BudgetAmount } from '../domain/budget';
-import type { GrantRow } from '../domain/reports';
+import type { GrantCard } from '../domain/grants';
 
 export interface DonorReportInput {
   donorId: number;
@@ -17,7 +17,7 @@ export interface DonorReportInput {
   amounts: BudgetAmount[];
   accounts: BudgetAccount[];
   allocs: BudgetAlloc[];
-  grants: GrantRow[];
+  grants: GrantCard[];
   /** trx id → names of its attached documents */
   docs: Map<string, string[]>;
   /** expense id → the budget it belongs to (overlapping budgets); without it, every expense of the period */
@@ -48,7 +48,7 @@ export function donorReportData(i: DonorReportInput): DonorReport {
   const eff = effectivePct(i.allocs, cells, headingOf);
   const mine = i.allocs.filter((a) => a.donor_id === i.donorId && a.budget_id === i.budget.id);
   const allocated = mine.reduce((s, a) => s + allocWorth(a, i.allocs, eff, cells, headingOf), 0);
-  const received = i.grants.filter((g) => g.donor_id === i.donorId && g.date && inPeriod(i.budget, g.date.slice(0, 7))).reduce((s, g) => s + g.amount_usd, 0);
+  const received = i.grants.filter((g) => g.donor_id === i.donorId && g.status === 'hand' && g.hand_on && inPeriod(i.budget, g.hand_on.slice(0, 7))).reduce((s, g) => s + (g.hand_usd ?? 0), 0);
   const lines = i.rows
     .filter((r) => r.type === 'Exp' && r.date && inPeriod(i.budget, r.date.slice(0, 7)) && !outside.has(r.account_id ?? -1))
     .filter((r) => !i.assigned || i.assigned.get(r.id) === i.budget.id)
@@ -103,10 +103,13 @@ export async function donorReportXlsx(i: DonorReportInput): Promise<Uint8Array> 
 
   // ---- Grants
   const g = wb.addWorksheet('Grants');
-  g.columns = [{ header: 'Date', width: 12 }, { header: 'Project', width: 22 }, { header: 'Amount (USD)', width: 16 }, { header: 'Reference', width: 22 }, { header: 'Note', width: 30 }];
+  g.columns = [{ header: 'Amount', width: 14 }, { header: 'Currency', width: 9 }, { header: 'Step', width: 12 }, { header: 'Promised', width: 12 }, { header: 'Approved', width: 12 },
+    { header: 'Transferred', width: 12 }, { header: 'In the bank', width: 12 }, { header: 'In hand', width: 12 }, { header: 'USD in hand', width: 14 }, { header: 'Reference', width: 22 }, { header: 'Note', width: 30 }];
   g.getRow(1).font = bold;
-  for (const x of i.grants.filter((y) => y.donor_id === i.donorId && y.date && inPeriod(i.budget, y.date.slice(0, 7)))) {
-    g.addRow([x.date, name(L.projects, x.project_id), x.amount_usd, x.reference ?? '', x.note ?? '']).getCell(3).numFmt = money;
+  for (const x of i.grants.filter((y) => y.donor_id === i.donorId && (!y.hand_on || inPeriod(i.budget, y.hand_on.slice(0, 7))))) {
+    const r = g.addRow([x.amount, x.currency, x.status, x.promised_on, x.approved_on, x.transferred_on, x.bank_on, x.hand_on, x.hand_usd, x.reference ?? '', x.note ?? '']);
+    r.getCell(1).numFmt = money;
+    r.getCell(9).numFmt = money;
   }
 
   // ---- Expenses

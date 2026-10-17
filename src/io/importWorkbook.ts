@@ -361,7 +361,7 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
 
   // The lists of the workbook replace whatever lists the new database had.
   const stmts: Stmt[] = [
-    'project_rule', 'grant_row', 'heading_type', 'budget_line', 'heading', 'donor', 'cash_count', 'book', 'party', 'project', 'account', 'city', 'setting',
+    'grant_part', 'grant_card', 'project_rule', 'grant_row', 'heading_type', 'budget_line', 'heading', 'donor', 'cash_count', 'book', 'party', 'project', 'account', 'city', 'setting',
   ].map((tb) => ({ sql: `DELETE FROM ${tb}` }));
   stmts.unshift({ sql: 'UPDATE profile SET book_id = NULL' });
   const addedToLists: string[] = [];
@@ -466,10 +466,18 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
       seed.warnings.push(`Grant row skipped (no donor or date): ${g.donor} ${g.amount}`);
       return;
     }
+    const gid = uuid();
     stmts.push({
       sql: 'INSERT INTO grant_row (id, date, donor_id, project_id, amount_usd, reference, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)',
-      params: [uuid(), g.date, did, g.project ? ensure('project', g.project) : null, g.amount, g.reference, g.note, nowIso(), who],
+      params: [gid, g.date, did, g.project ? ensure('project', g.project) : null, g.amount, g.reference, g.note, nowIso(), who],
     });
+    if (!(g.amount > 0)) return;
+    // the same grant as a card, in hand, for the account of its project (one account) or the whole centre
+    const accs = [...new Set(seed.rules.filter((r) => g.project && key(r.project) === key(g.project)).map((r) => key(r.account)))];
+    stmts.push(
+      { sql: "INSERT INTO grant_card (id, donor_id, amount, currency, reference, note, status, hand_on, hand_usd, created_at, created_by) VALUES (?, ?, ?, 'USD', ?, ?, 'hand', ?, ?, ?, ?)", params: [gid, did, g.amount, g.reference, g.note, g.date, g.amount, nowIso(), who] },
+      { sql: 'INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, ?, ?)', params: [gid, accs.length === 1 ? ids.account.get(accs[0]) ?? null : null, g.amount] },
+    );
   });
 
   // Settings

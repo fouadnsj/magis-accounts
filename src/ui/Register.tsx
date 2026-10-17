@@ -33,6 +33,7 @@ export function Register() {
   const rows = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return d.rows.filter((r) => {
+      if (r.private_book) return false; // a private book's transfer: shown only to confirm it (Home)
       if (review && !r.review) return false;
       if (month === 'none' ? r.date : month && !r.date?.startsWith(month)) return false;
       if (book != null && r.book_id !== book) return false;

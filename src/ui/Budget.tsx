@@ -975,7 +975,7 @@ function Donors({ b, reload }: { b: BudgetPayload; reload: () => Promise<void> }
   }).filter((x) => x.budget > 0);
   const tot = perAccount.reduce((s2, x) => ({ budget: s2.budget + x.budget, toFind: s2.toFind + x.toFind, r: s2.r + x.byStatus.received, p: s2.p + x.byStatus.promised, q: s2.q + x.byStatus.requested }), { budget: 0, toFind: 0, r: 0, p: 0, q: 0 });
 
-  const received = (donorId: number) => d.grants.filter((g) => g.donor_id === donorId && g.date && inPeriod(B, g.date.slice(0, 7))).reduce((sum, g) => sum + g.amount_usd, 0);
+  const received = (donorId: number) => d.grants.filter((g) => g.donor_id === donorId && g.status === 'hand' && g.hand_on && inPeriod(B, g.hand_on.slice(0, 7))).reduce((sum, g) => sum + (g.hand_usd ?? 0), 0);
   const donorIds = [...new Set(b.allocs.map((a) => a.donor_id))];
 
   /** The standard donor report, in Excel. */

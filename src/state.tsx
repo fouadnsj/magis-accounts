@@ -4,7 +4,7 @@
 // picked up automatically (the server says when its data changed).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { computeAll } from './domain/compute';
-import type { GrantRow } from './domain/reports';
+import type { GrantCard, GrantPart } from './domain/grants';
 import type { Computed, Lists, Trx } from './domain/types';
 import { has, type Profile } from './auth';
 import type { Perm } from './perms';
@@ -43,7 +43,10 @@ export interface Data {
   closedYears: Set<number>;
   transfers: TransferInfo[];
   keptBooks: number[];
-  grants: GrantRow[];
+  grants: GrantCard[];
+  grantParts: GrantPart[];
+  /** the books this person may see the cash of (a private book only by its keepers) */
+  shownBooks: Lists['books'];
   receipts: HolderReceipt[];
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
@@ -91,6 +94,8 @@ async function loadData(s: Session, background = false): Promise<Data> {
     transfers: p.transfers,
     keptBooks: p.keptBooks,
     grants: p.grants,
+    grantParts: p.grantParts ?? [],
+    shownBooks: p.lists.books.filter((b) => !b.private || s.profile.books.includes(b.id)),
     receipts: p.receipts,
     officeTransfers: p.officeTransfers,
     listsVersion: p.listsVersion,

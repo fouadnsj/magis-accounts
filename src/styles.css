@@ -439,3 +439,23 @@ table.t.rep td, table.t.rep td.n { font-size: 11.5px; padding: 3px 5px; }
 .balance-head .person-icon { width: 36px; height: 36px; margin: 0; flex: none; }
 .balance-title { font-weight: 700; }
 .balance-foot { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+
+/* grants: one card per grant, its steps, where the money is */
+.grant-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.grant-card { display: flex; flex-direction: column; gap: 8px; }
+.grant-donor { font-weight: 700; font-size: 16px; }
+.grant-amount { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; }
+.steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; list-style: none; padding: 0; margin: 4px 0; }
+.steps li { display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; font-size: 11px; color: var(--muted); }
+.steps li::before { content: ''; position: absolute; top: 6px; inset-inline-start: -50%; width: 100%; height: 2px; background: #E5E0D5; z-index: 0; }
+.steps li:first-child::before { display: none; }
+.steps .dot { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid #D3CDBF; z-index: 1; }
+.steps li.done .dot, .steps li.now .dot { background: var(--centre, #B8891B); border-color: var(--centre, #B8891B); }
+.steps li.done::before, .steps li.now::before { background: var(--centre, #B8891B); }
+.steps li.now .lbl { color: var(--text, #222); font-weight: 700; }
+.steps .when { font-size: 10px; }
+.grant-flow { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px 10px; background: #FAF7EF; border-radius: 8px; padding: 8px; min-width: 0; }
+.grant-card { min-width: 0; overflow: hidden; }
+.grant-flow > div:not(.used-track) { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); }
+.grant-flow b { font-size: 13px; color: var(--text, #222); white-space: nowrap; }
+.steps .lbl { line-height: 1.2; }

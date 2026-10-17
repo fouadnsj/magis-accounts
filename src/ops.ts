@@ -8,7 +8,7 @@
 import ExcelJS from 'exceljs';
 import { type Db, type Stmt, nowIso, one, uuid } from './db/db';
 import {
-  addHeading, addLine, addNamed, auditStmt, closedMonths, deleteRule, deleteUnused, getMeta, loadLists, loadTrx, setMetaStmt,
+  addHeading, addLine, addNamed, auditStmt, blankTrx, closedMonths, deleteRule, deleteUnused, getMeta, loadLists, loadTrx, setMetaStmt,
   moveRow, renameRow, saveBook, saveDonor, saveRule, saveSettings, saveTrxRows, setActive, setHeadingTypes, setProjectFund,
   UserError, type SimpleList,
 } from './db/repo';
@@ -22,7 +22,8 @@ import {
   type AllocStatus, type BudgetAccount, type BudgetAlloc, type BudgetAmount, type BudgetItem, type BudgetVersion,
 } from './domain/budget';
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
-import { holders, type GrantRow } from './domain/reports';
+import { holders } from './domain/reports';
+import { GRANT_STEPS, type GrantCard, type GrantPart, type GrantStep } from './domain/grants';
 import type { Book, Lists, Settings, Trx, TrxType } from './domain/types';
 import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
@@ -129,7 +130,9 @@ export interface DataPayload {
   transfers: TransferInfo[];
   /** books that have at least one active person keeping them */
   keptBooks: number[];
-  grants: GrantRow[];
+  /** grants and what they are for (only for those who see the donors) */
+  grants: GrantCard[];
+  grantParts: GrantPart[];
   receipts: HolderReceipt[];
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
@@ -189,13 +192,23 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   const { db } = c;
   const [lists, allRows, closed, bm, kept] = await Promise.all([loadLists(db), loadTrx(db), closedMonths(db), bookMonths(db), keptBooks(db)]);
   const all = can(c, 'register.view');
+  // A private book (the Superior's) is seen only by its keepers; others see only its
+  // transfers (marked), so the receiver can confirm and Main's balance stays right.
+  const priv = new Set(lists.books.filter((b) => b.private).map((b) => b.id));
+  const shown = allRows.flatMap((r): Trx[] => {
+    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id)) return [r];
+    return r.type === 'Transfer' ? [{ ...r, explanation: null, receipt: null, party_id: null, private_book: true }] : [];
+  });
   // Without "see every book", a person sees only the books he keeps.
-  const rows = all ? allRows : allRows.filter((r) => keeps(c, r.book_id));
-  const allTransfers = buildTransfers(allRows, lists.books);
+  const rows = all ? shown : shown.filter((r) => keeps(c, r.book_id));
+  // a private book's transfer: the other side sees the amount, not its explanation
+  const allTransfers = buildTransfers(allRows, lists.books).map((t) =>
+    [t.from, t.to].some((id) => id != null && priv.has(id) && !keeps(c, id)) ? { ...t, explanation: null } : t);
   const transfers = all ? allTransfers : allTransfers.filter((t) => keeps(c, t.from) || keeps(c, t.to));
-  const donors = can(c, 'lists.donors') || can(c, 'reports.funds');
+  const donors = can(c, 'lists.donors');
   if (!donors) lists.donors = [];
-  const grants = donors ? await db.query<GrantRow>('SELECT * FROM grant_row ORDER BY date') : [];
+  const grants = donors ? await db.query<GrantCard>('SELECT * FROM grant_card ORDER BY COALESCE(hand_on, bank_on, transferred_on, approved_on, promised_on, created_at) DESC') : [];
+  const grantParts = donors ? await db.query<GrantPart>('SELECT * FROM grant_part') : [];
   const receipts = c.install === 'holder' ? await db.query<HolderReceipt>('SELECT * FROM holder_receipt ORDER BY date') : [];
   const ot = await getMeta(db, 'office_transfers');
   const visible = new Set(rows.map((r) => r.id));
@@ -204,7 +217,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   return {
     lists, rows, closed: [...closed], bookMonths: all ? bm : bm.filter((b) => keeps(c, b.book_id)), transfers, keptBooks: kept,
     closedYears: (await c.db.query<{ year: number }>('SELECT year FROM closed_year')).map((x) => x.year),
-    grants, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
+    grants, grantParts, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
   };
 }
 
@@ -677,6 +690,92 @@ async function fillFromActual(c: OpCtx, a: { versionId: number; account_id: numb
   return cells.length;
 }
 
+// ---------------------------------------------------------------- grants: following the money
+
+const STEP_DATE: Record<GrantStep, keyof GrantCard> = { promised: 'promised_on', approved: 'approved_on', transferred: 'transferred_on', bank: 'bank_on', hand: 'hand_on' };
+const goodDate = (x: unknown) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
+
+/** A grant: donor, amount (USD or EUR), what it is for. A new one starts "promised" today. */
+async function saveGrant(c: OpCtx, a: { id?: string; donor_id: number; amount: number; currency: 'USD' | 'EUR'; reference?: string | null; note?: string | null; parts: { account_id: number | null; amount: number }[]; promised_on?: string | null }) {
+  if (!a.donor_id) throw new UserError(m('اختر المانح', 'Choose the donor'));
+  if (!(a.amount > 0)) throw new UserError(m('مبلغ غير صحيح', 'Wrong amount'));
+  if (a.currency !== 'USD' && a.currency !== 'EUR') throw new UserError(m('دولار أو يورو', 'USD or EUR'));
+  const parts = (a.parts ?? []).filter((p) => p.amount > 0);
+  const sum = parts.reduce((s, p) => s + p.amount, 0);
+  if (parts.length && Math.abs(sum - a.amount) > 0.01) throw new UserError(m(`مجموع الحسابات (${sum}) لا يساوي المبلغ (${a.amount})`, `The accounts add up to ${sum}, not ${a.amount}`));
+  const id = a.id ?? uuid();
+  const before = a.id ? await one<GrantCard>(c.db, 'SELECT * FROM grant_card WHERE id = ?', [a.id]) : null;
+  if (a.id && !before) throw new UserError(m('المنحة غير موجودة', 'Grant not found'));
+  const finalParts = parts.length ? parts : [{ account_id: null, amount: a.amount }];
+  await c.db.batch([
+    before
+      ? { sql: 'UPDATE grant_card SET donor_id = ?, amount = ?, currency = ?, reference = ?, note = ? WHERE id = ?', params: [a.donor_id, a.amount, a.currency, a.reference ?? null, a.note ?? null, id] }
+      : { sql: "INSERT INTO grant_card (id, donor_id, amount, currency, reference, note, status, promised_on, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, 'promised', ?, ?, ?)", params: [id, a.donor_id, a.amount, a.currency, a.reference ?? null, a.note ?? null, a.promised_on ?? nowIso().slice(0, 10), nowIso(), c.who] },
+    { sql: 'DELETE FROM grant_part WHERE grant_id = ?', params: [id] },
+    ...finalParts.map((p) => ({ sql: 'INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, ?, ?)', params: [id, p.account_id ?? null, p.amount] })),
+    auditStmt(c.who, before ? 'edit' : 'add', 'grant_card', id, before, { ...a, parts: finalParts }),
+  ]);
+  return id;
+}
+
+/** The book where grants arrive in hand: the Superior's (private) book. */
+async function grantsBook(c: OpCtx, lists: Lists): Promise<Book> {
+  const set = await getMeta(c.db, 'grants_book_id');
+  const byId = (id: number | null | undefined) => lists.books.find((b) => b.id === id && b.active);
+  const book = byId(set ? Number(set) : null)
+    ?? lists.books.find((b) => b.private && b.active && keeps(c, b.id))
+    ?? lists.books.find((b) => b.private && b.active);
+  if (!book) throw new UserError(m('لا دفتر خاص للرئيس: اجعل دفتره «خاصاً» في القوائم ← الدفاتر', "No private book for the Superior: make his book \"private\" in Lists → Books"));
+  return book;
+}
+
+/**
+ * A grant moves to a step (forward or back), with its date. "In hand": the dollars
+ * received become an income in the Superior's book, linked to the grant; leaving
+ * "in hand" removes it (while nothing was transferred from it and the month is open).
+ */
+async function stepGrant(c: OpCtx, a: { id: string; status: GrantStep; date: string; hand_usd?: number | null }) {
+  const g = await one<GrantCard>(c.db, 'SELECT * FROM grant_card WHERE id = ?', [a.id]);
+  if (!g) throw new UserError(m('المنحة غير موجودة', 'Grant not found'));
+  if (!GRANT_STEPS.includes(a.status)) throw new UserError(m('مرحلة غير صحيحة', 'Wrong step'));
+  if (!goodDate(a.date)) throw new UserError(m('اختر التاريخ', 'Choose the date'));
+  const closed = await closedMonths(c.db);
+  const stmts: Stmt[] = [];
+  const income = await one<Trx>(c.db, "SELECT * FROM trx WHERE grant_id = ? AND type = 'Income'", [g.id]);
+  const lists = await loadLists(c.db);
+  if (a.status === 'hand') {
+    if (!(Number(a.hand_usd) > 0)) throw new UserError(m('اكتب الدولارات المستلمة باليد', 'Write the dollars received in hand'));
+    if (closed.has(a.date.slice(0, 7)) || (income?.date && closed.has(income.date.slice(0, 7)))) throw new UserError(m('الشهر مغلق', 'The month is closed'));
+    const book = await grantsBook(c, lists);
+    const parts = await c.db.query<GrantPart>('SELECT * FROM grant_part WHERE grant_id = ?', [g.id]);
+    const accounts = [...new Set(parts.map((p) => p.account_id).filter((x): x is number => x != null))];
+    const incomeHeading = lists.headings.find((h) => lists.headingTypes.some((t) => t.heading_id === h.id && t.type === 'Income'));
+    const line = lists.lines.find((l) => l.heading_id === incomeHeading?.id && l.active && /donation|grant|منحة|تبرع/i.test(l.name))
+      ?? lists.lines.find((l) => l.heading_id === incomeHeading?.id && l.active);
+    if (!incomeHeading || !line) throw new UserError(m('لا خط إيرادات: أضف خطاً «Donation» تحت بند الإيرادات', 'No income line: add a "Donation" line under the Income heading'));
+    const donor = lists.donors.find((d) => d.id === g.donor_id)?.name ?? '';
+    const row: Trx = {
+      ...(income ?? blankTrx()), type: 'Income', date: a.date, book_id: book.id,
+      account_id: (accounts.length === 1 ? accounts[0] : null) ?? lists.settings.def_account_id ?? book.account_id ?? lists.accounts[0]?.id ?? null,
+      city_id: book.city_id ?? lists.settings.def_city_id ?? lists.cities[0]?.id ?? null,
+      heading_id: incomeHeading.id, line_id: line.id, inc_usd: Number(a.hand_usd), inc_syp: 0,
+      explanation: `${t2('منحة', 'Grant')} ${donor}${g.reference ? ` · ${g.reference}` : ''}`, grant_id: g.id,
+    };
+    await saveTrxRows(c.db, [row], c.who, c.install === 'office', [], income ? 'grant: in hand changed' : null);
+    stmts.push({ sql: 'UPDATE grant_card SET status = ?, hand_on = ?, hand_usd = ? WHERE id = ?', params: ['hand', a.date, Number(a.hand_usd), g.id] });
+  } else {
+    if (income) {
+      if (await one(c.db, "SELECT 1 FROM trx WHERE grant_id = ? AND type = 'Transfer'", [g.id])) throw new UserError(m('حُوّل من هذه المنحة: تبقى «باليد»', 'Money from this grant was transferred: it stays "in hand"'));
+      if (income.date && closed.has(income.date.slice(0, 7))) throw new UserError(m('الشهر مغلق', 'The month is closed'));
+      stmts.push({ sql: 'DELETE FROM trx WHERE id = ?', params: [income.id] }, auditStmt(c.who, 'delete', 'trx', income.id, income, { reason: 'grant no longer in hand' }));
+    }
+    stmts.push({ sql: `UPDATE grant_card SET status = ?, ${STEP_DATE[a.status]} = ?, hand_usd = CASE WHEN ? = 'hand' THEN hand_usd ELSE NULL END, hand_on = CASE WHEN ? = 'hand' THEN hand_on ELSE NULL END WHERE id = ?`, params: [a.status, a.date, a.status, a.status, g.id] });
+  }
+  stmts.push(auditStmt(c.who, 'step', 'grant_card', g.id, { status: g.status }, { status: a.status, date: a.date, hand_usd: a.hand_usd ?? null }));
+  await c.db.batch(stmts);
+}
+const t2 = (ar: string, en: string) => `${en} · ${ar}`;
+
 const STATUSES: AllocStatus[] = ['requested', 'promised', 'received'];
 
 async function saveAlloc(c: OpCtx, a: Partial<BudgetAlloc> & { budget_id: number; donor_id: number; account_id: number | null; status: AllocStatus }) {
@@ -892,7 +991,9 @@ export const OPS = {
     check: anyone,
     run: async (c: OpCtx) => {
       const rows = await c.db.query<CashCountRow>('SELECT * FROM cash_count');
-      return can(c, 'reports.cash') || can(c, 'register.edit') ? rows : rows.filter((r) => keeps(c, r.book_id));
+      const priv = new Set((await c.db.query<{ id: number }>('SELECT id FROM book WHERE private = 1')).map((x) => x.id));
+      const mayAll = can(c, 'reports.cash') || can(c, 'register.edit');
+      return rows.filter((r) => keeps(c, r.book_id) || (mayAll && !priv.has(r.book_id)));
     },
   },
   'audit.list': { check: (c: OpCtx) => need(c, 'audit.view'), run: (c: OpCtx) => c.db.query<AuditRow>('SELECT * FROM audit_log ORDER BY id DESC LIMIT 500') },
@@ -1044,22 +1145,22 @@ export const OPS = {
   },
 
   // ---------------------------------------------------------------- grants (confidential)
-  'grant.add': {
-    check: (c: OpCtx) => need(c, 'lists.donors'),
-    run: async (c: OpCtx, a: { date: string; donor_id: number; project_id: number | null; amount_usd: number; reference: string | null; note: string | null }) => {
-      if (!a.date || !a.donor_id || !(a.amount_usd > 0)) throw new UserError(m('التاريخ والمانح والمبلغ مطلوبة', 'Date, donor and amount are required'));
-      const id = uuid();
-      await c.db.batch([
-        { sql: 'INSERT INTO grant_row (id, date, donor_id, project_id, amount_usd, reference, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)', params: [id, a.date, a.donor_id, a.project_id, a.amount_usd, a.reference, a.note, nowIso(), c.who] },
-        auditStmt(c.who, 'add', 'grant_row', id, null, a),
-      ]);
-    },
-  },
+  'grant.save': { check: (c: OpCtx) => need(c, 'lists.donors'), run: (c: OpCtx, a: Parameters<typeof saveGrant>[1]) => saveGrant(c, a) },
+  'grant.step': { check: (c: OpCtx) => need(c, 'lists.donors'), run: (c: OpCtx, a: Parameters<typeof stepGrant>[1]) => stepGrant(c, a) },
   'grant.delete': {
     check: (c: OpCtx) => need(c, 'lists.donors'),
     run: async (c: OpCtx, a: { id: string }) => {
-      const before = await one(c.db, 'SELECT * FROM grant_row WHERE id = ?', [a.id]);
-      await c.db.batch([{ sql: 'DELETE FROM grant_row WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'grant_row', a.id, before, null)]);
+      const g = await one<GrantCard>(c.db, 'SELECT * FROM grant_card WHERE id = ?', [a.id]);
+      if (!g) return;
+      if (await one(c.db, "SELECT 1 FROM trx WHERE grant_id = ? AND type = 'Transfer'", [a.id])) throw new UserError(m('حُوّل من هذه المنحة: لا تُحذف', 'Money from this grant was transferred: it cannot be deleted'));
+      const income = await one<Trx>(c.db, "SELECT * FROM trx WHERE grant_id = ? AND type = 'Income'", [a.id]);
+      if (income?.date && (await closedMonths(c.db)).has(income.date.slice(0, 7))) throw new UserError(m('الشهر مغلق', 'The month is closed'));
+      await c.db.batch([
+        ...(income ? [{ sql: 'DELETE FROM trx WHERE id = ?', params: [income.id] }, auditStmt(c.who, 'delete', 'trx', income.id, income, { reason: 'grant deleted' })] : []),
+        { sql: 'DELETE FROM grant_part WHERE grant_id = ?', params: [a.id] },
+        { sql: 'DELETE FROM grant_card WHERE id = ?', params: [a.id] },
+        auditStmt(c.who, 'delete', 'grant_card', a.id, g, null),
+      ]);
     },
   },
 
@@ -1276,6 +1377,15 @@ export const OPS = {
       for (const id of a.lineIds) await setActive(c.db, 'budget_line', id, false, c.who);
       return a.lineIds.length;
     },
+  },
+  /** A private book (the Superior's): only its keepers see it; others see only the transfers it makes. */
+  'book.setPrivate': {
+    check: (c: OpCtx) => need(c, 'users.manage'),
+    run: (c: OpCtx, a: { id: number; private: boolean }) =>
+      c.db.batch([
+        { sql: 'UPDATE book SET private = ? WHERE id = ? AND is_main = 0', params: [a.private ? 1 : 0, a.id] },
+        auditStmt(c.who, 'edit', 'book', String(a.id), null, { private: a.private }),
+      ]),
   },
   'account.setOutside': {
     check: (c: OpCtx) => need(c, 'lists.manage'),

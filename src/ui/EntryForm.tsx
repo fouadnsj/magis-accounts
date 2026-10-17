@@ -1,5 +1,6 @@
 // The entry form: the only way a movement enters the register.
 // Every rule of validate.ts is checked before saving; warnings need a second click.
+import { grantFlows } from '../domain/grants';
 import { needsApproval, needsDoc } from '../ops';
 import { draftFor, draftKey, dropDraft, keepDraft } from './draft';
 import { useEffect, useMemo, useState } from 'react';
@@ -31,6 +32,8 @@ interface FormState {
   toBook: number | null;
   usd: string;
   syp: string;
+  /** a transfer from the Superior's (private) book: the grant the money comes from */
+  grantId?: string | null;
 }
 
 const remember = (k: string, v: string | number | null) => {
@@ -92,7 +95,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       const base: FormState = {
         type: tr.type ?? 'Exp', date: tr.date ?? '', bookId: tr.book_id, accountId: tr.account_id, cityId: tr.city_id,
         headingId: tr.heading_id, lineId: tr.line_id, partyId: tr.party_id, explanation: tr.explanation ?? '', receipt: tr.receipt ?? '',
-        currency: null, amount: '', fromBook: null, toBook: null, usd: '', syp: '',
+        currency: null, amount: '', fromBook: null, toBook: null, usd: '', syp: '', grantId: tr.grant_id ?? null,
       };
       const amt = tr.inc_syp || tr.exp_syp ? ['SYP', tr.inc_syp || tr.exp_syp] : tr.inc_usd || tr.exp_usd ? ['USD', tr.inc_usd || tr.exp_usd] : [null, 0];
       if (tr.type === 'Income' || tr.type === 'Exp' || !tr.type) {
@@ -205,6 +208,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       return { rows: [t1], deletes: partner ? [partner.id] : [], formErrors };
     }
     // Transfer: one row on the keeper's book; two rows (−/+) between two keepers.
+    const fromPrivate = !!L.books.find((b) => b.id === f.fromBook)?.private;
     if (!f.currency) formErrors.push({ ar: 'اختر العملة: ليرة أو دولار', en: 'Choose the currency: SYP or USD' });
     if (f.fromBook == null || f.toBook == null) formErrors.push({ ar: 'اختر «من» و«إلى»', en: 'Choose "from" and "to"' });
     else if (f.fromBook === f.toBook) formErrors.push({ ar: '«من» و«إلى» هما نفس الدفتر', en: '"From" and "to" are the same book' });
@@ -221,10 +225,19 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       r.book_id = leg.book;
       r[col] = leg.sign * (amount || 0);
       r.transfer_group = group;
+      r.grant_id = fromPrivate ? f.grantId ?? null : null;
       return r;
     });
     return { rows, deletes: ids.slice(legs.length), formErrors };
   };
+
+  // money leaving the Superior's (private) book: which grant it comes from (grants in hand)
+  const grantChoices = useMemo(() => {
+    if (f.type !== 'Transfer' || !L.books.find((b) => b.id === f.fromBook)?.private || !d.grants.length) return null;
+    const flows = grantFlows(d.grants, d.grantParts, d.rows, d.comp);
+    return d.grants.filter((g) => g.status === 'hand' && ((flows.get(g.id)?.withSup ?? 0) > 0.5 || g.id === f.grantId))
+      .map((g) => ({ id: g.id, label: `${L.donors.find((x) => x.id === g.donor_id)?.name ?? ''} · ${g.hand_on} · ${t('مع الرئيس', 'with the Superior')} $${fmtUsd(flows.get(g.id)?.withSup ?? 0)}` }));
+  }, [f.type, f.fromBook, f.grantId, d, L]);
 
   const preview = useMemo(() => {
     if (!f.date) return null;
@@ -386,6 +399,14 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
             <>
               <Field label={t('من (المعطي)', 'From (giver)')}><Select value={f.fromBook} options={myBookOpts} onChange={(v) => set('fromBook', v)} /></Field>
               <Field label={t('إلى (المستلم)', 'To (receiver)')}><Select value={f.toBook} options={bookOpts.filter((o) => o.value !== f.fromBook)} onChange={(v) => set('toBook', v)} /></Field>
+              {grantChoices && (
+                <Field label={t('من أي منحة؟', 'From which grant?')} className="span2">
+                  <select className="inp" value={f.grantId ?? ''} onChange={(e) => setF((x) => ({ ...x, grantId: e.target.value || null }))}>
+                    <option value="">{t('— بلا منحة', '— no grant')}</option>
+                    {grantChoices.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+                  </select>
+                </Field>
+              )}
             </>
           )}
           <Field label={t('الحساب', 'Account')}>

@@ -34,6 +34,10 @@ export interface Trx {
   /** a large expense: approved by whom the settings name */
   approved_at?: string | null;
   approved_by?: string | null;
+  /** the grant this money comes from (income in the Superior's book, transfers from it) */
+  grant_id?: string | null;
+  /** sent to someone who does not keep this private book: a transfer shown for its other side only */
+  private_book?: boolean;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;
@@ -67,6 +71,8 @@ export interface Book extends Named {
   is_main: number;
   opening_syp: number;
   opening_usd: number;
+  /** only its keepers see it (the Superior's book); others see only the transfers it makes */
+  private?: number;
 }
 
 export interface Heading extends Named {

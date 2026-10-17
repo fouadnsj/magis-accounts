@@ -302,7 +302,7 @@ const TRX_COLS = [
   'id', 'n', 'city_id', 'account_id', 'book_id', 'date', 'type', 'heading_id', 'line_id', 'explanation', 'party_id', 'receipt',
   'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd', 'transfer_group', 'review', 'sent_at',
   'created_at', 'created_by', 'updated_at', 'source_file',
-  'received_at', 'received_by', 'disputed_at', 'dispute_note', 'approved_at', 'approved_by',
+  'received_at', 'received_by', 'disputed_at', 'dispute_note', 'approved_at', 'approved_by', 'grant_id',
 ] as const;
 
 export async function loadTrx(db: Db): Promise<Trx[]> {
@@ -342,7 +342,7 @@ export function blankTrx(): Trx {
     heading_id: null, line_id: null, explanation: null, party_id: null, receipt: null,
     inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0,
     transfer_group: null, review: null, sent_at: null, created_at: nowIso(), created_by: null, updated_at: null, source_file: null,
-    received_at: null, received_by: null, disputed_at: null, dispute_note: null, approved_at: null, approved_by: null,
+    received_at: null, received_by: null, disputed_at: null, dispute_note: null, approved_at: null, approved_by: null, grant_id: null,
   };
 }
 

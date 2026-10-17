@@ -459,4 +459,53 @@ ALTER TABLE budget_alloc ADD COLUMN budget_id INTEGER REFERENCES budget(id);
 UPDATE budget_alloc SET budget_id = year WHERE year IN (SELECT id FROM budget);
 `,
   },
+  {
+    n: 9,
+    name: 'grants follow the money (promised to in hand), for accounts; private books; no more projects',
+    sql: `
+-- A book only its keepers see (the Superior's book): others see only the transfers it makes.
+ALTER TABLE book ADD COLUMN private INTEGER NOT NULL DEFAULT 0;
+UPDATE book SET private = 1
+ WHERE is_main = 0 AND id IN (SELECT ub.book_id FROM user_book ub JOIN profile p ON p.id = ub.profile_id
+                              JOIN access_profile a ON a.id = p.access_id WHERE p.active = 1 AND a.perms LIKE '%"users.manage"%');
+-- A grant follows the money: promised, approved, transferred by the donor, in the bank,
+-- in hand (then it is an income in the Superior's book). USD or EUR.
+CREATE TABLE grant_card (
+  id             TEXT PRIMARY KEY,
+  donor_id       INTEGER NOT NULL REFERENCES donor(id),
+  amount         REAL NOT NULL CHECK (amount > 0),
+  currency       TEXT NOT NULL CHECK (currency IN ('USD','EUR')),
+  reference      TEXT,
+  note           TEXT,
+  status         TEXT NOT NULL CHECK (status IN ('promised','approved','transferred','bank','hand')),
+  promised_on    TEXT,
+  approved_on    TEXT,
+  transferred_on TEXT,
+  bank_on        TEXT,
+  hand_on        TEXT,
+  hand_usd       REAL,
+  created_at     TEXT NOT NULL,
+  created_by     TEXT
+);
+-- What a grant is for: one or several accounts (amounts in the grant's currency), or the whole centre (NULL).
+CREATE TABLE grant_part (
+  grant_id   TEXT NOT NULL REFERENCES grant_card(id),
+  account_id INTEGER REFERENCES account(id),
+  amount     REAL NOT NULL CHECK (amount > 0)
+);
+CREATE INDEX grant_part_grant ON grant_part(grant_id);
+-- The income in the Superior's book, and the transfers from it, say which grant they move.
+ALTER TABLE trx ADD COLUMN grant_id TEXT;
+-- The grants recorded before: in hand, for the account of their project (or the whole centre).
+INSERT INTO grant_card (id, donor_id, amount, currency, reference, note, status, hand_on, hand_usd, created_at, created_by)
+  SELECT id, donor_id, amount_usd, 'USD', reference, note, 'hand', date, amount_usd, created_at, created_by
+    FROM grant_row WHERE amount_usd > 0;
+INSERT INTO grant_part (grant_id, account_id, amount)
+  SELECT g.id,
+         CASE WHEN (SELECT COUNT(DISTINCT r.account_id) FROM project_rule r WHERE r.project_id = g.project_id) = 1
+              THEN (SELECT r.account_id FROM project_rule r WHERE r.project_id = g.project_id LIMIT 1) END,
+         g.amount_usd
+    FROM grant_row g WHERE g.amount_usd > 0;
+`,
+  },
 ];

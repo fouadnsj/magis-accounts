@@ -4,7 +4,8 @@
 import ExcelJS from 'exceljs';
 import type { Computed, Lists, Trx } from '../domain/types';
 import { MONTHS_EN } from '../domain/types';
-import { coverage, exchangeLog, holders, inPeriod, monthly, projectFunds, summary, type GrantRow, type Period } from '../domain/reports';
+import { exchangeLog, holders, inPeriod, monthly, summary, type Period } from '../domain/reports';
+import type { GrantCard, GrantPart } from '../domain/grants';
 
 /** The register columns, in this exact order (brief §8). */
 export const TRX_HEADERS = [
@@ -42,9 +43,10 @@ export interface ExportOptions {
   registerOnly: boolean;
   withLists: boolean;
   withReports: boolean;
-  /** Sup only: donors, grants, coverage, project funds */
+  /** Sup only: donors and grants */
   confidential: boolean;
-  grants: GrantRow[];
+  grants: GrantCard[];
+  grantParts: GrantPart[];
   organisation: string | null;
 }
 
@@ -157,10 +159,12 @@ export async function exportWorkbook(rows: Trx[], comp: Map<string, Computed>, l
     sheet('Projects', ['Project', 'Active'], lists.projects.map((x) => [x.name, act(x.active)]));
     sheet('ProjectMap', ['Project', 'Account', 'Heading'], lists.rules.map((r) => [name(lists.projects, r.project_id), name(lists.accounts, r.account_id), r.heading_id == null ? 'All' : name(lists.headings, r.heading_id)]));
     if (o.confidential) {
-      sheet('Donors', ['Donor', 'Project'], lists.donors.map((d) => [d.name, name(lists.projects, d.default_project_id)]));
-      const g = sheet('Grants', ['Date', 'Donor', 'Project', 'Amount USD', 'Reference', 'Note'],
-        o.grants.map((x) => [x.date, name(lists.donors, x.donor_id), name(lists.projects, x.project_id), x.amount_usd, x.reference, x.note]));
-      g.getColumn(4).numFmt = FMT_USD;
+      sheet('Donors', ['Donor', 'Active'], lists.donors.map((d) => [d.name, act(d.active)]));
+      const forOf = (id: string) => o.grantParts.filter((p) => p.grant_id === id).map((p) => `${p.account_id == null ? 'whole centre' : name(lists.accounts, p.account_id)} ${p.amount}`).join(' · ');
+      const g = sheet('Grants', ['Donor', 'Amount', 'Currency', 'For', 'Step', 'Promised', 'Approved', 'Transferred', 'In the bank', 'In hand', 'USD in hand', 'Reference', 'Note'],
+        o.grants.map((x) => [name(lists.donors, x.donor_id), x.amount, x.currency, forOf(x.id), x.status, x.promised_on, x.approved_on, x.transferred_on, x.bank_on, x.hand_on, x.hand_usd, x.reference, x.note]));
+      g.getColumn(2).numFmt = FMT_USD;
+      g.getColumn(11).numFmt = FMT_USD;
     }
   }
 
@@ -218,37 +222,6 @@ export async function exportWorkbook(rows: Trx[], comp: Map<string, Computed>, l
     });
     el.columns.forEach((c) => (c.width = 14));
 
-    if (o.confidential && p) {
-      const cv = coverage(rows, comp, lists, p, year);
-      const co = wb.addWorksheet('Coverage');
-      co.addRow([`Coverage ${p.from} → ${p.to} (USD-eq)`]).font = { bold: true };
-      const cs = cv.summary;
-      ([
-        ['Expenses', cs.expenses], ['Own income', cs.ownIncome], ['Funding gap', cs.gap], ['Project funds (From the Respo)', cs.projectFunds],
-        ['Surplus / (shortfall)', cs.surplus], ['% covered by own income', cs.pctOwn], ['% covered by project funds', cs.pctFunds], ['% not covered', cs.pctNot],
-      ] as [string, number][]).forEach(([k, v]) => {
-        const r = co.addRow([k, v]);
-        r.getCell(2).numFmt = k.startsWith('%') ? '0.0%' : FMT_USD;
-      });
-      co.addRow([]);
-      co.addRow(['Budget heading', ...cv.accounts.map((a) => a.name), 'Total', 'Own income', 'Project funds', 'Not covered', '% of spending']).font = { bold: true };
-      cv.byHeading.forEach((h) => {
-        const r = co.addRow([h.name || 'No valid heading', ...cv.accounts.map((a) => h.perAccount.get(a.id) ?? 0), h.total, h.own, h.funds, h.notCovered, h.share]);
-        for (let c = 2; c <= cv.accounts.length + 5; c++) r.getCell(c).numFmt = FMT_USD;
-        r.getCell(cv.accounts.length + 6).numFmt = '0.0%';
-      });
-      co.columns.forEach((c) => (c.width = 16));
-      co.getColumn(1).width = 34;
-
-      const pf = projectFunds(rows, comp, lists, o.grants);
-      const ps = wb.addWorksheet('Project funds');
-      ps.addRow(['Project', 'Received', 'Sent to centre', 'At the Respo', 'Spent', 'Unspent at centre', 'Status']).font = { bold: true };
-      pf.lines.forEach((l) => {
-        const r = ps.addRow([l.name, l.received, l.sent, l.atRespo, l.spent, l.unspent, l.status]);
-        for (let c = 2; c <= 6; c++) r.getCell(c).numFmt = FMT_USD;
-      });
-      ps.columns.forEach((c) => (c.width = 18));
-    }
   }
 
   if (o.organisation) wb.title = o.organisation;

@@ -549,7 +549,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (url === '/api/profiles' && method === 'GET') {
       const c = centreOf(query.get('db'));
       const ps = await listProfiles(c.handle.db);
-      return send(res, 200, ps.map((p) => ({ id: p.id, name: p.name, role: p.role, access_name: p.access_name })));
+      return send(res, 200, ps.map((p) => ({ id: p.id, name: p.name, role: p.role, access_id: p.access_id ?? null, access_name: p.access_name, books: p.books ?? null })));
     }
 
     if (url === '/api/login' && method === 'POST') {

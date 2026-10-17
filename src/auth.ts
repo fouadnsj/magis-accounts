@@ -80,9 +80,14 @@ export async function profileStmt(p: { name: string; role: Role; pin: string; bo
 }
 
 /** Names on the login screen: name and permission profile only. */
-export async function listProfiles(db: Db): Promise<{ id: number; name: string; role: Role; access_name: string }[]> {
+/** The people shown on the sign-in page: name, role, profile, and the books they keep. */
+export interface LoginPerson { id: number; name: string; role: Role; access_id?: number | null; access_name: string; books?: string | null }
+
+export async function listProfiles(db: Db): Promise<LoginPerson[]> {
   return db.query(
-    `SELECT p.id, p.name, p.role, COALESCE(a.name, '') AS access_name FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id
+    `SELECT p.id, p.name, p.role, p.access_id, COALESCE(a.name, '') AS access_name,
+            (SELECT group_concat(b.name, ' · ') FROM user_book ub JOIN book b ON b.id = ub.book_id WHERE ub.profile_id = p.id) AS books
+       FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id
       WHERE p.active = 1 ORDER BY a.sort, p.name`,
   );
 }

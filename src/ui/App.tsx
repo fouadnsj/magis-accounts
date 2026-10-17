@@ -9,7 +9,7 @@ import { getMeta } from '../db/repo';
 import { tauriDb } from '../db/tauriDb';
 import { webDb } from '../db/webDb';
 import { dailyBackup, desktopFiles } from '../db/backup';
-import { listProfiles, login, type Profile } from '../auth';
+import { listProfiles, login, type LoginPerson, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
 import { connectRemote, disconnectRemote, hello, httpApi, remoteBase, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
@@ -330,6 +330,27 @@ export function App() {
 
 export const roleName = (r: Role) => (r === 'sup' ? t('الرئيس', 'Superior') : r === 'com' ? t('المحاسب', 'Accountant') : t('أمين الصندوق', 'Cash holder'));
 
+/** Small line icons (stroke follows the text colour). */
+const ICON: Record<'superior' | 'accountant' | 'holder' | 'person', string> = {
+  superior: 'M12 2v4M10 4h4M6 22V10l6-4 6 4v12M3 22h18M10 22v-5a2 2 0 0 1 4 0v5',
+  accountant: 'M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h.01M12 19h.01M16 19h.01',
+  holder: 'M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3M21 8h-5a3 3 0 0 0 0 6h5V8zM16 11h.01',
+  person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1',
+};
+function PersonIcon({ kind }: { kind: keyof typeof ICON }) {
+  return (
+    <span className={`person-icon pi-${kind}`} aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={ICON[kind]} /></svg>
+    </span>
+  );
+}
+
+/** Which icon a person gets: from the profile (Superior 1, Accountant 2) or, failing that, the role. */
+const kindOf = (p: LoginPerson): keyof typeof ICON =>
+  p.access_id === 1 || (!p.access_id && p.role === 'sup') ? 'superior'
+    : p.access_id === 2 || (!p.access_id && p.role === 'com') ? 'accountant'
+      : p.role === 'holder' || p.books ? 'holder' : 'person';
+
 function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack, notice }: {
   /** signed out for inactivity */
   notice?: boolean;
@@ -337,21 +358,28 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
   subtitle: string;
   brand?: BrandInfo;
   onBack?: () => void;
-  loadProfiles: () => Promise<{ id: number; name: string; role: Role; access_name?: string }[]>;
+  loadProfiles: () => Promise<LoginPerson[]>;
   onLogin: (profileId: number, secret: string) => Promise<void>;
   onClose?: () => void;
 }) {
-  const [profiles, setProfiles] = useState<{ id: number; name: string; role: Role; access_name?: string }[]>([]);
+  const [profiles, setProfiles] = useState<LoginPerson[]>([]);
   const [pick, setPick] = useState<number | null>(null);
   const [pin, setPin] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const pwRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     loadProfiles().then((ps) => {
       setProfiles(ps);
       if (ps.length === 1) setPick(ps[0].id);
     }).catch((e) => setErr(errText(e)));
   }, [loadProfiles]);
+  const choose = (id: number) => {
+    setPick(id);
+    setErr(null);
+    setPin('');
+    setTimeout(() => pwRef.current?.focus(), 30);
+  };
   const go = async () => {
     if (pick == null) return;
     setBusy(true);
@@ -364,30 +392,51 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
       setBusy(false);
     }
   };
+  const office = profiles.filter((p) => kindOf(p) !== 'holder');
+  const holders = profiles.filter((p) => kindOf(p) === 'holder');
+  const chosen = profiles.find((p) => p.id === pick);
+  const roleLabel = (p: LoginPerson) => (p.access_name ? biName(p.access_name) : roleName(p.role));
+
+  const tile = (p: LoginPerson) => (
+    <button key={p.id} type="button" className={`person ${pick === p.id ? 'on' : ''}`} onClick={() => choose(p.id)} aria-pressed={pick === p.id}>
+      <PersonIcon kind={kindOf(p)} />
+      <span className="person-name">{p.name}</span>
+      <span className="person-sub">{kindOf(p) === 'holder' && p.books ? `${t('دفتر', 'Book')} ${p.books}` : roleLabel(p)}</span>
+    </button>
+  );
+
   return (
     <BrandFrame brand={brand}>
       <div className="panel login-panel">
         <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>
         {notice && <div className="alert info">{t('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.')}</div>}
-        <div className="profiles">
-          {profiles.map((p) => (
-            <button key={p.id} className={pick === p.id ? 'on' : ''} onClick={() => setPick(p.id)}>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>{p.name}</div>
-              <div className="muted small">{p.access_name ? biName(p.access_name) : roleName(p.role)}</div>
-            </button>
-          ))}
-        </div>
-        <form onSubmit={(e) => { e.preventDefault(); void go(); }} style={{ marginTop: 14 }}>
-          <label className="field">
-            <span>{t('كلمة السر', 'Password')}</span>
-            <input type="password" autoFocus value={pin} onChange={(e) => setPin(e.target.value)} />
-          </label>
+        {office.length > 0 && (
+          <>
+            <div className="people-group">{t('المكتب', 'Office')}</div>
+            <div className="people">{office.map(tile)}</div>
+          </>
+        )}
+        {holders.length > 0 && (
+          <>
+            <div className="people-group">{t('أمناء الصناديق', 'Book holders')}</div>
+            <div className="people">{holders.map(tile)}</div>
+          </>
+        )}
+        <form onSubmit={(e) => { e.preventDefault(); void go(); }} className={`login-pass ${chosen ? 'open' : ''}`}>
+          {chosen ? (
+            <label className="field">
+              <span>{t(`كلمة سر ${chosen.name}`, `Password for ${chosen.name}`)}</span>
+              <input ref={pwRef} type="password" autoComplete="current-password" value={pin} onChange={(e) => setPin(e.target.value)} />
+            </label>
+          ) : (
+            <p className="muted small" style={{ margin: 0 }}>{t('اضغط على اسمك.', 'Tap your name.')}</p>
+          )}
           {err && <div className="alert err" style={{ marginTop: 10 }}>{err}</div>}
           <div className="modal-foot">
             {onClose && <button type="button" className="btn ghost" onClick={onClose}>{t('فتح ملف آخر', 'Open another file')}</button>}
             {onBack && <button type="button" className="btn ghost" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button>}
-            <button className="btn primary" disabled={pick == null || !pin || busy}>{t('دخول', 'Enter')}</button>
+            {chosen && <button className="btn primary" disabled={!pin || busy}>{t('دخول', 'Enter')}</button>}
           </div>
         </form>
       </div>

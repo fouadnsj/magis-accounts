@@ -2,7 +2,7 @@
 // The server identifies the person by a session cookie; it never trusts
 // the screen for permissions.
 import type { Api } from './ops';
-import type { Profile } from './auth';
+import type { LoginPerson, Profile } from './auth';
 import type { Msg } from './i18n';
 
 export interface DbInfo {
@@ -121,7 +121,7 @@ export async function hello(): Promise<Hello | null> {
   }
 }
 
-export const serverProfiles = (db: string) => get<{ id: number; name: string; role: Profile['role']; access_name: string }[]>(`/api/profiles?db=${encodeURIComponent(db)}`);
+export const serverProfiles = (db: string) => get<LoginPerson[]>(`/api/profiles?db=${encodeURIComponent(db)}`);
 
 export const serverLogin = (db: string, profileId: number, password: string) =>
   post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { db, profileId, password });

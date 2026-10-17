@@ -244,6 +244,81 @@ export function coverage(rows: Trx[], comp: Map<string, Computed>, lists: Lists,
   return { summary: s, accounts, byHeading, byMonth };
 }
 
+// ---------------------------------------------------------------- Funding (the Superior's)
+
+// How the centre's expenses (every book, the Superior's too) are paid: by the
+// centre's own income, and by what the Respo book sends (grants, the Province).
+// The Respo book itself is outside the centre.
+
+export interface FundingMonth {
+  ym: string;
+  expenses: number;
+  own: number;
+  /** sent by the Respo to the books, less what came back to it */
+  fromRespo: number;
+  /** own + fromRespo − expenses */
+  surplus: number;
+  pctOwn: number;
+  pctRespo: number;
+  /** what reached the Respo: grants in hand, and the rest (the Province...) */
+  respoGrants: number;
+  respoOther: number;
+}
+
+export interface FundingReport {
+  total: FundingMonth;
+  byMonth: FundingMonth[];
+  /** the Respo's cash at the end of the period */
+  respoSyp: number;
+  respoUsd: number;
+  /** expenses by heading, and how they are paid (same % for every heading) */
+  byHeading: { headingId: number | null; name: string; total: number; share: number }[];
+}
+
+export function funding(rows: Trx[], comp: Map<string, Computed>, lists: Lists, respoId: number | null, p: Period): FundingReport {
+  const isLegacyFund = (r: Trx) => isFundRow(r, lists);
+  const usdTrf = (r: Trx) => r.trf_usd + r.trf_syp / (comp.get(r.id)?.rate || 1);
+  const of = (rs: Trx[], ym: string): FundingMonth => {
+    const centre = rs.filter((r) => r.book_id !== respoId || respoId == null);
+    const respo = respoId == null ? [] : rs.filter((r) => r.book_id === respoId);
+    const expenses = sum(centre.filter((r) => r.type === 'Exp'), (r) => comp.get(r.id)?.expUsdTot ?? 0);
+    const own = sum(centre.filter((r) => r.type === 'Income' && !isLegacyFund(r)), (r) => comp.get(r.id)?.incUsdTot ?? 0);
+    const fromRespo = -sum(respo.filter((r) => r.type === 'Transfer'), usdTrf)
+      + sum(centre.filter(isLegacyFund), (r) => comp.get(r.id)?.incUsdTot ?? 0);
+    const respoInc = respo.filter((r) => r.type === 'Income');
+    const respoGrants = sum(respoInc.filter((r) => r.grant_id), (r) => comp.get(r.id)?.incUsdTot ?? 0);
+    const respoOther = sum(respoInc.filter((r) => !r.grant_id), (r) => comp.get(r.id)?.incUsdTot ?? 0);
+    const pctOwn = expenses ? Math.min(1, Math.max(0, own) / expenses) : 0;
+    const pctRespo = expenses ? Math.min(1 - pctOwn, Math.max(0, fromRespo) / expenses) : 0;
+    return { ym, expenses, own, fromRespo, surplus: own + fromRespo - expenses, pctOwn, pctRespo, respoGrants, respoOther };
+  };
+  const rs = rows.filter((r) => inPeriod(r, p));
+  const months: string[] = [];
+  for (let ym = p.from; ym <= p.to; ) {
+    months.push(ym);
+    const [y, m] = ym.split('-').map(Number);
+    ym = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  }
+  const byMonth = months.map((ym) => of(rs.filter((r) => r.date?.startsWith(ym)), ym));
+  const total = of(rs, '');
+  const book = lists.books.find((b) => b.id === respoId);
+  const end = `${p.to}-31`;
+  const respoSyp = book ? holders(rows, [book], 'SYP', end)[0].shouldHold : 0;
+  const respoUsd = book ? holders(rows, [book], 'USD', end)[0].shouldHold : 0;
+  const exps = rs.filter((r) => r.type === 'Exp' && (r.book_id !== respoId || respoId == null));
+  const expHeadings = lists.headings.filter((h) => lists.headingTypes.some((t) => t.heading_id === h.id && t.type === 'Exp'));
+  const expIds = new Set(expHeadings.map((h) => h.id));
+  const line = (headingId: number | null, name: string, pick: (r: Trx) => boolean) => {
+    const t = sum(exps.filter(pick), (r) => comp.get(r.id)?.expUsdTot ?? 0);
+    return { headingId, name, total: t, share: total.expenses ? t / total.expenses : 0 };
+  };
+  const byHeading = [
+    ...expHeadings.map((h) => line(h.id, h.name, (r) => r.heading_id === h.id)),
+    line(null, '', (r) => r.heading_id == null || !expIds.has(r.heading_id)),
+  ].filter((h) => Math.abs(h.total) > 0.005);
+  return { total, byMonth, respoSyp, respoUsd, byHeading };
+}
+
 // ---------------------------------------------------------------- Project funds (Donors sheet)
 
 export interface GrantRow {

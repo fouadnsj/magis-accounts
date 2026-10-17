@@ -1,6 +1,6 @@
 // Grants (the Superior only): one card per grant, following the money —
 // promised → approved → transferred by the donor → in the bank → in hand. In hand,
-// it is an income in the Superior's book; from there it is transferred to Main
+// it is an income in the Respo book; from there it is transferred to Main
 // (confirmed by the Accountant) and spent on the accounts it is for.
 import { useMemo, useState } from 'react';
 import { useApp, useNames } from '../state';
@@ -55,7 +55,7 @@ export function Grants() {
           <button className="btn primary" onClick={() => setEditing('new')}>＋ {t('منحة', 'Grant')}</button>
         </div>
       </div>
-      <div className="alert info small">{t('سرّي — يراه الرئيس فقط. «باليد» = في دفتر الرئيس؛ ثم يُحوَّل إلى الرئيسي ويؤكده المحاسب.', 'Confidential — only the Superior sees this. "In hand" = in the Superior\'s book; then it is transferred to Main and the Accountant confirms.')}</div>
+      <div className="alert info small">{t('سرّي — يراه الرئيس فقط. «باليد» = في دفتر المسؤول (Respo)؛ ثم يُحوَّل إلى الرئيسي ويؤكده المحاسب.', 'Confidential — only the Superior sees this. "In hand" = in the Respo book; then it is transferred to Main and the Accountant confirms.')}</div>
 
       <div className="cards" style={{ marginBottom: 14 }}>
         <div className="card"><div className="k">{t('في الطريق (قبل «باليد»)', 'On the way (before "in hand")')}</div><div className="v ltr">${fmtUsd(tot.coming)}{tot.comingEur ? ` + €${fmtUsd(tot.comingEur)}` : ''}</div></div>
@@ -116,7 +116,7 @@ export function Grants() {
         })}
         {!shown.length && <p className="muted">{t('لا منح بعد.', 'No grants yet.')}</p>}
       </div>
-      <p className="muted small">{t('لإرسال مال منحة إلى الرئيسي: سجّل «تحويلاً» من دفتر الرئيس إلى الرئيسي واختر المنحة فيه. كل نفقة على حساب المنحة تُخصم من أقدم منحة لهذا الحساب.', 'To send a grant\'s money to Main: record a "Transfer" from the Superior\'s book to Main and choose the grant in it. Each expense on a grant\'s account uses the oldest grant for that account.')}</p>
+      <p className="muted small">{t('لإرسال مال منحة إلى الرئيسي: سجّل «تحويلاً» من دفتر المسؤول إلى الرئيسي واختر المنحة فيه. كل نفقة على حساب المنحة تُخصم من أقدم منحة لهذا الحساب.', 'To send a grant\'s money to Main: record a "Transfer" from the Respo book to Main and choose the grant in it. Each expense on a grant\'s account uses the oldest grant for that account.')}</p>
       {editing && <GrantModal start={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />}
       {stepping && <StepModal g={stepping.g} to={stepping.to} onClose={() => setStepping(null)} onDone={async () => { setStepping(null); await reload(); }} />}
     </>
@@ -206,10 +206,10 @@ function StepModal({ g, to, onClose, onDone }: { g: GrantCard; to: GrantStep; on
       {to === 'hand' && (
         <>
           <Field label={t('الدولارات المستلمة باليد', 'Dollars received in hand')}><input className="ltr" inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} /></Field>
-          <p className="muted small">{t('تُسجَّل إيراداً في دفتر الرئيس، مربوطاً بهذه المنحة.', "It is recorded as an income in the Superior's book, linked to this grant.")}{g.currency === 'EUR' ? ` ${t('المنحة باليورو: اكتب الدولارات بعد التصريف.', 'The grant is in euros: write the dollars after exchange.')}` : ''}</p>
+          <p className="muted small">{t('تُسجَّل إيراداً في دفتر المسؤول، مربوطاً بهذه المنحة.', "It is recorded as an income in the Respo book, linked to this grant.")}{g.currency === 'EUR' ? ` ${t('المنحة باليورو: اكتب الدولارات بعد التصريف.', 'The grant is in euros: write the dollars after exchange.')}` : ''}</p>
         </>
       )}
-      {back && g.status === 'hand' && <div className="alert warn">{t('يُحذف الإيراد من دفتر الرئيس.', "The income is removed from the Superior's book.")}</div>}
+      {back && g.status === 'hand' && <div className="alert warn">{t('يُحذف الإيراد من دفتر المسؤول.', "The income is removed from the Respo book.")}</div>}
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" disabled={!date || (to === 'hand' && !(parseAmount(usd) > 0))} onClick={go}>{t('تأكيد', 'Confirm')}</button>

@@ -23,6 +23,63 @@ UPDATE trx SET heading_id = (SELECT id FROM heading WHERE name = 'Transfer' COLL
  WHERE type = 'Transfer';
 `;
 
+// The Respo book (private, kept by the Superior): the grants in hand and the
+// Province's money arrive there, and go to the books by transfers. The Superior's
+// own book stays private for his expenses (salaries...).
+const RESPO_ID = `(SELECT id FROM book WHERE name = 'Respo' COLLATE NOCASE)`;
+// the book where grants arrived until now (the Superior's)
+const OLD_GRANTS = `COALESCE((SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'grants_book_id'),
+  (SELECT id FROM book WHERE private = 1 AND name <> 'Respo' COLLATE NOCASE ORDER BY id LIMIT 1))`;
+const TRANSFER_HEADING = `(SELECT id FROM heading WHERE name = 'Transfer' COLLATE NOCASE)`;
+const TRANSFER_LINE = `(SELECT l.id FROM budget_line l WHERE l.heading_id = ${TRANSFER_HEADING} AND l.name = 'Transfer' COLLATE NOCASE)`;
+const RESPO_LINE = `(SELECT id FROM budget_line WHERE is_project_fund = 1)`;
+const INCOME_HEADING = `(SELECT heading_id FROM heading_type WHERE type = 'Income' ORDER BY heading_id LIMIT 1)`;
+export const RESPO_SQL = `
+INSERT INTO book (name, city_id, account_id, is_main, private, active, sort)
+  SELECT 'Respo', (SELECT city_id FROM book WHERE id = ${OLD_GRANTS}), (SELECT account_id FROM book WHERE id = ${OLD_GRANTS}),
+         0, 1, 1, (SELECT COALESCE(MAX(sort), 0) + 1 FROM book)
+   WHERE NOT EXISTS (SELECT 1 FROM book WHERE name = 'Respo' COLLATE NOCASE);
+UPDATE book SET private = 1 WHERE id = ${RESPO_ID};
+-- kept by those who keep the Superior's book (or, if none, those who manage users)
+INSERT OR IGNORE INTO user_book (profile_id, book_id)
+  SELECT p.id, ${RESPO_ID} FROM profile p JOIN access_profile a ON a.id = p.access_id
+   WHERE p.active = 1 AND a.perms LIKE '%"users.manage"%';
+-- the grants already in hand, and what was transferred from them, move to the Respo book
+UPDATE trx SET book_id = ${RESPO_ID} WHERE grant_id IS NOT NULL AND book_id = ${OLD_GRANTS};
+INSERT OR REPLACE INTO meta (key, value) VALUES ('grants_book_id', CAST(${RESPO_ID} AS TEXT));
+-- "From the Respo" incomes become transfers Respo → book (same date and amount).
+-- In a book other than Main: two rows, the Respo's (−) and the book's (+).
+INSERT INTO trx (id, n, city_id, account_id, book_id, date, type, heading_id, line_id, explanation, inc_syp, exp_syp, inc_usd, exp_usd,
+                 trf_syp, trf_usd, transfer_group, received_at, received_by, created_at, created_by, updated_at)
+  SELECT 'respo-' || r.id, (SELECT MAX(n) FROM trx) + ROW_NUMBER() OVER (ORDER BY r.date, r.n), r.city_id, r.account_id, ${RESPO_ID}, r.date,
+         'Transfer', ${TRANSFER_HEADING}, ${TRANSFER_LINE}, r.explanation, 0, 0, 0, 0, -r.inc_syp, -r.inc_usd, r.id,
+         COALESCE(r.received_at, r.created_at), COALESCE(r.received_by, r.created_by), r.created_at, r.created_by, r.updated_at
+    FROM trx r JOIN book b ON b.id = r.book_id
+   WHERE r.type = 'Income' AND r.line_id IN ${RESPO_LINE} AND b.is_main = 0 AND (r.inc_syp = 0 OR r.inc_usd = 0);
+UPDATE trx SET type = 'Transfer', heading_id = ${TRANSFER_HEADING}, line_id = ${TRANSFER_LINE}, trf_syp = inc_syp, trf_usd = inc_usd,
+               inc_syp = 0, inc_usd = 0, transfer_group = id, received_at = COALESCE(received_at, created_at), received_by = COALESCE(received_by, created_by)
+ WHERE type = 'Income' AND line_id IN ${RESPO_LINE} AND (inc_syp = 0 OR inc_usd = 0)
+   AND book_id IN (SELECT id FROM book WHERE is_main = 0);
+-- In Main: one row, on the Respo's book (Main's side is implicit).
+UPDATE trx SET type = 'Transfer', book_id = ${RESPO_ID}, heading_id = ${TRANSFER_HEADING}, line_id = ${TRANSFER_LINE},
+               trf_syp = -inc_syp, trf_usd = -inc_usd, inc_syp = 0, inc_usd = 0,
+               received_at = COALESCE(received_at, created_at), received_by = COALESCE(received_by, created_by)
+ WHERE type = 'Income' AND line_id IN ${RESPO_LINE} AND (inc_syp = 0 OR inc_usd = 0)
+   AND book_id IN (SELECT id FROM book WHERE is_main = 1);
+UPDATE meta SET value = CAST(MAX(CAST(value AS INTEGER), (SELECT COALESCE(MAX(n), 0) FROM trx)) AS TEXT) WHERE key = 'last_n';
+UPDATE budget_line SET active = 0 WHERE is_project_fund = 1
+   AND NOT EXISTS (SELECT 1 FROM trx WHERE line_id = budget_line.id);
+-- the Province's money (without a donor): an income in the Respo book
+INSERT INTO budget_line (heading_id, name, code)
+  SELECT h.id, 'From the Province',
+         h.code || '.' || (SELECT COALESCE(MAX(CAST(substr(l.code, length(h.code) + 2) AS INTEGER)), 0) + 1 FROM budget_line l WHERE l.heading_id = h.id)
+    FROM heading h WHERE h.id = ${INCOME_HEADING}
+     AND NOT EXISTS (SELECT 1 FROM budget_line l WHERE l.heading_id = h.id AND l.name = 'From the Province' COLLATE NOCASE);
+-- the Funding report, for those who manage users (the Superior)
+UPDATE access_profile SET perms = replace(perms, ']', ',"reports.funding"]')
+ WHERE perms LIKE '%"users.manage"%' AND perms NOT LIKE '%"reports.funding"%';
+`;
+
 export const MIGRATIONS: Migration[] = [
   {
     n: 1,
@@ -527,5 +584,10 @@ INSERT INTO grant_part (grant_id, account_id, amount)
     n: 10,
     name: 'transfers always under the heading and line "Transfer"',
     sql: TRANSFER_SQL,
+  },
+  {
+    n: 11,
+    name: 'the Respo book: grants and the Province money arrive there, and go to the books by transfers',
+    sql: RESPO_SQL,
   },
 ];

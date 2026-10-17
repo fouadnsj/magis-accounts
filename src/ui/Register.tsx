@@ -33,7 +33,7 @@ export function Register() {
   const rows = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return d.rows.filter((r) => {
-      if (r.private_book) return false; // a private book's transfer: shown only to confirm it (Home)
+      if (r.private_book && !r.private_total) return false; // a private book's transfer: shown only to confirm it (Home)
       if (review && !r.review) return false;
       if (month === 'none' ? r.date : month && !r.date?.startsWith(month)) return false;
       if (book != null && r.book_id !== book) return false;
@@ -108,7 +108,7 @@ export function Register() {
   const cell = (r: Trx) => {
     const c = d.comp.get(r.id)!;
     return (
-      <tr key={r.id} className={r.type ?? ''} onClick={() => nav.entry(r)} title={r.review ?? undefined}>
+      <tr key={r.id} className={r.type ?? ''} onClick={() => !r.private_total && nav.entry(r)} title={r.private_total ? t('مجموع الشهر فقط', "The month's total only") : r.review ?? undefined}>
         <td className="code">{withDocs.has(r.id) ? '📎' : ''}{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</td>
         <td className="ltr">{fmtDate(r.date)}</td>
         {!holder && <td>{names.book(r.book_id)}</td>}

@@ -340,8 +340,8 @@ describe('server: controls (reason for changes, approval of large expenses, docu
   });
 });
 
-describe("server: grants follow the money; the Superior's book is private", () => {
-  it('promised → in hand (an income in his book) → transfer to Main confirmed by the Accountant; others never see his book', async () => {
+describe("server: grants follow the money; the Respo and the Superior's books are private", () => {
+  it('promised → in hand (an income in the Respo book) → transfer to Main confirmed by the Accountant; others see only totals', async () => {
     const sup = await loginAs('Fouad', 'sup-secret');
     const com = await loginAs('Comptable', 'com-secret');
     let L = ((await op('data', {}, sup)).body as DataPayload).lists;
@@ -364,25 +364,45 @@ describe("server: grants follow the money; the Superior's book is private", () =
     expect((await op('grant.step', { id: gid, status: 'hand', date: '2026-12-03' }, sup2)).status).toBe(400); // the dollars in hand
     expect((await op('grant.step', { id: gid, status: 'hand', date: '2026-12-03', hand_usd: 5000 }, sup2)).status).toBe(200);
     let mine = (await op('data', {}, sup2)).body as DataPayload;
+    const respo = mine.grantsBookId!;
+    expect(mine.lists.books.find((b) => b.id === respo)).toMatchObject({ name: 'Respo', private: 1 });
     const income = mine.rows.find((r) => r.grant_id === gid && r.type === 'Income')!;
-    expect(income).toMatchObject({ book_id: supBook, inc_usd: 5000, date: '2026-12-03' });
+    expect(income).toMatchObject({ book_id: respo, inc_usd: 5000, date: '2026-12-03' });
     expect(mine.grants.find((g) => g.id === gid)!.status).toBe('hand');
 
-    // the Accountant sees neither the grant nor the income in the Superior's book
+    // the Accountant sees neither the grant nor the income in the Respo book
     let his = (await op('data', {}, com)).body as DataPayload;
     expect(his.grants).toEqual([]);
     expect(his.rows.some((r) => r.id === income.id)).toBe(false);
 
     // $2,000 from the grant to Main: the Accountant sees the transfer (only) and confirms it
-    const t1 = { ...blankTrx(), id: crypto.randomUUID(), date: '2026-12-04', type: 'Transfer' as const, book_id: supBook, account_id: furn, city_id: L.cities[0].id,
+    const t1 = { ...blankTrx(), id: crypto.randomUUID(), date: '2026-12-04', type: 'Transfer' as const, book_id: respo, account_id: furn, city_id: L.cities[0].id,
       heading_id: L.headings.find((h) => h.name === 'Other / Unallocated')!.id, line_id: L.lines.find((l) => l.name === 'Unallocated')!.id, trf_usd: -2000, grant_id: gid, explanation: 'to Main for the furniture' };
     expect((await op('trx.save', { rows: [t1] }, sup2)).status).toBe(200);
     his = (await op('data', {}, com)).body as DataPayload;
     const seen = his.rows.find((r) => r.id === t1.id)!;
     expect(seen.private_book).toBe(true);
-    expect(his.rows.filter((r) => r.book_id === supBook).every((r) => r.type === 'Transfer')).toBe(true);
+    expect(his.rows.filter((r) => r.book_id === respo).every((r) => r.type === 'Transfer')).toBe(true);
     expect(his.transfers.find((x) => x.rowIds.includes(t1.id))!.explanation).toBeNull();
     expect((await op('transfer.answer', { id: t1.id, ok: true }, com)).status).toBe(200);
+
+    // the Superior's own expenses: the Accountant sees one total a month, no detail
+    const salary = (id: string, date: string, usd: number) => ({ ...blankTrx(), id, date, type: 'Exp' as const, book_id: supBook, account_id: furn, city_id: L.cities[0].id,
+      heading_id: L.headings.find((h) => h.name === 'Salary')!.id, line_id: L.lines.find((l) => l.heading_id === L.headings.find((h) => h.name === 'Salary')!.id)!.id, exp_usd: usd, explanation: 'secret salary' });
+    expect((await op('trx.save', { rows: [salary('s1', '2026-12-10', 300), salary('s2', '2026-12-20', 200)] }, sup2)).status).toBe(200);
+    his = (await op('data', {}, com)).body as DataPayload;
+    const tot = his.rows.filter((r) => r.book_id === supBook && r.type === 'Exp');
+    expect(tot).toHaveLength(1);
+    expect(tot[0]).toMatchObject({ private_total: true, exp_usd: 500, date: '2026-12-20', heading_id: null });
+    expect(JSON.stringify(his.rows)).not.toContain('secret salary');
+    // the Superior sees his rows; the Funding report counts them, the Respo's money is not the centre's income
+    mine = (await op('data', {}, sup2)).body as DataPayload;
+    expect(mine.rows.filter((r) => r.book_id === supBook && r.type === 'Exp').map((r) => r.id).sort()).toEqual(['s1', 's2']);
+    const { funding } = await import('../src/domain/reports');
+    const { computeAll } = await import('../src/domain/compute');
+    const f = funding(mine.rows, computeAll(mine.rows, mine.lists), mine.lists, respo, { from: '2026-12', to: '2026-12' }).total;
+    expect(f).toMatchObject({ fromRespo: 2000, respoGrants: 5000, own: 0 });
+    expect(f.expenses).toBeGreaterThanOrEqual(500);
 
     // once money left, the grant stays "in hand" and cannot be deleted
     expect((await op('grant.step', { id: gid, status: 'bank', date: '2026-12-05' }, sup2)).status).toBe(400);

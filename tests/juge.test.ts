@@ -7,7 +7,7 @@ import { migrate } from '../src/db/db';
 import { loadLists, loadTrx } from '../src/db/repo';
 import { applySeed, readWorkbook, type Seed } from '../src/io/importWorkbook';
 import { computeAll } from '../src/domain/compute';
-import { coverage, holders, spentByRule } from '../src/domain/reports';
+import { coverage, funding, holders, spentByRule } from '../src/domain/reports';
 import { cellValue } from '../src/io/importWorkbook';
 import type { Lists, Trx } from '../src/domain/types';
 import { nodeDb } from './nodeDb';
@@ -26,7 +26,7 @@ beforeAll(async () => {
   seed = readWorkbook(wb);
   const db = nodeDb();
   await migrate(db);
-  await applySeed(db, seed, 'test', 'Master Sup.xlsx');
+  await applySeed(db, seed, 'test', 'Master Sup.xlsx', { exact: true });
   rows = await loadTrx(db);
   lists = await loadLists(db);
 });
@@ -125,5 +125,54 @@ describe('juge: reports equal the workbook sheets', () => {
     expect(c.surplus).toBeCloseTo(xl('Coverage', 'F11'), 6);
     expect(c.pctOwn).toBeCloseTo(xl('Coverage', 'F12'), 9);
     expect(c.pctFunds).toBeCloseTo(xl('Coverage', 'F13'), 9);
+  });
+});
+
+describe('juge: the Respo book (since 0.6.3) changes no total', () => {
+  // The same workbook, imported the normal way: the "From the Respo" incomes become
+  // transfers from the Respo book. Funding must say what Coverage said.
+  let rows2: Trx[];
+  let lists2: Lists;
+  beforeAll(async () => {
+    const db = nodeDb();
+    await migrate(db);
+    await applySeed(db, seed, 'test', 'Master Sup.xlsx');
+    rows2 = await loadTrx(db);
+    lists2 = await loadLists(db);
+  });
+
+  it('every book holds what Excel says; the Respo holds minus what it sent', () => {
+    const respo = lists2.books.find((b) => b.name === 'Respo')!;
+    expect(respo.private).toBeTruthy();
+    expect(rows2.filter((r) => r.type === 'Income' && lists2.lines.find((l) => l.id === r.line_id)?.is_project_fund)).toEqual([]);
+    for (const [cur, first] of [['SYP', 7], ['USD', 20]] as const) {
+      const lines = holders(rows2, lists2.books.filter((b) => b.id !== respo.id), cur);
+      lines.forEach((l, i) => {
+        const r = l.book ? first + i : first + 6;
+        expect(l.shouldHold, `${cur} ${l.book?.name ?? 'no book'}`).toBeCloseTo(xl('Holders', `G${r}`), 6);
+      });
+      const sent = rows.filter((r) => r.type === 'Income' && lists.lines.find((l) => l.id === r.line_id)?.is_project_fund)
+        .reduce((a, r) => a + (cur === 'SYP' ? r.inc_syp : r.inc_usd), 0);
+      expect(sent).toBeGreaterThan(0);
+      expect(holders(rows2, [respo], cur)[0].shouldHold).toBeCloseTo(-sent, 6);
+    }
+  });
+
+  it('Funding = Coverage!F7:F11 (months 1–12): expenses, own income, from the Respo, surplus', () => {
+    // the two imports give new ids: a row is known by its Excel row
+    const kind = new Map(rows.map((r, i) => [r.source_file, seed.trx[i].dateKind]));
+    const asMonths = rows2
+      .map((t) => (kind.get(t.source_file) === 'blank' ? { ...t, date: '2026-01-01' } : t))
+      .filter((t) => kind.get(t.source_file) !== 'emptyText');
+    const exact = new Map(rows.map((r) => [r.source_file, r.id]));
+    const comp1 = computeAll(rows.map((t, i) => (seed.trx[i].dateKind === 'text' ? { ...t, date: null } : t)), lists);
+    const comp = new Map(rows2.map((r) => [r.id, comp1.get(exact.get(r.source_file)!)!]));
+    const respoId = lists2.books.find((b) => b.name === 'Respo')!.id;
+    // a converted row keeps its USD value as the income had it (same id, same rate)
+    const f = funding(asMonths, comp, lists2, respoId, { from: '2026-01', to: '2026-12' }).total;
+    expect(f.expenses).toBeCloseTo(xl('Coverage', 'F7'), 6);
+    expect(f.own).toBeCloseTo(xl('Coverage', 'F8'), 6);
+    expect(f.fromRespo).toBeCloseTo(xl('Coverage', 'F10'), 6);
+    expect(f.surplus).toBeCloseTo(xl('Coverage', 'F11'), 6);
   });
 });

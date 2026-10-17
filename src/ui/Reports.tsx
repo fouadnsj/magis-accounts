@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useApp, useNames } from '../state';
-import { exchangeLog, monthly, summary, inPeriod, type Period } from '../domain/reports';
+import { exchangeLog, funding, monthly, summary, inPeriod, type Period } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
 import type { Perm } from '../perms';
@@ -10,7 +10,7 @@ import { useNav } from './Shell';
 import type { Trx } from '../domain/types';
 import { CurrencyFrame } from './Cash';
 
-type Tab = 'summary' | 'explore' | 'monthly' | 'accounts' | 'coverage' | 'funds' | 'exchange';
+type Tab = 'summary' | 'explore' | 'monthly' | 'accounts' | 'funding' | 'exchange';
 
 const monthName = (ym: string) => {
   const m = Number(ym.slice(5, 7)) - 1;
@@ -20,9 +20,9 @@ const monthName = (ym: string) => {
 export function Reports() {
   const { d, can } = useApp();
   const names = useNames();
-  const years = useMemo(() => [...new Set(d.rows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort(), [d.rows]);
+  const years = useMemo(() => [...new Set(d.centreRows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort(), [d.centreRows]);
   const lastYear = years[years.length - 1] ?? String(new Date().getFullYear());
-  const first = (['summary', 'monthly', 'accounts', 'coverage', 'funds', 'exchange'] as Tab[]).find((x) => can(`reports.${x}` as Perm)) ?? 'summary';
+  const first = (['summary', 'monthly', 'accounts', 'funding', 'exchange'] as Tab[]).find((x) => can(`reports.${x}` as Perm)) ?? 'summary';
   const [tab, setTab] = useState<Tab>(first);
   const [p, setP] = useState<Period>({ from: `${lastYear}-01`, to: `${lastYear}-12` });
   const year = Number(p.to.slice(0, 4));
@@ -56,8 +56,10 @@ export function Reports() {
         { value: 'explore', label: t('التحليل', 'Explore'), hidden: !can('reports.summary') },
         { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
         { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') },
+        { value: 'funding', label: t('التمويل', 'Funding'), hidden: !can('reports.funding') },
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
+      {tab === 'funding' && can('reports.funding') && <FundingTab p={p} />}
       {can('users.manage') && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{t('من يرى أي تقرير: الإدارة ← ملفات الصلاحيات ← مجموعة «التقارير».', 'Who sees which report: Admin → Permission profiles → the "Reports" group.')}</p>}
       {tab === 'summary' && can('reports.summary') && <SummaryTab p={p} />}
       {tab === 'explore' && can('reports.summary') && <ExploreTab p={p} />}
@@ -120,7 +122,7 @@ function ExploreTab({ p }: { p: Period }) {
       ? measure === 'SYP' ? r.exp_syp : measure === 'USD' ? r.exp_usd : d.comp.get(r.id)!.expUsdTot
       : measure === 'SYP' ? r.inc_syp : measure === 'USD' ? r.inc_usd : d.comp.get(r.id)!.incUsdTot;
 
-  const ofKind = useMemo(() => d.rows.filter((r) => r.type === kind && inPeriod(r, p)), [d.rows, kind, p]);
+  const ofKind = useMemo(() => d.centreRows.filter((r) => r.type === kind && inPeriod(r, p)), [d.centreRows, kind, p]);
   const rows = ofKind.filter((r) => (heading == null || r.heading_id === heading) && (line == null || r.line_id === line)).filter((r) => val(r) !== 0);
   const total = rows.reduce((a, r) => a + val(r), 0);
   const allTotal = ofKind.reduce((a, r) => a + val(r), 0);
@@ -237,11 +239,11 @@ function ExploreTab({ p }: { p: Period }) {
 function SummaryTab({ p }: { p: Period }) {
   const { d } = useApp();
   const names = useNames();
-  const s = summary(d.rows, d.comp, d.lists, p);
-  const undated = d.rows.filter((r) => !r.date).length;
+  const s = summary(d.centreRows, d.comp, d.lists, p);
+  const undated = d.centreRows.filter((r) => !r.date).length;
   const [measure, setMeasure] = useState<Measure>('eq');
   const [heading, setHeading] = useState<number | null>(null);
-  const rs = useMemo(() => d.rows.filter((r) => inPeriod(r, p)), [d.rows, p]);
+  const rs = useMemo(() => d.centreRows.filter((r) => inPeriod(r, p)), [d.centreRows, p]);
 
   const fmtM = measure === 'SYP' ? fmtSyp : fmtUsd;
   const unit = measure === 'SYP' ? 'SYP' : measure === 'USD' ? 'USD' : 'USD-eq';
@@ -372,7 +374,7 @@ function SummaryTab({ p }: { p: Period }) {
 /** Monthly: pounds, dollars and the dollar equivalent in three separate tables. */
 function MonthlyTab({ year }: { year: number }) {
   const { d } = useApp();
-  const ls = monthly(d.rows, d.comp, year);
+  const ls = monthly(d.centreRows, d.comp, year);
   const sum = (f: (l: (typeof ls)[number]) => number) => ls.reduce((a, l) => a + f(l), 0);
   const block = (cur: 'SYP' | 'USD') => {
     const f = cur === 'SYP' ? fmtSyp : fmtUsd;
@@ -423,7 +425,7 @@ function MonthlyTab({ year }: { year: number }) {
 
 function AccountsTab({ p }: { p: Period }) {
   const { d } = useApp();
-  const rs = d.rows.filter((r) => inPeriod(r, p));
+  const rs = d.centreRows.filter((r) => inPeriod(r, p));
   const ls = d.lists.accounts.map((a) => {
     const mine = rs.filter((r) => r.account_id === a.id);
     const s = (f: (r: (typeof mine)[number]) => number) => mine.reduce((x, r) => x + f(r), 0);
@@ -452,7 +454,7 @@ function AccountsTab({ p }: { p: Period }) {
 
 function ExchangeTab({ p, names }: { p: Period; names: ReturnType<typeof useNames> }) {
   const { d } = useApp();
-  const ex = exchangeLog(d.rows, p);
+  const ex = exchangeLog(d.centreRows, p);
   return (
     <div className="tbl-wrap">
       <table className="t">
@@ -465,5 +467,65 @@ function ExchangeTab({ p, names }: { p: Period; names: ReturnType<typeof useName
         </tbody>
       </table>
     </div>
+  );
+}
+
+function FundingTab({ p }: { p: Period }) {
+  const { d } = useApp();
+  const f = funding(d.rows, d.comp, d.lists, d.grantsBookId, p);
+  const s = f.total;
+  const pct = (x: number) => fmtPct(x);
+  return (
+    <>
+      <div className="alert info small">{t(
+        'سرّي · نفقات المركز (كل الدفاتر، ومنها دفترك) وكيف تُدفع: بإيراد المركز الذاتي، وبما يرسله دفتر المسؤول (المنح، الرهبنة). دفتر المسؤول خارج المركز.',
+        "Confidential · The centre's expenses (every book, yours too) and how they are paid: by the centre's own income, and by what the Respo book sends (grants, the Province). The Respo book is outside the centre.")}</div>
+      {d.grantsBookId == null && <div className="alert warn small">{t('لا دفتر للمسؤول بعد', 'No Respo book yet')}</div>}
+      <div className="cards">
+        <Card k={t('نفقات المركز', "Centre's expenses")} v={fmtUsd(s.expenses)} />
+        <Card k={t('إيراد ذاتي', 'Own income')} v={fmtUsd(s.own)} sub={pct(s.pctOwn)} />
+        <Card k={t('من المسؤول', 'From the Respo')} v={fmtUsd(s.fromRespo)} sub={pct(s.pctRespo)} />
+        <Card k={t('فائض / (عجز)', 'Surplus / (shortfall)')} v={fmtUsd(s.surplus)} sub={s.expenses ? `${pct(Math.max(0, 1 - s.pctOwn - s.pctRespo))} ${t('غير مغطى', 'not covered')}` : undefined} />
+        <Card k={t('وصل إلى المسؤول', 'Reached the Respo')} v={fmtUsd(s.respoGrants + s.respoOther)} sub={`${t('منح', 'grants')} ${fmtUsd(s.respoGrants)} · ${t('غيرها', 'other')} ${fmtUsd(s.respoOther)}`} />
+        <Card k={t('لدى المسؤول', 'With the Respo')} v={`${fmtUsd(f.respoUsd)} USD`} sub={`${fmtSyp(f.respoSyp)} SYP`} />
+      </div>
+      <h3 style={{ marginTop: 18 }}>{t('حسب الشهر', 'By month')} (USD-eq)</h3>
+      <div className="tbl-wrap">
+        <table className="t">
+          <thead><tr>
+            <th>{t('الشهر', 'Month')}</th><th className="n">{t('نفقات', 'Expenses')}</th><th className="n">{t('إيراد ذاتي', 'Own income')}</th><th className="n">% {t('ذاتي', 'own')}</th>
+            <th className="n">{t('من المسؤول', 'From the Respo')}</th><th className="n">% {t('المسؤول', 'Respo')}</th><th className="n">{t('فائض/(عجز)', 'Surplus')}</th>
+            <th className="n">{t('منح وصلت', 'Grants in')}</th><th className="n">{t('غيرها وصل', 'Other in')}</th>
+          </tr></thead>
+          <tbody>
+            {[...f.byMonth, s].map((m) => (
+              <tr key={m.ym || 'total'} className={m.ym ? (m.expenses || m.own || m.fromRespo || m.respoGrants || m.respoOther ? '' : 'off') : 'total'}>
+                <td>{m.ym ? monthName(m.ym) : <b>{t('المجموع', 'Total')}</b>}</td>
+                <td className="n">{fmtUsd(m.expenses)}</td><td className="n">{fmtUsd(m.own)}</td><td className="n">{m.expenses ? pct(m.pctOwn) : ''}</td>
+                <td className="n">{fmtUsd(m.fromRespo)}</td><td className="n">{m.expenses ? pct(m.pctRespo) : ''}</td>
+                <td className={`n ${m.surplus < -0.5 ? 'bad' : ''}`}>{fmtUsd(m.surplus)}</td>
+                <td className="n">{fmtUsd(m.respoGrants)}</td><td className="n">{fmtUsd(m.respoOther)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h3 style={{ marginTop: 18 }}>{t('حسب البند', 'By heading')} (USD-eq)</h3>
+      <div className="tbl-wrap">
+        <table className="t">
+          <thead><tr><th>{t('البند', 'Heading')}</th><th className="n">{t('المجموع', 'Total')}</th><th className="n">%</th><th className="n">{t('ذاتي', 'Own')}</th><th className="n">{t('المسؤول', 'Respo')}</th><th className="n">{t('غير مغطى', 'Not covered')}</th></tr></thead>
+          <tbody>
+            {f.byHeading.map((h) => (
+              <tr key={h.headingId ?? 'none'}>
+                <td>{h.headingId == null ? t('بلا بند', 'No heading') : h.name}</td>
+                <td className="n"><b>{fmtUsd(h.total)}</b></td><td className="n">{pct(h.share)}</td>
+                <td className="n">{fmtUsd(h.total * s.pctOwn)}</td><td className="n">{fmtUsd(h.total * s.pctRespo)}</td>
+                <td className="n">{fmtUsd(h.total * Math.max(0, 1 - s.pctOwn - s.pctRespo))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

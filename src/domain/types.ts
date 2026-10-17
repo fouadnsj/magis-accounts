@@ -38,6 +38,8 @@ export interface Trx {
   grant_id?: string | null;
   /** sent to someone who does not keep this private book: a transfer shown for its other side only */
   private_book?: boolean;
+  /** one month's expenses of a private book, as a total, for those who do not keep it */
+  private_total?: boolean;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;

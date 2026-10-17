@@ -108,9 +108,9 @@ const CONTROL_KEYS = ['doc_required_usd', 'approval_on', 'approval_usd', 'approv
 
 /** The rules concern entries made after they were switched on, never the past. */
 export const needsApproval = (s: Settings, r: Trx, usd: number) =>
-  !!s.approval_on && s.approval_usd > 0 && r.type === 'Exp' && usd >= s.approval_usd && !r.approved_at && (!s.approval_since || (r.created_at ?? '') >= s.approval_since);
+  !!s.approval_on && s.approval_usd > 0 && r.type === 'Exp' && !r.private_total && usd >= s.approval_usd && !r.approved_at && (!s.approval_since || (r.created_at ?? '') >= s.approval_since);
 export const needsDoc = (s: Settings, r: Trx, usd: number) =>
-  s.doc_required_usd > 0 && r.type === 'Exp' && usd >= s.doc_required_usd && (!s.doc_since || (r.created_at ?? '') >= s.doc_since);
+  s.doc_required_usd > 0 && r.type === 'Exp' && !r.private_total && usd >= s.doc_required_usd && (!s.doc_since || (r.created_at ?? '') >= s.doc_since);
 
 /** May this person approve large expenses? The profile named in the settings, or whoever manages users. */
 const mayApprove = (c: OpCtx, s: Settings) => (s.approval_profile_id ? c.profile.access_id === s.approval_profile_id : can(c, 'users.manage'));
@@ -140,6 +140,8 @@ export interface DataPayload {
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
   attachments: AttachmentRow[];
+  /** the Respo book: grants and the Province's money arrive there (outside the centre's reports) */
+  grantsBookId: number | null;
 }
 
 export interface CashCountRow {
@@ -245,6 +247,23 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id)) return [r];
     return r.type === 'Transfer' ? [{ ...r, explanation: null, receipt: null, party_id: null, private_book: true }] : [];
   });
+  // ...and its expenses as one total a month (no detail)
+  const totals = new Map<string, Trx>();
+  for (const r of allRows) {
+    if (r.type !== 'Exp' || r.book_id == null || !r.date || !priv.has(r.book_id) || keeps(c, r.book_id)) continue;
+    const key = `private-total:${r.book_id}:${r.date.slice(0, 7)}`;
+    const book = lists.books.find((b) => b.id === r.book_id);
+    const tot = totals.get(key) ?? {
+      ...blankTrx(), id: key, book_id: r.book_id, type: 'Exp', date: r.date, created_at: r.created_at,
+      account_id: book?.account_id ?? null, city_id: book?.city_id ?? null,
+      explanation: `${t2('مصاريف خاصة', 'Private expenses')} (${book?.name ?? ''})`, private_book: true, private_total: true,
+    };
+    tot.exp_syp += r.exp_syp;
+    tot.exp_usd += r.exp_usd;
+    if (r.date > tot.date!) tot.date = r.date;
+    totals.set(key, tot);
+  }
+  shown.push(...totals.values());
   // Without "see every book", a person sees only the books he keeps.
   const rows = all ? shown : shown.filter((r) => keeps(c, r.book_id));
   // a private book's transfer: the other side sees the amount, not its explanation
@@ -264,6 +283,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     lists, rows, closed: [...closed], bookMonths: all ? bm : bm.filter((b) => keeps(c, b.book_id)), transfers, keptBooks: kept,
     closedYears: (await c.db.query<{ year: number }>('SELECT year FROM closed_year')).map((x) => x.year),
     grants, grantParts, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
+    grantsBookId: Number(await getMeta(db, 'grants_book_id')) || null,
   };
 }
 
@@ -769,7 +789,7 @@ async function saveGrant(c: OpCtx, a: { id?: string; donor_id: number; amount: n
   return id;
 }
 
-/** The book where grants arrive in hand: the Superior's (private) book. */
+/** The book where grants arrive in hand: the Respo book (private). */
 async function grantsBook(c: OpCtx, lists: Lists): Promise<Book> {
   const set = await getMeta(c.db, 'grants_book_id');
   const byId = (id: number | null | undefined) => lists.books.find((b) => b.id === id && b.active);

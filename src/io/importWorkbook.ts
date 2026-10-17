@@ -5,7 +5,7 @@
 // the workbook. A row the app would refuse to save is imported with a "review"
 // note listing why. Nothing is guessed, nothing is dropped.
 
-import { TRANSFER_SQL } from '../db/migrations';
+import { RESPO_SQL, TRANSFER_SQL } from '../db/migrations';
 import { splitSql } from '../db/db';
 import { DEFAULT_SETTINGS } from '../db/repo';
 import type ExcelJS from 'exceljs';
@@ -357,7 +357,8 @@ export interface ImportReport {
   warnings: string[];
 }
 
-export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: string): Promise<ImportReport> {
+/** `exact`: keep the workbook's rows as they are (the juge's check), without making the Respo book. */
+export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: string, opts: { exact?: boolean } = {}): Promise<ImportReport> {
   const existing = await db.query<{ c: number }>('SELECT COUNT(*) AS c FROM trx');
   if (existing[0].c > 0) throw new Error('The database already has register rows: migration only works on an empty database.');
 
@@ -552,6 +553,9 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
   });
   // transfers always under the heading and line "Transfer"
   stmts.push(...splitSql(TRANSFER_SQL).map((sql) => ({ sql })));
+  // the Respo book: "From the Respo" incomes become transfers from it
+  stmts.push({ sql: "DELETE FROM meta WHERE key = 'grants_book_id'" }, { sql: 'DELETE FROM user_book WHERE book_id NOT IN (SELECT id FROM book)' });
+  if (!opts.exact) stmts.push(...splitSql(RESPO_SQL).map((sql) => ({ sql })));
   await db.batch(stmts);
   return report;
 }

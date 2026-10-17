@@ -47,6 +47,10 @@ export interface Data {
   grantParts: GrantPart[];
   /** the books this person may see the cash of (a private book only by its keepers) */
   shownBooks: Lists['books'];
+  /** the Respo book (grants, the Province's money) */
+  grantsBookId: number | null;
+  /** the register without the Respo book: what the centre's reports count */
+  centreRows: Trx[];
   receipts: HolderReceipt[];
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
@@ -96,6 +100,8 @@ async function loadData(s: Session, background = false): Promise<Data> {
     grants: p.grants,
     grantParts: p.grantParts ?? [],
     shownBooks: p.lists.books.filter((b) => !b.private || s.profile.books.includes(b.id)),
+    grantsBookId: p.grantsBookId ?? null,
+    centreRows: p.rows.filter((r) => r.book_id == null || r.book_id !== p.grantsBookId),
     receipts: p.receipts,
     officeTransfers: p.officeTransfers,
     listsVersion: p.listsVersion,

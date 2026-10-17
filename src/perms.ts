@@ -34,6 +34,14 @@ export const PERM_GROUPS = [
     ],
   },
   {
+    key: 'budget',
+    label: m('الموازنة', 'Budget'),
+    perms: [
+      { key: 'budget.view', label: m('يرى الموازنة ونسبة الصرف لكل خط', 'Sees the budget and how much of each line is spent') },
+      { key: 'budget.manage', label: m('يكتب الموازنة ويعدّلها', 'Writes and revises the budget') },
+    ],
+  },
+  {
     key: 'lists',
     label: m('القوائم', 'Lists'),
     perms: [

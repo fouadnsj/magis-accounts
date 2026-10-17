@@ -324,4 +324,79 @@ UPDATE access_profile SET perms = replace(perms, '"register.edit"', '"register.m
  WHERE id = 2 AND name = 'المحاسب · Accountant';
 `,
   },
+  {
+    n: 6,
+    name: 'yearly budget: items (quantity × times × cost) per account and line, contingency, revisions, donors',
+    sql: `
+-- One budget per year. rev 0 is the original; a revision copies the latest one
+-- and becomes the current budget, the original stays as it was.
+-- start_month/months: the period it covers (e.g. 2026: July, 6 months).
+CREATE TABLE budget_version (
+  id          INTEGER PRIMARY KEY,
+  year        INTEGER NOT NULL,
+  rev         INTEGER NOT NULL,
+  rate_syp    REAL NOT NULL,
+  rate_eur    REAL NOT NULL,
+  start_month INTEGER NOT NULL DEFAULT 1 CHECK (start_month BETWEEN 1 AND 12),
+  months      INTEGER NOT NULL DEFAULT 12 CHECK (months BETWEEN 1 AND 12),
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  UNIQUE (year, rev)
+);
+-- The amount of each line, in USD, per account. When the line has items, it is
+-- their total (kept here by the program); otherwise it is typed directly.
+CREATE TABLE budget_amount (
+  version_id INTEGER NOT NULL REFERENCES budget_version(id),
+  account_id INTEGER NOT NULL REFERENCES account(id),
+  line_id    INTEGER NOT NULL REFERENCES budget_line(id),
+  amount_usd REAL NOT NULL,
+  PRIMARY KEY (version_id, account_id, line_id)
+);
+-- How a line is built: Quantity × Times (months it runs; staff 13) × Cost per unit.
+CREATE TABLE budget_item (
+  id         INTEGER PRIMARY KEY,
+  version_id INTEGER NOT NULL REFERENCES budget_version(id),
+  account_id INTEGER NOT NULL REFERENCES account(id),
+  line_id    INTEGER NOT NULL REFERENCES budget_line(id),
+  name       TEXT NOT NULL,
+  unit       TEXT,
+  qty        REAL NOT NULL,
+  times      REAL NOT NULL,
+  unit_cost  REAL NOT NULL,
+  note       TEXT,
+  sort       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX budget_item_cell ON budget_item(version_id, account_id, line_id);
+-- Per account: the contingency added on top (e.g. 10 % on running costs, 0 on furniture).
+CREATE TABLE budget_account (
+  version_id      INTEGER NOT NULL REFERENCES budget_version(id),
+  account_id      INTEGER NOT NULL REFERENCES account(id),
+  contingency_pct REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (version_id, account_id)
+);
+-- A donor covers a part: a percentage, or a fixed amount, of an account,
+-- of a heading in it, or of one line.
+CREATE TABLE budget_alloc (
+  id         INTEGER PRIMARY KEY,
+  year       INTEGER NOT NULL,
+  donor_id   INTEGER NOT NULL REFERENCES donor(id),
+  account_id INTEGER NOT NULL REFERENCES account(id),
+  heading_id INTEGER REFERENCES heading(id),
+  line_id    INTEGER REFERENCES budget_line(id),
+  pct        REAL CHECK (pct IS NULL OR (pct > 0 AND pct <= 100)),
+  amount_usd REAL CHECK (amount_usd IS NULL OR amount_usd > 0),
+  status     TEXT NOT NULL CHECK (status IN ('requested','promised','received')),
+  note       TEXT,
+  CHECK ((pct IS NULL) <> (amount_usd IS NULL))
+);
+CREATE INDEX budget_alloc_year ON budget_alloc(year);
+-- An account outside the centre (e.g. Deir): recorded, but not part of its budget.
+ALTER TABLE account ADD COLUMN outside_budget INTEGER NOT NULL DEFAULT 0;
+-- The budget is seen and kept by those who see every book and keep the lists
+-- (the Superior and the Accountant), never by the book holders.
+UPDATE access_profile SET perms = replace(perms, ']', ',"budget.view","budget.manage"]')
+ WHERE perms LIKE '%"register.view"%' AND perms LIKE '%"lists.manage"%';
+`,
+  },
 ];

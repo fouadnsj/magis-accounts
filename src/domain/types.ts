@@ -93,7 +93,8 @@ export interface ProjectRule {
 /** Every reference list, loaded once and kept in memory. */
 export interface Lists {
   cities: Named[];
-  accounts: Named[];
+  /** outside_budget: an account outside the centre (e.g. Deir), left out of its budget */
+  accounts: (Named & { outside_budget?: number })[];
   projects: Named[];
   books: Book[];
   parties: Named[];

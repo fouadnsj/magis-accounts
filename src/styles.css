@@ -350,3 +350,39 @@ body { background: var(--bg); }
 /* sign-out for inactivity: the one-minute warning, above everything */
 .idle-warning { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; padding: 16px; background: rgba(30, 26, 18, 0.45); }
 .idle-warning .panel { width: min(420px, 100%); margin: 0; }
+
+/* budget */
+.table-wrap { overflow-x: auto; }
+.budget-t tr.group td { background: #FAF7EF; }
+.budget-t tr.inactive td { color: var(--muted); }
+.budget-inp { width: 110px; text-align: end; padding: 4px 6px; }
+.budget-inp.changed { border-color: var(--gold, #B8891B); background: #FFF8E6; }
+.budget-totals { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 10px 0 4px; }
+.budget-totals > div { display: flex; flex-direction: column; }
+.budget-totals b { font-size: 17px; font-variant-numeric: tabular-nums; }
+/* share spent: one hue getting darker (50 / 75 / 90 %), red past 100 % */
+.used { display: flex; align-items: center; gap: 8px; min-width: 140px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.used-track { flex: 1; height: 6px; background: #ECE7DC; border-radius: 3px; overflow: hidden; min-width: 64px; }
+.used-fill { height: 100%; border-radius: 0 3px 3px 0; }
+.used.b0 .used-fill, .sw.b0 { background: #B9B2A2; }
+.used.b50 .used-fill, .sw.b50 { background: #E0C46E; }
+.used.b75 .used-fill, .sw.b75 { background: #CF9A2E; }
+.used.b90 .used-fill, .sw.b90 { background: #A86A00; }
+.used.b100 .used-fill, .sw.b100 { background: #B3261E; }
+.used.b90 span { color: #7A4D00; font-weight: 600; }
+.used.b100 span { color: #B3261E; font-weight: 700; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 8px; vertical-align: -1px; }
+.pace { white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.pace-over { color: #B3261E; }
+.pace-ahead { color: #8A5A00; }
+.pace-ontrack { color: #3B6B45; font-weight: 500; }
+.pace-under { color: #2A6FB0; }
+.pace-nobudget { color: #6B4FA0; }
+.pace-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin: 0 0 10px; }
+.items-row > td { background: #FCFBF7; padding: 6px 10px 12px 22px !important; }
+.items-box input { width: 100%; padding: 3px 6px; }
+.items-box .num-inp { width: 80px; text-align: end; }
+.items-t th, .items-t td { padding: 3px 6px; }
+.pill.st-requested { background: #EEF1F5; }
+.pill.st-promised { background: #FFF1CC; }
+.pill.st-received { background: #DCEFE0; }

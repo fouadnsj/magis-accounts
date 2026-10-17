@@ -195,3 +195,100 @@ describe('cash month by month', () => {
     }
   });
 });
+
+describe('budget arithmetic', () => {
+  it('proposes from last year (as is, or scaled to 12 months), shares lines between donors, follows the pace', async () => {
+    const { proposeFromYear, cover, effectivePct, followUp, paceOf, usedBand, prorateItems, itemTotal, contingencyOf } = await import('../src/domain/budget');
+    const row = (id: string, date: string, usd: number, line = 7): Trx => ({ ...blankTrx(), id, date, type: 'Exp', account_id: 1, line_id: line, exp_usd: usd });
+    const rows = [row('a', '2026-10-05', 100), row('b', '2026-11-05', 100), row('c', '2026-12-05', 100)];
+    const comp = new Map(rows.map((r) => [r.id, { expUsdTot: r.exp_usd, incUsdTot: 0 } as never]));
+    expect(proposeFromYear(rows, comp, 2026, { scale: false, pct: 0 })[0].amount_usd).toBe(300);
+    expect(proposeFromYear(rows, comp, 2026, { scale: true, pct: 0 })[0].amount_usd).toBe(1200); // 3 months → 12
+    expect(proposeFromYear(rows, comp, 2026, { scale: true, pct: 10 })[0].amount_usd).toBe(1320);
+
+    // staff 13 months, for 6 months: 6.5
+    const staff = { account_id: 1, line_id: 7, name: 'Director', unit: 'person', qty: 1, times: 13, unit_cost: 350, note: null };
+    expect(prorateItems([staff], 6)[0].times).toBe(6.5);
+    expect(itemTotal(prorateItems([staff], 6)[0])).toBe(2275);
+
+    const amounts = [{ version_id: 1, account_id: 1, line_id: 7, amount_usd: 1000 }, { version_id: 1, account_id: 1, line_id: 8, amount_usd: 1000 }, { version_id: 1, account_id: 2, line_id: 7, amount_usd: 41730 }];
+    const headingOf = new Map([[7, 3], [8, 4], [9, 3]]);
+    const allocs = [
+      { id: 1, year: 2027, donor_id: 1, account_id: 1, heading_id: null, line_id: null, pct: 50, amount_usd: null, status: 'promised' as const, note: null }, // whole account
+      { id: 2, year: 2027, donor_id: 2, account_id: 1, heading_id: 3, line_id: null, pct: 30, amount_usd: null, status: 'requested' as const, note: null }, // heading 3
+      { id: 3, year: 2027, donor_id: 3, account_id: 2, heading_id: null, line_id: null, pct: null, amount_usd: 10000, status: 'promised' as const, note: null }, // Belfast: $10,000 of furniture
+    ];
+    const eff = effectivePct(allocs, amounts, headingOf);
+    const c = cover(allocs, eff, 1, 7, 3, 1000);
+    expect(c.donors.map((d) => d.usd)).toEqual([500, 300]);
+    expect(c.toFind).toBe(200);
+    expect(cover(allocs, eff, 1, 8, 4, 1000).toFind).toBe(500); // heading 4: only the account's 50 %
+    expect(Math.round(cover(allocs, eff, 2, 7, 3, 41730).covered)).toBe(10000);
+
+    // pace: a 1200 budget for the year
+    expect(paceOf(1200, 200, 1)).toBe('under'); // December, only 200 spent
+    expect(paceOf(1200, 1250, 1)).toBe('over'); // more than the budget: uses the contingency
+    expect(paceOf(1200, 1200, 1)).toBe('ontrack');
+    expect(paceOf(1200, 900, 0.5)).toBe('ahead'); // 900 by June
+    expect(paceOf(1200, 600, 0.5)).toBe('ontrack');
+    expect(paceOf(0, 50, 0.5)).toBe('nobudget');
+    expect([usedBand(0.3), usedBand(0.6), usedBand(0.8), usedBand(0.95), usedBand(1.2)]).toEqual([0, 50, 75, 90, 100]);
+
+    // the 2026 budget covers July–December: by the end of September half of it is gone
+    const version = { id: 1, year: 2027, rev: 0, rate_syp: 130, rate_eur: 0.92, start_month: 7, months: 6, note: null, created_at: '', created_by: null };
+    const later = [...rows, { ...row('d', '2027-08-01', 900), id: 'd' }, { ...row('e', '2027-08-01', 50, 9), id: 'e' }, { ...row('f', '2027-08-01', 70), id: 'f', account_id: 5 }];
+    const comp2 = new Map([...comp, ['d', { expUsdTot: 900 } as never], ['e', { expUsdTot: 50 } as never], ['f', { expUsdTot: 70 } as never]]);
+    const fu = followUp({ rows: later, comp: comp2, version, upToMonth: 9, amounts: amounts.slice(0, 1), original: null, headingOf, outside: new Set([5]) });
+    const l7 = fu.find((x) => x.line_id === 7)!;
+    expect([l7.spent, l7.left, l7.used, l7.lastYear, l7.pace]).toEqual([900, 100, 0.9, 0, 'ahead']);
+    expect(fu.find((x) => x.line_id === 9)!.pace).toBe('nobudget'); // spent without any budget: shown
+    expect(fu.some((x) => x.account_id === 5)).toBe(false); // an account outside the centre (Deir)
+    const cont = contingencyOf([{ ...l7, spent: 1100 }], [{ version_id: 1, account_id: 1, contingency_pct: 10 }]).get(1)!;
+    expect([cont.reserve, cont.used]).toEqual([100, 100]);
+  });
+
+  it('reads MAGIS 2027 Budget.xlsx exactly: Homs 71,710 + 10 %, furniture 41,730', async () => {
+    const { readBudgetSheet, itemTotal, guessLine } = await import('../src/domain/budget');
+    const file = decodeURIComponent(new URL('../../template/MAGIS 2027 Budget.xlsx', import.meta.url).pathname);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(file);
+    const grid = (name: string) => {
+      const ws = wb.getWorksheet(name)!;
+      const out: (string | number | null)[][] = [];
+      ws.eachRow({ includeEmpty: true }, (r, i) => {
+        const vals: (string | number | null)[] = [];
+        for (let c = 1; c <= ws.columnCount; c++) {
+          const v = r.getCell(c).value as unknown;
+          vals.push(v == null ? null : typeof v === 'object' ? ((v as { result?: unknown }).result as number ?? ((v as { richText?: { text: string }[] }).richText?.map((x) => x.text).join('') ?? null)) : (v as string | number));
+        }
+        out[i - 1] = vals;
+      });
+      return out;
+    };
+    const homs = readBudgetSheet('Homs 2027', grid('Homs 2027'));
+    const sum = (xs: { qty: number; times: number; unit_cost: number }[]) => xs.reduce((s, i) => s + itemTotal(i), 0);
+    expect(sum(homs.items)).toBe(71710);
+    expect(homs.sheetBase).toBe(71710);
+    expect(homs.contingencyPct).toBe(10);
+    expect(homs.items.length).toBe(25);
+    expect(homs.items.every((i) => Math.abs(itemTotal(i) - i.total) < 0.01)).toBe(true);
+    const furn = readBudgetSheet('Homs Furniture 2027', grid('Homs Furniture 2027'));
+    expect(sum(furn.items)).toBe(41730);
+    expect(furn.contingencyPct).toBe(0);
+    expect(furn.items.length).toBe(13);
+
+    // matching with the register's lines
+    const headings = [{ id: 1, name: 'Salary' }, { id: 16, name: 'Furniture' }, { id: 5, name: 'Weekends & Retreats' }];
+    const lines = [
+      { id: 10, name: 'Coordinator', heading_id: 1, active: 1 }, { id: 11, name: 'Centre Director', heading_id: 1, active: 1 },
+      { id: 20, name: 'Chairs', heading_id: 16, active: 1 }, { id: 21, name: 'Tables', heading_id: 16, active: 1 }, { id: 22, name: 'Screens for video projector *', heading_id: 16, active: 1 }, { id: 23, name: 'Library shelving units *', heading_id: 16, active: 1 },
+      { id: 30, name: 'Weekend & spiritual retreats', heading_id: 5, active: 1 }, { id: 31, name: 'Transportation', heading_id: 5, active: 1 },
+    ];
+    expect(guessLine({ category: 'Staff', name: 'Workshop Coordinator' }, lines, headings)).toBe(10);
+    expect(guessLine({ category: 'Staff', name: 'Centre Director' }, lines, headings)).toBe(11);
+    expect(guessLine({ category: 'Theatre', name: 'Chairs, foldable' }, lines, headings, 'Furniture')).toBe(20);
+    expect(guessLine({ category: 'Library', name: 'Study tables, foldable' }, lines, headings, 'Furniture')).toBe(21);
+    expect(guessLine({ category: 'Library', name: 'Library shelving units *' }, lines, headings, 'Furniture')).toBe(23);
+    expect(guessLine({ category: 'Weekends & Retreats', name: 'Spiritual retreats' }, lines, headings)).toBe(30);
+  });
+});

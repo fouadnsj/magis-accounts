@@ -10,6 +10,7 @@ import { EntryForm } from './EntryForm';
 import { Register } from './Register';
 import { Cash } from './Cash';
 import { Reports } from './Reports';
+import { BudgetPage } from './Budget';
 import { Grants } from './Grants';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
@@ -19,7 +20,7 @@ import { draftFor, draftKey } from './draft';
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.coverage', 'reports.funds'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
 
-export type Page = 'home' | 'register' | 'cash' | 'reports' | 'grants' | 'lists' | 'files' | 'admin';
+export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'lists' | 'files' | 'admin';
 
 interface Nav {
   go: (p: Page, opts?: { review?: boolean }) => void;
@@ -79,6 +80,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
           {(myBooks.length > 0 || can('reports.cash')) && item('cash', t('النقد', 'Cash'))}
           {REPORT_PERMS.some(can) && item('reports', t('التقارير', 'Reports'))}
+          {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
           {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
           {(fileHolder || can('data.export') || can('data.import')) && item('files', s.mode === 'server' ? t('التصدير', 'Export') : t('استيراد وتصدير', 'Import / Export'))}
@@ -94,6 +96,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {page === 'register' && <Register key={String(reviewOnly)} />}
           {page === 'cash' && <Cash />}
           {page === 'reports' && <Reports />}
+          {page === 'budget' && can('budget.view') && <BudgetPage />}
           {page === 'grants' && can('lists.donors') && <Grants />}
           {page === 'lists' && <ListsPage />}
           {page === 'files' && <Files />}

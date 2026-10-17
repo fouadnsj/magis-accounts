@@ -60,7 +60,7 @@ export async function loadLists(db: Db): Promise<Lists> {
   const named = (t: string) => db.query<Named>(`SELECT id, name, active, sort FROM ${t} ORDER BY sort, name`);
   const [cities, accounts, projects, parties, books, headings, headingTypes, lines, donors, rules, settings] = await Promise.all([
     named('city'),
-    named('account'),
+    db.query<Named & { outside_budget: number }>('SELECT id, name, active, sort, outside_budget FROM account ORDER BY sort, name'),
     named('project'),
     named('party'),
     db.query<Book>('SELECT * FROM book ORDER BY is_main DESC, sort, name'),

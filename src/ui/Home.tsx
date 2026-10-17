@@ -149,7 +149,7 @@ export function Home() {
               const b = holderBalance(d, id, fileHolder);
               const main = !!d.lists.books.find((x) => x.id === id)?.is_main;
               return (
-                <Balance key={id} title={names.book(id)} syp={b.syp.shouldHold} usd={b.usd.shouldHold} main={main} lastChange={lastChange.get(id) ?? null} lastClosed={lastClosed(id, main)} />
+                <Balance key={id} title={names.book(id)} syp={b.syp.shouldHold} usd={b.usd.shouldHold} main={main} lastChange={lastChange.get(id) ?? null} lastClosed={lastClosed(id, main)} onOpen={() => nav.go('register', { book: id })} />
               );
             })}
           </div>
@@ -163,7 +163,7 @@ export function Home() {
           <div className="cards">
             {syp.filter((l) => l.book && (l.book.active || l.shouldHold !== 0)).map((l, i) => (
               <Balance key={l.book!.id} title={l.book!.name} sub={l.book!.keeper_name} syp={l.shouldHold} usd={usd[i].shouldHold}
-                main={!!l.book!.is_main} lastChange={lastChange.get(l.book!.id) ?? null} lastClosed={lastClosed(l.book!.id, !!l.book!.is_main)} />
+                main={!!l.book!.is_main} lastChange={lastChange.get(l.book!.id) ?? null} lastClosed={lastClosed(l.book!.id, !!l.book!.is_main)} onOpen={() => nav.go('register', { book: l.book!.id })} />
             ))}
           </div>
         </>
@@ -215,12 +215,15 @@ function ApproveList({ rows }: { rows: import('../domain/types').Trx[] }) {
 }
 
 /** One book: who holds it, pounds and dollars side by side, when it last changed, its last closed month. */
-export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed }: {
+export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed, onOpen }: {
   title: string; sub?: string | null; syp: number; usd: number; main?: boolean; lastChange?: string | null; lastClosed?: string | null;
+  /** open this book's register */
+  onOpen?: () => void;
 }) {
   const when = lastChange ? new Date(lastChange) : null;
   return (
-    <div className="card balance">
+    <div className={`card balance ${onOpen ? 'clickable' : ''}`} onClick={onOpen} role={onOpen ? 'button' : undefined}
+      title={onOpen ? t('افتح سجل هذا الدفتر', "Open this book's register") : undefined}>
       <div className="balance-head">
         <PersonIcon kind={main ? 'office' : 'holder'} />
         <div>
@@ -238,6 +241,7 @@ export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed }: 
           <span>🔒 {t('آخر شهر مغلق', 'Last month closed')}: <span className="ltr">{lastClosed ?? '—'}</span></span>
         </div>
       )}
+      {onOpen && <div className="balance-open">{t('السجل ›', 'Register ›')}</div>}
     </div>
   );
 }

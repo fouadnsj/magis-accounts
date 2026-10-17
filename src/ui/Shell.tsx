@@ -23,10 +23,12 @@ const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'dat
 export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'lists' | 'files' | 'admin';
 
 interface Nav {
-  go: (p: Page, opts?: { review?: boolean }) => void;
+  go: (p: Page, opts?: { review?: boolean; book?: number }) => void;
   /** Open the entry form: a type for a new row, or a row to edit. */
   entry: (x: TrxType | Trx) => void;
   reviewOnly: boolean;
+  /** the register opens on this book (from a Home card) */
+  bookOnly: number | null;
 }
 const NavCtx = createContext<Nav | null>(null);
 export const useNav = () => useContext(NavCtx)!;
@@ -35,16 +37,19 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
   const { s, d, logout, can, myBooks, limited } = useApp();
   const [page, setPage] = useState<Page>('home');
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [bookOnly, setBookOnly] = useState<number | null>(null);
   // an entry left half-typed at a sign-out for inactivity comes back
   const [editing, setEditing] = useState<TrxType | Trx | null>(() => (draftFor(draftKey(s))?.start as TrxType | Trx | undefined) ?? null);
   const [menuOpen, setMenuOpen] = useState(false);
   const nav: Nav = {
     go: (p, o) => {
       setReviewOnly(!!o?.review);
+      setBookOnly(o?.book ?? null);
       setPage(p);
     },
     entry: setEditing,
     reviewOnly,
+    bookOnly,
   };
   const toReview = d.rows.filter((r) => r.review).length;
 
@@ -93,7 +98,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
         </nav>
         <main className="main">
           {page === 'home' && <Home />}
-          {page === 'register' && <Register key={String(reviewOnly)} />}
+          {page === 'register' && <Register key={`${reviewOnly}|${bookOnly}`} />}
           {page === 'cash' && <Cash />}
           {page === 'reports' && <Reports />}
           {page === 'budget' && can('budget.view') && <BudgetPage />}

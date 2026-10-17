@@ -439,6 +439,9 @@ table.t.rep td, table.t.rep td.n { font-size: 11.5px; padding: 3px 5px; }
 .balance-head .person-icon { width: 36px; height: 36px; margin: 0; flex: none; }
 .balance-title { font-weight: 700; }
 .balance-foot { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.card.balance.clickable { cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+.card.balance.clickable:hover { border-color: var(--brand-2); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.balance-open { margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--brand-2); text-align: end; }
 
 /* grants: one card per grant, its steps, where the money is */
 .grant-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }

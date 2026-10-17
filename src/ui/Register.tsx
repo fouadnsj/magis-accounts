@@ -15,7 +15,7 @@ export function Register() {
   const nav = useNav();
   const names = useNames();
   const [month, setMonth] = useState('');
-  const [book, setBook] = useState<number | null>(null);
+  const [book, setBook] = useState<number | null>(nav.bookOnly);
   const [account, setAccount] = useState<number | null>(null);
   const [type, setType] = useState('');
   const [heading, setHeading] = useState<number | null>(null);

@@ -47,6 +47,20 @@ INSERT OR IGNORE INTO user_book (profile_id, book_id)
 -- the grants already in hand, and what was transferred from them, move to the Respo book
 UPDATE trx SET book_id = ${RESPO_ID} WHERE grant_id IS NOT NULL AND book_id = ${OLD_GRANTS};
 INSERT OR REPLACE INTO meta (key, value) VALUES ('grants_book_id', CAST(${RESPO_ID} AS TEXT));
+-- a grant in hand whose money was never written in a book: its income in the Respo book
+INSERT INTO trx (id, n, city_id, account_id, book_id, date, type, heading_id, line_id, explanation, inc_usd, grant_id, created_at, created_by)
+  SELECT 'grant-' || g.id, (SELECT COALESCE(MAX(n), 0) FROM trx) + ROW_NUMBER() OVER (ORDER BY g.hand_on, g.id),
+         (SELECT city_id FROM book WHERE id = ${RESPO_ID}),
+         COALESCE((SELECT MIN(p.account_id) FROM grant_part p WHERE p.grant_id = g.id HAVING COUNT(DISTINCT p.account_id) = 1 AND COUNT(*) = COUNT(p.account_id)),
+                  (SELECT account_id FROM book WHERE id = ${RESPO_ID})),
+         ${RESPO_ID}, g.hand_on, 'Income', ${INCOME_HEADING},
+         COALESCE((SELECT id FROM budget_line WHERE heading_id = ${INCOME_HEADING} AND active = 1 AND name IN ('Donation', 'Grant') ORDER BY id LIMIT 1),
+                  (SELECT id FROM budget_line WHERE heading_id = ${INCOME_HEADING} AND active = 1 AND is_project_fund = 0 ORDER BY id LIMIT 1)),
+         'Grant · منحة ' || (SELECT name FROM donor WHERE id = g.donor_id) || COALESCE(' · ' || g.reference, ''),
+         g.hand_usd, g.id, COALESCE(g.created_at, datetime('now')), g.created_by
+    FROM grant_card g
+   WHERE g.status = 'hand' AND g.hand_on IS NOT NULL AND g.hand_usd > 0
+     AND NOT EXISTS (SELECT 1 FROM trx t WHERE t.grant_id = g.id AND t.type = 'Income');
 -- "From the Respo" incomes become transfers Respo → book (same date and amount).
 -- In a book other than Main: two rows, the Respo's (−) and the book's (+).
 INSERT INTO trx (id, n, city_id, account_id, book_id, date, type, heading_id, line_id, explanation, inc_syp, exp_syp, inc_usd, exp_usd,

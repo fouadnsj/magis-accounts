@@ -170,14 +170,14 @@ describe('server: permissions are checked by the server', () => {
     // nor change or delete an old row of Roula's book
     const old = d.rows.find((r) => r.book_id === roulaId && r.type !== 'Transfer' && !r.review)!;
     expect((await op('trx.save', { rows: [{ ...old, explanation: 'changed' }] }, com)).status).toBe(400);
-    expect((await op('trx.delete', { ids: [old.id] }, com)).status).toBe(400);
+    expect((await op('trx.delete', { ids: [old.id], reason: 'test correction' }, com)).status).toBe(400);
     const inMain = row(mainId);
     expect((await op('trx.save', { rows: [inMain] }, com)).status).toBe(200);
-    expect((await op('trx.delete', { ids: [inMain.id] }, com)).status).toBe(200);
+    expect((await op('trx.delete', { ids: [inMain.id], reason: 'test correction' }, com)).status).toBe(200);
     // the superior may write in any book
     const bySup = row(roulaId);
     expect((await op('trx.save', { rows: [bySup] }, sup)).status).toBe(200);
-    expect((await op('trx.delete', { ids: [bySup.id] }, sup)).status).toBe(200);
+    expect((await op('trx.delete', { ids: [bySup.id], reason: 'test correction' }, sup)).status).toBe(200);
   });
 
   it('the server validates rows itself (a blank date is refused even if the screen is bypassed)', async () => {
@@ -252,14 +252,23 @@ describe('server: transfers recorded once by the giver, confirmed by the receive
     let r = await op('bookMonth.close', { bookId: roulaId, ym: '2026-11' }, roula);
     expect(r.status).toBe(400);
     expect(r.body.error.en).toMatch(/not received/);
+    const counted = async (book: number, who: string) => (await op('bookMonth.balance', { bookId: book, ym: '2026-11' }, who)).body as { syp: number; usd: number };
     // the giver fixes it (the accountant writes only in Main): delete the disputed transfer, record the right amount, Main confirms
     const disputed = (await transfersOf(com)).find((x) => x.disputedAt)!;
-    expect((await op('trx.delete', { ids: disputed.rowIds }, com)).status).toBe(400);
-    expect((await op('trx.delete', { ids: disputed.rowIds }, roula)).status).toBe(200);
+    expect((await op('trx.delete', { ids: disputed.rowIds, reason: 'test correction' }, com)).status).toBe(400);
+    expect((await op('trx.delete', { ids: disputed.rowIds, reason: 'test correction' }, roula)).status).toBe(200);
     const fixed = leg(roulaId, -2000, null);
     expect((await op('trx.save', { rows: [fixed] }, roula)).status).toBe(200);
     expect((await op('transfer.answer', { id: fixed.id, ok: true }, com)).status).toBe(200);
-    expect((await op('bookMonth.close', { bookId: roulaId, ym: '2026-11' }, roula)).status).toBe(200);
+    // the cash is counted: a difference must be explained
+    const bal = await counted(roulaId, roula);
+    r = await op('bookMonth.close', { bookId: roulaId, ym: '2026-11' }, roula);
+    expect(r.body.error.en).toMatch(/Count the cash/);
+    r = await op('bookMonth.close', { bookId: roulaId, ym: '2026-11', counted_syp: bal.syp - 1000, counted_usd: bal.usd }, roula);
+    expect(r.body.error.en).toMatch(/differs from the book/);
+    expect((await op('bookMonth.close', { bookId: roulaId, ym: '2026-11', counted_syp: bal.syp - 1000, counted_usd: bal.usd, note: 'a 1,000 note missing' }, roula)).status).toBe(200);
+    const kept = ((await op('data', {}, com)).body as DataPayload).bookMonths.find((x) => x.book_id === roulaId && x.ym === '2026-11')!;
+    expect(kept).toMatchObject({ book_syp: bal.syp, counted_syp: bal.syp - 1000, count_note: 'a 1,000 note missing' });
 
     // after closing, Roula cannot write in November any more
     const late = { ...leg(roulaId, 0, null), type: 'Exp' as const, trf_syp: 0, exp_syp: 500, explanation: 'late', heading_id: L.headings.find((h) => h.name === 'Operations')!.id, line_id: L.lines.find((l) => l.name === 'Internet')!.id };
@@ -269,7 +278,8 @@ describe('server: transfers recorded once by the giver, confirmed by the receive
     // the office cannot close November while Nagham's book is open
     r = await op('month.close', { ym: '2026-11' }, com);
     expect(r.body.error.en).toMatch(/Books not closed yet: .*Nagham/);
-    expect((await op('bookMonth.close', { bookId: naghamId, ym: '2026-11' }, nagham)).status).toBe(200);
+    const nb = await counted(naghamId, nagham);
+    expect((await op('bookMonth.close', { bookId: naghamId, ym: '2026-11', counted_syp: nb.syp, counted_usd: nb.usd }, nagham)).status).toBe(200);
     expect((await op('month.close', { ym: '2026-11' }, com)).status).toBe(200);
 
     // closed for everybody, the Superior included
@@ -277,6 +287,49 @@ describe('server: transfers recorded once by the giver, confirmed by the receive
     expect(r.body.error.en).toMatch(/Month 2026-11 is closed/);
     expect((await op('month.reopen', { ym: '2026-11' }, com)).status).toBe(400);
     expect((await op('month.reopen', { ym: '2026-11' }, sup)).status).toBe(200);
+  });
+});
+
+describe('server: controls (reason for changes, approval of large expenses, documents)', () => {
+  it('asks why a saved row changes; approval and documents follow the Superior\'s settings', async () => {
+    const sup = await loginAs('Fouad', 'sup-secret');
+    const com = await loginAs('Comptable', 'com-secret');
+    const L = ((await op('data', {}, sup)).body as DataPayload).lists;
+    const exp = (usd: number): Trx => ({
+      ...blankTrx(), city_id: L.cities[0].id, account_id: L.accounts.find((a) => a.name === 'Center')!.id, book_id: L.books.find((b) => b.is_main)!.id,
+      date: '2026-12-10', type: 'Exp', heading_id: L.headings.find((h) => h.name === 'Operations')!.id, line_id: L.lines.find((l) => l.name === 'Internet')!.id,
+      explanation: 'controls test', exp_usd: usd,
+    });
+    // a row entered before the rules were switched on is never asked for again
+    const old = exp(400);
+    expect((await op('trx.save', { rows: [old] }, com)).status).toBe(200);
+    // settings: only the Superior sets the controls
+    expect((await op('settings.save', { approval_on: 1, approval_usd: 100, approval_profile_id: 1 }, com)).status).toBe(400);
+    expect((await op('settings.save', { approval_on: 1, approval_usd: 100, approval_profile_id: 1, doc_required_usd: 50 }, sup)).status).toBe(200);
+    // reason
+    const r1 = exp(150);
+    expect((await op('trx.save', { rows: [r1] }, com)).status).toBe(200);
+    let r = await op('trx.save', { rows: [{ ...r1, explanation: 'changed' }] }, com);
+    expect(r.body.error.en).toMatch(/reason/);
+    expect((await op('trx.save', { rows: [{ ...r1, explanation: 'changed' }], reason: 'typo in the explanation' }, com)).status).toBe(200);
+    const audit = (await op('audit.list', {}, sup)).body as { action: string; after: string | null }[];
+    expect(audit.some((x) => x.action === 'edit' && (x.after ?? '').includes('typo in the explanation'))).toBe(true);
+
+    let problems = (await op('closing.problems', { ym: '2026-12', bookId: null }, com)).body as { en: string }[];
+    expect(problems.map((p) => p.en).join(' ')).toMatch(/1 large expenses waiting for approval/);
+    expect(problems.map((p) => p.en).join(' ')).toMatch(/without their document/);
+    // only the profile named approves
+    expect((await op('trx.approve', { ids: [r1.id] }, com)).status).toBe(400);
+    expect((await op('trx.approve', { ids: [r1.id] }, sup)).status).toBe(200);
+    problems = (await op('closing.problems', { ym: '2026-12', bookId: null }, com)).body as { en: string }[];
+    expect(problems.map((p) => p.en).join(' ')).not.toMatch(/approval/);
+    // a changed amount needs a new approval
+    expect((await op('trx.save', { rows: [{ ...r1, explanation: 'changed', exp_usd: 180 }], reason: 'real invoice' }, com)).status).toBe(200);
+    const again = ((await op('data', {}, com)).body as DataPayload).rows.find((x) => x.id === r1.id)!;
+    expect(again.approved_at).toBeNull();
+    // back to the defaults for the tests that follow
+    expect((await op('trx.delete', { ids: [r1.id, old.id], reason: 'test row' }, com)).status).toBe(200);
+    expect((await op('settings.save', { approval_on: 0, doc_required_usd: 0 }, sup)).status).toBe(200);
   });
 });
 
@@ -386,7 +439,7 @@ describe('server: several databases', () => {
     const a = row();
     await op('trx.save', { rows: [a] }, com);
     const nA = ((await op('data', {}, com)).body as DataPayload).rows.find((x) => x.id === a.id)!.n!;
-    await op('trx.delete', { ids: [a.id] }, com);
+    await op('trx.delete', { ids: [a.id], reason: 'test correction' }, com);
     const b = row();
     await op('trx.save', { rows: [b] }, com);
     const nB = ((await op('data', {}, com)).body as DataPayload).rows.find((x) => x.id === b.id)!.n!;

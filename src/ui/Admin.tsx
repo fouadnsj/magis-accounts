@@ -5,19 +5,21 @@ import type { Profile } from '../auth';
 import type { AccessRow, AuditRow, BackupFile, UserRow } from '../ops';
 import { PERM_GROUPS, type Perm } from '../perms';
 import { tx } from '../i18n';
-import { Field, Modal, Tabs, biName, confirmBox, errText, t, toast } from './kit';
+import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
+import type { CashCountRow } from '../ops';
 import { ServerTab } from './ServerTab';
 import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
 
-type Tab = 'months' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
+type Tab = 'months' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
 
 export function Admin() {
   const { s, can, myBooks } = useApp();
   const tabs: { value: Tab; label: string; hidden?: boolean }[] = [
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
+    { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
     { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore')) || s.mode === 'preview' },
     { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : t('كلمة السر', 'Password') },
     { value: 'access', label: t('ملفات الصلاحيات', 'Permission profiles'), hidden: !can('users.manage') },
@@ -32,6 +34,7 @@ export function Admin() {
       {s.mode === 'desktop' && <p className="muted small ltr" style={{ textAlign: 'start' }}>{s.dbPath}</p>}
       <Tabs value={tab} onChange={setTab} tabs={tabs} />
       {tab === 'months' && <Months />}
+      {tab === 'controls' && can('users.manage') && <Controls />}
       {tab === 'backups' && <Backups />}
       {tab === 'users' && <Users />}
       {tab === 'access' && can('users.manage') && <AccessProfiles />}
@@ -68,12 +71,11 @@ function Months() {
     }
   };
 
+  const [closing, setClosing] = useState<{ bookId: number; ym: string } | null>(null);
   const closeBook = async (bookId: number, ym: string) => {
     const problems = await s.api.call('closing.problems', { ym, bookId });
     if (problems.length) return toast(problems.map(tx).join(' · '), true);
-    const name = d.lists.books.find((b) => b.id === bookId)?.name;
-    if (!(await confirmBox(t(`إغلاق ${ym} لدفتر ${name}؟ هل عددتَ النقد وكان الفرق صفراً؟ بعد الإغلاق لا تعديل.`, `Close ${ym} for the book ${name}? Did you count the cash, with no difference? After closing, no more changes.`)))) return;
-    await run(() => s.api.call('bookMonth.close', { bookId, ym }), t('أُغلق', 'Closed'));
+    setClosing({ bookId, ym }); // the cash count comes first
   };
   const closeOffice = async (ym: string) => {
     const problems = await s.api.call('closing.problems', { ym, bookId: null });
@@ -106,9 +108,13 @@ function Months() {
                   {books.map((b) => {
                     if (!used(b.id, ym)) return <td key={b.id} className="center muted">—</td>;
                     const closed = d.bookClosed.has(`${b.id}|${ym}`);
+                    const bm = d.bookMonths.find((x) => x.book_id === b.id && x.ym === ym);
+                    const diff = bm && bm.counted_syp != null ? { syp: (bm.counted_syp ?? 0) - (bm.book_syp ?? 0), usd: (bm.counted_usd ?? 0) - (bm.book_usd ?? 0) } : null;
+                    const differs = diff && (Math.abs(diff.syp) >= 0.5 || Math.abs(diff.usd) >= 0.005);
                     return (
                       <td key={b.id} className="center nowrap">
-                        {closed ? <span className="ok">🔒</span> : <span className="muted">{t('مفتوح', 'open')}</span>}{' '}
+                        {closed ? <span className="ok" title={bm?.counted_syp != null ? `${t('معدود', 'counted')}: ${fmtSyp(bm.counted_syp)} SYP · ${fmtUsd(bm.counted_usd ?? 0)} USD` : ''}>🔒</span> : <span className="muted">{t('مفتوح', 'open')}</span>}
+                        {differs && <span className="bad small" title={bm?.count_note ?? ''}> Δ {diff!.syp ? `${fmtSyp(diff!.syp)} SYP` : ''}{diff!.usd ? ` ${fmtUsd(diff!.usd)} USD` : ''}</span>}{' '}
                         {!closed && !office && mayCloseBook(b.id) && <button className="btn small" onClick={() => closeBook(b.id, ym)}>{t('إغلاق', 'Close')}</button>}
                         {closed && !office && can('month.reopen') && (
                           <button className="btn small ghost" onClick={() => run(() => s.api.call('bookMonth.reopen', { bookId: b.id, ym }), t('أعيد الفتح', 'Reopened'))}>↺</button>
@@ -133,6 +139,119 @@ function Months() {
           </tbody>
         </table>
       </div>
+      {closing && <CloseBook {...closing} onClose={() => setClosing(null)} onDone={async () => { setClosing(null); await reload(); toast(t('أُغلق', 'Closed')); }} />}
+    </div>
+  );
+}
+
+/** Step 1: the holder counts his cash; a difference with the book is explained, then the month is closed. */
+function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string; onClose: () => void; onDone: () => Promise<void> }) {
+  const { s, d } = useApp();
+  const name = d.lists.books.find((b) => b.id === bookId)?.name;
+  const [bal, setBal] = useState<{ syp: number; usd: number } | null>(null);
+  const [syp, setSyp] = useState('');
+  const [usd, setUsd] = useState('');
+  const [note, setNote] = useState('');
+  const [fromCount, setFromCount] = useState<string | null>(null);
+  useEffect(() => {
+    s.api.call('bookMonth.balance', { bookId, ym }).then(setBal).catch((e) => toast(errText(e), true));
+    // the last note-by-note count of this book, if any, fills the boxes
+    s.api.call('cash.counts').then((rows: CashCountRow[]) => {
+      const mine = rows.filter((r) => r.book_id === bookId);
+      if (!mine.length) return;
+      const tot = (cur: 'SYP' | 'USD') => mine.filter((r) => r.currency === cur).reduce((x, r) => x + r.denomination * r.qty, 0);
+      setSyp(String(tot('SYP')));
+      setUsd(String(tot('USD')));
+      setFromCount(mine[0].counted_at?.slice(0, 10) ?? null);
+    }).catch(() => undefined);
+  }, [s, bookId, ym]);
+  const cs = parseAmount(syp), cu = parseAmount(usd);
+  const ready = syp.trim() !== '' && usd.trim() !== '';
+  const dSyp = bal && ready ? cs - bal.syp : 0;
+  const dUsd = bal && ready ? cu - bal.usd : 0;
+  const differs = Math.abs(dSyp) >= 0.5 || Math.abs(dUsd) >= 0.005;
+  const go = async () => {
+    try {
+      await s.api.call('bookMonth.close', { bookId, ym, counted_syp: cs, counted_usd: cu, note: note.trim() || null });
+      await onDone();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <Modal title={t(`إغلاق ${ym} — ${name}`, `Close ${ym} — ${name}`)} onClose={onClose}>
+      <p className="muted">{t('عُدّ النقد الموجود فعلاً واكتبه. إن اختلف عن الدفتر فاكتب السبب. بعد الإغلاق لا تعديل.', 'Count the cash really there and write it. If it differs from the book, write why. After closing, no more changes.')}</p>
+      <table className="t">
+        <thead><tr><th /><th className="n">SYP</th><th className="n">USD</th></tr></thead>
+        <tbody>
+          <tr><td>{t(`الدفتر في نهاية ${ym}`, `The book at the end of ${ym}`)}</td><td className="n">{bal ? fmtSyp(bal.syp) : '…'}</td><td className="n">{bal ? fmtUsd(bal.usd) : '…'}</td></tr>
+          <tr>
+            <td>{t('النقد المعدود', 'Cash counted')}{fromCount && <div className="muted small">{t('من عدّك في', 'from your count of')} {fromCount}</div>}</td>
+            <td className="n"><input className="ltr num" inputMode="decimal" value={syp} onChange={(e) => setSyp(e.target.value)} style={{ width: 140 }} /></td>
+            <td className="n"><input className="ltr num" inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} style={{ width: 110 }} /></td>
+          </tr>
+          {ready && bal && (
+            <tr><td><b>{t('الفرق', 'Difference')}</b></td><td className={`n ${Math.abs(dSyp) >= 0.5 ? 'bad' : 'ok'}`}><b>{fmtSyp(dSyp)}</b></td><td className={`n ${Math.abs(dUsd) >= 0.005 ? 'bad' : 'ok'}`}><b>{fmtUsd(dUsd)}</b></td></tr>
+          )}
+        </tbody>
+      </table>
+      {ready && differs && (
+        <Field label={t('لماذا يختلف؟ (يُحفظ مع الشهر)', 'Why does it differ? (kept with the month)')}>
+          <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} />
+        </Field>
+      )}
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={!bal || !ready || (differs && !note.trim())} onClick={go}>🔒 {t('إغلاق الشهر لهذا الدفتر', 'Close the month for this book')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- controls (the Superior's rules)
+
+function Controls() {
+  const { s, d, reload } = useApp();
+  const S = d.lists.settings;
+  const [doc, setDoc] = useState(String(S.doc_required_usd));
+  const [on, setOn] = useState(!!S.approval_on);
+  const [amount, setAmount] = useState(String(S.approval_usd));
+  const [who, setWho] = useState<number | null>(S.approval_profile_id);
+  const [profiles, setProfiles] = useState<AccessRow[]>([]);
+  useEffect(() => {
+    s.api.call('access.list').then(setProfiles).catch(() => undefined);
+  }, [s]);
+  const save = async () => {
+    try {
+      await s.api.call('settings.save', { doc_required_usd: parseAmount(doc) || 0, approval_on: on ? 1 : 0, approval_usd: parseAmount(amount) || 0, approval_profile_id: who });
+      await reload();
+      toast(t('حُفظ', 'Saved'));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <div className="grid2">
+      <div className="panel">
+        <h3>📎 {t('المستندات', 'Documents')}</h3>
+        <p className="muted small">{t('كل نفقة من هذا المبلغ (بالدولار، كل العملات محسوبة) تحتاج مستندها الممسوح. لا يُغلق الشهر قبل ذلك. 0 = بلا قاعدة.', 'Every expense from this amount (in USD, all currencies counted) needs its scanned document. The month cannot close before. 0 = no rule.')}</p>
+        <Field label={t('من مبلغ ($)', 'From the amount ($)')}><input className="ltr" inputMode="decimal" value={doc} onChange={(e) => setDoc(e.target.value)} style={{ width: 140 }} /></Field>
+      </div>
+      <div className="panel">
+        <h3>✓ {t('الموافقة على النفقات الكبيرة', 'Approval of large expenses')}</h3>
+        <label className="row"><input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} /> {t('مفعّلة', 'On')}</label>
+        <div className="grid2" style={{ opacity: on ? 1 : 0.5 }}>
+          <Field label={t('من مبلغ ($)', 'From the amount ($)')}><input className="ltr" inputMode="decimal" disabled={!on} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label={t('يوافق', 'Approved by')}>
+            <select className="inp" disabled={!on} value={who ?? ''} onChange={(e) => setWho(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">{t('من يدير المستخدمين (الرئيس)', 'Whoever manages users (the Superior)')}</option>
+              {profiles.map((p) => <option key={p.id} value={p.id}>{biName(p.name)}</option>)}
+            </select>
+          </Field>
+        </div>
+        <p className="muted small">{t('تُسجَّل النفقة ثم تنتظر الموافقة؛ لا يُغلق الشهر قبلها. تغيير المبلغ بعد الموافقة يلغيها.', 'The expense is recorded, then waits for approval; the month cannot close before. Changing the amount after approval cancels it.')}</p>
+      </div>
+      <div className="span2 modal-foot"><button className="btn primary" onClick={save}>{t('احفظ', 'Save')}</button></div>
     </div>
   );
 }

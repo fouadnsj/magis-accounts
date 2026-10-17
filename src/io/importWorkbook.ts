@@ -5,6 +5,7 @@
 // the workbook. A row the app would refuse to save is imported with a "review"
 // note listing why. Nothing is guessed, nothing is dropped.
 
+import { DEFAULT_SETTINGS } from '../db/repo';
 import type ExcelJS from 'exceljs';
 import { type Db, type Stmt, nowIso, uuid } from '../db/db';
 import { auditStmt, insertTrxStmt, setMetaStmt, setSettingStmt } from '../db/repo';
@@ -572,6 +573,6 @@ function seedLists(
       })),
     donors: [],
     rules: [],
-    settings: { usd_rate: seed.settings.usdRate ?? 130, def_city_id: null, def_account_id: null, def_book_id: null, fiscal_start: null, exchange_tolerance: 0.25 },
+    settings: { ...DEFAULT_SETTINGS, usd_rate: seed.settings.usdRate ?? 130 },
   };
 }

@@ -406,4 +406,27 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"budget.view","budget.ma
  WHERE perms LIKE '%"users.manage"%';
 `,
   },
+  {
+    n: 7,
+    name: 'controls: approval of large expenses, cash count at book closing, closed years',
+    sql: `
+-- A large expense waits for approval (rule and amount in the settings).
+ALTER TABLE trx ADD COLUMN approved_at TEXT;
+ALTER TABLE trx ADD COLUMN approved_by TEXT;
+-- Closing a book's month: the cash counted, what the book says, and why they differ.
+ALTER TABLE book_month ADD COLUMN book_syp REAL;
+ALTER TABLE book_month ADD COLUMN book_usd REAL;
+ALTER TABLE book_month ADD COLUMN counted_syp REAL;
+ALTER TABLE book_month ADD COLUMN counted_usd REAL;
+ALTER TABLE book_month ADD COLUMN count_note TEXT;
+-- The document rule ($50 by default) applies to what is entered from today on.
+INSERT OR REPLACE INTO setting (key, value) VALUES ('doc_since', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+-- A year closed once its twelve months are closed (only the Superior reopens).
+CREATE TABLE closed_year (
+  year      INTEGER PRIMARY KEY,
+  closed_at TEXT NOT NULL,
+  closed_by TEXT
+);
+`,
+  },
 ];

@@ -1,5 +1,6 @@
 // The entry form: the only way a movement enters the register.
 // Every rule of validate.ts is checked before saving; warnings need a second click.
+import { needsApproval, needsDoc } from '../ops';
 import { draftFor, draftKey, dropDraft, keepDraft } from './draft';
 import { useEffect, useMemo, useState } from 'react';
 import { DocsPanel, uploadPending, type PendingDoc } from './Docs';
@@ -9,7 +10,7 @@ import { validateTrx } from '../domain/validate';
 import { rateOn } from '../domain/compute';
 import type { Trx, TrxType } from '../domain/types';
 import { TYPE_LABEL, tx, type Msg } from '../i18n';
-import { Combo, Field, Modal, Msgs, Seg, Select, confirmBox, errText, fmtDate, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
+import { Combo, Field, Modal, Msgs, Seg, Select, promptBox, errText, fmtDate, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
 
 type Cur = 'SYP' | 'USD';
 
@@ -253,9 +254,21 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       setWarnAccepted(true);
       return;
     }
+    // a row already saved that changes (or a leg that goes): say why, for the audit log
+    const FIELDS = ['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd'] as const;
+    const changesOld = deletes.some((id) => d.rows.some((x) => x.id === id)) || rows.some((r) => {
+      const old = d.rows.find((x) => x.id === r.id);
+      return old && FIELDS.some((k) => (old[k] ?? null) !== (r[k] ?? null));
+    });
+    let reason: string | null = null;
+    if (changesOld) {
+      reason = await promptBox(t('سبب التعديل (يُحفظ في سجل التعديلات)', 'Reason for the change (kept in the audit log)'), '');
+      if (reason == null) return;
+      if (!reason.trim()) return toast(t('اكتب السبب', 'Write the reason'), true);
+    }
     setBusy(true);
     try {
-      await s.api.call('trx.save', { rows, deletes });
+      await s.api.call('trx.save', { rows, deletes, reason });
       // documents scanned or chosen in the form go with the row (the giver's row for a transfer)
       if (pending.length) {
         try {
@@ -287,9 +300,11 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
     if (!editing) return;
     const ids = [editing.id, ...(partner ? [partner.id] : [])];
     if (editing.date && d.closed.has(editing.date.slice(0, 7))) return toast(t('الشهر مغلق — صحّح بقيد عكسي', 'Month closed — correct with a reversing entry'), true);
-    if (!(await confirmBox(partner ? t('حذف سطري التحويل كليهما؟', 'Delete both rows of this transfer?') : t('حذف هذا السطر؟', 'Delete this row?'), true))) return;
+    const reason = await promptBox(partner ? t('حذف سطري التحويل كليهما. السبب؟', 'Delete both rows of this transfer. Why?') : t('حذف هذا السطر. السبب؟', 'Delete this row. Why?'), '');
+    if (reason == null) return;
+    if (!reason.trim()) return toast(t('اكتب السبب', 'Write the reason'), true);
     try {
-      await s.api.call('trx.delete', { ids });
+      await s.api.call('trx.delete', { ids, reason });
     } catch (e) {
       return toast(errText(e), true);
     }
@@ -401,6 +416,23 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
                   <>≈ <span className="ltr">{fmtUsd(parseAmount(f.amount) / preview.rate)} USD</span> · {t('السعر', 'rate')} <span className="ltr">{fmtRate(preview.rate)}</span></>
                 )}
               </div>
+              {f.type === 'Exp' && (() => {
+                // the controls set by the Superior: document from an amount, approval from an amount
+                const usdEq = f.currency === 'USD' ? parseAmount(f.amount) : preview ? parseAmount(f.amount) / preview.rate : 0;
+                const S = L.settings;
+                const probe = { type: 'Exp', created_at: editing?.created_at ?? new Date().toISOString(), approved_at: null } as Trx;
+                const needDoc = needsDoc(S, probe, usdEq);
+                const needOk = needsApproval(S, probe, usdEq);
+                if (!needDoc && !needOk && !editing?.approved_at) return null;
+                return (
+                  <div className="span2 small controls-note">
+                    {needDoc && <div>📎 {t(`من ${S.doc_required_usd}$: أرفق المستند (الفاتورة) لهذا القيد.`, `From $${S.doc_required_usd}: attach the document (invoice) to this entry.`)}</div>}
+                    {needOk && (editing?.approved_at
+                      ? <div className="ok">✓ {t('وافق عليه', 'Approved by')} {editing.approved_by} · {fmtDate(editing.approved_at.slice(0, 10))} {t('(يُلغى إن تغيّر المبلغ)', '(cancelled if the amount changes)')}</div>
+                      : <div>⏳ {t(`من ${S.approval_usd}$: ينتظر الموافقة قبل إغلاق الشهر.`, `From $${S.approval_usd}: waits for approval before the month can close.`)}</div>)}
+                  </div>
+                );
+              })()}
             </>
           )}
 

@@ -21,7 +21,7 @@ import {
   type AllocStatus, type BudgetAccount, type BudgetAlloc, type BudgetAmount, type BudgetItem, type BudgetVersion,
 } from './domain/budget';
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
-import type { GrantRow } from './domain/reports';
+import { holders, type GrantRow } from './domain/reports';
 import type { Book, Lists, Settings, Trx, TrxType } from './domain/types';
 import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
@@ -89,6 +89,33 @@ export interface BookMonth {
   ym: string;
   closed_at: string;
   closed_by: string | null;
+  /** at closing: what the book said, what was counted, and why they differ */
+  book_syp?: number | null;
+  book_usd?: number | null;
+  counted_syp?: number | null;
+  counted_usd?: number | null;
+  count_note?: string | null;
+}
+
+/** USD of an expense row, all currencies counted (as in the reports). */
+const expUsdOf = (comp: Map<string, { expUsdTot: number }>, r: Trx) => comp.get(r.id)?.expUsdTot ?? 0;
+const CONTROL_KEYS = ['doc_required_usd', 'approval_on', 'approval_usd', 'approval_profile_id', 'doc_since', 'approval_since'];
+
+/** The rules concern entries made after they were switched on, never the past. */
+export const needsApproval = (s: Settings, r: Trx, usd: number) =>
+  !!s.approval_on && s.approval_usd > 0 && r.type === 'Exp' && usd >= s.approval_usd && !r.approved_at && (!s.approval_since || (r.created_at ?? '') >= s.approval_since);
+export const needsDoc = (s: Settings, r: Trx, usd: number) =>
+  s.doc_required_usd > 0 && r.type === 'Exp' && usd >= s.doc_required_usd && (!s.doc_since || (r.created_at ?? '') >= s.doc_since);
+
+/** May this person approve large expenses? The profile named in the settings, or whoever manages users. */
+const mayApprove = (c: OpCtx, s: Settings) => (s.approval_profile_id ? c.profile.access_id === s.approval_profile_id : can(c, 'users.manage'));
+
+/** What a book holds at the end of a month (SYP and USD). */
+function balanceAt(rows: Trx[], books: Book[], bookId: number, month: string) {
+  const end = `${month}-31`;
+  const syp = holders(rows, books, 'SYP', end).find((l) => l.book?.id === bookId)?.shouldHold ?? 0;
+  const usd = holders(rows, books, 'USD', end).find((l) => l.book?.id === bookId)?.shouldHold ?? 0;
+  return { syp, usd };
 }
 
 /** Everything a screen needs, already cut to what this person may see. */
@@ -187,7 +214,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
  *  - record a transfer he GIVES from such a book, while it is not yet confirmed;
  *  - change nothing in a month he (or the office) has closed for that book.
  */
-async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) {
+async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null }) {
   const deletes = a.deletes ?? [];
   const all = await loadTrx(c.db);
   const byId = new Map(all.map((r) => [r.id, r]));
@@ -244,6 +271,12 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) {
   }
   if (errors.length) throw new UserError({ ar: errors.map((e) => e.ar).join(' · '), en: errors.map((e) => e.en).join(' · ') });
 
+  // Changing or deleting a row already saved: say why (kept in the audit log).
+  const SAME = (x: Trx, y: Trx) => (['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd'] as const).every((k) => (x[k] ?? null) === (y[k] ?? null));
+  const changesOld = deletes.some((id) => byId.has(id)) || a.rows.some((r) => byId.has(r.id) && !SAME(byId.get(r.id)!, r));
+  const reason = (a.reason ?? '').trim() || null;
+  if (changesOld && !reason) throw new UserError(m('اكتب سبب التعديل أو الحذف', 'Write the reason for this change or deletion'));
+
   // The server keeps numbers, "sent" marks and confirmations itself. A transfer
   // whose date, books or amount change must be confirmed again by the receiver.
   const sig = (r: Trx) => [r.date, r.book_id, r.trf_syp, r.trf_usd].join('|');
@@ -259,6 +292,9 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) {
       received_by: sameTransfer ? old.received_by ?? null : null,
       disputed_at: sameTransfer ? old.disputed_at ?? null : null,
       dispute_note: sameTransfer ? old.dispute_note ?? null : null,
+      // an approval stays only while the amount, date, book and line stay the same
+      approved_at: old && SAME(old, r) ? old.approved_at ?? null : null,
+      approved_by: old && SAME(old, r) ? old.approved_by ?? null : null,
     };
   });
   // If one leg of a two-row transfer changed, the other leg loses its confirmation too.
@@ -266,7 +302,44 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) {
     if (r.type === 'Transfer' && r.transfer_group && !r.received_at)
       for (const x of clean) if (x.transfer_group === r.transfer_group) Object.assign(x, { received_at: null, received_by: null, disputed_at: null, dispute_note: null });
   }
-  await saveTrxRows(c.db, clean, c.who, c.install === 'office', deletes);
+  await saveTrxRows(c.db, clean, c.who, c.install === 'office', deletes, reason);
+}
+
+/** Large expenses waiting for approval, and expenses missing their document. */
+async function controlProblems(c: OpCtx, rows: Trx[], lists: Lists): Promise<Msg[]> {
+  const s = lists.settings;
+  const out: Msg[] = [];
+  const exps = rows.filter((r) => r.type === 'Exp');
+  if (!exps.length) return out;
+  const comp = computeAll(await loadTrx(c.db), lists);
+  {
+    const n = exps.filter((r) => needsApproval(s, r, expUsdOf(comp, r))).length;
+    if (n) out.push(m(`${n} نفقة كبيرة تنتظر الموافقة`, `${n} large expenses waiting for approval`));
+  }
+  if (s.doc_required_usd > 0) {
+    const withDoc = new Set((await c.db.query<{ trx_id: string }>('SELECT DISTINCT trx_id FROM attachment WHERE deleted_at IS NULL')).map((x) => x.trx_id));
+    const n = exps.filter((r) => needsDoc(s, r, expUsdOf(comp, r)) && !withDoc.has(r.id)).length;
+    if (n) out.push(m(`${n} نفقة بلا مستند (من ${s.doc_required_usd}$)`, `${n} expenses without their document (from $${s.doc_required_usd})`));
+  }
+  return out;
+}
+
+/** The person who approves marks large expenses as approved. */
+async function approveRows(c: OpCtx, a: { ids: string[] }) {
+  const lists = await loadLists(c.db);
+  if (!lists.settings.approval_on) throw new UserError(m('قاعدة الموافقة غير مفعّلة', 'The approval rule is not on'));
+  if (!mayApprove(c, lists.settings)) throw refuse();
+  const closed = await closedMonths(c.db);
+  const at = nowIso();
+  const stmts: Stmt[] = [];
+  for (const id of a.ids) {
+    const r = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [id]);
+    if (!r) continue;
+    if (r.date && closed.has(r.date.slice(0, 7))) throw new UserError(m(`الشهر ${r.date.slice(0, 7)} مغلق`, `Month ${r.date.slice(0, 7)} is closed`));
+    stmts.push({ sql: 'UPDATE trx SET approved_at = ?, approved_by = ? WHERE id = ?', params: [at, c.who, id] }, auditStmt(c.who, 'approve', 'trx', id, null, null));
+  }
+  await c.db.batch(stmts);
+  return a.ids.length;
 }
 
 /** The receiver of a transfer confirms (or says it did not arrive). */
@@ -307,6 +380,7 @@ async function closingProblems(c: OpCtx, month: string, bookId: number | null): 
   const disputed = transfers.filter((t) => t.disputedAt).length;
   if (waiting) out.push(m(`${waiting} تحويلاً لم يؤكَّد استلامه`, `${waiting} transfers not yet confirmed by the receiver`));
   if (disputed) out.push(m(`${disputed} تحويلاً قيل إنه لم يصل`, `${disputed} transfers marked "not received"`));
+  out.push(...(await controlProblems(c, inMonth, lists)));
   if (bookId == null) {
     const bm = await bookMonths(c.db);
     const open = lists.books
@@ -771,8 +845,9 @@ export const OPS = {
   },
 
   // ---------------------------------------------------------------- register
-  'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[] }) => saveRows(c, a) },
-  'trx.delete': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { ids: string[] }) => saveRows(c, { rows: [], deletes: a.ids }) },
+  'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null }) => saveRows(c, a) },
+  'trx.delete': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { ids: string[]; reason?: string | null }) => saveRows(c, { rows: [], deletes: a.ids, reason: a.reason }) },
+  'trx.approve': { check: anyone, run: (c: OpCtx, a: { ids: string[] }) => approveRows(c, a) },
   'transfer.answer': {
     check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'),
     run: (c: OpCtx, a: { id: string; ok: boolean; note?: string | null }) => answerTransfer(c, a),
@@ -854,7 +929,26 @@ export const OPS = {
   'donor.save': { check: (c: OpCtx) => need(c, 'lists.donors'), run: (c: OpCtx, a: { id?: number; name: string; default_project_id: number | null }) => saveDonor(c.db, a, c.who) },
   'rule.save': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id?: number; project_id: number; account_id: number; heading_id: number | null }) => saveRule(c.db, a, c.who) },
   'rule.delete': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number }) => deleteRule(c.db, a.id, c.who) },
-  'settings.save': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: Partial<Settings>) => saveSettings(c.db, a, c.who) },
+  'settings.save': {
+    check: (c: OpCtx) => need(c, 'lists.manage', 'users.manage'),
+    run: (c: OpCtx, a: Partial<Settings>) => {
+      // the controls (documents, approval) are the Superior's; the rest is the lists'
+      if (Object.keys(a).some((k) => CONTROL_KEYS.includes(k))) need(c, 'users.manage');
+      if (Object.keys(a).some((k) => !CONTROL_KEYS.includes(k))) need(c, 'lists.manage');
+      if (a.approval_profile_id !== undefined && a.approval_profile_id !== null && !Number.isInteger(a.approval_profile_id)) throw new UserError(m('اختر من يوافق', 'Choose who approves'));
+      for (const k of ['doc_required_usd', 'approval_usd'] as const) if (a[k] !== undefined && !(Number(a[k]) >= 0)) throw new UserError(m('مبلغ غير صحيح', 'Wrong amount'));
+      // switching a rule on: it starts now (the past is not asked for again)
+      return (async () => {
+        const cur = (await loadLists(c.db)).settings;
+        const b = { ...a };
+        delete b.doc_since;
+        delete b.approval_since;
+        if (b.approval_on && !cur.approval_on) b.approval_since = nowIso();
+        if (b.doc_required_usd != null && b.doc_required_usd > 0 && !(cur.doc_required_usd > 0)) b.doc_since = nowIso();
+        return saveSettings(c.db, b, c.who);
+      })();
+    },
+  },
 
   // ---------------------------------------------------------------- cash
   'cash.saveCount': {
@@ -908,15 +1002,35 @@ export const OPS = {
   // ---------------------------------------------------------------- months: step 1 (book), step 2 (office)
   'bookMonth.close': {
     check: anyone,
-    run: async (c: OpCtx, a: { bookId: number; ym: string }) => {
+    /** The cash is counted at closing; a difference with the book must be explained. */
+    run: async (c: OpCtx, a: { bookId: number; ym: string; counted_syp?: number | null; counted_usd?: number | null; note?: string | null }) => {
       if (!keeps(c, a.bookId)) need(c, 'month.close'); // the office may close a book for its keeper
       if (!keeps(c, a.bookId) && !can(c, 'register.edit') && !can(c, 'register.view')) throw refuse();
       if ((await closedMonths(c.db)).has(a.ym)) throw new UserError(m('الشهر مغلق مسبقاً', 'The month is already closed'));
       throwIf(await closingProblems(c, a.ym, a.bookId));
+      const ok = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
+      if (!ok(a.counted_syp) || !ok(a.counted_usd)) throw new UserError(m('عُدّ النقد أولاً: الليرة والدولار', 'Count the cash first: pounds and dollars'));
+      const lists = await loadLists(c.db);
+      const bal = balanceAt(await loadTrx(c.db), lists.books, a.bookId, a.ym);
+      const note = (a.note ?? '').trim() || null;
+      const differs = Math.abs(a.counted_syp! - bal.syp) >= 0.5 || Math.abs(a.counted_usd! - bal.usd) >= 0.005;
+      if (differs && !note) throw new UserError(m('النقد المعدود يختلف عن الدفتر: اكتب السبب', 'The cash counted differs from the book: write why'));
       await c.db.batch([
-        { sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by) VALUES (?, ?, ?, ?)', params: [a.bookId, a.ym, nowIso(), c.who] },
-        auditStmt(c.who, 'close', 'book_month', `${a.bookId}|${a.ym}`, null, null),
+        {
+          sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          params: [a.bookId, a.ym, nowIso(), c.who, bal.syp, bal.usd, a.counted_syp!, a.counted_usd!, note],
+        },
+        auditStmt(c.who, 'close', 'book_month', `${a.bookId}|${a.ym}`, null, { book: bal, counted: { syp: a.counted_syp, usd: a.counted_usd }, note }),
       ]);
+    },
+  },
+  /** What a book should hold at the end of a month (to compare with the cash counted). */
+  'bookMonth.balance': {
+    check: anyone,
+    run: async (c: OpCtx, a: { bookId: number; ym: string }) => {
+      if (!keeps(c, a.bookId)) need(c, 'register.view', 'month.close');
+      const lists = await loadLists(c.db);
+      return balanceAt(await loadTrx(c.db), lists.books, a.bookId, a.ym);
     },
   },
   'bookMonth.reopen': {

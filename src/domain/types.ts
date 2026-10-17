@@ -31,6 +31,9 @@ export interface Trx {
   received_by?: string | null;
   disputed_at?: string | null;
   dispute_note?: string | null;
+  /** a large expense: approved by whom the settings name */
+  approved_at?: string | null;
+  approved_by?: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;
@@ -113,6 +116,16 @@ export interface Settings {
   def_book_id: number | null;
   fiscal_start: string | null; // YYYY-MM-DD; dates before it are refused
   exchange_tolerance: number; // 0.25 = ±25 %
+  /** an expense from this amount (USD, all currencies counted) needs its scanned document; 0 = never */
+  doc_required_usd: number;
+  /** large expenses wait for approval */
+  approval_on: number;
+  approval_usd: number;
+  /** the permission profile who approves (e.g. Superior); null = whoever manages users */
+  approval_profile_id: number | null;
+  /** the rules apply to entries made from these moments on (when each was switched on) */
+  doc_since: string | null;
+  approval_since: string | null;
 }
 
 export const MONTHS_EN = [

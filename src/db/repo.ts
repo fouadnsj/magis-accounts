@@ -29,6 +29,12 @@ export const DEFAULT_SETTINGS: Settings = {
   def_book_id: null,
   fiscal_start: null,
   exchange_tolerance: 0.25,
+  doc_required_usd: 50,
+  approval_on: 0,
+  approval_usd: 500,
+  approval_profile_id: null,
+  doc_since: null,
+  approval_since: null,
 };
 
 async function loadSettings(db: Db): Promise<Settings> {
@@ -39,7 +45,13 @@ async function loadSettings(db: Db): Promise<Settings> {
     switch (key) {
       case 'usd_rate':
       case 'exchange_tolerance':
+      case 'doc_required_usd':
+      case 'approval_on':
+      case 'approval_usd':
         s[key] = Number(value);
+        break;
+      case 'approval_profile_id':
+        s[key] = Number(value) || null;
         break;
       case 'def_city_id':
       case 'def_account_id':
@@ -47,7 +59,9 @@ async function loadSettings(db: Db): Promise<Settings> {
         s[key] = Number(value);
         break;
       case 'fiscal_start':
-        s.fiscal_start = value;
+      case 'doc_since':
+      case 'approval_since':
+        s[key] = value;
         break;
     }
   }
@@ -288,7 +302,7 @@ const TRX_COLS = [
   'id', 'n', 'city_id', 'account_id', 'book_id', 'date', 'type', 'heading_id', 'line_id', 'explanation', 'party_id', 'receipt',
   'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd', 'transfer_group', 'review', 'sent_at',
   'created_at', 'created_by', 'updated_at', 'source_file',
-  'received_at', 'received_by', 'disputed_at', 'dispute_note',
+  'received_at', 'received_by', 'disputed_at', 'dispute_note', 'approved_at', 'approved_by',
 ] as const;
 
 export async function loadTrx(db: Db): Promise<Trx[]> {
@@ -328,23 +342,24 @@ export function blankTrx(): Trx {
     heading_id: null, line_id: null, explanation: null, party_id: null, receipt: null,
     inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0,
     transfer_group: null, review: null, sent_at: null, created_at: nowIso(), created_by: null, updated_at: null, source_file: null,
-    received_at: null, received_by: null, disputed_at: null, dispute_note: null,
+    received_at: null, received_by: null, disputed_at: null, dispute_note: null, approved_at: null, approved_by: null,
   };
 }
 
 /** Insert new rows / update existing ones (and remove `deleteIds`), in ONE transaction, with the audit trail. */
-export async function saveTrxRows(db: Db, rows: Trx[], who: string, numbered: boolean, deleteIds: string[] = []): Promise<void> {
+/** `reason`: why an existing row is changed or deleted (kept in the audit log). */
+export async function saveTrxRows(db: Db, rows: Trx[], who: string, numbered: boolean, deleteIds: string[] = [], reason: string | null = null): Promise<void> {
   const stmts: Stmt[] = [];
   for (const id of deleteIds) {
     const before = await one(db, 'SELECT * FROM trx WHERE id = ?', [id]);
-    if (before) stmts.push({ sql: 'DELETE FROM trx WHERE id = ?', params: [id] }, auditStmt(who, 'delete', 'trx', id, before, null));
+    if (before) stmts.push({ sql: 'DELETE FROM trx WHERE id = ?', params: [id] }, auditStmt(who, 'delete', 'trx', id, before, reason ? { reason } : null));
   }
   let n = numbered ? await nextN(db) : 0;
   for (const t of rows) {
     const before = await one<Trx>(db, 'SELECT * FROM trx WHERE id = ?', [t.id]);
     if (before) {
       const after = { ...t, updated_at: nowIso() };
-      stmts.push(updateTrxStmt(after), auditStmt(who, 'edit', 'trx', t.id, before, after));
+      stmts.push(updateTrxStmt(after), auditStmt(who, 'edit', 'trx', t.id, before, reason ? { ...after, reason } : after));
     } else {
       const fresh = { ...t, created_by: t.created_by ?? who, n: numbered && t.n == null ? n++ : t.n };
       stmts.push(insertTrxStmt(fresh), auditStmt(who, 'add', 'trx', t.id, null, fresh));

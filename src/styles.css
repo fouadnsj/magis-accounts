@@ -386,3 +386,4 @@ body { background: var(--bg); }
 .pill.st-requested { background: #EEF1F5; }
 .pill.st-promised { background: #FFF1CC; }
 .pill.st-received { background: #DCEFE0; }
+.controls-note { background: #FFF8E6; border: 1px solid #F0D68A; border-radius: 6px; padding: 6px 10px; }

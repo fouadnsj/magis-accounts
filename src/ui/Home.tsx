@@ -7,6 +7,7 @@ import type { TrxType } from '../domain/types';
 import { useNav } from './Shell';
 import { errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
 import { holderBalance } from './Cash';
+import { needsApproval } from '../ops';
 
 export function Home() {
   const { s, d, can, myBooks, limited, fileHolder, reload } = useApp();
@@ -39,6 +40,22 @@ export function Home() {
   const disputed = d.transfers.filter((x) => x.disputedAt && (iGave(x) || iReceive(x) || can('register.edit')));
 
   const showAll = !limited && (can('reports.cash') || can('register.view'));
+
+  // Large expenses waiting for approval (shown to whoever approves)
+  const S = d.lists.settings;
+  const approver = !!S.approval_on && (S.approval_profile_id ? s.profile.access_id === S.approval_profile_id : can('users.manage'));
+  const toApprove = approver
+    ? d.rows.filter((r) => needsApproval(S, r, d.comp.get(r.id)?.expUsdTot ?? 0) && !d.closed.has((r.date ?? '').slice(0, 7)))
+    : [];
+
+  // Months not yet closed: before this month, for my books; and for the office
+  const thisMonth = new Date().toISOString().slice(0, 7);
+  const openBookMonths = myBooks.flatMap((b) =>
+    [...new Set(d.rows.filter((r) => r.book_id === b && r.date && r.date.slice(0, 7) < thisMonth).map((r) => r.date!.slice(0, 7)))]
+      .filter((ym) => !d.bookClosed.has(`${b}|${ym}`) && !d.closed.has(ym)).map((ym) => ({ b, ym })));
+  const openOffice = can('month.close')
+    ? [...new Set(d.rows.filter((r) => r.date && r.date.slice(0, 7) < thisMonth).map((r) => r.date!.slice(0, 7)))].filter((ym) => !d.closed.has(ym)).sort()
+    : [];
 
   return (
     <>
@@ -76,6 +93,21 @@ export function Home() {
         <div className="alert info">
           <b>{t('أعطيتَ، وينتظر تأكيد المستلم', 'You gave; waiting for the receiver to confirm')}</b>
           <TransferList items={waiting} names={names} answer={false} onDone={reload} />
+        </div>
+      )}
+
+      {toApprove.length > 0 && <ApproveList rows={toApprove} />}
+
+      {openBookMonths.length > 0 && (
+        <div className="alert warn row" style={{ justifyContent: 'space-between' }}>
+          <span>🔓 {t('أشهر لم تُغلق بعد لدفترك', 'Months not yet closed for your book')}: {openBookMonths.map((x) => `${x.ym}${myBooks.length > 1 ? ` (${names.book(x.b)})` : ''}`).join('، ')}</span>
+          <button className="btn small" onClick={() => nav.go('admin')}>{t('إغلاق', 'Close')}</button>
+        </div>
+      )}
+      {openOffice.length > 0 && (
+        <div className="alert info row" style={{ justifyContent: 'space-between' }}>
+          <span>🔓 {t('أشهر لم يغلقها المكتب بعد', 'Months the office has not closed yet')}: <span className="ltr">{openOffice.join(', ')}</span></span>
+          <button className="btn small" onClick={() => nav.go('admin')}>{t('إغلاق الأشهر', 'Month closing')}</button>
         </div>
       )}
 
@@ -119,6 +151,47 @@ export function Home() {
       )}
       {s.mode === 'preview' && null}
     </>
+  );
+}
+
+/** The approver's list: large expenses waiting for approval. */
+function ApproveList({ rows }: { rows: import('../domain/types').Trx[] }) {
+  const { s, d, reload } = useApp();
+  const names = useNames();
+  const [busy, setBusy] = useState(false);
+  const approve = async (ids: string[]) => {
+    setBusy(true);
+    try {
+      await s.api.call('trx.approve', { ids });
+      await reload();
+      toast(t('تمت الموافقة', 'Approved'));
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="panel" style={{ borderColor: '#f0d68a', background: '#fffbea' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h2 style={{ margin: 0 }}>✓ {t('نفقات كبيرة تنتظر موافقتك', 'Large expenses waiting for your approval')}</h2>
+        {rows.length > 1 && <button className="btn small primary" disabled={busy} onClick={() => approve(rows.map((r) => r.id))}>{t(`الموافقة على الكل (${rows.length})`, `Approve all (${rows.length})`)}</button>}
+      </div>
+      <table className="t" style={{ background: 'transparent' }}>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td className="nowrap">{fmtDate(r.date)}</td>
+              <td>{names.book(r.book_id)}</td>
+              <td>{names.line(r.line_id)}<div className="muted small">{r.explanation}</div></td>
+              <td className="n nowrap"><b>{r.exp_usd ? `${fmtUsd(r.exp_usd)} USD` : `${fmtSyp(r.exp_syp)} SYP`}</b><div className="muted small">≈ ${fmtUsd(d.comp.get(r.id)?.expUsdTot ?? 0)}</div></td>
+              <td className="small muted">{d.attachments.some((a) => a.trx_id === r.id) ? '📎' : t('بلا مستند', 'no document')}</td>
+              <td className="right"><button className="btn small primary" disabled={busy} onClick={() => approve([r.id])}>✓ {t('موافقة', 'Approve')}</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

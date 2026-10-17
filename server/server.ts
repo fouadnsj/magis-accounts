@@ -22,7 +22,7 @@ import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
-import { type Db, type Row, type SqlValue, type Stmt, migrate, one } from '../src/db/db';
+import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigrations } from '../src/db/db';
 import { getMeta, setMetaStmt } from '../src/db/repo';
 import { has, listProfiles, loadProfile, login, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
@@ -30,7 +30,7 @@ import { createOffice } from '../src/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 
-export const SERVER_VERSION = '0.5.3';
+export const SERVER_VERSION = '0.6.0';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -292,6 +292,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     fs.mkdirSync(backupsDir, { recursive: true });
     const file = path.join(dir, 'magis.db');
     const handle = openDb(file);
+    // A new version that changes the database: a copy of it as it was, first.
+    if (fs.existsSync(file) && fs.statSync(file).size > 0 && (await pendingMigrations(handle.db)) > 0 && (await handle.db.query("SELECT 1 FROM sqlite_master WHERE name = 'schema_migration'")).length) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      fs.copyFileSync(file, path.join(backupsDir, `${stamp}_before-update-${SERVER_VERSION}.db`));
+      log(`${slug}: copy taken before the update to ${SERVER_VERSION}`);
+    }
     await migrate(handle.db);
     const c = { slug, dir, file, backupsDir, handle, version: 1 } as Centre;
     c.files = makeFiles(c);

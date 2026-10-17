@@ -24,6 +24,14 @@ export async function one<T = Row>(db: Db, sql: string, params?: SqlValue[]): Pr
   return rows[0];
 }
 
+/** Does this database still need updates from this version of the program? */
+export async function pendingMigrations(db: Db): Promise<number> {
+  const t = await db.query<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'schema_migration'");
+  if (!t[0]?.n) return MIGRATIONS.length;
+  const done = new Set((await db.query<{ n: number }>('SELECT n FROM schema_migration')).map((r) => r.n));
+  return MIGRATIONS.filter((m) => !done.has(m.n)).length;
+}
+
 export async function migrate(db: Db): Promise<number[]> {
   await db.batch([
     { sql: 'CREATE TABLE IF NOT EXISTS schema_migration (n INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)' },

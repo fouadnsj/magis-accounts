@@ -8,7 +8,8 @@ import type { Trx } from '../domain/types';
 import { holders } from '../domain/reports';
 import { compareRows, type EntryField } from '../domain/compare';
 import { TYPE_LABEL, tx } from '../i18n';
-import { Modal, Select, errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
+import { Modal, Select, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
+import { tx as txMsg } from '../i18n';
 
 const FIELD_LABEL: Record<EntryField, () => string> = {
   date: () => t('التاريخ', 'Date'), type: () => t('النوع', 'Type'), book_id: () => t('الدفتر', 'Book'), account_id: () => t('الحساب', 'Account'),
@@ -77,6 +78,32 @@ export function CompareModal({ backup, onClose }: { backup: BackupFile; onClose:
     }
   };
 
+  // the whole book at once (with the other leg of its transfers between two books)
+  const putBackBook = async () => {
+    if (book == null || !diff) return;
+    const n = changed.length + deleted.length + added.length;
+    const groups = new Set([...changed.map((x) => x.after), ...deleted, ...added].map((r) => r.transfer_group).filter(Boolean));
+    const others = [...diff.changed.map((x) => x.after), ...diff.deleted, ...diff.added].filter((r) => r.book_id !== book && r.transfer_group && groups.has(r.transfer_group));
+    const msg = t(`إعادة دفتر «${names.book(book)}» كما كان في النسخة: ${n} سطراً.`, `Put the book "${names.book(book)}" back as it was in the backup: ${n} rows.`)
+      + (others.length ? '\n' + t(`ومعها ${others.length} سطراً من دفاتر أخرى (الطرف الآخر من تحويلات): ${[...new Set(others.map((r) => names.book(r.book_id)))].join('، ')}.`, `With them, ${others.length} rows of other books (the other side of transfers): ${[...new Set(others.map((r) => names.book(r.book_id)))].join(', ')}.`) : '')
+      + '\n' + t('تُؤخذ نسخة احتياطية أولاً. الدفاتر الأخرى لا تُمسّ.', 'A backup is taken first. The other books are not touched.');
+    if (!(await confirmBox(msg, true))) return;
+    const reason = await promptBox(t('السبب؟ (يُحفظ في سجل التعديلات)', 'Why? (kept in the audit log)'), '');
+    if (reason == null) return;
+    if (!reason.trim()) return toast(t('اكتب السبب', 'Write the reason'), true);
+    setBusy('book');
+    try {
+      const r = await s.api.call('book.putBack', { path: backup.path, bookId: book, reason });
+      await reload();
+      if (r.failed.length) toast(t(`أُعيد ${r.done}؛ لم يُعد ${r.failed.length}: `, `${r.done} put back; ${r.failed.length} not: `) + r.failed.map((f) => `${f.n == null ? '' : `N${String(f.n).padStart(4, '0')} `}${txMsg(f.error)}`).join(' · '), true);
+      else toast(t(`أُعيد الدفتر كما كان (${r.done} سطراً)`, `Book put back as it was (${r.done} rows)`));
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const changed = diff?.changed.filter((x) => inBook(x.after) || inBook(x.before)) ?? [];
   const deleted = diff?.deleted.filter(inBook) ?? [];
   const added = diff?.added.filter(inBook) ?? [];
@@ -105,8 +132,14 @@ export function CompareModal({ backup, onClose }: { backup: BackupFile; onClose:
 
           <div className="row" style={{ justifyContent: 'space-between', margin: '14px 0 6px', flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0 }}>{t('ما تغيّر منذ النسخة', 'What changed since the backup')}: {changed.length + deleted.length + added.length}</h3>
-            <div style={{ minWidth: 200 }}><Select value={book} placeholder={t('كل الدفاتر', 'All books')} options={d.shownBooks.map((b) => ({ value: b.id, label: b.name }))} onChange={setBook} /></div>
+            <div className="row">
+              <div style={{ minWidth: 200 }}><Select value={book} placeholder={t('كل الدفاتر', 'All books')} options={d.shownBooks.map((b) => ({ value: b.id, label: b.name }))} onChange={setBook} /></div>
+              {book != null && changed.length + deleted.length + added.length > 0 && (
+                <button className="btn primary" disabled={busy === 'book'} onClick={putBackBook}>↺ {t('إعادة هذا الدفتر كله كما كان', 'Put this whole book back as it was')}</button>
+              )}
+            </div>
           </div>
+          {book == null && <p className="muted small" style={{ marginTop: -2 }}>{t('لإعادة دفتر كامل: اختر الدفتر هنا.', 'To put a whole book back: choose the book here.')}</p>}
           {!changed.length && !deleted.length && !added.length && <div className="alert ok">{t('لا فرق: السجل كما كان.', 'No difference: the register is as it was.')}</div>}
 
           {changed.map((x) => (

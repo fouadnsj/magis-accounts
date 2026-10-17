@@ -15,7 +15,7 @@ import {
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, roleFor, type Profile } from './auth';
 import { cleanPerms, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
-import { ENTRY_FIELDS } from './domain/compare';
+import { ENTRY_FIELDS, compareRows } from './domain/compare';
 import { billCode, computeAll } from './domain/compute';
 import {
   addMonths, cellsOf, defaultBudgetName, itemTotal, periodEnd, proposeFromSpending, prorateItems, spentInRange, totalsOf,
@@ -189,6 +189,38 @@ async function bookMonths(db: Db) {
 
 async function keptBooks(db: Db): Promise<number[]> {
   return (await db.query<{ book_id: number }>('SELECT DISTINCT ub.book_id FROM user_book ub JOIN profile p ON p.id = ub.profile_id WHERE p.active = 1')).map((r) => r.book_id);
+}
+
+/** The rows of one book that differ from a backup (and the other legs of its two-book transfers). */
+export function bookChanges(then: Trx[], now: Trx[], bookId: number): string[] {
+  const diff = compareRows(then, now);
+  const ids = new Set<string>([
+    ...diff.added.filter((r) => r.book_id === bookId).map((r) => r.id),
+    ...diff.deleted.filter((r) => r.book_id === bookId).map((r) => r.id),
+    ...diff.changed.filter((x) => x.before.book_id === bookId || x.after.book_id === bookId).map((x) => x.after.id),
+  ]);
+  // a transfer between two books moves as one: its other leg goes back with it
+  const groups = new Set([...then, ...now].filter((r) => ids.has(r.id) && r.transfer_group).map((r) => r.transfer_group));
+  const changedIds = new Set([...diff.added, ...diff.deleted].map((r) => r.id).concat(diff.changed.map((x) => x.after.id)));
+  for (const r of [...then, ...now]) if (r.transfer_group && groups.has(r.transfer_group) && changedIds.has(r.id)) ids.add(r.id);
+  return [...ids];
+}
+
+/** One row back as in a backup (thenAll: the backup's rows, when already read). */
+async function putBackRow(c: OpCtx, a: { path: string; id: string; reason: string }, thenAll: Trx[] | null) {
+  if (!(a.reason ?? '').trim()) throw new UserError(m('اكتب السبب', 'Write the reason'));
+  const then = (thenAll ?? (await c.files.backupRows(a.path))).find((r) => r.id === a.id) ?? null;
+  const now = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [a.id]);
+  const reason = `${a.reason.trim()} (${m('كما في النسخة', 'as in the backup').en} ${a.path.split(/[\\/]/).pop()})`;
+  if (!then && now) return saveRows(c, { rows: [], deletes: [a.id], reason });
+  if (!then) throw new UserError(m('السطر غير موجود', 'Row not found'));
+  const back: Trx = { ...(now ?? { ...blankTrx(), ...then, approved_at: null, approved_by: null }), id: a.id };
+  for (const f of ENTRY_FIELDS) (back as unknown as Record<string, unknown>)[f] = (then as unknown as Record<string, unknown>)[f] ?? null;
+  back.transfer_group = then.transfer_group ?? null;
+  await saveRows(c, { rows: [back], reason });
+  // a row brought back keeps its old number, if nobody has it
+  if (!now && then.n != null && !(await one(c.db, 'SELECT 1 FROM trx WHERE n = ? AND id <> ?', [then.n, a.id])))
+    await c.db.batch([{ sql: 'UPDATE trx SET n = ? WHERE id = ?', params: [then.n, a.id] }]);
 }
 
 /** Rows as this person may see them: a private book's rows only for its keepers (others: its transfers, without explanation). */
@@ -1432,19 +1464,33 @@ export const OPS = {
   /** One row back as it was in a backup: changed back, added again, or (if it is new since) deleted. */
   'trx.putBack': {
     check: (c: OpCtx) => need(c, 'data.restore'),
-    run: async (c: OpCtx, a: { path: string; id: string; reason: string }) => {
+    run: (c: OpCtx, a: { path: string; id: string; reason: string }) => putBackRow(c, a, null),
+  },
+  /**
+   * A whole book back as it was in a backup: every row of that book added, changed or
+   * deleted since (and the other leg of its transfers between two books). Rows that
+   * cannot change (a closed month…) are listed, the others are put back.
+   */
+  'book.putBack': {
+    check: (c: OpCtx) => need(c, 'data.restore'),
+    run: async (c: OpCtx, a: { path: string; bookId: number; reason: string }) => {
       if (!(a.reason ?? '').trim()) throw new UserError(m('اكتب السبب', 'Write the reason'));
-      const then = (await c.files.backupRows(a.path)).find((r) => r.id === a.id) ?? null;
-      const now = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [a.id]);
-      const reason = `${a.reason.trim()} (${m('كما في النسخة', 'as in the backup').en} ${a.path.split(/[\\/]/).pop()})`;
-      if (!then && now) return saveRows(c, { rows: [], deletes: [a.id], reason });
-      if (!then) throw new UserError(m('السطر غير موجود', 'Row not found'));
-      const back: Trx = { ...(now ?? { ...blankTrx(), ...then, approved_at: null, approved_by: null }), id: a.id };
-      for (const f of ENTRY_FIELDS) (back as unknown as Record<string, unknown>)[f] = (then as unknown as Record<string, unknown>)[f] ?? null;
-      await saveRows(c, { rows: [back], reason });
-      // a row brought back keeps its old number, if nobody has it
-      if (!now && then.n != null && !(await one(c.db, 'SELECT 1 FROM trx WHERE n = ? AND id <> ?', [then.n, a.id])))
-        await c.db.batch([{ sql: 'UPDATE trx SET n = ? WHERE id = ?', params: [then.n, a.id] }]);
+      const thenAll = await c.files.backupRows(a.path);
+      const nowAll = await loadTrx(c.db);
+      const ids = bookChanges(thenAll, nowAll, a.bookId);
+      await c.files.backupNow('before-book-putback');
+      const failed: { id: string; n: number | null; error: Msg }[] = [];
+      let done = 0;
+      for (const id of ids) {
+        try {
+          await putBackRow(c, { path: a.path, id, reason: a.reason }, thenAll);
+          done++;
+        } catch (e) {
+          const r = nowAll.find((x) => x.id === id) ?? thenAll.find((x) => x.id === id);
+          failed.push({ id, n: r?.n ?? null, error: e instanceof UserError ? e.msg : m(String(e), String(e)) });
+        }
+      }
+      return { done, failed };
     },
   },
   'backup.restore': { check: (c: OpCtx) => need(c, 'data.restore'), run: (c: OpCtx, a: { path: string }) => c.files.restore(a.path) },

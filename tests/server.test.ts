@@ -435,6 +435,27 @@ describe('server: compare with a backup, put one row back', () => {
     expect(after.some((x) => x.id === c.id)).toBe(false);
     expect(compareRows(then, after).changed.length + compareRows(then, after).deleted.length).toBe(0);
     await op('trx.delete', { ids: [a.id, b.id], reason: 'test rows' }, sup);
+
+    // a whole book at once: one change, one deletion, one addition, all in Main
+    const d1 = exp(70, 'book test 1');
+    const d2 = exp(80, 'book test 2');
+    expect((await op('trx.save', { rows: [d1, d2] }, sup)).status).toBe(200);
+    const name2 = (await op('backup.now', {}, sup)).body as string;
+    const list2 = (await op('backup.list', {}, sup)).body as { name: string; path: string }[];
+    const bk2 = list2.find((x) => x.name === name2 || x.path === name2 || x.path.endsWith(name2)) ?? list2[0];
+    const d3 = exp(90, 'book test 3');
+    expect((await op('trx.save', { rows: [{ ...d1, exp_usd: 700 }, d3], reason: 'oops' }, sup)).status).toBe(200);
+    expect((await op('trx.delete', { ids: [d2.id], reason: 'oops' }, sup)).status).toBe(200);
+    const mainId = L.books.find((x) => x.is_main)!.id;
+    expect((await op('book.putBack', { path: bk2.path, bookId: mainId, reason: '' }, sup)).status).toBe(400);
+    expect((await op('book.putBack', { path: bk2.path, bookId: mainId, reason: 'wrong day' }, com)).status).toBe(400);
+    const res = (await op('book.putBack', { path: bk2.path, bookId: mainId, reason: 'wrong day' }, sup)).body as { done: number; failed: unknown[] };
+    expect(res).toEqual({ done: 3, failed: [] });
+    const then2 = (await op('backup.compare', { path: bk2.path }, sup)).body as Trx[];
+    const now2 = ((await op('data', {}, sup)).body as DataPayload).rows;
+    const left = compareRows(then2, now2);
+    expect([...left.added, ...left.deleted, ...left.changed.map((x) => x.after)].filter((r) => r.book_id === mainId)).toEqual([]);
+    await op('trx.delete', { ids: [d1.id, d2.id], reason: 'test rows' }, sup);
   });
 });
 

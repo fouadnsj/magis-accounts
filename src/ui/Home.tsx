@@ -8,6 +8,7 @@ import { useNav } from './Shell';
 import { errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
 import { holderBalance } from './Cash';
 import { needsApproval } from '../ops';
+import { PersonIcon } from './icons';
 
 export function Home() {
   const { s, d, can, myBooks, limited, fileHolder, reload } = useApp();
@@ -40,6 +41,21 @@ export function Home() {
   const disputed = d.transfers.filter((x) => x.disputedAt && (iGave(x) || iReceive(x) || can('register.edit')));
 
   const showAll = !limited && (can('reports.cash') || can('register.view'));
+
+  // per book: when it last changed, and its last closed month
+  const lastChange = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const r of d.rows) {
+      if (r.book_id == null) continue;
+      const at = r.updated_at || r.created_at;
+      if (at && (!m.has(r.book_id) || at > m.get(r.book_id)!)) m.set(r.book_id, at);
+    }
+    return m;
+  }, [d.rows]);
+  const lastClosed = (bookId: number, isMain: boolean) => {
+    const yms = isMain ? [...d.closed] : d.bookMonths.filter((x) => x.book_id === bookId).map((x) => x.ym);
+    return yms.sort().pop() ?? null;
+  };
 
   // Large expenses waiting for approval (shown to whoever approves)
   const S = d.lists.settings;
@@ -127,12 +143,13 @@ export function Home() {
 
       {myBooks.length > 0 && (
         <>
-          <h2>{t('رصيدي', 'My balance')}</h2>
+          <h2>{t('حالة دفتري', 'My book status')}</h2>
           <div className="cards" style={{ marginBottom: 18 }}>
             {myBooks.map((id) => {
               const b = holderBalance(d, id, fileHolder);
+              const main = !!d.lists.books.find((x) => x.id === id)?.is_main;
               return (
-                <Balance key={id} title={names.book(id)} syp={b.syp.shouldHold} usd={b.usd.shouldHold} />
+                <Balance key={id} title={names.book(id)} syp={b.syp.shouldHold} usd={b.usd.shouldHold} main={main} lastChange={lastChange.get(id) ?? null} lastClosed={lastClosed(id, main)} />
               );
             })}
           </div>
@@ -141,10 +158,12 @@ export function Home() {
 
       {showAll && (
         <>
-          <h2>{t('ما يجب أن يحمله كل صندوق', 'What each holder should hold')}</h2>
+          <h2>{t('حالة الدفاتر', 'Book status')}</h2>
+          <p className="muted small" style={{ marginTop: -6 }}>{t('ما يجب أن يحمله كل صندوق الآن.', 'What each holder should hold now.')}</p>
           <div className="cards">
             {syp.filter((l) => l.book && (l.book.active || l.shouldHold !== 0)).map((l, i) => (
-              <Balance key={l.book!.id} title={l.book!.name} sub={l.book!.keeper_name} syp={l.shouldHold} usd={usd[i].shouldHold} />
+              <Balance key={l.book!.id} title={l.book!.name} sub={l.book!.keeper_name} syp={l.shouldHold} usd={usd[i].shouldHold}
+                main={!!l.book!.is_main} lastChange={lastChange.get(l.book!.id) ?? null} lastClosed={lastClosed(l.book!.id, !!l.book!.is_main)} />
             ))}
           </div>
         </>
@@ -195,15 +214,30 @@ function ApproveList({ rows }: { rows: import('../domain/types').Trx[] }) {
   );
 }
 
-/** One holder's cash: pounds and dollars side by side, the same size. */
-export function Balance({ title, sub, syp, usd }: { title: string; sub?: string | null; syp: number; usd: number }) {
+/** One book: who holds it, pounds and dollars side by side, when it last changed, its last closed month. */
+export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed }: {
+  title: string; sub?: string | null; syp: number; usd: number; main?: boolean; lastChange?: string | null; lastClosed?: string | null;
+}) {
+  const when = lastChange ? new Date(lastChange) : null;
   return (
     <div className="card balance">
-      <div className="k">{title}{sub ? <span className="muted"> · {sub}</span> : null}</div>
+      <div className="balance-head">
+        <PersonIcon kind={main ? 'office' : 'holder'} />
+        <div>
+          <div className="balance-title">{title}</div>
+          {sub ? <div className="muted small">{sub}</div> : null}
+        </div>
+      </div>
       <div className="balance-row">
         <div className={syp < 0 ? 'neg' : ''}><span>{t('ل.س', 'SYP')}</span><b>{fmtSyp(syp)}</b></div>
         <div className={usd < 0 ? 'neg' : ''}><span>{t('دولار', 'USD')}</span><b>{fmtUsd(usd)}</b></div>
       </div>
+      {(lastChange !== undefined || lastClosed !== undefined) && (
+        <div className="balance-foot">
+          <span title={lastChange ?? ''}>✎ {t('آخر تعديل', 'Last change')}: <span className="ltr">{when ? `${fmtDate(lastChange!.slice(0, 10))} ${when.toTimeString().slice(0, 5)}` : '—'}</span></span>
+          <span>🔒 {t('آخر شهر مغلق', 'Last month closed')}: <span className="ltr">{lastClosed ?? '—'}</span></span>
+        </div>
+      )}
     </div>
   );
 }

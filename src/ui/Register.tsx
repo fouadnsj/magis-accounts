@@ -21,6 +21,8 @@ export function Register() {
   const [heading, setHeading] = useState<number | null>(null);
   const [q, setQ] = useState('');
   const [review, setReview] = useState(nav.reviewOnly);
+  // sorting: a column and a direction (null = the register's own order)
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
   const [scroll, setScroll] = useState(0);
   const [height, setHeight] = useState(600);
   const box = useRef<HTMLDivElement>(null);
@@ -46,6 +48,43 @@ export function Register() {
     });
   }, [d.rows, review, month, book, account, type, heading, q, names]);
 
+  // what each column sorts by
+  const sortValue = useMemo((): Record<string, (r: Trx) => string | number> => ({
+    n: (r) => r.n ?? -1,
+    date: (r) => r.date ?? '',
+    book: (r) => names.book(r.book_id),
+    account: (r) => names.account(r.account_id),
+    type: (r) => (r.type ? tx(TYPE_LABEL[r.type]) : ''),
+    heading: (r) => names.heading(r.heading_id),
+    line: (r) => names.line(r.line_id),
+    explanation: (r) => r.explanation ?? '',
+    party: (r) => names.party(r.party_id),
+    receipt: (r) => r.receipt ?? '',
+    inc_syp: (r) => r.inc_syp, exp_syp: (r) => r.exp_syp, inc_usd: (r) => r.inc_usd, exp_usd: (r) => r.exp_usd,
+    trf_syp: (r) => r.trf_syp, trf_usd: (r) => r.trf_usd,
+    rate: (r) => d.comp.get(r.id)?.rate ?? 0,
+    net: (r) => (d.comp.get(r.id)?.incUsdTot ?? 0) - (d.comp.get(r.id)?.expUsdTot ?? 0),
+    code: (r) => d.comp.get(r.id)?.code ?? '',
+  }), [names, d.comp]);
+  const sorted = useMemo(() => {
+    if (!sort) return rows;
+    const get = sortValue[sort.key];
+    return [...rows].sort((a, b) => {
+      const x = get(a), y = get(b);
+      const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y));
+      return c * sort.dir;
+    });
+  }, [rows, sort, sortValue]);
+  const th = (key: string, label: string, n = false) => {
+    const on = sort?.key === key;
+    return (
+      <th key={key} className={`sortable ${n ? 'n' : ''} ${on ? 'on' : ''}`} onClick={() => setSort(!on ? { key, dir: 1 } : sort!.dir === 1 ? { key, dir: -1 } : null)}
+        title={t('اضغط للترتيب', 'Click to sort')}>
+        {label}<span className="sort-mark">{on ? (sort!.dir === 1 ? ' ▲' : ' ▼') : ''}</span>
+      </th>
+    );
+  };
+
   const tot = useMemo(() => {
     const o = { inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0, inc: 0, exp: 0 };
     for (const r of rows) {
@@ -58,11 +97,11 @@ export function Register() {
   }, [rows, d.comp]);
 
   const first = Math.max(0, Math.floor(scroll / ROW_H) - 10);
-  const last = Math.min(rows.length, first + Math.ceil(height / ROW_H) + 20);
-  const visible = rows.slice(first, last);
+  const last = Math.min(sorted.length, first + Math.ceil(height / ROW_H) + 20);
+  const visible = sorted.slice(first, last);
 
   const clear = () => {
-    setMonth(''); setBook(null); setAccount(null); setType(''); setHeading(null); setQ(''); setReview(false);
+    setMonth(''); setBook(null); setAccount(null); setType(''); setHeading(null); setQ(''); setReview(false); setSort(null);
   };
 
   const cell = (r: Trx) => {
@@ -141,9 +180,10 @@ export function Register() {
         <table>
           <thead>
             <tr>
-              <th>N</th><th>{t('التاريخ', 'Date')}</th>{!holder && <th>{t('الدفتر', 'Book')}</th>}<th>{t('الحساب', 'Account')}</th><th>{t('النوع', 'Type')}</th>
-              <th>{t('البند', 'Heading')}</th><th>{t('الخط', 'Line')}</th><th>{t('الشرح', 'Explanation')}</th><th>{t('الجهة', 'Party')}</th><th>{t('الوصل', 'Receipt')}</th>
-              <th>Inc SYP</th><th>Exp SYP</th><th>Inc USD</th><th>Exp USD</th><th>Trf SYP</th><th>Trf USD</th><th>Rate</th><th>Net USD-eq</th><th>Code</th>
+              {th('n', 'N')}{th('date', t('التاريخ', 'Date'))}{!holder && th('book', t('الدفتر', 'Book'))}{th('account', t('الحساب', 'Account'))}{th('type', t('النوع', 'Type'))}
+              {th('heading', t('البند', 'Heading'))}{th('line', t('الخط', 'Line'))}{th('explanation', t('الشرح', 'Explanation'))}{th('party', t('الجهة', 'Party'))}{th('receipt', t('الوصل', 'Receipt'))}
+              {th('inc_syp', 'Inc SYP', true)}{th('exp_syp', 'Exp SYP', true)}{th('inc_usd', 'Inc USD', true)}{th('exp_usd', 'Exp USD', true)}{th('trf_syp', 'Trf SYP', true)}{th('trf_usd', 'Trf USD', true)}
+              {th('rate', 'Rate', true)}{th('net', 'Net USD-eq', true)}{th('code', 'Code')}
             </tr>
           </thead>
           <tbody>

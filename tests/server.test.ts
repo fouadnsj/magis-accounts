@@ -597,6 +597,18 @@ describe('server: the yearly budget (Superior only)', () => {
     expect(bh.accounts.find((x: { account_id: number }) => x.account_id === other).lump_usd).toBe(5000);
     expect((await op('budget.saveAmounts', { versionId: b.current.id, cells: [{ account_id: other, line_id: cell.line_id, amount_usd: 1 }] }, sup)).status).toBe(400);
     expect((await op('budget.get', { year: 2027 }, sup)).body.allocs.length).toBe(3);
+
+    // deleting: the latest revision, then a whole year; donors in use are only deactivated
+    expect((await op('budget.delete', { year: 2027, onlyLatest: true }, com)).status).toBe(400);
+    expect((await op('budget.delete', { year: 2027, onlyLatest: true }, sup)).status).toBe(200);
+    expect((await op('budget.get', { year: 2027 }, sup)).body.current.rev).toBe(0);
+    expect((await op('budget.delete', { year: 2027, onlyLatest: true }, sup)).status).toBe(400); // the original: delete the year instead
+    expect((await op('budget.delete', { year: 2026 }, sup)).status).toBe(200);
+    expect((await op('budget.get', { year: 2026 }, sup)).body.current).toBeNull();
+    expect((await op('list.delete', { table: 'donor', id: sjId }, sup)).status).toBe(400); // has an allocation
+    expect((await op('donor.save', { name: 'Temp donor', default_project_id: null }, sup)).status).toBe(200);
+    const temp = ((await op('data', {}, sup)).body as DataPayload).lists.donors.find((x) => x.name === 'Temp donor')!;
+    expect((await op('list.delete', { table: 'donor', id: temp.id }, sup)).status).toBe(200);
     expect((await op('budget.get', { year: 2027 }, com)).status).toBe(400);
   });
 });

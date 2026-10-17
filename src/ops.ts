@@ -1148,6 +1148,24 @@ export const OPS = {
   'budget.get': { check: (c: OpCtx) => need(c, 'budget.view'), run: (c: OpCtx, a: { year: number }) => loadBudget(c, a.year) },
   'budget.create': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: CreateArgs) => createBudget(c, a) },
   'budget.revise': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: { year: number; note?: string | null }) => reviseBudget(c, a) },
+  /** Delete the latest revision (back to the one before), or the whole budget of a year. A backup is taken first. */
+  'budget.delete': {
+    check: (c: OpCtx) => need(c, 'budget.manage'),
+    run: async (c: OpCtx, a: { year: number; onlyLatest?: boolean }) => {
+      const versions = await c.db.query<BudgetVersion>('SELECT * FROM budget_version WHERE year = ? ORDER BY rev', [a.year]);
+      if (!versions.length) throw new UserError(m('لا موازنة لهذه السنة', 'No budget for this year'));
+      const gone = a.onlyLatest ? versions.slice(-1) : versions;
+      if (a.onlyLatest && gone[0].rev === 0) throw new UserError(m('هذه الموازنة الأصلية: احذف موازنة السنة كلها', 'This is the original budget: delete the whole year instead'));
+      await c.files.backupNow('before-budget-delete');
+      const stmts: Stmt[] = [];
+      for (const v of gone) {
+        for (const t of ['budget_item', 'budget_amount', 'budget_account']) stmts.push({ sql: `DELETE FROM ${t} WHERE version_id = ?`, params: [v.id] });
+        stmts.push({ sql: 'DELETE FROM budget_version WHERE id = ?', params: [v.id] });
+      }
+      stmts.push(auditStmt(c.who, 'delete', 'budget_version', String(a.year), { revs: gone.map((v) => v.rev) }, null));
+      await c.db.batch(stmts);
+    },
+  },
   'budget.saveAmounts': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof saveBudgetAmounts>[1]) => saveBudgetAmounts(c, a) },
   'budget.saveItems': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof saveBudgetItems>[1]) => saveBudgetItems(c, a) },
   'budget.importItems': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof importBudgetItems>[1]) => importBudgetItems(c, a) },

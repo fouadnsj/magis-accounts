@@ -105,7 +105,7 @@ const USED_IN: Record<string, { sql: string }[]> = {
   book: [{ sql: 'SELECT 1 FROM trx WHERE book_id = ? LIMIT 1' }, { sql: 'SELECT 1 FROM profile WHERE book_id = ? LIMIT 1' }],
   heading: [{ sql: 'SELECT 1 FROM trx WHERE heading_id = ? LIMIT 1' }, { sql: 'SELECT 1 FROM budget_line WHERE heading_id = ? LIMIT 1' }],
   budget_line: [{ sql: 'SELECT 1 FROM trx WHERE line_id = ? LIMIT 1' }],
-  donor: [{ sql: 'SELECT 1 FROM grant_row WHERE donor_id = ? LIMIT 1' }],
+  donor: [{ sql: 'SELECT 1 FROM grant_row WHERE donor_id = ? LIMIT 1' }, { sql: 'SELECT 1 FROM budget_alloc WHERE donor_id = ? LIMIT 1' }],
 };
 
 export async function isUsed(db: Db, table: string, id: number): Promise<boolean> {

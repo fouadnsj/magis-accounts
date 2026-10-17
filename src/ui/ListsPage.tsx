@@ -305,7 +305,7 @@ function BookModal({ book, onClose }: { book: Partial<Book>; onClose: () => void
 // ---------------------------------------------------------------- donors (Sup)
 
 function DonorsTab() {
-  const { s, d } = useApp();
+  const { s, d, reload } = useApp();
   const act = useAct();
   const [name, setName] = useState('');
   const [proj, setProj] = useState<number | null>(null);
@@ -331,7 +331,18 @@ function DonorsTab() {
                   if (n && n !== x.name) void act(() => s.api.call('donor.save', { id: x.id, name: n, default_project_id: x.default_project_id }));
                 }}>✎</button>
                 {x.active
-                  ? <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: false }))}>✕</button>
+                  ? <button className="btn small ghost" title={t('حذف (أو إيقاف إن كان مستعملاً)', 'Delete (or deactivate if used)')} onClick={async () => {
+                      // a donor with grants or budget allocations is only deactivated: they stay in the history
+                      if (!(await confirmBox(t(`حذف المانح «${x.name}»؟`, `Delete the donor "${x.name}"?`), true))) return;
+                      try {
+                        await s.api.call('list.delete', { table: 'donor', id: x.id });
+                        await reload();
+                        toast(t('حُذف', 'Deleted'));
+                      } catch {
+                        if (await confirmBox(t(`لـ«${x.name}» منح أو تخصيصات في الموازنة: لا يُحذف. إيقافه بدلاً من ذلك؟ (يبقى في السجل ويختفي من القوائم)`, `"${x.name}" has grants or budget allocations: it cannot be deleted. Deactivate it instead? (it stays in the history and leaves the lists)`)))
+                          await act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: false }), t('أوقف', 'Deactivated'));
+                      }
+                    }}>✕</button>
                   : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: true }))}>↺</button>}
               </td>
             </tr>

@@ -414,6 +414,13 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
     }
   };
 
+  const removeBudget = async (onlyLatest: boolean) => {
+    const msg = onlyLatest
+      ? t(`حذف المراجعة ${v.rev} والعودة إلى ما قبلها؟`, `Delete revision ${v.rev} and go back to the one before?`)
+      : t(`حذف موازنة ${v.year} كلها (الأصلية والمراجعات)؟ تُؤخذ نسخة احتياطية أولاً. تخصيصات المانحين لهذه السنة تبقى.`, `Delete the whole ${v.year} budget (original and revisions)? A backup is taken first. Donor allocations for the year are kept.`);
+    if (!(await confirmBox(msg, true))) return;
+    await act(() => s.api.call('budget.delete', { year: v.year, onlyLatest }), t('حُذف', 'Deleted'));
+  };
   const revise = async () => {
     const note = await promptBox(t('سبب المراجعة (مثلاً: منتصف السنة، منحة جديدة)', 'Reason for the revision (e.g. mid-year, a new grant)'), '');
     if (note == null) return;
@@ -471,6 +478,8 @@ function EditBudget({ b, reload }: { b: BudgetPayload; reload: () => Promise<voi
             {can('lists.manage') && <button className="btn" onClick={toggleOutside}>{acc?.outside_budget ? t('إعادته إلى المركز', 'Back inside the centre') : t('خارج المركز', 'Outside the centre')}</button>}
             {can('lists.manage') && <button className="btn" onClick={() => setCleaning(true)}>{t('خطوط بلا موازنة…', 'Lines without budget…')}</button>}
             <button className="btn" onClick={revise} disabled={changed.length > 0 || ratesChanged}>{t('مراجعة الموازنة…', 'Revise the budget…')}</button>
+            {v.rev > 0 && <button className="btn danger" onClick={() => removeBudget(true)}>{t('حذف هذه المراجعة…', 'Delete this revision…')}</button>}
+            <button className="btn danger" onClick={() => removeBudget(false)}>{t(`حذف موازنة ${v.year}…`, `Delete the ${v.year} budget…`)}</button>
             <span style={{ flex: 1 }} />
             <button className="btn primary" disabled={busy || (!changed.length && !ratesChanged)} onClick={save}>{t('احفظ', 'Save')}{changed.length ? ` (${changed.length})` : ''}</button>
           </div>

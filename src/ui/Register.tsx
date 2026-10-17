@@ -1,6 +1,6 @@
 // The register: filters, search, totals. Only the visible rows are drawn,
 // so 50,000 rows scroll without lag. Click a row to edit it.
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useApp, useNames } from '../state';
 import { TYPE_LABEL, tx } from '../i18n';
 import { TYPES, type Trx } from '../domain/types';
@@ -9,8 +9,10 @@ import { Select, fmtDate, fmtRate, fmtSyp, fmtUsd, t } from './kit';
 
 const ROW_H = 30;
 
+type Layout = { order: string[]; hidden: string[] };
+
 export function Register() {
-  const { d, limited, myBooks } = useApp();
+  const { s, d, limited, myBooks } = useApp();
   const holder = limited && myBooks.length <= 1; // one book only: no Book column
   const nav = useNav();
   const names = useNames();
@@ -22,6 +24,16 @@ export function Register() {
   const [q, setQ] = useState('');
   const [review, setReview] = useState(nav.reviewOnly);
   // sorting: a column and a direction (null = the register's own order)
+  // columns: order and hidden ones, remembered on this device for this person
+  const layoutKey = `magis.registerColumns.${s.profile.id}`;
+  const [layout, setLayout] = useState<Layout>(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(layoutKey) ?? 'null');
+      if (v && Array.isArray(v.order) && Array.isArray(v.hidden)) return v;
+    } catch { /* nothing kept */ }
+    return { order: [], hidden: [] };
+  });
+  const [colsOpen, setColsOpen] = useState(false);
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
   const [scroll, setScroll] = useState(0);
   const [height, setHeight] = useState(600);
@@ -105,32 +117,54 @@ export function Register() {
     setMonth(''); setBook(null); setAccount(null); setType(''); setHeading(null); setQ(''); setReview(false); setSort(null);
   };
 
-  const cell = (r: Trx) => {
-    const c = d.comp.get(r.id)!;
-    return (
-      <tr key={r.id} className={r.type ?? ''} onClick={() => !r.private_total && nav.entry(r)} title={r.private_total ? t('مجموع الشهر فقط', "The month's total only") : r.review ?? undefined}>
-        <td className="code">{withDocs.has(r.id) ? '📎' : ''}{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</td>
-        <td className="ltr">{fmtDate(r.date)}</td>
-        {!holder && <td>{names.book(r.book_id)}</td>}
-        <td>{names.account(r.account_id)}</td>
-        <td>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</td>
-        <td>{names.heading(r.heading_id)}</td>
-        <td>{names.line(r.line_id)}</td>
-        <td style={{ maxWidth: 280 }}>{r.explanation}</td>
-        <td>{names.party(r.party_id)}</td>
-        <td>{r.receipt}</td>
-        <td className="n">{fmtSyp(r.inc_syp)}</td>
-        <td className="n">{fmtSyp(r.exp_syp)}</td>
-        <td className="n">{fmtUsd(r.inc_usd)}</td>
-        <td className="n">{fmtUsd(r.exp_usd)}</td>
-        <td className="n">{fmtSyp(r.trf_syp)}</td>
-        <td className="n">{fmtUsd(r.trf_usd)}</td>
-        <td className="n">{fmtRate(c.rate)}</td>
-        <td className="n">{fmtUsd(c.incUsdTot - c.expUsdTot)}</td>
-        <td className="code">{c.code}</td>
-      </tr>
-    );
+  // the columns, in the order and with the visibility this person chose
+  type Col = { key: string; label: string; n?: boolean; td: (r: Trx) => ReactNode; foot?: () => ReactNode };
+  const COLS: Col[] = [
+    { key: 'n', label: 'N', td: (r) => <>{withDocs.has(r.id) ? '📎' : ''}{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</> },
+    { key: 'date', label: t('التاريخ', 'Date'), td: (r) => <span className="ltr">{fmtDate(r.date)}</span> },
+    ...(holder ? [] : [{ key: 'book', label: t('الدفتر', 'Book'), td: (r: Trx) => names.book(r.book_id) }]),
+    { key: 'account', label: t('الحساب', 'Account'), td: (r) => names.account(r.account_id) },
+    { key: 'type', label: t('النوع', 'Type'), td: (r) => <>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</> },
+    { key: 'heading', label: t('البند', 'Heading'), td: (r) => names.heading(r.heading_id) },
+    { key: 'line', label: t('الخط', 'Line'), td: (r) => names.line(r.line_id) },
+    { key: 'explanation', label: t('الشرح', 'Explanation'), td: (r) => r.explanation },
+    { key: 'party', label: t('الجهة', 'Party'), td: (r) => names.party(r.party_id) },
+    { key: 'receipt', label: t('الوصل', 'Receipt'), td: (r) => r.receipt },
+    { key: 'inc_syp', label: 'Inc SYP', n: true, td: (r) => fmtSyp(r.inc_syp), foot: () => fmtSyp(tot.inc_syp) },
+    { key: 'exp_syp', label: 'Exp SYP', n: true, td: (r) => fmtSyp(r.exp_syp), foot: () => fmtSyp(tot.exp_syp) },
+    { key: 'inc_usd', label: 'Inc USD', n: true, td: (r) => fmtUsd(r.inc_usd), foot: () => fmtUsd(tot.inc_usd) },
+    { key: 'exp_usd', label: 'Exp USD', n: true, td: (r) => fmtUsd(r.exp_usd), foot: () => fmtUsd(tot.exp_usd) },
+    { key: 'trf_syp', label: 'Trf SYP', n: true, td: (r) => fmtSyp(r.trf_syp), foot: () => fmtSyp(tot.trf_syp) },
+    { key: 'trf_usd', label: 'Trf USD', n: true, td: (r) => fmtUsd(r.trf_usd), foot: () => fmtUsd(tot.trf_usd) },
+    { key: 'rate', label: 'Rate', n: true, td: (r) => fmtRate(d.comp.get(r.id)!.rate) },
+    { key: 'net', label: 'Net USD-eq', n: true, td: (r) => fmtUsd(d.comp.get(r.id)!.incUsdTot - d.comp.get(r.id)!.expUsdTot), foot: () => fmtUsd(tot.inc - tot.exp) },
+    { key: 'code', label: 'Code', td: (r) => d.comp.get(r.id)!.code },
+  ];
+  const byKey = new Map(COLS.map((c) => [c.key, c]));
+  const ordered = [...layout.order.filter((k) => byKey.has(k)), ...COLS.map((c) => c.key).filter((k) => !layout.order.includes(k))].map((k) => byKey.get(k)!);
+  const shown = ordered.filter((c) => !layout.hidden.includes(c.key));
+  const save = (l: Layout) => {
+    setLayout(l);
+    try { localStorage.setItem(layoutKey, JSON.stringify(l)); } catch { /* the choice is kept for this visit only */ }
   };
+  const move = (key: string, by: -1 | 1) => {
+    const keys = ordered.map((c) => c.key);
+    const i = keys.indexOf(key);
+    const j = i + by;
+    if (j < 0 || j >= keys.length) return;
+    [keys[i], keys[j]] = [keys[j], keys[i]];
+    save({ ...layout, order: keys });
+  };
+  const toggle = (key: string) =>
+    save({ ...layout, hidden: layout.hidden.includes(key) ? layout.hidden.filter((k) => k !== key) : [...layout.hidden, key] });
+
+  const cell = (r: Trx) => (
+    <tr key={r.id} className={r.type ?? ''} onClick={() => !r.private_total && nav.entry(r)} title={r.private_total ? t('مجموع الشهر فقط', "The month's total only") : r.review ?? undefined}>
+      {shown.map((c) => (
+        <td key={c.key} className={c.n ? 'n' : c.key === 'n' || c.key === 'code' ? 'code' : ''} style={c.key === 'explanation' ? { maxWidth: 280 } : undefined}>{c.td(r)}</td>
+      ))}
+    </tr>
+  );
 
   return (
     <>
@@ -138,6 +172,7 @@ export function Register() {
         <h1>{limited ? t('قيودي', 'My entries') : t('السجل', 'Register')}</h1>
         <div className="row">
           <span className="muted small">{rows.length} / {d.rows.length}</span>
+          <button className="btn" onClick={() => setColsOpen(!colsOpen)}>☰ {t('الأعمدة', 'Columns')}</button>
           <button className="btn primary" onClick={() => nav.entry('Exp')}>＋ {t('قيد جديد', 'New entry')}</button>
         </div>
       </div>
@@ -170,6 +205,30 @@ export function Register() {
         <button className="btn small ghost" onClick={clear}>{t('مسح', 'Clear')}</button>
       </div>
 
+      {colsOpen && (
+        <div className="panel cols-panel">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <b>{t('الأعمدة: إظهار وترتيب', 'Columns: show and order')}</b>
+            <div className="row">
+              <button className="btn small ghost" onClick={() => save({ order: [], hidden: [] })}>{t('كما كانت', 'Reset')}</button>
+              <button className="btn small" onClick={() => setColsOpen(false)}>{t('تم', 'Done')}</button>
+            </div>
+          </div>
+          <p className="muted small">{t('يُحفظ اختيارك على هذا الجهاز.', 'Your choice is kept on this device.')}</p>
+          <div className="cols-list">
+            {ordered.map((c, i) => (
+              <div key={c.key} className={`cols-item ${layout.hidden.includes(c.key) ? 'off' : ''}`}>
+                <label className="row"><input type="checkbox" checked={!layout.hidden.includes(c.key)} onChange={() => toggle(c.key)} /> {c.label}</label>
+                <span>
+                  <button className="btn small ghost" disabled={i === 0} onClick={() => move(c.key, -1)} title={t('قبل', 'Earlier')}>▲</button>
+                  <button className="btn small ghost" disabled={i === ordered.length - 1} onClick={() => move(c.key, 1)} title={t('بعد', 'Later')}>▼</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div
         className="reg"
         ref={box}
@@ -181,25 +240,19 @@ export function Register() {
         <table>
           <thead>
             <tr>
-              {th('n', 'N')}{th('date', t('التاريخ', 'Date'))}{!holder && th('book', t('الدفتر', 'Book'))}{th('account', t('الحساب', 'Account'))}{th('type', t('النوع', 'Type'))}
-              {th('heading', t('البند', 'Heading'))}{th('line', t('الخط', 'Line'))}{th('explanation', t('الشرح', 'Explanation'))}{th('party', t('الجهة', 'Party'))}{th('receipt', t('الوصل', 'Receipt'))}
-              {th('inc_syp', 'Inc SYP', true)}{th('exp_syp', 'Exp SYP', true)}{th('inc_usd', 'Inc USD', true)}{th('exp_usd', 'Exp USD', true)}{th('trf_syp', 'Trf SYP', true)}{th('trf_usd', 'Trf USD', true)}
-              {th('rate', 'Rate', true)}{th('net', 'Net USD-eq', true)}{th('code', 'Code')}
+              {shown.map((c) => th(c.key, c.label, c.n))}
             </tr>
           </thead>
           <tbody>
-            {first > 0 && <tr style={{ height: first * ROW_H }}><td colSpan={19} /></tr>}
+            {first > 0 && <tr style={{ height: first * ROW_H }}><td colSpan={shown.length} /></tr>}
             {visible.map(cell)}
-            {last < rows.length && <tr style={{ height: (rows.length - last) * ROW_H }}><td colSpan={19} /></tr>}
+            {last < rows.length && <tr style={{ height: (rows.length - last) * ROW_H }}><td colSpan={shown.length} /></tr>}
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={holder ? 9 : 10}>{t('المجموع', 'Total')} · {rows.length}</td>
-              <td className="n">{fmtSyp(tot.inc_syp)}</td><td className="n">{fmtSyp(tot.exp_syp)}</td>
-              <td className="n">{fmtUsd(tot.inc_usd)}</td><td className="n">{fmtUsd(tot.exp_usd)}</td>
-              <td className="n">{fmtSyp(tot.trf_syp)}</td><td className="n">{fmtUsd(tot.trf_usd)}</td>
-              <td />
-              <td className="n">{fmtUsd(tot.inc - tot.exp)}</td><td />
+              {shown.map((c, i) => (
+                <td key={c.key} className={c.n ? 'n' : ''}>{i === 0 ? <span className="nowrap">{t('المجموع', 'Total')} · {rows.length}</span> : c.foot?.()}</td>
+              ))}
             </tr>
           </tfoot>
         </table>

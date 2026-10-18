@@ -11,6 +11,14 @@ export PATH="$HOME/.local/node/bin:$PATH"
 DATA="$HOME/MAGIS-test-communities"
 mkdir -p "$DATA"
 
+# an older test server still running (started before an update) is stopped first,
+# so the screens and the server are always the same version
+if pgrep -f "server-dist/server.mjs --data=$DATA" >/dev/null; then
+  echo "Arrêt de l'ancien serveur de test… · Stopping the old test server…"
+  pkill -f "server-dist/server.mjs --data=$DATA"
+  sleep 2
+fi
+
 if [ ! -f server-dist/server.mjs ] || [ -n "$(find src server -newer server-dist/server.mjs -type f | head -1)" ]; then
   echo "Préparation du serveur… · Preparing the server…"
   npm run build:server >/dev/null 2>&1 || { echo "La préparation a échoué · Build failed"; read; exit 1; }

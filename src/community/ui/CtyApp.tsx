@@ -16,6 +16,7 @@ import { NotesScreen } from './Notes';
 import { Approvals } from './Approvals';
 import { SettingsScreen } from './Settings';
 import { Desk } from './desk/Desk';
+import { PageGuard, ServerTooOld } from './Guard';
 import './cty.css';
 import './desk/desk.css';
 
@@ -104,6 +105,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
 
   if (err && !d) return <div className="cty"><div className="cty-page"><div className="alert err">{err}</div><button className="btn" onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button></div></div>;
   if (!d) return <div className="cty"><div className="cty-page muted">…</div></div>;
+  if (!d.settings || !d.limits) return <ServerTooOld onLogout={onLogout} />;
   if (!book)
     return (
       <div className="cty"><div className="cty-page">
@@ -150,11 +152,13 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
         )}
         <main className="cty-page">
           {err && <div className="alert err">{err}</div>}
-          {view === 'month' && <MonthScreen />}
-          {view === 'look' && <LookBack />}
-          {view === 'notes' && <NotesScreen />}
-          {view === 'approvals' && approver && <Approvals />}
-          {view === 'settings' && <SettingsScreen onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />}
+          <PageGuard page={`${view}:${book.id}`}>
+            {view === 'month' && <MonthScreen key={book.id} />}
+            {view === 'look' && <LookBack key={book.id} />}
+            {view === 'notes' && <NotesScreen />}
+            {view === 'approvals' && approver && <Approvals />}
+            {view === 'settings' && <SettingsScreen onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />}
+          </PageGuard>
           {view === 'settings' && wide && can('cty.view_all') && (
             <button className="btn cty-wide" onClick={() => choosePhone(false)}>🖥 {t3('عرض الحاسوب', 'Computer view', 'Vue ordinateur')}</button>
           )}

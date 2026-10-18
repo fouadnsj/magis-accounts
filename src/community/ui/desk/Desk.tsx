@@ -3,6 +3,7 @@
 // the same entry sheet as on the phone, opened as a panel on the right.
 import { useState } from 'react';
 import { useCty, bookLabel } from '../CtyApp';
+import { PageGuard } from '../Guard';
 import { t3 } from '../text';
 import { MonthScreen } from '../Month';
 import { Approvals } from '../Approvals';
@@ -78,6 +79,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">
+        <PageGuard page={`${nav.page}:${nav.bookId ?? ''}`}>
         {nav.page === 'dash' && <Dashboard go={go} />}
         {nav.page === 'register' && <Register initialBook={nav.bookId ?? null} initialYm={nav.ym} />}
         {nav.page === 'member' && <MemberMonth initialBook={nav.bookId ?? null} initialYm={nav.ym} />}
@@ -92,6 +94,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         {nav.page === 'mine' && <div className="desk-narrow"><MyBooks /></div>}
         {nav.page === 'settings' && <div className="desk-narrow"><SettingsScreen inDesk onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} /></div>}
         {nav.page === 'people' && <div className="desk-narrow"><PeopleScreen /></div>}
+        </PageGuard>
       </main>
     </div>
   );

@@ -1,3 +1,5 @@
+import { CHART } from '../community/chart';
+
 // Numbered schema migrations. Same discipline as the Catalogue project:
 // a migration that has been applied is NEVER edited — write a new one.
 // Each runs once, inside a transaction, and is logged in schema_migration.
@@ -96,6 +98,12 @@ INSERT INTO budget_line (heading_id, name, code)
 UPDATE access_profile SET perms = replace(perms, ']', ',"reports.funding"]')
  WHERE perms LIKE '%"users.manage"%' AND perms NOT LIKE '%"reports.funding"%';
 `;
+
+/** The starting chart, as plain inserts, for a country database that has none (migration 19). */
+const q = (x: string | null | undefined) => (x == null ? 'NULL' : `'${x.replace(/'/g, "''")}'`);
+const COUNTRY_CHART_SQL = CHART.map((a, i) => `INSERT INTO cty_account (uid, code, parent_id, type, name_en, name_fr, name_ar, scope, claim, sort)
+  SELECT ${q('c' + a.code)}, ${q(a.code)}, (SELECT id FROM cty_account WHERE code = ${q(a.parent)}), ${q(a.type)}, ${q(a.en)}, ${q(a.fr)}, ${q(a.ar)}, ${q(a.scope)}, ${q(a.claim)}, ${i + 1}
+   WHERE EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'country') AND NOT EXISTS (SELECT 1 FROM cty_account WHERE uid = ${q('c' + a.code)});`).join('\n');
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -883,6 +891,23 @@ UPDATE profile SET cty_roles = (
     (CASE WHEN a.name LIKE '%Minister%' THEN '"minister",' ELSE '' END), ',') || ']'
   FROM access_profile a WHERE a.id = profile.access_id)
  WHERE cty_roles IS NULL AND EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'community');
+`,
+  },
+  {
+    n: 19,
+    name: 'older test databases: the chart in a country database, the bank only if used, Arabic role names',
+    sql: `
+-- a country database made before the country kept the chart: it gets the chart
+${COUNTRY_CHART_SQL}
+-- a community with no bank setting: the bank stays only if something was written in it
+INSERT INTO setting (key, value)
+  SELECT 'cty_has_bank', CASE WHEN EXISTS (SELECT 1 FROM cty_entry e JOIN book b ON b.id IN (e.book_id, e.to_book_id) WHERE b.cty_kind = 'bank') THEN '1' ELSE '0' END
+   WHERE EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'community')
+     AND NOT EXISTS (SELECT 1 FROM setting WHERE key = 'cty_has_bank');
+UPDATE book SET active = 0 WHERE cty_kind = 'bank' AND EXISTS (SELECT 1 FROM setting WHERE key = 'cty_has_bank' AND value = '0');
+DELETE FROM user_book WHERE book_id IN (SELECT id FROM book WHERE cty_kind = 'bank' AND active = 0);
+-- the Arabic names of the roles (minister = المدبّر, econome = القيّم)
+UPDATE access_profile SET name = replace(replace(replace(name, 'المدبّر · Econome', 'القيّم · Econome'), 'الوزير · Minister', 'المدبّر · Minister'), 'مدبّر البلد', 'قيّم البلد');
 `,
   },
 ];

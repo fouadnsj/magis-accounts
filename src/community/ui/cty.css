@@ -189,3 +189,14 @@
 .cty-person.off b { color: #b0a890; text-decoration: line-through; }
 .cty-role { display: inline-block; background: #f3efe5; border-radius: 10px; padding: 1px 8px; font-size: 12px; color: #3d2f0c; }
 .cty-role.off { background: #fbe9e9; color: var(--err); }
+/* the Superior's table of people and roles */
+.cty-people-card { overflow-x: auto; }
+.cty-people { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cty-people th { font-size: 12px; color: var(--muted); font-weight: 600; padding: 6px 4px; border-bottom: 2px solid var(--c-line); text-align: center; white-space: nowrap; }
+.cty-people th:first-child { text-align: start; }
+.cty-people td { padding: 8px 4px; border-bottom: 1px solid #f3efe5; vertical-align: middle; }
+.cty-people td.c { text-align: center; }
+.cty-people input[type='checkbox'] { width: 20px; height: 20px; }
+.cty-people tr.off td { color: #b0a890; }
+.cty-people tr.dirty td { background: #fffaf0; }
+.cty-add-person { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--c-line); }

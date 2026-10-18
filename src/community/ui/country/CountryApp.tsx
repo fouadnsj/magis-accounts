@@ -17,6 +17,7 @@ import { claimName } from '../desk/Claims';
 import { kindName } from '../desk/Statement';
 import { exportExcel } from '../desk/excel';
 import { ChartTable } from '../desk/Chart';
+import { PageGuard, ServerTooOld } from '../Guard';
 import { Ring } from '../charts';
 import '../cty.css';
 import '../desk/desk.css';
@@ -45,6 +46,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
   }, [session]);
   useEffect(() => { void reload(); }, [reload]);
   if (!d) return <div className="cty"><div className="cty-page">{err ? <div className="alert err">{err}</div> : '…'}</div></div>;
+  if (!d.accounts || !d.proposals) return <ServerTooOld onLogout={onLogout} />;
   const waiting = d.claims.filter((c) => c.status === 'waiting').length;
   const proposed = d.proposals.filter((p) => p.status === 'waiting').length;
   const items: { p: Page; label: string; badge?: number }[] = [
@@ -70,6 +72,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">
+        <PageGuard page={page}>
         {err && <div className="alert err">{err}</div>}
         {page === 'dash' && <Files {...ctx} />}
         {page === 'claims' && <Claims {...ctx} />}
@@ -84,12 +87,15 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
             save={async (account, reason) => { await session.api.call('country.account.save', { account, reason }); await reload(); }} />
         )}
         {page === 'settings' && <Settings onLang={onLang} onLogout={onLogout} />}
+        </PageGuard>
       </main>
     </div>
   );
 }
 
 interface P { s: Session; d: CountryData; reload: () => Promise<void> }
+/** The year (October → September) of the latest file received, or this year. */
+const latestYear = (d: CountryData) => { const m = d.months.map((x) => x.ym).sort().pop(); return yearOf(m ? `${m}-01` : todayIso()); };
 const fail = (e: unknown) => toast(errText(e), true);
 const nameOf = (d: CountryData, id: number) => d.ctys.find((c) => c.id === id)?.name ?? '?';
 
@@ -389,7 +395,7 @@ function Accounts({ s, d, reload }: P) {
 // ---------------------------------------------------------------- year-end reconciliation
 
 function Reco({ d }: P) {
-  const [year, setYear] = useState(yearOf(todayIso()));
+  const [year, setYear] = useState(latestYear(d));
   const [cur, setCur] = useState<Cur>('LOC');
   const r = reconcile(year, d.ctys, d.claims, d.charges, d.moves);
   const kinds = ['claim', 'host', 'charged', 'paid_by_cty', 'paid_to_cty', 'cotisation', 'other'];
@@ -439,7 +445,7 @@ function Reco({ d }: P) {
 // ---------------------------------------------------------------- totals by code (from the files)
 
 function Totals({ d }: P) {
-  const [year, setYear] = useState(yearOf(todayIso()));
+  const [year, setYear] = useState(latestYear(d));
   const [cur, setCur] = useState<Cur>('LOC');
   const files = d.months.filter((m) => yearOf(`${m.ym}-01`) === year);
   const ctys = d.ctys.filter((c) => files.some((f) => f.cty_id === c.id));

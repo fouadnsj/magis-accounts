@@ -10,7 +10,7 @@ import type { CtyBook } from '../domain';
 import { errText } from '../../ui/kit';
 import { t3 } from './text';
 import { MonthScreen } from './Month';
-import { EntrySheet, type EntryStart } from './Entry';
+import { EntrySheet, GiveSheet, type EntryStart } from './Entry';
 import { LookBack } from './LookBack';
 import { NotesScreen } from './Notes';
 import { Approvals } from './Approvals';
@@ -33,6 +33,8 @@ interface Ctx {
   myBooks: CtyBook[];
   /** opens the entry sheet */
   write: (start?: EntryStart) => void;
+  /** the econome gives money from the cash to a Jesuit or the house */
+  give: () => void;
   go: (v: View) => void;
 }
 const CtyCtx = createContext<Ctx | null>(null);
@@ -87,7 +89,11 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
     const mine = d.books.filter((b) => d.kept.includes(b.id) && b.active);
     return mine.sort((a, b) => KIND_ORDER.indexOf(a.cty_kind ?? '') - KIND_ORDER.indexOf(b.cty_kind ?? ''));
   }, [d]);
-  const book = myBooks.find((b) => b.id === bookId) ?? myBooks[0];
+  // on the phone: his own book, his bank (if he has one), the house (the minister). The econome's
+  // cash, bank and économat are on the computer (Fouad: "useful but confusing" on the phone).
+  const phoneBooks = myBooks.filter((b) => ['personal', 'personal_bank', 'house'].includes(b.cty_kind ?? ''));
+  const book = myBooks.find((b) => b.id === bookId) ?? phoneBooks[0] ?? myBooks[0];
+  const [giving, setGiving] = useState(false);
   const can = useCallback((p: Perm) => has(session.profile, p), [session]);
   // the computer layout: for those who see every book (econome, Superior), on a wide screen,
   // unless the person chose the phone view
@@ -111,6 +117,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
     s: session, d, reload, can, book, myBooks,
     setBook: (id) => setBookId(id),
     write: (start) => setSheet(start ?? { kind: 'Exp' }),
+    give: () => setGiving(true),
     go: setView,
   };
   const approver = can('cty.month_seen');
@@ -120,6 +127,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
       <CtyCtx.Provider value={ctx}>
         <Desk onPhone={() => choosePhone(true)} onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />
         {sheet && <EntrySheet start={sheet} onClose={() => setSheet(null)} />}
+        {giving && <GiveSheet onClose={() => setGiving(false)} />}
       </CtyCtx.Provider>
     );
 
@@ -133,9 +141,9 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
           </div>
           <button className="cty-icon" onClick={() => setView('settings')} aria-label={t3('الإعدادات', 'Settings', 'Réglages')}>⚙︎</button>
         </header>
-        {myBooks.length > 1 && view !== 'settings' && view !== 'approvals' && (
+        {phoneBooks.length > 1 && view !== 'settings' && view !== 'approvals' && (
           <nav className="cty-books">
-            {myBooks.map((b) => (
+            {phoneBooks.map((b) => (
               <button key={b.id} className={b.id === book.id ? 'on' : ''} onClick={() => setBookId(b.id)}>{bookLabel(b)}</button>
             ))}
           </nav>
@@ -161,6 +169,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
           {approver && <Tab on={view === 'approvals'} onClick={() => setView('approvals')} icon="✓" label={t3('موافقات', 'Approvals', 'Accords')} badge={approvalsWaiting(d)} />}
         </nav>
         {sheet && <EntrySheet start={sheet} onClose={() => setSheet(null)} />}
+        {giving && <GiveSheet onClose={() => setGiving(false)} />}
       </div>
     </CtyCtx.Provider>
   );
@@ -184,6 +193,7 @@ const approvalsWaiting = (d: CtyData) => d.entries.filter((e) => e.approval_need
 
 export function bookLabel(b: CtyBook): string {
   if (b.cty_kind === 'personal') return t3('دفتري', 'My book', 'Mon compte') + (b.keeper_name ? '' : ` · ${b.name}`);
+  if (b.cty_kind === 'personal_bank') return t3('حسابي في المصرف', 'My bank', 'Ma banque');
   if (b.cty_kind === 'house') return t3('البيت', 'House', 'Maison');
   if (b.cty_kind === 'cash') return t3('الصندوق', 'Cash', 'Caisse');
   if (b.cty_kind === 'bank') return t3('المصرف', 'Bank', 'Banque');
@@ -194,7 +204,10 @@ export function bookLabel(b: CtyBook): string {
 /** The name of any book of the community, for "from / to". */
 export function bookName(b: CtyBook | undefined): string {
   if (!b) return '—';
-  return b.cty_kind === 'personal' ? b.keeper_name ?? b.name : bookLabel(b);
+  if (b.cty_kind === 'personal') return b.keeper_name ?? b.name;
+  if (b.cty_kind === 'personal_bank') return `${b.keeper_name ?? b.name} · ${t3('مصرف', 'bank', 'banque')}`;
+  if (b.cty_kind === 'house') return `${t3('البيت', 'House', 'Maison')} (${t3('المدبّر', 'minister', 'ministre')})`;
+  return bookLabel(b);
 }
 
 function Tab({ on, onClick, icon, label, badge }: { on: boolean; onClick: () => void; icon: string; label: string; badge?: number }) {

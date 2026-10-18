@@ -55,7 +55,7 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
   };
 
   return (
-    <BrandFrame wide>
+    <BrandFrame wide jesuit={mode === 'community' || mode === 'country'}>
         {err && <div className="alert err">{err}</div>}
         {mode === 'choose' && recent.length > 0 && (
           <>

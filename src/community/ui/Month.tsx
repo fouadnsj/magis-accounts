@@ -1,9 +1,11 @@
-// "My month": what is in my pocket, what came in and went out this month, by heading,
-// what waits for me (money to confirm, a question of the Superior), and the entries.
+// "My month": first the money given to me (to confirm), then what I have now, what came in
+// and went out this month, where it went (a ring with the % of each heading), what waits,
+// the entries, and the closing of the period (the quarter, or the month).
 import { useMemo, useState } from 'react';
 import { promptBox, toast, errText, todayIso } from '../../ui/kit';
-import { CURS, balance, lastDay, monthSheet, prevMonth, type CtyAccount, type CtyEntry, type Cur, type Money } from '../domain';
-import { useCty, Card, bookName } from './CtyApp';
+import { CURS, balance, lastDay, monthSheet, periodMonths, prevMonth, quarterOf, type CtyAccount, type CtyEntry, type Cur, type Money } from '../domain';
+import { useCty, Card, bookLabel, bookName } from './CtyApp';
+import { Ring } from './charts';
 import { accName, curName, dayName, money, moneyCur, monthName, t3 } from './text';
 import { CloseMonth } from './Close';
 
@@ -24,36 +26,44 @@ export function usedCurs(entries: CtyEntry[], bookId: number, opening?: Money): 
 }
 
 export function MonthScreen() {
-  const { d, book, s, reload, write } = useCty();
+  const { d, book, s, reload, write, give, can } = useCty();
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
-  const [closing, setClosing] = useState(false);
+  const [closing, setClosing] = useState<string | null>(null);
   const mine = (e: CtyEntry) => e.book_id === book.id || e.to_book_id === book.id;
   const sheet = useMemo(() => monthSheet(d.entries, book, ym), [d, book, ym]);
   const pocket = balance(d.entries, book, ym === today.slice(0, 7) ? today : lastDay(ym));
   const curs = usedCurs(d.entries, book.id, { LOC: book.opening_syp, USD: book.opening_usd, EUR: book.opening_eur });
-  const closed = d.months.find((x) => x.book_id === book.id && x.ym === ym);
+  const quarterly = d.settings.closePeriod === 'quarter';
+  const period = periodMonths(ym, d.settings.closePeriod);
+  const periodEnd = period[period.length - 1];
+  const closed = d.months.find((x) => x.book_id === book.id && x.ym === periodEnd);
   const inMonth = d.entries.filter((e) => mine(e) && e.date.slice(0, 7) === ym).sort((a, b) => (b.date + (b.n ?? 0)).localeCompare(a.date + (a.n ?? 0)));
 
-  // what waits for me
+  // what waits for me: money given to me, to confirm; money I gave, not yet confirmed
   const toConfirm = d.entries.filter((e) => e.type === 'Transfer' && e.to_book_id === book.id && !e.received_at && !e.disputed_at);
+  // (the econome also sees what he gave from the cash or the bank)
+  const giver = new Set([book.id, ...(can('cty.write_all') ? d.books.filter((b) => b.cty_kind === 'cash' || b.cty_kind === 'bank').map((b) => b.id) : [])]);
+  const iGave = d.entries.filter((e) => e.type === 'Transfer' && giver.has(e.book_id) && !e.received_at && !e.disputed_at);
   const waitingApproval = d.entries.filter((e) => e.book_id === book.id && e.approval_needed && !e.approved_at);
   const unread = d.notes.filter((n) => n.book_id === book.id && !n.read_at && n.author_id !== s.profile.id);
-  const last = prevMonth(today.slice(0, 7));
-  const lastOpen = Number(today.slice(8, 10)) > 5 && !d.months.some((x) => x.book_id === book.id && x.ym === last) && d.entries.some((e) => mine(e) && e.date.slice(0, 7) <= last);
+  // the last period that ended and is not closed (reminder after the 5th of the next month)
+  const lastPeriod = periodMonths(prevMonth(periodMonths(today.slice(0, 7), d.settings.closePeriod)[0]), d.settings.closePeriod);
+  const lastEnd = lastPeriod[lastPeriod.length - 1];
+  const lastOpen = Number(today.slice(8, 10)) > 5 && !d.months.some((x) => x.book_id === book.id && x.ym === lastEnd) && d.entries.some((e) => mine(e) && e.date.slice(0, 7) <= lastEnd);
+  /** "T1 (Oct–Dec 2026)", short in every language */
+  const periodName = (months: string[]) => (months.length > 1 ? `T${quarterOf(`${months[0]}-01`)} (${months[0].slice(5)}–${months[2].slice(5)}/${months[2].slice(0, 4)})` : monthName(months[0]));
 
-  // by heading, in each currency
-  const byHeading = useMemo(() => {
-    const out = new Map<number, Money>();
+  // where the money went, by heading
+  const cur0: Cur = curs.length === 1 ? 'LOC' : curs.reduce((best, c) => (-sheet.totalExpenses[c] > -sheet.totalExpenses[best] ? c : best), 'LOC' as Cur);
+  const parts = useMemo(() => {
+    const out = new Map<number, number>();
     for (const [id, v] of sheet.expenses) {
       const h = headingOf(d.accounts, id);
-      if (!h) continue;
-      const t = out.get(h.id) ?? { LOC: 0, USD: 0, EUR: 0 };
-      for (const c of CURS) t[c] += -v[c];
-      out.set(h.id, t);
+      if (h) out.set(h.id, (out.get(h.id) ?? 0) - v[cur0]);
     }
-    return out;
-  }, [sheet, d.accounts]);
+    return [...out.entries()].map(([id, value]) => ({ key: id, label: accName(d.accounts.find((a) => a.id === id)), value }));
+  }, [sheet, d.accounts, cur0]);
 
   const answer = async (e: CtyEntry, ok: boolean) => {
     try {
@@ -67,14 +77,27 @@ export function MonthScreen() {
     }
   };
 
-  if (closing) return <CloseMonth ym={ym} onDone={() => setClosing(false)} />;
-
-  const cur0: Cur = curs.length === 1 ? 'LOC' : (curs.reduce((best, c) => (-sheet.totalExpenses[c] > -sheet.totalExpenses[best] ? c : best), 'LOC' as Cur));
-  const total0 = -sheet.totalExpenses[cur0];
-  const headings = [...byHeading.entries()].filter(([, v]) => v[cur0] > 0).sort((a, b) => b[1][cur0] - a[1][cur0]);
+  if (closing) return <CloseMonth ym={closing} onDone={() => setClosing(null)} />;
+  const from = (e: CtyEntry) => bookName(d.books.find((b) => b.id === e.book_id));
 
   return (
     <>
+      {/* 1 · money given to me: confirm it (the first thing on the screen) */}
+      {toConfirm.length > 0 && (
+        <section className="cty-money-in">
+          <h3>💰 {t3('مال لك: هل استلمته؟', 'Money for you: did you receive it?', 'De l’argent pour vous : l’avez-vous reçu ?')}</h3>
+          {toConfirm.map((e) => (
+            <div key={e.id} className="cty-confirm">
+              <div><span className="big">{moneyCur(e.amount, e.cur, d.local)}</span> · {t3('من', 'from', 'de')} {from(e)} · {dayName(e.date)}{e.note ? ` · ${e.note}` : ''}</div>
+              <div className="row">
+                <button className="btn primary" onClick={() => answer(e, true)}>✓ {t3('نعم، استلمته', 'Yes, I received it', 'Oui, je l’ai reçu')}</button>
+                <button className="btn ghost" onClick={() => answer(e, false)}>{t3('لم يصلني', 'I did not receive it', 'Je ne l’ai pas reçu')}</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
       <div className="cty-monthnav">
         <button onClick={() => setYm(prevMonth(ym))} aria-label="previous">‹</button>
         <h1>{monthName(ym)}</h1>
@@ -82,13 +105,13 @@ export function MonthScreen() {
       </div>
 
       {lastOpen && ym === today.slice(0, 7) && (
-        <button className="cty-remind" onClick={() => { setYm(last); setClosing(true); }}>
-          {t3(`لم يُغلق شهر ${monthName(last)} بعد: عُدَّ نقدك`, `${monthName(last)} is not closed yet: count your cash`, `${monthName(last)} n'est pas encore clôturé : comptez votre argent`)} ›
+        <button className="cty-remind" onClick={() => setClosing(lastEnd)}>
+          {t3(`لم تُغلق ${periodName(lastPeriod)} بعد: عُدَّ نقدك`, `${periodName(lastPeriod)} is not closed yet: count your cash`, `${periodName(lastPeriod)} n'est pas encore clôturé : comptez votre argent`)} ›
         </button>
       )}
 
       <Card className="cty-pocket">
-        <div className="cty-label">{ym === today.slice(0, 7) ? t3('في جيبي الآن', 'In my pocket now', 'Dans ma poche') : t3('في آخر الشهر', 'At the end of the month', 'À la fin du mois')}</div>
+        <div className="cty-label">{ym === today.slice(0, 7) ? t3('معي الآن', 'I have now', "J'ai maintenant") : t3('في آخر الشهر', 'At the end of the month', 'À la fin du mois')} · {bookLabel(book)}</div>
         <div className="cty-pocket-row">
           {curs.map((c) => (
             <div key={c} className="cty-pocket-cur"><b>{money(pocket[c], c)}</b><span>{curName(c, d.local)}</span></div>
@@ -96,16 +119,16 @@ export function MonthScreen() {
         </div>
       </Card>
 
-      {(toConfirm.length > 0 || unread.length > 0 || waitingApproval.length > 0) && (
+      <div className="cty-two">
+        <button className="cty-big out" onClick={() => write({ kind: 'Exp' })}>－ {t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
+        <button className="cty-big in" onClick={() => write({ kind: 'Income' })}>＋ {t3('قبضتُ', 'I received', "J'ai reçu")}</button>
+      </div>
+      {can('cty.write_all') && <button className="cty-give" onClick={give}>💰 {t3('إعطاء مال لأحد الإخوة أو للبيت', 'Give money to a Jesuit or to the house', "Donner de l'argent à un jésuite ou à la maison")}</button>}
+
+      {(iGave.length > 0 || unread.length > 0 || waitingApproval.length > 0) && (
         <Card className="cty-waiting">
-          {toConfirm.map((e) => (
-            <div key={e.id} className="cty-confirm">
-              <div>{t3(`${bookName(d.books.find((b) => b.id === e.book_id))} أعطاك`, `${bookName(d.books.find((b) => b.id === e.book_id))} gave you`, `${bookName(d.books.find((b) => b.id === e.book_id))} vous a donné`)} <b>{moneyCur(e.amount, e.cur, d.local)}</b> · {dayName(e.date)}</div>
-              <div className="row">
-                <button className="btn primary" onClick={() => answer(e, true)}>✓ {t3('استلمت', 'Received', 'Reçu')}</button>
-                <button className="btn ghost" onClick={() => answer(e, false)}>{t3('لم يصل', 'Not received', 'Pas reçu')}</button>
-              </div>
-            </div>
+          {iGave.map((e) => (
+            <div key={e.id} className="muted small">… {t3(`أعطيت ${bookName(d.books.find((b) => b.id === e.to_book_id))} ${moneyCur(e.amount, e.cur, d.local)}: لم يؤكّد بعد`, `You gave ${bookName(d.books.find((b) => b.id === e.to_book_id))} ${moneyCur(e.amount, e.cur, d.local)}: not confirmed yet`, `Vous avez donné ${moneyCur(e.amount, e.cur, d.local)} à ${bookName(d.books.find((b) => b.id === e.to_book_id))} : pas encore confirmé`)}</div>
           ))}
           {unread.length > 0 && <UnreadLink n={unread.length} />}
           {waitingApproval.length > 0 && (
@@ -113,11 +136,6 @@ export function MonthScreen() {
           )}
         </Card>
       )}
-
-      <div className="cty-two">
-        <button className="cty-big out" onClick={() => write({ kind: 'Exp' })}>－ {t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
-        <button className="cty-big in" onClick={() => write({ kind: 'Income' })}>＋ {t3('قبضتُ', 'I received', "J'ai reçu")}</button>
-      </div>
 
       <Card>
         <div className="cty-inout">
@@ -129,15 +147,10 @@ export function MonthScreen() {
             </div>
           ))}
         </div>
-        {headings.length > 0 && (
+        {parts.some((p) => p.value > 0) && (
           <>
             <div className="cty-label" style={{ marginTop: 12 }}>{t3('أين ذهب المال', 'Where it went', "Où l'argent est allé")} · {curName(cur0, d.local)}</div>
-            {headings.map(([id, v], i) => (
-              <div key={id} className="cty-hbar">
-                <div className="cty-hbar-text"><span>{accName(d.accounts.find((a) => a.id === id))}</span><b>{money(v[cur0], cur0)}</b></div>
-                <div className="cty-hbar-track"><div style={{ width: `${Math.max(2, (v[cur0] / total0) * 100)}%`, background: SHADES[i % SHADES.length] }} /></div>
-              </div>
-            ))}
+            <Ring parts={parts} fmt={(n) => money(n, cur0)} center={curName(cur0, d.local)} />
           </>
         )}
       </Card>
@@ -151,18 +164,20 @@ export function MonthScreen() {
       <Card>
         {closed ? (
           <div>
-            ✓ {t3('الشهر مغلق', 'Month closed', 'Mois clôturé')} · {dayName(closed.closed_at.slice(0, 10))}
+            ✓ {quarterly ? t3('الفصل مغلق', 'Quarter closed', 'Trimestre clôturé') : t3('الشهر مغلق', 'Month closed', 'Mois clôturé')} · {dayName(closed.closed_at.slice(0, 10))}
             {closed.seen_at && <span className="muted"> · {t3('اطّلع عليه الرئيس', 'seen by the Superior', 'vu par le Supérieur')} ✓</span>}
           </div>
         ) : (
-          <button className="btn primary cty-wide" onClick={() => setClosing(true)}>{t3('إغلاق الشهر: عُدَّ نقدك', 'Close the month: count your cash', 'Clôturer le mois : comptez votre argent')}</button>
+          <button className="btn primary cty-wide" onClick={() => setClosing(periodEnd)}>
+            {quarterly ? t3('إغلاق الفصل: عُدَّ نقدك', 'Close the quarter: count your cash', 'Clôturer le trimestre : comptez votre argent') : t3('إغلاق الشهر: عُدَّ نقدك', 'Close the month: count your cash', 'Clôturer le mois : comptez votre argent')}
+            {quarterly && <small style={{ display: 'block', opacity: 0.8 }}>{periodName(period)}</small>}
+          </button>
         )}
       </Card>
     </>
   );
 }
 
-const SHADES = ['#B8891B', '#5B191D', '#232D53', '#8A6A1A', '#2A6FB0', '#D2691E', '#6b7b4a', '#7a5c8f'];
 const nextMonth = (ym: string) => {
   const [y, mo] = ym.split('-').map(Number);
   return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;

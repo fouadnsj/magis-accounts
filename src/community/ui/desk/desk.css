@@ -7,6 +7,8 @@
 .desk-side button:hover { background: rgba(255, 255, 255, 0.1); }
 .desk-side button.on { background: #B8891B; font-weight: 650; }
 .desk-spacer { flex: 1; }
+.desk-group { display: flex; flex-direction: column; gap: 1px; margin-bottom: 8px; }
+.desk-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; padding: 6px 10px 2px; }
 .cty-badge.static { position: static; }
 .desk-main { padding: 18px 26px 60px; min-width: 0; }
 .desk-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }

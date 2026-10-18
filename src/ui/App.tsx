@@ -14,7 +14,7 @@ import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
 import { connectRemote, disconnectRemote, hello, httpApi, remoteBase, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
 import { centreStyle, guessCentre, type BrandInfo } from '../brand';
-import { tx } from '../i18n';
+import { m, tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
 import { AppProvider, type Install, type Session } from '../state';
 import { getLang, setLang } from '../i18n';
@@ -287,7 +287,7 @@ export function App() {
       <Login
         key={serverDb.slug}
         title={serverDb.organisation}
-        subtitle={serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
+        subtitle={serverDb.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : serverDb.kind === 'country' ? tx(m('قيّم البلد', 'Country econome', "Économe du pays")) : serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
         brand={serverDb}
         community={serverDb.kind === 'community' || serverDb.kind === 'country'}
         loadProfiles={() => serverProfiles(serverDb.slug)}
@@ -422,7 +422,7 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
   );
 
   return (
-    <BrandFrame brand={brand}>
+    <BrandFrame brand={brand} jesuit={community}>
       <div className="panel login-panel">
         <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>

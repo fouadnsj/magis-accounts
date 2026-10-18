@@ -17,6 +17,7 @@ import { claimName } from '../desk/Claims';
 import { kindName } from '../desk/Statement';
 import { exportExcel } from '../desk/excel';
 import { ChartTable } from '../desk/Chart';
+import { Ring } from '../charts';
 import '../cty.css';
 import '../desk/desk.css';
 
@@ -451,6 +452,22 @@ function Totals({ d }: P) {
     sum.set(k, byCty);
   }
   const codes = [...sum.keys()].sort();
+  // the year's expenses at a glance: by heading (the code under its family) and by community
+  const headOf = (code: string): string => {
+    let a = d.accounts.find((x) => x.code === code);
+    while (a) {
+      const p = d.accounts.find((x) => x.id === a!.parent_id);
+      if (!p || p.parent_id == null) return a.code;
+      a = p;
+    }
+    return code;
+  };
+  const byHead = new Map<string, number>();
+  const byCty = new Map<number, number>();
+  for (const [k, m] of sum) for (const [cid, v] of m) if (v[cur] < 0) {
+    byHead.set(headOf(k), (byHead.get(headOf(k)) ?? 0) - v[cur]);
+    byCty.set(cid, (byCty.get(cid) ?? 0) - v[cur]);
+  }
   const exportIt = async () => {
     try {
       await exportExcel(`totals-${year}.xlsx`, CURS.map((c) => ({
@@ -469,6 +486,18 @@ function Totals({ d }: P) {
         <div className="cty-curs" style={{ margin: 0 }}>{CURS.map((c) => <button key={c} className={c === cur ? 'on' : ''} onClick={() => setCur(c)}>{curName(c, d.local)}</button>)}</div>
         <span className="muted small">{files.length} {t3('ملف', 'files', 'fichiers')}</span>
       </div>
+      {byHead.size > 0 && (
+        <div className="desk-two">
+          <div className="cty-card">
+            <div className="cty-label">{t3('النفقات حسب البند', 'Expenses by heading', 'Dépenses par rubrique')} · {curName(cur, d.local)}</div>
+            <Ring parts={[...byHead.entries()].map(([k, v]) => ({ key: k, label: codeName(k), value: v }))} fmt={(n) => money(n, cur)} center={curName(cur, d.local)} />
+          </div>
+          <div className="cty-card">
+            <div className="cty-label">{t3('النفقات حسب الجماعة', 'Expenses by community', 'Dépenses par communauté')} · {curName(cur, d.local)}</div>
+            <Ring parts={[...byCty.entries()].map(([k, v]) => ({ key: k, label: nameOf(d, k), value: v }))} fmt={(n) => money(n, cur)} center={curName(cur, d.local)} />
+          </div>
+        </div>
+      )}
       <div className="cty-card desk-scroll">
         <table className="desk-table">
           <thead><tr><th>{t3('الرمز', 'Code', 'Code')}</th><th>{t3('البند', 'Line', 'Ligne')}</th>{ctys.map((x) => <th key={x.id} className="num">{x.name}</th>)}<th className="num">{t3('البلد', 'Country', 'Pays')}</th></tr></thead>

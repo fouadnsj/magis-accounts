@@ -155,3 +155,37 @@
 .cty-sheet-head { overflow: hidden; }
 .cty-kinds { flex: 1; min-width: 0; }
 .cty-card, .cty-page { min-width: 0; overflow-wrap: anywhere; }
+
+/* the ring of where the money went */
+.cty-ring { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.cty-ring svg { flex: 0 0 auto; }
+.cty-ring-big { font-size: 15px; font-weight: 700; fill: #3d2f0c; }
+.cty-ring-small { font-size: 9px; fill: #6b6b6b; }
+.cty-ring-legend { list-style: none; margin: 0; padding: 0; flex: 1 1 180px; min-width: 0; }
+.cty-ring-legend li { display: grid; grid-template-columns: 12px 1fr auto auto; gap: 6px; align-items: center; padding: 3px 0; font-size: 13px; }
+.cty-ring-legend li.click { cursor: pointer; }
+.cty-ring-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.cty-ring-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cty-ring-legend .muted { font-variant-numeric: tabular-nums; font-size: 12px; }
+
+/* money waiting for the person's confirmation: first thing on the screen */
+.cty-money-in { background: #eef6ee; border: 2px solid #8bc48b; border-radius: 14px; padding: 12px 14px; margin: 10px 0; }
+.cty-money-in h3 { margin: 0 0 6px; font-size: 16px; color: #24572a; }
+.cty-money-in .cty-confirm { border-bottom-color: #cfe5cf; }
+.cty-money-in .big { font-size: 22px; font-weight: 700; color: #24572a; }
+.cty-give { width: 100%; margin: 6px 0; padding: 12px; border-radius: 12px; border: 2px dashed #B8891B; background: #fffaf0; color: #3d2f0c; font-weight: 650; cursor: pointer; font: inherit; }
+
+/* counting banknotes */
+.cty-notes-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.cty-notes { display: grid; gap: 4px; }
+.cty-note { display: grid; grid-template-columns: minmax(70px, 1fr) 14px 80px minmax(70px, 1fr); gap: 6px; align-items: center; }
+.cty-note-face { background: #f3efe5; border-radius: 6px; padding: 5px 8px; font-weight: 650; color: #3d2f0c; text-align: center; font-variant-numeric: tabular-nums; }
+.cty-note input { min-width: 0; width: 100%; padding: 6px 8px; border: 1px solid var(--c-line); border-radius: 8px; font-size: 16px; text-align: center; }
+.cty-note-sum { text-align: end; font-variant-numeric: tabular-nums; color: var(--muted); }
+.cty-notes-total { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--c-line); text-align: end; }
+.cty-notes-total.ok b { color: var(--ok); }
+.cty-lines { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--c-line); }
+.cty-person { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f3efe5; }
+.cty-person.off b { color: #b0a890; text-decoration: line-through; }
+.cty-role { display: inline-block; background: #f3efe5; border-radius: 10px; padding: 1px 8px; font-size: 12px; color: #3d2f0c; }
+.cty-role.off { background: #fbe9e9; color: var(--err); }

@@ -15,7 +15,7 @@ export function Quarter() {
   const [year, setYear] = useState(yearOf(todayIso()));
   const [q, setQ] = useState<number>(1);
   const [cur, setCur] = useState<Cur>('LOC');
-  const books = d.books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'house');
+  const books = d.books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house');
   const [from, to] = q ? [`${q === 1 ? year : year + 1}-${QUARTERS[q][0]}`, `${q === 1 ? year : year + 1}-${QUARTERS[q][1]}`] : [`${year}-10-01`, `${year + 1}-09-30`];
 
   const cols = useMemo(() => books.map((b) => {

@@ -7,8 +7,8 @@
 import { useEffect, useState } from 'react';
 import { errText, toast, todayIso } from '../../../ui/kit';
 import { pickFile, saveFile } from '../../../platform';
-import { CURS, prevMonth, type Money } from '../../domain';
-import type { MonthFile, ReturnFile } from '../../files';
+import { CURS, periodMonths, prevMonth, type Money } from '../../domain';
+import { MONTH_BUNDLE, type MonthBundle, type MonthFile, type ReturnFile } from '../../files';
 import { useCty, bookLabel, bookName } from '../CtyApp';
 import { accName, curName, money, monthName, t3 } from '../text';
 import { claimName } from './Claims';
@@ -20,15 +20,17 @@ export function SendMonth() {
   const [ym, setYm] = useState(prevMonth(today.slice(0, 7)));
   const [file, setFile] = useState<MonthFile | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const closed = d.closed.includes(ym);
+  const period = periodMonths(ym, d.settings.closePeriod);
+  const quarterly = period.length > 1;
+  const closed = d.closed.includes(period[period.length - 1]);
   useEffect(() => {
     setErr(null);
     s.api.call('cty.month.consolidated', { ym }).then(setFile).catch((e) => setErr(errText(e)));
   }, [s, ym, d]);
 
-  const books = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house' || b.cty_kind === 'cash' || b.cty_kind === 'bank' || b.cty_kind === 'economat'));
+  const books = d.books.filter((b) => b.active && b.cty_kind != null);
   const used = (id: number) => d.entries.some((e) => (e.book_id === id || e.to_book_id === id) && e.date.slice(0, 7) <= ym);
-  const status = books.filter((b) => used(b.id)).map((b) => ({ b, m: d.months.find((x) => x.book_id === b.id && x.ym === ym) }));
+  const status = books.filter((b) => used(b.id)).map((b) => ({ b, m: d.months.find((x) => x.book_id === b.id && x.ym === period[period.length - 1]) }));
   const allClosed = status.every((x) => x.m);
   const accByCode = new Map(d.accounts.map((a) => [a.code, a]));
   const codes = file ? Object.keys(file.totals).sort() : [];
@@ -42,9 +44,12 @@ export function SendMonth() {
   };
   const makeFile = async () => {
     try {
-      const f = await s.api.call('cty.month.file', { ym });
-      const name = `${(f.community.name || 'community').replace(/[^\w؀-ۿ -]/g, '').trim()}-${ym}.json`;
-      await saveFile(name, ['json'], new TextEncoder().encode(JSON.stringify(f, null, 1)), name);
+      // a quarter: its three months in one file
+      const fs: MonthFile[] = [];
+      for (const m of period) fs.push(await s.api.call('cty.month.file', { ym: m }));
+      const out: MonthFile | MonthBundle = fs.length === 1 ? fs[0] : { kind: MONTH_BUNDLE, version: 1, files: fs };
+      const name = `${(fs[0].community.name || 'community').replace(/[^\w\u0600-\u06FF -]/g, '').trim()}-${period.length > 1 ? `${period[0]}_${period[2]}` : ym}.json`;
+      await saveFile(name, ['json'], new TextEncoder().encode(JSON.stringify(out, null, 1)), name);
       toast(t3('الملف جاهز: أرسله إلى قيّم البلد', 'The file is ready: send it to the country econome', "Le fichier est prêt : envoyez-le à l'économe du pays"));
     } catch (e) { toast(errText(e), true); }
   };
@@ -126,8 +131,9 @@ export function SendMonth() {
                 ))}
               </tbody>
             </table>
-            {!closed && can('month.close') && <button className="btn primary cty-wide" disabled={!allClosed} onClick={closeIt}>{t3('أغلق شهر الجماعة', "Close the community's month", 'Clôturer le mois de la communauté')}</button>}
-            {closed && can('month.close') && <button className="btn primary cty-wide" onClick={makeFile}>{t3('اصنع الملف لقيّم البلد', 'Make the file for the country econome', "Faire le fichier pour l'économe du pays")}</button>}
+            {quarterly && <p className="muted small">{t3('الإغلاق كل فصل', 'Closing every quarter', 'Clôture chaque trimestre')}: {monthName(period[0], true)} – {monthName(period[2])}</p>}
+            {!closed && can('month.close') && <button className="btn primary cty-wide" disabled={!allClosed} onClick={closeIt}>{quarterly ? t3('أغلق فصل الجماعة', "Close the community's quarter", 'Clôturer le trimestre de la communauté') : t3('أغلق شهر الجماعة', "Close the community's month", 'Clôturer le mois de la communauté')}</button>}
+            {closed && can('month.close') && <button className="btn primary cty-wide" onClick={makeFile}>{t3('اصنع الملف لقيّم البلد', 'Make the file for the country econome', "Faire le fichier pour l'économe du pays")}{quarterly ? ` (${t3('3 أشهر', '3 months', '3 mois')})` : ''}</button>}
             <p className="muted small">{t3('الملف فيه المجاميع حسب الرمز فقط، لا تفاصيل أي يسوعي.', "The file holds totals by code only, no Jesuit's detail.", "Le fichier ne contient que des totaux par code, aucun détail d'un jésuite.")}</p>
           </div>
           {file && file.claims.length > 0 && (

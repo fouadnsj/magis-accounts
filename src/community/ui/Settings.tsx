@@ -1,9 +1,13 @@
-// The person's language, and, for the econome, the approval limits and the starting rate.
+// Settings: the person's language; for the Superior, the people and their roles; for the
+// econome (his control panel): closing by quarter or month, a bank or not, the banknotes
+// counted at closing, and the Superior's approval limits.
 import { useState } from 'react';
 import { errText, parseAmount, toast } from '../../ui/kit';
 import { getLang, setLang, type LangMode } from '../../i18n';
+import { CURS, type Cur } from '../domain';
 import { useCty, Card } from './CtyApp';
-import { t3 } from './text';
+import { PeopleScreen } from './People';
+import { curName, t3 } from './text';
 
 const LANGS: { l: LangMode; label: string }[] = [
   { l: 'en', label: 'English' },
@@ -12,52 +16,84 @@ const LANGS: { l: LangMode; label: string }[] = [
   { l: 'both', label: 'عربي · English' },
 ];
 
-export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases }: { onLang: () => void; onLogout: () => void; onCloseDb?: () => void; onDatabases?: () => void }) {
+export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDesk }: { onLang: () => void; onLogout: () => void; onCloseDb?: () => void; onDatabases?: () => void; inDesk?: boolean }) {
   const { d, s, reload, can, go } = useCty();
-  const [house, setHouse] = useState(String(d.limits.house));
-  const [personal, setPersonal] = useState(String(d.limits.personal));
-  const [rate, setRate] = useState(String(d.limits.startRate));
+  const [people, setPeople] = useState(false);
   const lang = getLang();
-
-  const saveLimits = async () => {
-    try {
-      await s.api.call('cty.limits.save', { limits: { house: parseAmount(house), personal: parseAmount(personal), startRate: parseAmount(rate) } });
-      await reload();
-      toast(t3('حُفظ ✓', 'Saved ✓', 'Enregistré ✓'));
-    } catch (e) {
-      toast(errText(e), true);
-    }
-  };
+  if (people) return <><button className="cty-back" onClick={() => setPeople(false)}>‹ {t3('الإعدادات', 'Settings', 'Réglages')}</button><PeopleScreen /></>;
 
   return (
     <>
-      <button className="cty-back" onClick={() => go('month')}>‹ {t3('شهري', 'My month', 'Mon mois')}</button>
+      {!inDesk && <button className="cty-back" onClick={() => go('month')}>‹ {t3('شهري', 'My month', 'Mon mois')}</button>}
       <h1>{t3('الإعدادات', 'Settings', 'Réglages')}</h1>
       <Card>
         <div className="cty-label">{t3('اللغة', 'Language', 'Langue')}</div>
         <div className="cty-tiles small">
-          {LANGS.map((x) => (
-            <button key={x.l} className={lang === x.l ? 'on' : ''} onClick={() => { setLang(x.l); onLang(); }}>{x.label}</button>
-          ))}
+          {LANGS.map((x) => <button key={x.l} className={lang === x.l ? 'on' : ''} onClick={() => { setLang(x.l); onLang(); }}>{x.label}</button>)}
         </div>
       </Card>
-      {can('cty.limits') && (
+      {!inDesk && (can('users.manage') || can('cty.view_all')) && (
         <Card>
-          <div className="cty-label">{t3('موافقة الرئيس فوق', "The Superior's approval above", "L'accord du Supérieur au-delà de")}</div>
-          <label className="field"><span>{t3('دفتر البيت (المدبّر)، بالدولار', 'House book (minister), in dollars', 'Compte de la maison (ministre), en dollars')}</span><input inputMode="decimal" value={house} onChange={(e) => setHouse(e.target.value)} /></label>
-          <label className="field"><span>{t3('كل دفتر شخصي، بالدولار', 'Each personal book, in dollars', 'Chaque compte personnel, en dollars')}</span><input inputMode="decimal" value={personal} onChange={(e) => setPersonal(e.target.value)} /></label>
-          <label className="field"><span>{t3('السعر قبل أول صرافة: ليرة للدولار', 'Rate before the first exchange: pounds for $1', 'Taux avant le premier change : livres pour 1 $')}</span><input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></label>
-          <p className="muted small">{t3('0 = بلا حد. الليرة واليورو بسعر آخر صرافة.', '0 = no limit. Pounds and euros at the rate of the last exchange.', '0 = sans limite. Livres et euros au taux du dernier change.')}</p>
-          <button className="btn primary" onClick={saveLimits}>{t3('احفظ', 'Save', 'Enregistrer')}</button>
+          <button className="btn cty-wide" onClick={() => setPeople(true)}>👥 {t3('الأشخاص والأدوار', 'People and roles', 'Personnes et rôles')}</button>
         </Card>
       )}
-      <Card>
-        <div className="cty-tiles small">
-          {onDatabases && <button onClick={onDatabases}>{t3('كل قواعد البيانات', 'All databases', 'Toutes les bases')}</button>}
-          {onCloseDb && <button onClick={onCloseDb}>{t3('إغلاق الملف', 'Close the file', 'Fermer le fichier')}</button>}
-          <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
-        </div>
-      </Card>
+      {(can('cty.limits') || can('users.manage')) && <ControlPanel key={JSON.stringify(d.settings) + JSON.stringify(d.limits)} />}
+      {!inDesk && (
+        <Card>
+          <div className="cty-tiles small">
+            {onDatabases && <button onClick={onDatabases}>{t3('كل قواعد البيانات', 'All databases', 'Toutes les bases')}</button>}
+            {onCloseDb && <button onClick={onCloseDb}>{t3('إغلاق الملف', 'Close the file', 'Fermer le fichier')}</button>}
+            <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
+          </div>
+        </Card>
+      )}
     </>
   );
+
+  /** The econome's control panel. */
+  function ControlPanel() {
+    const [period, setPeriod] = useState(d.settings.closePeriod);
+    const [bank, setBank] = useState(d.settings.hasBank);
+    const [notes, setNotes] = useState<Record<Cur, string>>(Object.fromEntries(CURS.map((c) => [c, d.settings.notes[c].join(', ')])) as Record<Cur, string>);
+    const [house, setHouse] = useState(String(d.limits.house));
+    const [personal, setPersonal] = useState(String(d.limits.personal));
+    const [rate, setRate] = useState(String(d.limits.startRate));
+    const save = async () => {
+      try {
+        await s.api.call('cty.settings.save', {
+          closePeriod: period, hasBank: bank,
+          notes: Object.fromEntries(CURS.map((c) => [c, notes[c].split(/[,،\s]+/).map((x) => parseAmount(x)).filter((x) => x > 0)])) as Record<Cur, number[]>,
+        });
+        if (can('cty.limits')) await s.api.call('cty.limits.save', { limits: { house: parseAmount(house), personal: parseAmount(personal), startRate: parseAmount(rate) } });
+        await reload();
+        toast(t3('حُفظ ✓', 'Saved ✓', 'Enregistré ✓'));
+      } catch (e) { toast(errText(e), true); }
+    };
+    return (
+      <Card>
+        <div className="cty-label">{t3('لوحة القيّم', "The econome's control panel", "Le tableau de bord de l'économe")}</div>
+        <div className="cty-label" style={{ marginTop: 8 }}>{t3('إغلاق الحسابات', 'Closing the accounts', 'Clôture des comptes')}</div>
+        <div className="cty-seg" style={{ justifyContent: 'flex-start' }}>
+          <button className={period === 'quarter' ? 'on' : ''} onClick={() => setPeriod('quarter')}>{t3('كل فصل', 'Every quarter', 'Chaque trimestre')}</button>
+          <button className={period === 'month' ? 'on' : ''} onClick={() => setPeriod('month')}>{t3('كل شهر', 'Every month', 'Chaque mois')}</button>
+        </div>
+        <label className="cty-check"><input type="checkbox" checked={bank} onChange={(e) => setBank(e.target.checked)} /><span>{t3('للجماعة حساب في المصرف', 'The community has a bank account', 'La communauté a un compte en banque')}</span></label>
+        <div className="cty-label" style={{ marginTop: 12 }}>{t3('الأوراق النقدية للعدّ', 'Banknotes for counting', 'Billets pour compter')}</div>
+        {CURS.map((c) => (
+          <label key={c} className="field"><span>{curName(c, d.local)}</span><input dir="ltr" value={notes[c]} onChange={(e) => setNotes({ ...notes, [c]: e.target.value })} /></label>
+        ))}
+        {can('cty.limits') && (
+          <>
+            <div className="cty-label" style={{ marginTop: 12 }}>{t3('موافقة الرئيس فوق', "The Superior's approval above", "L'accord du Supérieur au-delà de")}</div>
+            <div className="grid2">
+              <label className="field"><span>{t3('دفتر البيت ($)', 'House book ($)', 'Compte de la maison ($)')}</span><input inputMode="decimal" value={house} onChange={(e) => setHouse(e.target.value)} /></label>
+              <label className="field"><span>{t3('كل دفتر شخصي ($)', 'Each personal book ($)', 'Chaque compte personnel ($)')}</span><input inputMode="decimal" value={personal} onChange={(e) => setPersonal(e.target.value)} /></label>
+            </div>
+            <label className="field"><span>{t3('السعر قبل أول صرافة: ليرة للدولار', 'Rate before the first exchange: pounds for $1', 'Taux avant le premier change : livres pour 1 $')}</span><input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></label>
+          </>
+        )}
+        <button className="btn primary cty-wide" onClick={save}>{t3('احفظ', 'Save', 'Enregistrer')}</button>
+      </Card>
+    );
+  }
 }

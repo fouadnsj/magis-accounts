@@ -131,7 +131,15 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
   const asksSuperior = kind === 'Exp' && limit > 0 && n > 0 && (usd == null || usd >= limit) && !s.profile.perms.includes('cty.month_seen');
 
   // where money can be given: the econome's cash first, then the others
-  const targets = d.books.filter((b) => b.active && b.id !== book.id).sort((a, b) => (a.cty_kind === 'cash' ? -1 : b.cty_kind === 'cash' ? 1 : 0));
+  // giving back: to the econome's cash (chosen already); his own bank; anyone else only if asked
+  const cashBook = d.books.find((b) => b.active && b.cty_kind === 'cash');
+  const ownBank = d.books.find((b) => b.active && b.cty_kind === 'personal_bank' && d.kept.includes(b.id) && b.id !== book.id);
+  const ownCash = book.cty_kind === 'personal_bank' ? d.books.find((b) => b.active && b.cty_kind === 'personal' && d.kept.includes(b.id)) : undefined;
+  const [others, setOthers] = useState(false);
+  const targets = d.books.filter((b) => b.active && b.id !== book.id && !['personal_bank'].includes(b.cty_kind ?? '')).sort((a, b) => (a.cty_kind === 'cash' ? -1 : b.cty_kind === 'cash' ? 1 : 0));
+  useEffect(() => {
+    if (kind === 'Transfer' && !edit && toBook == null) setToBook(ownCash?.id ?? cashBook?.id ?? null);
+  }, [kind, edit, toBook, cashBook, ownCash]);
 
   const save = async () => {
     setErr(null);
@@ -190,7 +198,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
     { k: 'Exp', label: t3('صرفتُ', 'I spent', "J'ai dépensé") },
     { k: 'Income', label: t3('قبضتُ', 'I received', "J'ai reçu") },
     { k: 'Exchange', label: t3('صرافة', 'Exchange', 'Change') },
-    { k: 'Transfer', label: t3('أعطيتُ', 'I gave', "J'ai donné") },
+    { k: 'Transfer', label: book.cty_kind === 'cash' || book.cty_kind === 'bank' || book.cty_kind === 'economat' ? t3('أعطيتُ', 'I gave', "J'ai donné") : t3('أعدتُ إلى القيّم', 'Give back', "Rendre à l'économe") },
   ];
   const readOnly = edit && !(d.kept.includes(edit.book_id) || s.profile.perms.includes('cty.write_all'));
 
@@ -223,10 +231,16 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
               <>
                 <div className="cty-label">{t3('إلى', 'To', 'À')}</div>
                 <div className="cty-tiles small">
-                  {targets.map((b) => (
-                    <button key={b.id} className={toBook === b.id ? 'on' : ''} onClick={() => setToBook(b.id)}>{bookName(b)}</button>
-                  ))}
+                  {ownCash && <button className={toBook === ownCash.id ? 'on' : ''} onClick={() => setToBook(ownCash.id)}>{t3('جيبي (من المصرف)', 'My pocket (from the bank)', 'Ma poche (de la banque)')}</button>}
+                  {cashBook && cashBook.id !== book.id && <button className={toBook === cashBook.id ? 'on' : ''} onClick={() => setToBook(cashBook.id)}>💰 {t3('صندوق القيّم', "The econome's cash", "La caisse de l'économe")}</button>}
+                  {ownBank && <button className={toBook === ownBank.id ? 'on' : ''} onClick={() => setToBook(ownBank.id)}>🏦 {t3('حسابي في المصرف', 'My bank', 'Ma banque')}</button>}
+                  {(others || (!cashBook && !ownBank && !ownCash) || (toBook != null && toBook !== cashBook?.id && toBook !== ownBank?.id && toBook !== ownCash?.id)) &&
+                    targets.filter((b) => b.id !== cashBook?.id).map((b) => (
+                      <button key={b.id} className={toBook === b.id ? 'on' : ''} onClick={() => setToBook(b.id)}>{bookName(b)}</button>
+                    ))}
                 </div>
+                {!others && targets.length > 1 && <button className="cty-link" onClick={() => setOthers(true)}>{t3('إلى شخص آخر…', 'To someone else…', 'À quelqu’un d’autre…')}</button>}
+                <p className="muted small">{t3('من يستلم يؤكّد أنه استلم.', 'The one who receives confirms he received it.', 'Celui qui reçoit confirme qu’il a reçu.')}</p>
               </>
             )}
             {!edit && isLine && recent.length > 0 && n === 0 && (
@@ -348,6 +362,54 @@ function AmountInput({ label, value, onChange, cur, onCur, local, onEnter, refEl
       <input ref={refEl} inputMode="decimal" value={value} placeholder="0" onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onEnter?.()} />
       <div className="cty-curs">
         {CURS.map((c) => <button key={c} className={c === cur ? 'on' : ''} onClick={() => onCur(c)}>{curName(c, local)}</button>)}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The econome gives money from the community's cash to a Jesuit (or to the house). The
+ * Jesuit then sees "the econome gave you … · received?" and confirms with one tap.
+ */
+export function GiveSheet({ onClose }: { onClose: () => void }) {
+  const { d, s, reload } = useCty();
+  const sources = d.books.filter((b) => b.active && (b.cty_kind === 'cash' || b.cty_kind === 'bank') && (d.kept.includes(b.id) || s.profile.perms.includes('cty.write_all')));
+  const [from, setFrom] = useState<number | null>(sources[0]?.id ?? null);
+  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
+  const [to, setTo] = useState<number | null>(null);
+  const [amount, setAmount] = useState('');
+  const [cur, setCur] = useState<Cur>('LOC');
+  const [note, setNote] = useState('');
+  const [date, setDate] = useState(todayIso());
+  const [err, setErr] = useState<string | null>(null);
+  const n = parseAmount(amount);
+  const save = async () => {
+    setErr(null);
+    try {
+      await s.api.call('cty.entry.save', { entry: { book_id: from!, to_book_id: to!, date, type: 'Transfer', cur, amount: n, note } });
+      await reload();
+      toast(t3('أُعطي. ينتظر تأكيد من استلم.', 'Given. Waiting for the receiver to confirm.', 'Donné. En attente de la confirmation de celui qui reçoit.'));
+      onClose();
+    } catch (e) { setErr(errText(e)); }
+  };
+  return (
+    <div className="cty-sheet" role="dialog">
+      <div className="cty-sheet-head"><button className="cty-icon" onClick={onClose}>✕</button><b>{t3('إعطاء مال', 'Give money', 'Donner de l’argent')}</b></div>
+      <div className="cty-sheet-body">
+        {err && <div className="alert err">{err}</div>}
+        {sources.length > 1 && (
+          <div className="cty-curs" style={{ justifyContent: 'flex-start' }}>
+            {sources.map((b) => <button key={b.id} className={from === b.id ? 'on' : ''} onClick={() => setFrom(b.id)}>{bookName(b)}</button>)}
+          </div>
+        )}
+        <div className="cty-label" style={{ marginTop: 10 }}>{t3('لمن؟', 'To whom?', 'À qui ?')}</div>
+        <div className="cty-tiles small">
+          {people.map((b) => <button key={b.id} className={to === b.id ? 'on' : ''} onClick={() => setTo(b.id)}>{bookName(b)}</button>)}
+        </div>
+        <AmountInput label={t3('المبلغ', 'Amount', 'Montant')} value={amount} onChange={setAmount} cur={cur} onCur={setCur} local={d.local} />
+        <label className="field"><span>{t3('ملاحظة (اختيارية)', 'Note (optional)', 'Note (facultative)')}</span><input value={note} onChange={(e) => setNote(e.target.value)} /></label>
+        <label className="field"><span>{t3('التاريخ', 'Date', 'Date')}</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
+        <button className="btn primary cty-wide cty-save" disabled={!from || !to || !(n > 0)} onClick={save}>{t3('أعطِ', 'Give', 'Donner')}</button>
       </div>
     </div>
   );

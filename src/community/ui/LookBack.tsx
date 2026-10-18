@@ -1,28 +1,37 @@
-// Looking back, for himself alone: where the money went this month and this year
-// (October to September), by heading and by line, month by month, beside last year.
+// Looking back, for himself alone: where the money went, by heading, with the share of
+// each (a ring and its %), for a month, a quarter or the year (October to September);
+// a tap on a heading shows its lines; month by month beside last year.
 // A mirror, not a control: no alarms, no "budget exceeded".
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../ui/kit';
-import { monthSheet, monthsOfYear, usdValue, yearOf, yearSheet, type Cur } from '../domain';
-import { useCty, Card } from './CtyApp';
+import { monthSheet, monthsOfYear, periodMonths, quarterOf, sheet, usdValue, yearOf, type Cur } from '../domain';
+import { useCty, Card, bookLabel } from './CtyApp';
 import { headingOf, usedCurs } from './Month';
+import { Columns, Ring } from './charts';
 import { accName, curName, money, monthName, t3, yearName } from './text';
+
+type Mode = 'month' | 'quarter' | 'year';
 
 export function LookBack() {
   const { d, book } = useCty();
   const today = todayIso();
-  const [mode, setMode] = useState<'month' | 'year'>('month');
+  const [mode, setMode] = useState<Mode>('quarter');
   const [ym, setYm] = useState(today.slice(0, 7));
-  const [year, setYear] = useState(yearOf(today));
   const curs = usedCurs(d.entries, book.id, { LOC: book.opening_syp, USD: book.opening_usd, EUR: book.opening_eur });
   const [cur, setCur] = useState<Cur>('LOC');
   const [open, setOpen] = useState<number | null>(null);
 
-  const sheet = useMemo(() => (mode === 'month' ? monthSheet(d.entries, book, ym) : yearSheet(d.entries, book, year)), [mode, d.entries, book, ym, year]);
-  // by heading, with the lines under each
+  // the period shown
+  const months = mode === 'month' ? [ym] : mode === 'quarter' ? periodMonths(ym, 'quarter') : monthsOfYear(yearOf(`${ym}-01`));
+  const from = `${months[0]}-01`;
+  const to = `${months[months.length - 1]}-31`;
+  const title = mode === 'month' ? monthName(ym) : mode === 'quarter' ? `T${quarterOf(from)} · ${monthName(months[0], true)} – ${monthName(months[2])}` : yearName(yearOf(from));
+  const step = (k: number) => setYm(shift(ym, k * (mode === 'month' ? 1 : mode === 'quarter' ? 3 : 12)));
+
+  const sh = useMemo(() => sheet(d.entries, book, from, to), [d.entries, book, from, to]);
   const groups = useMemo(() => {
     const out = new Map<number, { total: number; lines: Map<number, number> }>();
-    for (const [id, v] of sheet.expenses) {
+    for (const [id, v] of sh.expenses) {
       const h = headingOf(d.accounts, id);
       if (!h || !v[cur]) continue;
       const g = out.get(h.id) ?? { total: 0, lines: new Map() };
@@ -30,38 +39,39 @@ export function LookBack() {
       g.lines.set(id, (g.lines.get(id) ?? 0) - v[cur]);
       out.set(h.id, g);
     }
-    return [...out.entries()].sort((a, b) => b[1].total - a[1].total);
-  }, [sheet, d.accounts, cur]);
-  const total = groups.reduce((n, [, g]) => n + g.total, 0);
-
-  // month by month, this year and last year
-  const months = monthsOfYear(year);
-  const spentIn = (m: string, c: Cur) => -monthSheet(d.entries, book, m).totalExpenses[c];
-  const bars = months.map((m) => ({ m, now: spentIn(m, cur), before: spentIn(`${Number(m.slice(0, 4)) - 1}${m.slice(4)}`, cur) }));
-  const max = Math.max(1, ...bars.flatMap((b) => [b.now, b.before]));
-  const lastYear = -yearSheet(d.entries, book, year - 1).totalExpenses[cur];
+    return out;
+  }, [sh, d.accounts, cur]);
+  const parts = [...groups.entries()].map(([id, g]) => ({ key: id, label: accName(d.accounts.find((a) => a.id === id)), value: g.total }));
+  const spent = -sh.totalExpenses[cur];
+  const lastYear = -sheet(d.entries, book, shiftDate(from, -12), shiftDate(to, -12)).totalExpenses[cur];
+  const cols = months.map((m) => ({
+    label: monthName(m, true).slice(0, 3), title: monthName(m),
+    now: -monthSheet(d.entries, book, m).totalExpenses[cur],
+    before: -monthSheet(d.entries, book, shift(m, -12)).totalExpenses[cur],
+  }));
   // all currencies together, about, in dollars (at the rate of each day)
   const aboutUsd = useMemo(() => {
     let x = 0;
-    for (const e of d.entries) {
-      if (e.type !== 'Exp' || e.book_id !== book.id) continue;
-      if (mode === 'month' ? e.date.slice(0, 7) !== ym : yearOf(e.date) !== year) continue;
-      x += usdValue(d.entries, e.cur, e.amount, e.date, d.limits.startRate) ?? 0;
-    }
+    for (const e of d.entries) if (e.type === 'Exp' && e.book_id === book.id && e.date >= from && e.date <= to) x += usdValue(d.entries, e.cur, e.amount, e.date, d.limits.startRate) ?? 0;
     return x;
-  }, [d, book.id, mode, ym, year]);
+  }, [d, book.id, from, to]);
+  const opened = open != null ? groups.get(open) : undefined;
 
   return (
     <>
       <div className="cty-seg">
-        <button className={mode === 'month' ? 'on' : ''} onClick={() => setMode('month')}>{t3('الشهر', 'Month', 'Mois')}</button>
-        <button className={mode === 'year' ? 'on' : ''} onClick={() => setMode('year')}>{t3('السنة', 'Year', 'Année')}</button>
+        {(['month', 'quarter', 'year'] as Mode[]).map((m) => (
+          <button key={m} className={mode === m ? 'on' : ''} onClick={() => { setMode(m); setOpen(null); }}>
+            {m === 'month' ? t3('الشهر', 'Month', 'Mois') : m === 'quarter' ? t3('الفصل', 'Quarter', 'Trimestre') : t3('السنة', 'Year', 'Année')}
+          </button>
+        ))}
       </div>
       <div className="cty-monthnav">
-        <button onClick={() => (mode === 'month' ? setYm(shift(ym, -1)) : setYear(year - 1))}>‹</button>
-        <h1>{mode === 'month' ? monthName(ym) : yearName(year)}</h1>
-        <button onClick={() => (mode === 'month' ? setYm(shift(ym, 1)) : setYear(year + 1))}>›</button>
+        <button onClick={() => step(-1)}>‹</button>
+        <h1 style={{ fontSize: 17 }}>{title}</h1>
+        <button onClick={() => step(1)}>›</button>
       </div>
+      <p className="muted small center" style={{ margin: 0 }}>{bookLabel(book)}</p>
       {curs.length > 1 && (
         <div className="cty-curs center">
           {curs.map((c) => <button key={c} className={c === cur ? 'on' : ''} onClick={() => setCur(c)}>{curName(c, d.local)}</button>)}
@@ -70,48 +80,36 @@ export function LookBack() {
 
       <Card>
         <div className="cty-inout big">
-          <div><span className="muted small">{t3('دخل', 'Came in', 'Entré')}</span><span className="in">＋{money(sheet.totalIncome[cur] + sheet.received[cur], cur)}</span></div>
-          <div><span className="muted small">{t3('صُرف', 'Spent', 'Dépensé')}</span><span className="out">－{money(-sheet.totalExpenses[cur], cur)}</span></div>
+          <div><span className="muted small">{t3('دخل', 'Came in', 'Entré')}</span><span className="in">＋{money(sh.totalIncome[cur] + sh.received[cur], cur)}</span></div>
+          <div><span className="muted small">{t3('صُرف', 'Spent', 'Dépensé')}</span><span className="out">－{money(spent, cur)}</span></div>
         </div>
+        {lastYear > 0 && <p className="muted small center">{t3('في السنة الماضية، نفس الفترة', 'Last year, same period', "L'an dernier, même période")}: {money(lastYear, cur)} {curName(cur, d.local)} · {spent >= lastYear ? '+' : '−'}{Math.abs(Math.round(((spent - lastYear) / lastYear) * 100))}%</p>}
         {curs.length > 1 && aboutUsd > 0 && <p className="muted small center">{t3('كل العملات معاً: نحو', 'All currencies together: about', 'Toutes monnaies ensemble : environ')} ${money(aboutUsd, 'USD')}</p>}
-        {mode === 'year' && lastYear > 0 && (
-          <p className="muted small center">{t3('السنة الماضية', 'Last year', "L'an dernier")}: {money(lastYear, cur)} {curName(cur, d.local)}</p>
-        )}
       </Card>
 
-      {mode === 'year' && (
-        <Card>
-          <div className="cty-label">{t3('شهراً بشهر', 'Month by month', 'Mois par mois')}</div>
-          <div className="cty-cols">
-            {bars.map((b) => (
-              <div key={b.m} className="cty-col" title={`${monthName(b.m)}: ${money(b.now, cur)}`}>
-                <div className="cty-col-bars">
-                  <i className="before" style={{ height: `${(b.before / max) * 100}%` }} />
-                  <i className="now" style={{ height: `${(b.now / max) * 100}%` }} />
-                </div>
-                <span>{monthName(b.m, true).slice(0, 3)}</span>
-              </div>
+      <Card>
+        <div className="cty-label">{t3('أين صرفتُ أكثر', 'Where I spent the most', "Où j'ai dépensé le plus")}</div>
+        {parts.length === 0 ? <p className="muted">{t3('لا نفقات.', 'No expenses.', 'Aucune dépense.')}</p> : (
+          <Ring parts={parts} fmt={(n) => money(n, cur)} center={curName(cur, d.local)} onPick={(p) => setOpen(typeof p.key === 'number' ? (open === p.key ? null : p.key) : null)} />
+        )}
+        {opened && (
+          <div className="cty-lines">
+            <div className="cty-label">{accName(d.accounts.find((a) => a.id === open))}</div>
+            {[...opened.lines.entries()].sort((a, b) => b[1] - a[1]).map(([lid, x]) => (
+              <div key={lid} className="cty-subline"><span>{accName(d.accounts.find((a) => a.id === lid))}</span><span>{money(x, cur)} · {Math.round((x / opened.total) * 100)}%</span></div>
             ))}
           </div>
+        )}
+        {parts.length > 0 && <p className="muted small">{t3('اضغط على بند لترى تفاصيله.', 'Tap a heading to see its lines.', 'Touchez une rubrique pour voir ses lignes.')}</p>}
+      </Card>
+
+      {mode !== 'month' && (
+        <Card>
+          <div className="cty-label">{t3('شهراً بشهر', 'Month by month', 'Mois par mois')}</div>
+          <Columns cols={cols} fmt={(n) => `${money(n, cur)} ${curName(cur, d.local)}`} />
           <div className="muted small"><i className="cty-key now" /> {t3('هذه السنة', 'this year', 'cette année')} · <i className="cty-key before" /> {t3('السنة الماضية', 'last year', "l'an dernier")}</div>
         </Card>
       )}
-
-      <Card>
-        <div className="cty-label">{t3('أين ذهب المال', 'Where it went', "Où l'argent est allé")}</div>
-        {groups.length === 0 && <p className="muted">{t3('لا نفقات.', 'No expenses.', 'Aucune dépense.')}</p>}
-        {groups.map(([id, g]) => (
-          <div key={id}>
-            <button className="cty-hbar as-button" onClick={() => setOpen(open === id ? null : id)}>
-              <div className="cty-hbar-text"><span>{accName(d.accounts.find((a) => a.id === id))}</span><b>{money(g.total, cur)} <small className="muted">{Math.round((g.total / total) * 100)}%</small></b></div>
-              <div className="cty-hbar-track"><div style={{ width: `${Math.max(2, (g.total / total) * 100)}%` }} /></div>
-            </button>
-            {open === id && [...g.lines.entries()].sort((a, b) => b[1] - a[1]).map(([lid, x]) => (
-              <div key={lid} className="cty-subline"><span>{accName(d.accounts.find((a) => a.id === lid))}</span><span>{money(x, cur)}</span></div>
-            ))}
-          </div>
-        ))}
-      </Card>
     </>
   );
 }
@@ -121,3 +119,4 @@ const shift = (ym: string, k: number) => {
   const t = y * 12 + (mo - 1) + k;
   return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
 };
+const shiftDate = (date: string, months: number) => `${shift(date.slice(0, 7), months)}${date.slice(7)}`;

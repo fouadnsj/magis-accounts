@@ -3,17 +3,19 @@
 // and what is left to do. A click on a member opens his month.
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
-import { CURS, balance, lastDay, monthSheet, prevMonth, rateFromExchanges, type CtyBook, type Cur } from '../../domain';
+import { CURS, balance, lastDay, monthSheet, monthsOfYear, prevMonth, rateFromExchanges, yearOf, type CtyBook, type Cur } from '../../domain';
+import { Columns, Ring } from '../charts';
+import { headingOf } from '../Month';
 import { useCty, bookLabel, bookName } from '../CtyApp';
-import { curName, money, monthName, t3 } from '../text';
+import { accName, curName, money, monthName, t3 } from '../text';
 import type { DeskNav } from './Desk';
 
 export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
-  const { d, write } = useCty();
+  const { d, give } = useCty();
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
   const end = ym === today.slice(0, 7) ? today : lastDay(ym);
-  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
+  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house'));
   const own = d.books.filter((b) => b.active && ['cash', 'bank', 'economat'].includes(b.cty_kind ?? ''));
   const cash = own.find((b) => b.cty_kind === 'cash');
 
@@ -26,6 +28,21 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
     const used = d.entries.some((e) => (e.book_id === b.id || e.to_book_id === b.id) && e.date.slice(0, 7) === ym);
     return { b, m, s, pocket: balance(d.entries, b, end), unconfirmed, disputed, approvals, used };
   }), [d, ym, end, people]);
+
+  // where the community's money went (members and house together) and month by month
+  const spentParts = useMemo(() => {
+    const by = new Map<number, number>();
+    for (const r of rows) for (const [id, v] of r.s.expenses) {
+      const h = headingOf(d.accounts, id);
+      if (h) by.set(h.id, (by.get(h.id) ?? 0) - v.LOC);
+    }
+    return [...by.entries()].map(([id, value]) => ({ key: id, label: accName(d.accounts.find((a) => a.id === id)), value }));
+  }, [rows, d.accounts]);
+  const yearCols = monthsOfYear(yearOf(`${ym}-01`)).map((m) => ({
+    label: m.slice(5), title: monthName(m),
+    now: people.reduce((n, b) => n - monthSheet(d.entries, b, m).totalExpenses.LOC, 0),
+    before: people.reduce((n, b) => n - monthSheet(d.entries, b, `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`).totalExpenses.LOC, 0),
+  }));
 
   // what is left to do
   const last = prevMonth(today.slice(0, 7));
@@ -43,7 +60,7 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
           <button disabled={ym >= today.slice(0, 7)} onClick={() => setYm(nextMonth(ym))}>›</button>
         </div>
         <div className="row">
-          {cash && <button className="btn primary" onClick={() => write({ kind: 'Transfer', bookId: cash.id })}>{t3('إعطاء مال من الصندوق…', 'Give money from the cash…', 'Donner de l’argent de la caisse…')}</button>}
+          {cash && <button className="btn primary" onClick={give}>💰 {t3('إعطاء مال…', 'Give money…', 'Donner de l’argent…')}</button>}
           <button className="btn" onClick={() => go({ page: 'register' })}>{t3('السجل', 'Register', 'Registre')}</button>
         </div>
       </div>
@@ -67,6 +84,19 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
             {rows.filter((r) => r.approvals).map((r) => <li key={'a' + r.b.id}>⏳ {bookName(r.b)}: {t3(`${r.approvals} بانتظار الرئيس`, `${r.approvals} waiting for the Superior`, `${r.approvals} en attente du Supérieur`)}</li>)}
             {claims.length > 0 && <li>↺ {t3(`${claims.length} نفقة للمطالبة هذا الشهر`, `${claims.length} expense(s) to claim this month`, `${claims.length} dépense(s) à réclamer ce mois-ci`)} · <button className="cty-link" onClick={() => go({ page: 'claims' })}>{t3('عرض', 'see', 'voir')}</button></li>}
           </ul>
+        </div>
+      )}
+
+      {spentParts.some((p) => p.value > 0) && (
+        <div className="desk-two">
+          <div className="cty-card">
+            <div className="cty-label">{t3('أين ذهب مال الجماعة هذا الشهر', "Where the community's money went this month", "Où l'argent de la communauté est allé ce mois-ci")} · {curName('LOC', d.local)}</div>
+            <Ring parts={spentParts} fmt={(n) => money(n, 'LOC')} center={curName('LOC', d.local)} />
+          </div>
+          <div className="cty-card">
+            <div className="cty-label">{t3('نفقات الجماعة شهراً بشهر', "The community's expenses month by month", 'Dépenses de la communauté mois par mois')} · {curName('LOC', d.local)}</div>
+            <Columns cols={yearCols} fmt={(n) => `${money(n, 'LOC')} ${curName('LOC', d.local)}`} />
+          </div>
         </div>
       )}
 

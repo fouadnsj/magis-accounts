@@ -872,4 +872,17 @@ ALTER TABLE profile ADD COLUMN cty_roles TEXT;
 ALTER TABLE cty_month ADD COLUMN count_detail TEXT;
 `,
   },
+  {
+    n: 18,
+    name: 'community: the roles of people created before roles were stored, read from their profile',
+    sql: `
+UPDATE profile SET cty_roles = (
+  SELECT '[' || trim(
+    (CASE WHEN a.name LIKE '%Superior%' THEN '"superior",' ELSE '' END) ||
+    (CASE WHEN a.name LIKE '%Econome%' THEN '"econome",' ELSE '' END) ||
+    (CASE WHEN a.name LIKE '%Minister%' THEN '"minister",' ELSE '' END), ',') || ']'
+  FROM access_profile a WHERE a.id = profile.access_id)
+ WHERE cty_roles IS NULL AND EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'community');
+`,
+  },
 ];

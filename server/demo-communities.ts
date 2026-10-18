@@ -1,7 +1,9 @@
 // Makes three TEST databases for trying every level of the Jesuit communities' accounts:
 //   homs-demo (community), damascus-demo (community), syria-demo (country econome).
 // Invented people (no real names), password "test123" for everyone, a few entries in
-// September 2026 (closed and sent to the country) and October 2026 (open, to play with).
+// September 2026 (the quarter Jul–Sep closed and sent to the country) and October 2026
+// (open, to play with). Closing by quarter (the default); no community bank; Jes-H2 has
+// a bank account of his own.
 // Never touches real data: it writes only into the folder given (--data=…).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,17 +64,20 @@ async function main() {
   ] });
   await createCountry(syria, { country: 'Syria', localCurrency: 'SYP', mustChange: false, people: [{ name: 'Eco-Syria', password: PW }] });
   const H = await ctxs(homs), D = await ctxs(dam), S = await ctxs(syria);
+  // Jes-H2 has a bank account of his own (the community has none: closing by quarter, the default)
+  const jh2 = (await homs.query<{ id: number }>("SELECT id FROM profile WHERE name = 'Jes-H2'"))[0].id;
+  await runOp(H['Sup-H'], 'cty.person.save', { id: jh2, name: 'Jes-H2', roles: [], hasBank: true });
 
   // ---- Homs, September 2026
   const hb = await loadBooks(homs);
   const id = (kind: string, name?: string) => hb.find((b) => b.cty_kind === kind && (!name || b.name === name))!.id;
   const code = async (db: Db, c: string) => (await loadAccounts(db)).find((a) => a.code === c)!.id;
-  await runOp(H['Eco-H'], 'cty.book.opening', { bookId: id('cash'), opening: { LOC: 80000, USD: 600, EUR: 0 }, reason: 'demo start' });
+  await runOp(H['Eco-H'], 'cty.book.opening', { bookId: id('cash'), opening: { LOC: 150000, USD: 600, EUR: 0 }, reason: 'demo start' });
   for (const [who, amount] of [['Jes-H1', 15000], ['Jes-H2', 12000]] as const) {
     const t = await runOp(H['Eco-H'], 'cty.entry.save', { entry: { book_id: id('cash'), to_book_id: id('personal', who), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount } });
     await runOp(H[who], 'cty.transfer.answer', { id: t, ok: true });
   }
-  await runOp(H['Eco-H'], 'cty.entry.save', { entry: { book_id: id('cash'), to_book_id: id('house'), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount: 40000 } });
+  await runOp(H['Eco-H'], 'cty.entry.save', { entry: { book_id: id('cash'), to_book_id: id('house'), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount: 90000 } });
   await runOp(H['Eco-H'], 'cty.transfer.answer', { id: (await loadEntries(homs)).find((e) => e.to_book_id === id('house'))!.id, ok: true });
   const exp = async (who: OpCtx, book: number, date: string, c: string, amount: number, extra: Record<string, unknown> = {}) =>
     runOp(who, 'cty.entry.save', { entry: { book_id: book, date, type: 'Exp', account_id: await code(homs, c), cur: 'LOC', amount, ...extra } });
@@ -88,7 +93,7 @@ async function main() {
   let es = await loadEntries(homs);
   for (const b of await loadBooks(homs)) {
     if (!es.some((e) => e.book_id === b.id || e.to_book_id === b.id) && !b.opening_syp) continue;
-    const who = b.cty_kind === 'personal' ? H[b.name] : H['Eco-H'];
+    const who = b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' ? H[b.keeper_name ?? b.name] : H['Eco-H'];
     // the cook's pay was above $500: the Superior approves it
     for (const e of es.filter((x) => x.book_id === b.id && x.approval_needed && !x.approved_at)) await runOp(H['Sup-H'], 'cty.entry.approve', { ids: [e.id] });
     await runOp(who, 'cty.month.close', { bookId: b.id, ym: '2026-09', counted: balance(es, b, '2026-09-30') }).catch((e) => { throw new Error(`${b.name}: ${e.message}`); });

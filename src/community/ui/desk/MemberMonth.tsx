@@ -13,7 +13,7 @@ import { exportExcel } from './excel';
 export function MemberMonth({ initialBook, initialYm }: { initialBook: number | null; initialYm?: string }) {
   const { d, s, reload, can } = useCty();
   const today = todayIso();
-  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
+  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house'));
   const [bookId, setBookId] = useState<number>(initialBook ?? people[0]?.id);
   const [ym, setYm] = useState(initialYm ?? today.slice(0, 7));
   const book = d.books.find((b) => b.id === bookId) ?? people[0];

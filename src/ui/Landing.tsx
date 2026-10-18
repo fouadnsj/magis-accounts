@@ -8,8 +8,23 @@ import { serverCreateDb } from '../net';
 import { Field, errText, t } from './kit';
 
 /** The page around every welcome, login and setup screen. */
-export function BrandFrame({ children, brand, wide }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean }) {
+export function BrandFrame({ children, brand, wide, jesuit }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean }) {
   const st = brand ? brandStyle(brand) : null;
+  // the Jesuit communities: only the Jesuit logo, no centres (Fouad, 18 October 2026)
+  if (jesuit)
+    return (
+      <div className="brand-page jesuit">
+        <div className="brand-spine" />
+        <header className="brand-head jesuit">
+          <img src="/brand/jesuits.png" alt="" className="brand-jesuits" />
+          <div className="brand-title">
+            <div className="brand-eyebrow">{tx(m('الرهبنة اليسوعية', 'Society of Jesus', 'Compagnie de Jésus'))}</div>
+            <h1>{tx(m('حسابات الجماعات', "Communities' accounts", 'Comptes des communautés'))}</h1>
+          </div>
+        </header>
+        <main className={`brand-main ${wide ? 'wide' : ''}`}>{children}</main>
+      </div>
+    );
   return (
     <div className="brand-page">
       <div className="brand-spine" />
@@ -37,7 +52,7 @@ export function DbCard({ db, onOpen }: { db: DbInfo; onOpen: () => void }) {
   const st = brandStyle(db);
   return (
     <button className="db-card" onClick={onOpen} style={{ '--centre': st.color, '--centre-deep': st.deep } as React.CSSProperties}>
-      <div className="db-card-mark">{st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}</div>
+      <div className="db-card-mark">{db.kind === 'community' || db.kind === 'country' ? <img src="/brand/jesuits.png" alt="" /> : st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}</div>
       <div className="db-card-text">
         <b>{db.organisation}</b>
         <span>{db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : db.kind === 'country' ? tx(m('قيّم البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
@@ -63,7 +78,7 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
   const [creating, setCreating] = useState(dbs.length === 0 && canCreate);
   const [howTo, setHowTo] = useState(false);
   return (
-    <BrandFrame wide>
+    <BrandFrame wide jesuit={dbs.length > 0 && dbs.every((x) => x.kind === 'community' || x.kind === 'country')}>
       {address && (
         <div className="row muted small" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
           <span>{t('متصل بخادم المركز', "Connected to the centre's server")} · <span className="ltr">{address}</span></span>

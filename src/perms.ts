@@ -64,8 +64,22 @@ export const PERM_GROUPS = [
   },
 ] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
 
-export type Perm = (typeof PERM_GROUPS)[number]['perms'][number]['key'];
-export const ALL_PERMS: Perm[] = PERM_GROUPS.flatMap((g) => g.perms.map((p) => p.key));
+// Only in a community database (Jesuit communities). The MAGIS centres' screens show PERM_GROUPS only.
+export const CTY_PERM_GROUPS = [
+  {
+    key: 'community',
+    label: m('الجماعة', 'Community', 'Communauté'),
+    perms: [
+      { key: 'cty.view_all', label: m('يرى دفاتر كل أعضاء الجماعة', 'Sees the books of every member of the community', 'Voit les comptes de tous les membres de la communauté') },
+      { key: 'cty.write_all', label: m('يكتب لأي عضو (ورقة مطبوعة)، ويسجّل ما يعطيه الصندوق', 'Writes for any member (paper sheet) and records what the cash gives', 'Écrit pour tout membre (feuille papier) et enregistre ce que la caisse donne') },
+      { key: 'cty.month_seen', label: m('يقرأ شهر كل عضو: اطّلعت ✓ أو سؤال', "Reads each member's month: seen ✓ or a question", 'Lit le mois de chaque membre : vu ✓ ou une question') },
+      { key: 'cty.chart', label: m('يعدّل دليل الحسابات (الرموز والأسماء والخطوط)', 'Changes the chart of codes (codes, names, lines)', 'Modifie le plan des comptes (codes, noms, lignes)') },
+    ],
+  },
+] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
+
+export type Perm = (typeof PERM_GROUPS)[number]['perms'][number]['key'] | (typeof CTY_PERM_GROUPS)[number]['perms'][number]['key'];
+export const ALL_PERMS: Perm[] = [...PERM_GROUPS, ...CTY_PERM_GROUPS].flatMap((g) => g.perms.map((p) => p.key));
 
 /** Keeps only known permissions (a stored list may be older or hand-edited). */
 export function cleanPerms(xs: unknown): Perm[] {

@@ -607,4 +607,80 @@ INSERT INTO grant_part (grant_id, account_id, amount)
     name: 'the Respo book: grants and the Province money arrive there, and go to the books by transfers',
     sql: RESPO_SQL,
   },
+  {
+    n: 12,
+    name: 'community databases (Jesuit communities): chart of codes, entries in three currencies, month closing',
+    sql: `
+-- Used only by a database of kind "community" (meta kind = community). In a MAGIS
+-- centre these tables stay empty and nothing else changes.
+
+-- The chart of codes: family (61000) > heading (61400) > line (61402).
+-- An entry points to the row, not to the number, so a code can be changed later.
+CREATE TABLE cty_account (
+  id        INTEGER PRIMARY KEY,
+  code      TEXT NOT NULL UNIQUE,
+  parent_id INTEGER REFERENCES cty_account(id),
+  type      TEXT NOT NULL CHECK (type IN ('Income','Exp')),
+  name_en   TEXT NOT NULL,
+  name_fr   TEXT NOT NULL,
+  name_ar   TEXT NOT NULL,
+  scope     TEXT NOT NULL DEFAULT 'H' CHECK (scope IN ('P','H')),
+  claim     TEXT CHECK (claim IN ('health','scholastic','provincial','other')),
+  active    INTEGER NOT NULL DEFAULT 1,
+  sort      INTEGER NOT NULL DEFAULT 0
+);
+
+-- What a book is in a community: a Jesuit's personal book, the house book (held
+-- by the Minister), or the econome's cash, bank and account at the economat.
+ALTER TABLE book ADD COLUMN cty_kind TEXT;
+ALTER TABLE book ADD COLUMN opening_eur REAL NOT NULL DEFAULT 0;
+
+-- One entry = one amount in one currency (LOC = the local currency, USD, EUR),
+-- always positive: the type says whether it comes in or goes out.
+--  Income / Exp: on book_id, with its account.
+--  Transfer: from book_id to to_book_id (the giver records it, the receiver confirms).
+--  Exchange: on book_id, gives amount in cur and receives amount2 in cur2.
+CREATE TABLE cty_entry (
+  id           TEXT PRIMARY KEY,
+  n            INTEGER UNIQUE,
+  book_id      INTEGER NOT NULL REFERENCES book(id),
+  date         TEXT NOT NULL,
+  type         TEXT NOT NULL CHECK (type IN ('Income','Exp','Transfer','Exchange')),
+  account_id   INTEGER REFERENCES cty_account(id),
+  cur          TEXT NOT NULL CHECK (cur IN ('LOC','USD','EUR')),
+  amount       REAL NOT NULL CHECK (amount > 0),
+  cur2         TEXT CHECK (cur2 IN ('LOC','USD','EUR')),
+  amount2      REAL,
+  to_book_id   INTEGER REFERENCES book(id),
+  note         TEXT,
+  claim        TEXT CHECK (claim IN ('health','scholastic','provincial','other')),
+  claim_note   TEXT,
+  received_at  TEXT,
+  received_by  TEXT,
+  disputed_at  TEXT,
+  dispute_note TEXT,
+  source       TEXT UNIQUE,
+  created_at   TEXT NOT NULL,
+  created_by   TEXT,
+  updated_at   TEXT
+);
+CREATE INDEX cty_entry_book ON cty_entry(book_id, date);
+CREATE INDEX cty_entry_to ON cty_entry(to_book_id, date);
+
+-- A book's month, closed by its keeper after counting his cash in each currency.
+-- seen_at / seen_by: the Superior's reading of the month.
+CREATE TABLE cty_month (
+  book_id     INTEGER NOT NULL REFERENCES book(id),
+  ym          TEXT NOT NULL,
+  closed_at   TEXT NOT NULL,
+  closed_by   TEXT,
+  book_loc    REAL, book_usd REAL, book_eur REAL,
+  counted_loc REAL, counted_usd REAL, counted_eur REAL,
+  count_note  TEXT,
+  seen_at     TEXT,
+  seen_by     TEXT,
+  PRIMARY KEY (book_id, ym)
+);
+`,
+  },
 ];

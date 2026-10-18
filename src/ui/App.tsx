@@ -59,8 +59,9 @@ export function App() {
   const [, force] = useState(0);
 
   useEffect(() => {
-    document.documentElement.dir = getLang() === 'en' ? 'ltr' : 'rtl';
-    document.documentElement.lang = getLang() === 'en' ? 'en' : 'ar';
+    const l = getLang();
+    document.documentElement.dir = l === 'en' || l === 'fr' ? 'ltr' : 'rtl';
+    document.documentElement.lang = l === 'both' ? 'ar' : l;
   });
 
   const openPath = useCallback(async (dbPath: string) => {

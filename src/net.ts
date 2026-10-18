@@ -130,7 +130,7 @@ export const serverLogin = (db: string, profileId: number, password: string) =>
 
 export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null) =>
   post<{ slug: string }>('/api/dbs/create', { organisation, centre, color, logo });
-export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
+export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community' | 'country', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
 
 export const serverLogout = () => post('/api/logout', {}).catch(() => undefined);
 

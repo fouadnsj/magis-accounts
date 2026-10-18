@@ -11,11 +11,12 @@ import { parseListsPackage, type ListsPackage } from '../io/keeperFiles';
 import { baseName, getConfig, setConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath } from '../platform';
 import { Field, errText, t } from './kit';
 import { BrandFrame } from './Landing';
-import { CommunityForm } from '../community/ui/NewCommunity';
+import { CommunityForm, CountryForm } from '../community/ui/NewCommunity';
+import { createCountry } from '../community/country';
 import { createCommunity } from '../community/setup';
 import { t3 } from '../community/ui/text';
 
-type Mode = 'choose' | 'office' | 'holder' | 'server' | 'community';
+type Mode = 'choose' | 'office' | 'holder' | 'server' | 'community' | 'country';
 
 export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }: {
   onConnect?: (address: string) => Promise<void>;
@@ -85,6 +86,10 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
               <b>{t3('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')}</b>
               <span className="muted small">{t3('حسابات اليسوعيين وبيتهم، بثلاث عملات.', 'The accounts of the Jesuits and their house, in three currencies.', 'Les comptes des jésuites et de leur maison, en trois monnaies.')}</span>
             </button>
+            <button onClick={() => setMode('country')}>
+              <b>{t3('مدبّر البلد', 'Country econome', "Économe du pays")}</b>
+              <span className="muted small">{t3('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.')}</span>
+            </button>
             <button onClick={openExisting} disabled={!isDesktop()}>
               <b>{t('فتح ملف موجود', 'Open an existing file')}</b>
               <span className="muted small">{t('ملف ‎.db أنشئ سابقاً', 'A .db file created before')}</span>
@@ -101,6 +106,18 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
               const target = await newDb(newWebDb, `${s.community.replace(/[^\w؀-ۿ -]/g, '').trim() || 'community'}.db`);
               if (!target) return;
               await createCommunity(target.db, { ...s, mustChange: isDesktop() });
+              await onCreated(target.db, target.path);
+            }}
+          />
+        )}
+        {mode === 'country' && (
+          <CountryForm
+            demo={!isDesktop()}
+            onBack={() => setMode('choose')}
+            onSubmit={async (s) => {
+              const target = await newDb(newWebDb, `${s.country.replace(/[^\w؀-ۿ -]/g, '').trim() || 'country'}.db`);
+              if (!target) return;
+              await createCountry(target.db, { ...s, mustChange: s.mustChange ?? isDesktop() });
               await onCreated(target.db, target.path);
             }}
           />

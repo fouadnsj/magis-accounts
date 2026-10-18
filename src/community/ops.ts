@@ -481,9 +481,10 @@ async function closeCommunityMonth(c: OpCtx, a: { ym: string }) {
 }
 
 /** The month's file for the country econome: totals by code, no Jesuit's detail. */
-async function monthFile(c: OpCtx, a: { ym: string }): Promise<MonthFile> {
+async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promise<MonthFile> {
   await requireCommunity(c.db);
-  if (!(await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [a.ym]))) throw new UserError(m('أغلق شهر الجماعة أولاً', "Close the community's month first", "Clôturez d'abord le mois de la communauté"));
+  // the preview (the consolidated month on screen) can be seen at any time; the file only once closed
+  if (!a.preview && !(await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [a.ym]))) throw new UserError(m('أغلق شهر الجماعة أولاً', "Close the community's month first", "Clôturez d'abord le mois de la communauté"));
   const [books, accounts, entries] = [await loadBooks(c.db), await loadAccounts(c.db), await loadEntries(c.db)];
   const code = new Map(accounts.map((x) => [x.id, x]));
   const z = (): Money => ({ LOC: 0, USD: 0, EUR: 0 });
@@ -587,7 +588,8 @@ export const CTY_OPS = {
   'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },
   'cty.book.opening': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; opening: Money; reason: string }) => setOpening(c, a) },
   'cty.community.close': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => closeCommunityMonth(c, a) },
-  'cty.month.file': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, a) },
+  'cty.month.file': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, { ym: a.ym }) },
+  'cty.month.consolidated': { check: (c: OpCtx) => need(c, 'cty.view_all'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, { ym: a.ym, preview: true }) },
   'cty.return.import': { check: (c: OpCtx) => need(c, 'month.close', 'data.import'), run: (c: OpCtx, a: { file: ReturnFile }) => importReturn(c, a) },
   'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
   'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
@@ -604,5 +606,5 @@ export const CTY_OPS = {
   },
 };
 
-export const CTY_READ_ONLY = ['cty.data', 'cty.month.problems', 'cty.approvals'];
+export const CTY_READ_ONLY = ['cty.data', 'cty.month.problems', 'cty.approvals', 'cty.month.consolidated'];
 export type { Cur };

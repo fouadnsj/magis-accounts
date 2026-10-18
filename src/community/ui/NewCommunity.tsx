@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { errText } from '../../ui/kit';
 import type { CommunitySetup, CtyPerson, CtyRole } from '../setup';
+import type { CountrySetup } from '../country';
 import { t3 } from './text';
 
 const ROLES: { r: CtyRole; label: () => string }[] = [
@@ -82,6 +83,44 @@ export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
           })}>{t3('جماعة تجريبية', 'Demo community', 'Communauté de démonstration')}</button>
         )}
         <button className="btn primary" disabled={busy || !name.trim()} onClick={go}>{busy ? '…' : t3('إنشاء', 'Create', 'Créer')}</button>
+      </div>
+    </div>
+  );
+}
+
+/** Creating the country econome's database (e.g. "Syria"): the country, its currency, and who keeps it. */
+export function CountryForm({ initialName = '', onSubmit, onBack, demo }: {
+  initialName?: string;
+  onSubmit: (s: CountrySetup) => Promise<void>;
+  onBack: () => void;
+  demo?: boolean;
+}) {
+  const [country, setCountry] = useState(initialName || 'Syria');
+  const [local, setLocal] = useState('SYP');
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submit = async (s: CountrySetup) => {
+    setErr(null);
+    setBusy(true);
+    try { await onSubmit(s); } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="panel">
+      <h2>{t3('مدبّر البلد', 'The country econome', "L'économe du pays")}</h2>
+      <p className="muted">{t3('يستلم ملف كل جماعة كل شهر، يقرّر في المطالبات، يسجّل ما بين الجماعات، ويصنع مصالحة آخر السنة. لا يرى إلا المجاميع.', "He receives each community's monthly file, decides on the claims, records the charges between communities, and makes the year-end reconciliation. He sees totals only.", "Il reçoit le fichier mensuel de chaque communauté, décide des réclamations, enregistre les charges entre communautés et fait la réconciliation annuelle. Il ne voit que des totaux.")}</p>
+      {err && <div className="alert err">{err}</div>}
+      <div className="grid2">
+        <label className="field"><span>{t3('البلد', 'Country', 'Pays')}</span><input value={country} onChange={(e) => setCountry(e.target.value)} /></label>
+        <label className="field"><span>{t3('العملة المحلية', 'Local currency', 'Monnaie locale')}</span><input value={local} onChange={(e) => setLocal(e.target.value)} /></label>
+        <label className="field"><span>{t3('اسم مدبّر البلد', 'Name of the country econome', "Nom de l'économe du pays")}</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label className="field"><span>{t3('كلمة سر (6+)', 'Password (6+)', 'Mot de passe (6+)')}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      </div>
+      <div className="modal-foot">
+        <button className="btn" onClick={onBack}>{t3('رجوع', 'Back', 'Retour')}</button>
+        {demo && <button className="btn" disabled={busy} onClick={() => submit({ country: 'Syria', localCurrency: 'SYP', people: [{ name: 'Country econome', password: 'demo-pass' }], mustChange: false })}>{t3('بلد تجريبي', 'Demo country', 'Pays de démonstration')}</button>}
+        <button className="btn primary" disabled={busy || !country.trim() || !name.trim()} onClick={() => submit({ country, localCurrency: local, people: [{ name, password }] })}>{busy ? '…' : t3('إنشاء', 'Create', 'Créer')}</button>
       </div>
     </div>
   );

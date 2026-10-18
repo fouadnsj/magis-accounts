@@ -27,6 +27,7 @@ import { ServerSetup } from './ServerSetup';
 import { IdleGuard } from './Idle';
 import { dropDraft } from './draft';
 import { CtyApp } from '../community/ui/CtyApp';
+import { CountryApp } from '../community/ui/country/CountryApp';
 import { triName } from '../community/ui/text';
 
 interface Opened {
@@ -288,7 +289,7 @@ export function App() {
         title={serverDb.organisation}
         subtitle={serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
         brand={serverDb}
-        community={serverDb.kind === 'community'}
+        community={serverDb.kind === 'community' || serverDb.kind === 'country'}
         loadProfiles={() => serverProfiles(serverDb.slug)}
         onLogin={async (id, pw) => {
           const r = await serverLogin(serverDb.slug, id, pw);
@@ -309,12 +310,19 @@ export function App() {
         title={opened.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}
         subtitle={opened.dbPath ?? t('معاينة', 'Preview')}
         brand={{ centre: opened.centre, color: opened.brandColor, logo: opened.brandLogo }}
-        community={opened.kind === 'community'}
+        community={opened.kind === 'community' || opened.kind === 'country'}
         loadProfiles={() => listProfiles(opened.db)}
         onLogin={localLogin(opened)}
         onClose={closeDb}
         notice={idleOut}
       />
+    );
+  else if (session?.kind === 'country')
+    body = (
+      <>
+        <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
+        <CountryApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} />
+      </>
     );
   else if (session?.kind === 'community')
     body = (

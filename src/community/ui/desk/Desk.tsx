@@ -14,8 +14,10 @@ import { Claims } from './Claims';
 import { Quarter } from './Quarter';
 import { ImportFdc } from './ImportFdc';
 import { Chart } from './Chart';
+import { SendMonth } from './SendMonth';
+import { Statement } from './Statement';
 
-export type DeskPage = 'dash' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'import' | 'chart' | 'mine' | 'settings';
+export type DeskPage = 'dash' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'import' | 'chart' | 'mine' | 'settings';
 
 export interface DeskNav {
   page: DeskPage;
@@ -38,6 +40,8 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
     { page: 'approvals', label: t3('موافقات', 'Approvals', 'Accords'), badge: waiting, hidden: !can('cty.month_seen') },
     { page: 'claims', label: t3('المطالبات', 'Claims', 'Réclamations') },
     { page: 'quarter', label: t3('الملف الفصلي', 'Quarterly file', 'Fichier trimestriel') },
+    { page: 'send', label: t3('شهر الجماعة ← البلد', 'Consolidated month → country', 'Mois consolidé → pays') },
+    { page: 'statement', label: t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat") },
     { page: 'import', label: t3('استيراد FDC', 'Import an FDC', 'Importer une FDC'), hidden: !can('data.import') && !can('cty.write_all') },
     { page: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes') },
     { page: 'mine', label: t3('دفاتري', 'My books', 'Mes comptes') },
@@ -64,6 +68,8 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         {nav.page === 'approvals' && <div className="desk-narrow"><Approvals /></div>}
         {nav.page === 'claims' && <Claims />}
         {nav.page === 'quarter' && <Quarter />}
+        {nav.page === 'send' && <SendMonth />}
+        {nav.page === 'statement' && <Statement />}
         {nav.page === 'import' && <ImportFdc />}
         {nav.page === 'chart' && <Chart />}
         {nav.page === 'mine' && <div className="desk-narrow"><MyBooks /></div>}

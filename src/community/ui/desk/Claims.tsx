@@ -67,7 +67,7 @@ export function Claims() {
       <div className="cty-card desk-scroll">
         {rows.length === 0 ? <p className="muted">{t3('لا شيء للمطالبة.', 'Nothing to claim.', 'Rien à réclamer.')}</p> : (
           <table className="desk-table">
-            <thead><tr><th>{t3('التاريخ', 'Date', 'Date')}</th><th>{t3('الدفتر', 'Book', 'Compte')}</th><th>{t3('السبب', 'Reason', 'Motif')}</th><th>{t3('البند', 'Line', 'Ligne')}</th><th>{t3('ملاحظة', 'Note', 'Note')}</th>{CURS.map((c) => <th key={c} className="num">{curName(c, d.local)}</th>)}</tr></thead>
+            <thead><tr><th>{t3('التاريخ', 'Date', 'Date')}</th><th>{t3('الدفتر', 'Book', 'Compte')}</th><th>{t3('السبب', 'Reason', 'Motif')}</th><th>{t3('البند', 'Line', 'Ligne')}</th><th>{t3('ملاحظة', 'Note', 'Note')}</th>{CURS.map((c) => <th key={c} className="num">{curName(c, d.local)}</th>)}<th>{t3('قرار البلد', "Country's decision", 'Décision du pays')}</th></tr></thead>
             <tbody>
               {rows.map((e) => {
                 const a = d.accounts.find((x) => x.id === e.account_id);
@@ -76,6 +76,10 @@ export function Claims() {
                     <td>{e.date}</td><td>{bookName(d.books.find((b) => b.id === e.book_id))}</td><td>{claimName(e.claim)}</td>
                     <td>{a?.code} {accName(a)}</td><td className="desk-note">{[e.note, e.claim_note].filter(Boolean).join(' · ')}</td>
                     {CURS.map((c) => <td key={c} className="num">{e.cur === c ? money(e.amount, c) : ''}</td>)}
+                    <td className="small">{e.claim_status === 'accepted' ? <span className="ok">✓ {e.claim_accepted != null && e.claim_accepted !== e.amount ? money(e.claim_accepted, e.cur) : t3('مقبولة', 'accepted', 'acceptée')}</span>
+                      : e.claim_status === 'refused' ? <span className="desk-alert">✗ {t3('مرفوضة', 'refused', 'refusée')}</span>
+                        : <span className="muted">{t3('بانتظار', 'waiting', 'en attente')}</span>}
+                      {e.claim_decision_note && <div className="muted">{e.claim_decision_note}</div>}</td>
                   </tr>
                 );
               })}
@@ -83,7 +87,7 @@ export function Claims() {
           </table>
         )}
       </div>
-      <p className="muted small">{t3('قبول المطالبات أو رفضها يكون عند مدبّر البلد (المرحلة التالية).', "Accepting or refusing claims is done by the country econome (next step).", "L'acceptation ou le refus des réclamations se fait chez l'économe du pays (étape suivante).")}</p>
+      <p className="muted small">{t3('يقرّر مدبّر البلد ويُرسل قراره في ملف الرجوع.', 'The country econome decides and sends his decision back in the return file.', "L'économe du pays décide et renvoie sa décision dans le fichier de retour.")}</p>
     </>
   );
 }

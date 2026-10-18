@@ -28,6 +28,7 @@ import { has, listProfiles, loadProfile, login, type Profile } from '../src/auth
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
 import { createOffice } from '../src/setup';
 import { createCommunity, type CommunitySetup } from '../src/community/setup';
+import { createCountry, type CountrySetup } from '../src/community/country';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx } from '../src/domain/types';
@@ -565,6 +566,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         await createCommunity(c.handle.db, { community: s.community || ((await getMeta(c.handle.db, 'organisation')) ?? ''), country: s.country ?? '', localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [] });
         c.version++;
         log(`setup: ${c.slug} (community)`);
+        return send(res, 200, { ok: true });
+      }
+      if (url === '/api/setup/country') {
+        const s = body as unknown as CountrySetup;
+        await createCountry(c.handle.db, { country: s.country || ((await getMeta(c.handle.db, 'organisation')) ?? ''), localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [] });
+        c.version++;
+        log(`setup: ${c.slug} (country)`);
         return send(res, 200, { ok: true });
       }
       if (url === '/api/setup/upload-db') {

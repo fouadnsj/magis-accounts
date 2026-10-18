@@ -120,8 +120,7 @@ export function computeAll(rows: Trx[], lists: Lists): Map<string, Computed> {
   const headingCode = new Map(lists.headings.map((h) => [h.id, h.code]));
   const out = new Map<string, Computed>();
   for (const t of rows) {
-    // building sites: the rows brought from Excel keep the rate typed there; every other row
-    // takes the centres' rate (the last exchange), never typed (Fouad, 18 Oct 2026)
+    // building sites: the rate typed on the row wins; without one, the last exchange's (same formula)
     const rate = t.rate != null && t.rate > 0 ? t.rate : rateFor(t, idx, fallback);
     const div = (x: number) => (rate ? x / rate : 0); // IFERROR(L/R, 0)
     const month = t.date ? Number(t.date.slice(5, 7)) : null;
@@ -151,3 +150,15 @@ export function rateOn(rows: Trx[], bookId: number | null, date: string, fallbac
   return rateFor(probe, idx, fallback);
 }
 
+/**
+ * Building sites: the rate offered on a new row — the rate of the last row on or before
+ * that date that has one (the last rate typed), else the last exchange's (rateOn).
+ */
+export function lastTypedRate(rows: Trx[], date: string, fallback: number): number {
+  let best: Trx | null = null;
+  for (const r of rows) {
+    if (!(r.rate && r.rate > 0) || !r.date || r.date > date || r.cancelled_at) continue;
+    if (!best || r.date > best.date! || (r.date === best.date && (r.n ?? 0) > (best.n ?? 0))) best = r;
+  }
+  return best?.rate ?? rateOn(rows, null, date, fallback);
+}

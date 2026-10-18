@@ -10,7 +10,7 @@ import { blankTrx, loadLists, loadTrx } from '../src/db/repo';
 import { localApi } from '../src/ops';
 import type { Db } from '../src/db/db';
 import { applySeed, cellValue, readWorkbook, type Seed } from '../src/io/importWorkbook';
-import { computeAll } from '../src/domain/compute';
+import { computeAll, lastTypedRate } from '../src/domain/compute';
 import { buildingBudget, holders } from '../src/domain/reports';
 import type { Computed, Lists, Trx } from '../src/domain/types';
 import { nodeDb } from './nodeDb';
@@ -122,24 +122,20 @@ describe.skipIf(!here)('juge: Homs compte.xlsx (building site)', () => {
     expect(computeAll(now, lists).get(c.id)!.billCode).toBe('0003 TO 24 2');
     await expect(com.call('trx.save', { rows: [{ ...c, exp_syp: 5 }], reason: 'x' })).rejects.toThrow(/cancelled/);
 
-    // a new expense, paid in both currencies: the centres' rate (last exchange, 10 Oct: 14,025), even if a rate is sent
+    // the rate offered: the last one typed (row 0681, 17 Oct: 13,800), not the last exchange (10 Oct: 14,025)
+    expect(lastTypedRate(rows, '2026-10-18', 1)).toBe(13800);
+    // a new expense, paid in both currencies, rate filled by the form (last exchange) and kept
     const h = lists.headings.find((x) => x.name === 'Iron')!;
     const line = lists.lines.find((l) => l.heading_id === h.id && l.name === 'Wages')!;
     const fresh = { ...blankTrx(), type: 'Exp' as const, date: '2026-10-18', bill_date: '2026-10-16', book_id: lists.books[0].id, city_id: lists.cities[0].id, account_id: lists.accounts[0].id,
-      heading_id: h.id, line_id: line.id, explanation: 'test', exp_usd: 100, exp_syp: 140250, rate: 13800 };
+      heading_id: h.id, line_id: line.id, explanation: 'test', exp_usd: 100, exp_syp: 138000, rate: 13800 };
     await com.call('trx.save', { rows: [fresh] });
     now = await loadTrx(db);
     const f = now.find((t) => t.id === fresh.id)!;
     expect(f.n).toBe(682);
-    expect(f.rate).toBeNull();
     const fc = computeAll(now, lists).get(f.id)!;
     expect(fc.billCode).toBe('0682 LW 16 10');
-    expect(fc.rate).toBe(14025);
     expect(fc.expUsdTot).toBe(110);
-    // an old row edited keeps its Excel rate
-    const old = now.find((t) => t.n === 4)!; // 300,000 SYP at 11,650
-    await com.call('trx.save', { rows: [{ ...old, explanation: 'قرطاسية (checked)', rate: 99 }], reason: 'test' });
-    expect((await loadTrx(db)).find((t) => t.id === old.id)!.rate).toBe(11650);
 
     // only the Superior deletes
     await sup.call('trx.delete', { ids: [f.id], reason: 'test row' });

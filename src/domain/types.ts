@@ -42,7 +42,7 @@ export interface Trx {
   private_total?: boolean;
   /** building sites: the date on the bill (date = the day it was paid) */
   bill_date?: string | null;
-  /** building sites: the rate typed in Excel, kept on the rows brought from it; null = the last exchange's rate (all new rows) */
+  /** building sites: the rate typed for this row; null = the rate of the last exchange */
   rate?: number | null;
   /** building sites: a row is cancelled instead of deleted (its number and bill code stay) */
   cancelled_at?: string | null;

@@ -11,7 +11,7 @@ import { applyListsPackage, exportEntries, exportListsPackage, importEntries } f
 import type { Lists, Trx } from '../src/domain/types';
 import { nodeDb } from './nodeDb';
 
-const WORKBOOK = decodeURIComponent(new URL('../../template/Master Sup.xlsx', import.meta.url).pathname);
+const WORKBOOK = decodeURIComponent(new URL('../../../Comptability/template/Master Sup.xlsx', import.meta.url).pathname);
 
 let office: Db;
 let lists: Lists;
@@ -276,7 +276,7 @@ describe('budget arithmetic', () => {
 
   it('reads MAGIS 2027 Budget.xlsx exactly: Homs 71,710 + 10 %, furniture 41,730', async () => {
     const { readBudgetSheet, itemTotal, guessLine } = await import('../src/domain/budget');
-    const file = decodeURIComponent(new URL('../../template/MAGIS 2027 Budget.xlsx', import.meta.url).pathname);
+    const file = decodeURIComponent(new URL('../../../Comptability/template/MAGIS 2027 Budget.xlsx', import.meta.url).pathname);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(file);
     const grid = (name: string) => {

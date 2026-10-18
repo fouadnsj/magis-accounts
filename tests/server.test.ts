@@ -9,7 +9,7 @@ import { blankTrx } from '../src/db/repo';
 import type { DataPayload } from '../src/ops';
 import type { Trx } from '../src/domain/types';
 
-const WORKBOOK = decodeURIComponent(new URL('../../template/Master Sup.xlsx', import.meta.url).pathname);
+const WORKBOOK = decodeURIComponent(new URL('../../../Comptability/template/Master Sup.xlsx', import.meta.url).pathname);
 
 let srv: Running;
 let base: string;

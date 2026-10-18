@@ -12,7 +12,7 @@ import { cellValue } from '../src/io/importWorkbook';
 import type { Lists, Trx } from '../src/domain/types';
 import { nodeDb } from './nodeDb';
 
-const WORKBOOK = decodeURIComponent(new URL('../../template/Master Sup.xlsx', import.meta.url).pathname);
+const WORKBOOK = decodeURIComponent(new URL('../../../Comptability/template/Master Sup.xlsx', import.meta.url).pathname);
 
 let seed: Seed;
 let rows: Trx[];

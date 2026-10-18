@@ -52,7 +52,7 @@ export interface ExportOptions {
 
 export async function exportWorkbook(rows: Trx[], comp: Map<string, Computed>, lists: Lists, o: ExportOptions): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'MAGIS Accounts';
+  wb.creator = 'Homs Building';
   wb.created = new Date();
 
   const name = <T extends { id: number; name: string }>(arr: T[], id: number | null) => (id == null ? '' : arr.find((x) => x.id === id)?.name ?? '');

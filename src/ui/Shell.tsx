@@ -77,7 +77,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
               <img src={st.mark ?? '/brand/magis-sun.png'} alt="" />
             </div>
             <div style={{ flex: 1 }}>
-              <div className="org">{s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}</div>
+              <div className="org">{s.organisation || t('حسابات بناء حمص', 'Homs Building')}</div>
               <div className="who">
                 {s.profile.name}
                 {myBooks.length > 0 && <> · {myBooks.map((id) => d.lists.books.find((b) => b.id === id)?.name).join('، ')}</>}

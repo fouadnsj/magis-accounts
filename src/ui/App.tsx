@@ -301,7 +301,7 @@ export function App() {
   else if (!server && opened && !session)
     body = (
       <Login
-        title={opened.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}
+        title={opened.organisation || t('حسابات بناء حمص', 'Homs Building')}
         subtitle={opened.dbPath ?? t('معاينة', 'Preview')}
         brand={{ centre: opened.centre, color: opened.brandColor, logo: opened.brandLogo }}
         loadProfiles={() => listProfiles(opened.db)}
@@ -394,7 +394,7 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
   return (
     <BrandFrame brand={brand}>
       <div className="panel login-panel">
-        <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
+        <h2 style={{ marginBottom: 2 }}>{title || t('حسابات بناء حمص', 'Homs Building')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>
         {notice && <div className="alert info">{t('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.')}</div>}
         {office.length > 0 && (

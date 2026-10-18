@@ -68,19 +68,19 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
         )}
         {mode === 'choose' && (
           <div className="choice">
-            {onConnect && isDesktop() && (
+            {false && onConnect && isDesktop() && (
               <button onClick={() => setMode('server')} style={{ borderColor: 'var(--gold, #B8891B)' }}>
                 <b>{t('خادم المركز', "The centre's server")}</b>
                 <span className="muted small">{t('الاتصال بقاعدة البيانات المشتركة على شبكة المركز.', "Connect to the shared database on the centre's network.")}</span>
               </button>
             )}
             <button onClick={() => setMode('office')}>
-              <b>{t('قاعدة المكتب', 'Office database')}</b>
-              <span className="muted small">{t('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.')}</span>
+              <b>{t('قاعدة جديدة', 'New database')}</b>
+              <span className="muted small">{t('للمحاسب والرئيس. تبدأ من ملف Excel ‏(Homs compte.xlsx).', 'For the Accountant and the Superior. Starts from the Excel workbook (Homs compte.xlsx).')}</span>
             </button>
             <button onClick={openExisting} disabled={!isDesktop()}>
               <b>{t('فتح ملف موجود', 'Open an existing file')}</b>
-              <span className="muted small">{t('ملف ‎.db أنشئ سابقاً', 'A .db file created before')}</span>
+              <span className="muted small">{t('ملف ‎.db أنشئ سابقاً، أو نسخة احتياطية أُرسلت إليك', 'A .db file created before, or a backup sent to you')}</span>
             </button>
           </div>
         )}
@@ -143,8 +143,8 @@ async function newDb(newWebDb: () => Promise<Db>, defaultName: string): Promise<
 }
 
 function OfficeForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCreated: (db: Db, path: string | null) => Promise<void>; newWebDb: () => Promise<Db> }) {
-  const [f, setF] = useState({ organisation: 'MAGIS Homs', supName: '', supPin: '', supPin2: '', comName: '', comPin: '', comPin2: '' });
-  const [fromWorkbook, setFromWorkbook] = useState(true);
+  const [f, setF] = useState({ organisation: 'Homs Building', supName: '', supPin: '', supPin2: '', comName: '', comPin: '', comPin2: '' });
+  const fromWorkbook = true; // the building always starts from its workbook
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [report, setReport] = useState<{ r: ImportReport; db: Db; path: string | null } | null>(null);
@@ -158,16 +158,22 @@ function OfficeForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
     try {
       let wbFile = null;
       if (fromWorkbook) {
-        wbFile = await pickFile(['xlsx'], t('اختر ملف Excel (Master Sup أو Master Com)', 'Choose the Excel workbook (Master Sup or Master Com)'));
+        wbFile = await pickFile(['xlsx'], t('اختر ملف Excel ‏(Homs compte.xlsx)', 'Choose the Excel workbook (Homs compte.xlsx)'));
         if (!wbFile) return;
+      }
+      // this program is for the building only: refuse any other workbook
+      let seed = null;
+      if (wbFile) {
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(wbFile.bytes);
+        seed = readWorkbook(wb);
+        if (seed.kind !== 'building') return setErr(t('هذا ليس ملف حسابات البناء (يجب أن يحوي الجدولين REC وTable2)', 'This is not the building workbook (it must have the tables REC and Table2)'));
       }
       const target = await newDb(newWebDb, `${f.organisation.replace(/[^\w؀-ۿ -]/g, '').trim() || 'centre'}.db`);
       if (!target) return;
       await createOffice(target.db, f);
-      if (wbFile) {
-        const wb = new ExcelJS.Workbook();
-        await wb.xlsx.load(wbFile.bytes);
-        const r = await applySeed(target.db, readWorkbook(wb), f.comName.trim() || 'setup', wbFile.name);
+      if (wbFile && seed) {
+        const r = await applySeed(target.db, seed, f.comName.trim() || 'setup', wbFile.name);
         setReport({ r, db: target.db, path: target.path });
       } else await onCreated(target.db, target.path);
     } catch (e) {
@@ -194,7 +200,7 @@ function OfficeForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
     <div className="panel">
       <h2>{t('قاعدة المكتب', 'Office database')}</h2>
       <div className="grid2">
-        <Field label={t('اسم المركز', 'Centre name')} className="span2">
+        <Field label={t('الاسم', 'Name')} className="span2">
           <input value={f.organisation} onChange={set('organisation')} />
         </Field>
         <Field label={t('اسم الرئيس (وصول كامل)', 'Superior — full access')}>
@@ -204,17 +210,14 @@ function OfficeForm({ onBack, onCreated, newWebDb }: { onBack: () => void; onCre
           <Field label={t('كلمة السر', 'Password')}><input type="password" value={f.supPin} onChange={set('supPin')} /></Field>
           <Field label={t('تأكيد', 'Again')}><input type="password" value={f.supPin2} onChange={set('supPin2')} /></Field>
         </div>
-        <Field label={t('اسم المحاسب (بلا المانحين والتغطية)', 'Accountant — all except donors & coverage')}>
+        <Field label={t('اسم المحاسب', 'Accountant')}>
           <input value={f.comName} onChange={set('comName')} />
         </Field>
         <div className="grid2">
           <Field label={t('كلمة السر', 'Password')}><input type="password" value={f.comPin} onChange={set('comPin')} /></Field>
           <Field label={t('تأكيد', 'Again')}><input type="password" value={f.comPin2} onChange={set('comPin2')} /></Field>
         </div>
-        <label className="row span2">
-          <input type="checkbox" checked={fromWorkbook} onChange={(e) => setFromWorkbook(e.target.checked)} />
-          {t('ابدأ من ملف Excel الحالي: القوائم والموازنة والسجل كله', 'Start from the current Excel workbook: lists, budget and the whole register')}
-        </label>
+        <p className="muted span2">{t('بعد «إنشاء» اختر ملف Excel ‏(Homs compte.xlsx): الموازنة والسجل كله يُنقلان.', 'After "Create", choose the Excel workbook (Homs compte.xlsx): the budget and the whole register come in.')}</p>
       </div>
       <p className="muted small">{t('كلمة السر 6 أحرف أو أرقام على الأقل.', 'Passwords: at least 6 characters.')}</p>
       {err && <div className="alert err">{err}</div>}

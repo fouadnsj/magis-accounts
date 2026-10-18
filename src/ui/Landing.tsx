@@ -17,7 +17,7 @@ export function BrandFrame({ children, brand, wide }: { children: ReactNode; bra
         <img src="/brand/jesuits.png" alt="" className="brand-jesuits" />
         <div className="brand-title">
           <div className="brand-eyebrow">{t('الرهبنة اليسوعية · مراكز ماجيس في سوريا', 'Society of Jesus · MAGIS centres in Syria')}</div>
-          <h1>{t('حسابات ماجيس', 'MAGIS Accounts')}</h1>
+          <h1>{t('حسابات بناء حمص', 'Homs Building')}</h1>
           <div className="brand-cities">{t('جرمانا · حلب · حمص', 'Jaramana · Aleppo · Homs')}</div>
         </div>
         {st?.mark ? <img src={st.mark} alt="" className="brand-sun" /> : <img src="/brand/magis-sun.png" alt="" className="brand-sun" />}

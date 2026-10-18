@@ -69,7 +69,7 @@ export async function donorReportXlsx(i: DonorReportInput): Promise<Uint8Array> 
   const eff = effectivePct(i.allocs, cells, headingOf);
   const data = donorReportData(i);
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'MAGIS Accounts';
+  wb.creator = 'Homs Building';
   const money = '#,##0.00';
   const bold = { bold: true };
 

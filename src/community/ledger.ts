@@ -8,7 +8,7 @@ import { CURS, r2, yearOf, zero, type Cur, type Money } from './domain';
 import type { StatementLine } from './files';
 
 export interface CountryClaim {
-  id: string; cty_id: number; date: string; code: string | null; line: string | null; book_kind: string | null;
+  id: string; cty_id: number; date: string; code: string | null; line: string | null; book_kind: string | null; person?: string | null;
   cur: Cur; amount: number; reason: string | null; note: string | null;
   status: 'waiting' | 'accepted' | 'refused' | 'withdrawn'; accepted: number | null; decision_note: string | null;
   decided_at: string | null; decided_by: string | null;

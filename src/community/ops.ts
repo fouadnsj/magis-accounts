@@ -15,7 +15,7 @@ import {
   type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
-import { MONTH_FILE, RETURN_FILE, type FileClaim, type MonthFile, type ReturnFile } from './files';
+import { MONTH_FILE, RETURN_FILE, type FileCharge, type FileClaim, type MonthFile, type ReturnFile } from './files';
 import { loadAccounts, loadBooks, loadEntries, loadLimits, loadMonths, loadNotes, saveLimitsStmts, writeEntryStmts } from './repo';
 
 export { loadAccounts, loadBooks, loadEntries, loadMonths, writeEntryStmts };
@@ -63,6 +63,9 @@ export interface CtyData {
   /** the account at the économat, as the country econome sent it back (econome and Superior only) */
   statement: { id: string; date: string; kind: string; note: string | null; cur: Cur; amount: number }[];
   lastReturnAt: string | null;
+  /** what this community charges others, and the other communities known */
+  charges: CtyCharge[];
+  known: { uid: string; name: string }[];
 }
 
 /** What the screen sends to save an entry (id absent = a new one). */
@@ -508,11 +511,15 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
     }
   }
   const at = (kind: string) => { const b = books.find((x) => x.cty_kind === kind); return b ? balance(entries, b, lastDay(a.ym)) : z(); };
+  // the minister who keeps the house book (for a claim on the house)
+  const houseKeeper = (await one<{ name: string }>(c.db, "SELECT p.name FROM user_book ub JOIN profile p ON p.id = ub.profile_id JOIN book b ON b.id = ub.book_id WHERE b.cty_kind = 'house' AND p.active = 1 LIMIT 1"))?.name ?? null;
   const claims: FileClaim[] = entries
     .filter((e) => e.type === 'Exp' && e.claim && e.date.slice(0, 7) === a.ym)
     .map((e) => {
       const acc = code.get(e.account_id ?? -1);
-      return { id: e.id, date: e.date, code: acc?.code ?? null, line: acc?.name_en ?? null, book_kind: books.find((b) => b.id === e.book_id)?.cty_kind ?? null, cur: e.cur, amount: e.amount, reason: e.claim, note: [e.note, e.claim_note].filter(Boolean).join(' · ') || null };
+      const bk = books.find((b) => b.id === e.book_id);
+      const person = bk?.cty_kind === 'house' ? `House${houseKeeper ? ` (${houseKeeper})` : ''}` : bk?.keeper_name ?? bk?.name ?? null;
+      return { id: e.id, date: e.date, code: acc?.code ?? null, line: acc?.name_en ?? null, book_kind: bk?.cty_kind ?? null, person, cur: e.cur, amount: e.amount, reason: e.claim, note: [e.note, e.claim_note].filter(Boolean).join(' · ') || null };
     });
   return {
     kind: MONTH_FILE, version: 1,
@@ -521,6 +528,8 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
     totals, cash, books: { cash: at('cash'), bank: at('bank'), economat: at('economat') },
     members: books.filter((b) => b.cty_kind === 'personal' && b.active).length,
     claims,
+    charges: (await c.db.query<FileCharge & { status: string }>("SELECT id, date, to_uid, to_name, person, cur, amount, note, status FROM cty_charge WHERE substr(date, 1, 7) = ? ORDER BY date, id", [a.ym]))
+      .map(({ status: _s, ...x }) => x),
   };
 }
 
@@ -538,12 +547,59 @@ async function importReturn(c: OpCtx, a: { file: ReturnFile }): Promise<{ decisi
     stmts.push({ sql: 'UPDATE cty_entry SET claim_status = ?, claim_accepted = ?, claim_decision_note = ? WHERE id = ?', params: [d.status, d.accepted, d.note, d.id] });
     decisions++;
   }
+  for (const d of f.chargeDecisions ?? []) stmts.push({ sql: 'UPDATE cty_charge SET status = ?, decision_note = ? WHERE id = ?', params: [d.status, d.note, d.id] });
+  if (f.communities) {
+    const me = await communityUid(c.db);
+    stmts.push({ sql: 'DELETE FROM cty_known' });
+    for (const k of f.communities) if (k.uid !== me) stmts.push({ sql: 'INSERT OR REPLACE INTO cty_known (uid, name) VALUES (?, ?)', params: [k.uid, k.name] });
+  }
   stmts.push({ sql: 'DELETE FROM cty_statement' });
   for (const l of f.statement ?? []) stmts.push({ sql: 'INSERT INTO cty_statement (id, date, kind, note, cur, amount) VALUES (?, ?, ?, ?, ?, ?)', params: [l.id, l.date, l.kind, l.note, l.cur, l.amount] });
   stmts.push({ sql: "INSERT INTO meta (key, value) VALUES ('last_return_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params: [f.made_at] });
   stmts.push(auditStmt(c.who, 'import', 'cty_statement', null, null, { from: f.made_by, at: f.made_at, decisions, lines: (f.statement ?? []).length }));
   await c.db.batch(stmts);
   return { decisions, lines: (f.statement ?? []).length };
+}
+
+// ---------------------------------------------------------------- charges to other communities
+
+export interface CtyCharge { id: string; date: string; to_uid: string | null; to_name: string; person: string | null; cur: Cur; amount: number; note: string; status: string; decision_note: string | null; created_at: string; created_by: string | null }
+
+/** The host community marks what it charges another community; the country econome approves (Fouad, 18 October 2026). */
+async function saveCharge(c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: string | null }) {
+  await requireCommunity(c.db);
+  const x = a.charge;
+  const old = x.id ? await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [x.id]) : undefined;
+  if (x.id && !old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+  if (old && old.status !== 'waiting') throw new UserError(m('قرّر فيها مدبّر البلد: لا تُعدَّل', 'The country econome has decided on it: it cannot change', "L'économe du pays a décidé : elle ne change plus"));
+  if (!x.date || !validDate(x.date)) throw new UserError(m('التاريخ مطلوب', 'The date is required', 'La date est requise'));
+  if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [x.date.slice(0, 7)])) throw monthClosed(x.date.slice(0, 7));
+  const known = x.to_uid ? await one<{ name: string }>(c.db, 'SELECT name FROM cty_known WHERE uid = ?', [x.to_uid]) : undefined;
+  const toName = (known?.name ?? x.to_name ?? '').trim();
+  if (!toName) throw new UserError(m('أي جماعة؟', 'Which community?', 'Quelle communauté ?'));
+  if (!(CURS as readonly string[]).includes(x.cur ?? '') || !(Number(x.amount) > 0) || !cents(Number(x.amount))) throw new UserError(m('المبلغ والعملة', 'The amount and the currency', 'Le montant et la monnaie'));
+  const note = (x.note ?? '').trim();
+  if (!note) throw new UserError(m('اكتب الشرح (مثلاً: 3 ليالٍ)', 'Write what it is (e.g. 3 nights)', 'Écrivez ce que c\u2019est (p. ex. 3 nuits)'));
+  const reason = (a.reason ?? '').trim();
+  if (old && !reason) throw new UserError(m('اكتب سبب التعديل', 'Write the reason for this change', 'Écrivez la raison de cette modification'));
+  const row: CtyCharge = { id: old?.id ?? uuid(), date: x.date, to_uid: known ? x.to_uid! : null, to_name: toName, person: (x.person ?? '').trim() || null, cur: x.cur as Cur, amount: r2(Number(x.amount)), note, status: 'waiting', decision_note: null, created_at: old?.created_at ?? nowIso(), created_by: old?.created_by ?? c.who };
+  const keys = Object.keys(row) as (keyof CtyCharge)[];
+  await c.db.batch([
+    { sql: `INSERT OR REPLACE INTO cty_charge (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`, params: keys.map((k) => row[k]) },
+    auditStmt(c.who, old ? 'edit' : 'add', 'cty_charge', row.id, old ?? null, old ? { ...row, reason } : row),
+  ]);
+  return row.id;
+}
+
+async function deleteCharge(c: OpCtx, a: { id: string; reason: string }) {
+  await requireCommunity(c.db);
+  const old = await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [a.id]);
+  if (!old) return;
+  if (old.status !== 'waiting') throw new UserError(m('قرّر فيها مدبّر البلد: لا تُحذف', 'The country econome has decided on it: it cannot be deleted', "L'économe du pays a décidé : elle ne peut être supprimée"));
+  if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [old.date.slice(0, 7)])) throw monthClosed(old.date.slice(0, 7));
+  const reason = (a.reason ?? '').trim();
+  if (!reason) throw new UserError(m('اكتب سبب الحذف', 'Write the reason for this deletion', 'Écrivez la raison de cette suppression'));
+  await c.db.batch([{ sql: 'DELETE FROM cty_charge WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'cty_charge', a.id, old, { reason })]);
 }
 
 // ---------------------------------------------------------------- the operations
@@ -565,6 +621,8 @@ async function data(c: OpCtx): Promise<CtyData> {
     limits: await loadLimits(c.db),
     statement: can(c, 'cty.view_all') ? await c.db.query('SELECT * FROM cty_statement ORDER BY date, id') : [],
     lastReturnAt: await getMeta(c.db, 'last_return_at'),
+    charges: can(c, 'cty.view_all') ? await c.db.query<CtyCharge>('SELECT * FROM cty_charge ORDER BY date DESC, id') : [],
+    known: await c.db.query<{ uid: string; name: string }>('SELECT * FROM cty_known ORDER BY name'),
   };
 }
 
@@ -591,6 +649,8 @@ export const CTY_OPS = {
   'cty.month.file': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, { ym: a.ym }) },
   'cty.month.consolidated': { check: (c: OpCtx) => need(c, 'cty.view_all'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, { ym: a.ym, preview: true }) },
   'cty.return.import': { check: (c: OpCtx) => need(c, 'month.close', 'data.import'), run: (c: OpCtx, a: { file: ReturnFile }) => importReturn(c, a) },
+  'cty.charge.save': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: string | null }) => saveCharge(c, a) },
+  'cty.charge.delete': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { id: string; reason: string }) => deleteCharge(c, a) },
   'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
   'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
   'cty.note.add': { check: anyone, run: (c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) => addNote(c, a) },

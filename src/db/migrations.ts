@@ -800,4 +800,51 @@ CREATE TABLE country_move (
 );
 `,
   },
+  {
+    n: 15,
+    name: 'claims carry the name of the Jesuit; the host community marks charges to another community, the country econome approves',
+    sql: `
+-- The name of the Jesuit on a claim: the country econome checks it (Fouad, 18 October 2026: "easier to check, especially health").
+ALTER TABLE country_claim ADD COLUMN person TEXT;
+
+-- In a community: what it charges another community (e.g. a Jesuit of Homs stayed 3 nights here).
+-- It travels in the monthly file; the country econome approves or refuses.
+CREATE TABLE cty_charge (
+  id            TEXT PRIMARY KEY,
+  date          TEXT NOT NULL,
+  to_uid        TEXT,
+  to_name       TEXT NOT NULL,
+  person        TEXT,
+  cur           TEXT NOT NULL,
+  amount        REAL NOT NULL CHECK (amount > 0),
+  note          TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'waiting',
+  decision_note TEXT,
+  created_at    TEXT NOT NULL,
+  created_by    TEXT
+);
+-- The other communities of the country (from the return file), to choose from.
+CREATE TABLE cty_known (
+  uid  TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
+
+-- In the country database: the charges proposed by host communities, waiting for approval.
+CREATE TABLE country_proposal (
+  id            TEXT PRIMARY KEY,
+  host_id       INTEGER NOT NULL REFERENCES country_cty(id),
+  date          TEXT NOT NULL,
+  charged_uid   TEXT,
+  charged_name  TEXT NOT NULL,
+  person        TEXT,
+  cur           TEXT NOT NULL,
+  amount        REAL NOT NULL,
+  note          TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','approved','refused','withdrawn')),
+  decision_note TEXT,
+  decided_at    TEXT,
+  decided_by    TEXT
+);
+`,
+  },
 ];

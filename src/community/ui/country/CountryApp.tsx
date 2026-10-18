@@ -38,10 +38,11 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
   useEffect(() => { void reload(); }, [reload]);
   if (!d) return <div className="cty"><div className="cty-page">{err ? <div className="alert err">{err}</div> : '…'}</div></div>;
   const waiting = d.claims.filter((c) => c.status === 'waiting').length;
+  const proposed = d.proposals.filter((p) => p.status === 'waiting').length;
   const items: { p: Page; label: string; badge?: number }[] = [
     { p: 'dash', label: t3('الملفات الشهرية', 'Monthly files', 'Fichiers mensuels') },
     { p: 'claims', label: t3('المطالبات', 'Claims', 'Réclamations'), badge: waiting },
-    { p: 'charges', label: t3('بين الجماعات', 'Between communities', 'Entre communautés') },
+    { p: 'charges', label: t3('بين الجماعات', 'Between communities', 'Entre communautés'), badge: proposed },
     { p: 'accounts', label: t3('الحسابات عند الإيكونوماتو', 'Accounts at the économat', "Comptes à l'économat") },
     { p: 'reco', label: t3('مصالحة آخر السنة', 'Year-end reconciliation', 'Réconciliation annuelle') },
     { p: 'totals', label: t3('المجاميع حسب الرمز', 'Totals by code', 'Totaux par code') },
@@ -81,7 +82,9 @@ const nameOf = (d: CountryData, id: number) => d.ctys.find((c) => c.id === id)?.
 // ---------------------------------------------------------------- the monthly files
 
 function Files({ s, d, reload }: P) {
-  const [year, setYear] = useState(yearOf(todayIso()));
+  // opens on the year of the latest file received
+  const latest = d.months.map((m) => m.ym).sort().pop();
+  const [year, setYear] = useState(yearOf(latest ? `${latest}-01` : todayIso()));
   const [shown, setShown] = useState<MonthFile | null>(null);
   const months = monthsOfYear(year);
   const bring = async () => {
@@ -104,7 +107,7 @@ function Files({ s, d, reload }: P) {
       <div className="cty-card desk-scroll">
         {d.ctys.length === 0 ? <p className="muted">{t3('لم يصل أي ملف بعد. كل جماعة تصنع ملفها في صفحة «شهر الجماعة ← البلد».', 'No file yet. Each community makes its file on the page "Consolidated month → country".', 'Aucun fichier encore. Chaque communauté fait son fichier dans la page « Mois consolidé → pays ».')}</p> : (
           <table className="desk-table">
-            <thead><tr><th>{t3('الجماعة', 'Community', 'Communauté')}</th>{months.map((m) => <th key={m} className="num">{monthName(m, true).slice(0, 4)}</th>)}</tr></thead>
+            <thead><tr><th>{t3('الجماعة', 'Community', 'Communauté')}</th>{months.map((m) => <th key={m} className="num" title={monthName(m)}>{m.slice(5)}</th>)}</tr></thead>
             <tbody>
               {d.ctys.filter((c) => c.active).map((c) => (
                 <tr key={c.id}>
@@ -180,11 +183,11 @@ function Claims({ s, d, reload }: P) {
       <div className="cty-card desk-scroll">
         {rows.length === 0 ? <p className="muted">✓ {t3('لا شيء ينتظر.', 'Nothing is waiting.', "Rien n'attend.")}</p> : (
           <table className="desk-table">
-            <thead><tr><th>{t3('الجماعة', 'Community', 'Communauté')}</th><th>{t3('التاريخ', 'Date', 'Date')}</th><th>{t3('السبب', 'Reason', 'Motif')}</th><th>{t3('البند', 'Line', 'Ligne')}</th><th>{t3('ملاحظة', 'Note', 'Note')}</th><th className="num">{t3('المبلغ', 'Amount', 'Montant')}</th><th>{t3('القرار', 'Decision', 'Décision')}</th></tr></thead>
+            <thead><tr><th>{t3('الجماعة', 'Community', 'Communauté')}</th><th>{t3('من', 'Who', 'Qui')}</th><th>{t3('التاريخ', 'Date', 'Date')}</th><th>{t3('السبب', 'Reason', 'Motif')}</th><th>{t3('البند', 'Line', 'Ligne')}</th><th>{t3('ملاحظة', 'Note', 'Note')}</th><th className="num">{t3('المبلغ', 'Amount', 'Montant')}</th><th>{t3('القرار', 'Decision', 'Décision')}</th></tr></thead>
             <tbody>
               {rows.map((c) => (
                 <tr key={c.id}>
-                  <td>{nameOf(d, c.cty_id)}</td><td>{c.date}</td><td>{claimName(c.reason as never)}</td>
+                  <td>{nameOf(d, c.cty_id)}</td><td><b>{c.person}</b></td><td>{c.date}</td><td>{claimName(c.reason as never)}</td>
                   <td>{c.code} {c.code ? codeName(c.code) : c.line}</td><td className="desk-note">{c.note}</td>
                   <td className="num">{money(c.amount, c.cur)} {curName(c.cur, d.local)}</td>
                   <td>
@@ -234,6 +237,8 @@ function Charges({ s, d, reload }: P) {
     <>
       <div className="desk-head"><h1>{t3('تكاليف بين الجماعات', 'Charges between communities', 'Charges entre communautés')}</h1></div>
       <p className="muted">{t3('مثلاً: يسوعي من حمص أقام 3 ليالٍ في بيروت. بيروت تستضيف، وحمص تُحمَّل.', 'E.g. a Jesuit of Homs stayed 3 nights in Beirut: Beirut hosted, Homs is charged.', 'P. ex. un jésuite de Homs a passé 3 nuits à Beyrouth : Beyrouth a accueilli, Homs est facturé.')}</p>
+      <Proposals s={s} d={d} reload={reload} />
+      <div className="cty-label" style={{ marginTop: 14 }}>{t3('أو سجّلها بنفسك', 'Or record one yourself', 'Ou enregistrez-en une vous-même')}</div>
       <div className="cty-card">
         <div className="desk-filters" style={{ marginBottom: 0 }}>
           <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
@@ -256,6 +261,54 @@ function Charges({ s, d, reload }: P) {
         </table>
       </div>
     </>
+  );
+}
+
+/** The charges marked by host communities, waiting for the country econome. */
+function Proposals({ s, d, reload }: P) {
+  const waiting = d.proposals.filter((p) => p.status === 'waiting');
+  const [pick, setPick] = useState<Record<string, number>>({});
+  const decide = async (id: string, status: 'approved' | 'refused', chargedId?: number) => {
+    try {
+      const note = status === 'refused' ? await promptBox(t3('السبب؟', 'Why?', 'Pourquoi ?')) : null;
+      if (status === 'refused' && !note) return;
+      await s.api.call('country.proposal.decide', { id, status, chargedId: chargedId ?? null, note });
+      await reload();
+    } catch (e) { fail(e); }
+  };
+  if (!d.proposals.length) return null;
+  return (
+    <div className="cty-card desk-scroll">
+      <div className="cty-label">{t3('سجّلتها الجماعات المضيفة', 'Marked by the host communities', "Marquées par les communautés d'accueil")} {waiting.length ? `· ${waiting.length} ${t3('بانتظار', 'waiting', 'en attente')}` : ''}</div>
+      <table className="desk-table">
+        <thead><tr><th>{t3('التاريخ', 'Date', 'Date')}</th><th>{t3('استضافت', 'Host', 'Accueil')}</th><th>{t3('تُحمَّل', 'Charged', 'Facturé')}</th><th>{t3('من', 'Who', 'Qui')}</th><th>{t3('الشرح', 'What', 'Quoi')}</th><th className="num">{t3('المبلغ', 'Amount', 'Montant')}</th><th>{t3('القرار', 'Decision', 'Décision')}</th></tr></thead>
+        <tbody>
+          {[...d.proposals].reverse().map((p) => {
+            const match = p.charged_uid ? d.ctys.find((c) => c.uid === p.charged_uid)?.id : d.ctys.find((c) => c.name.toLowerCase() === p.charged_name.toLowerCase())?.id;
+            const chosen = pick[p.id] ?? match ?? 0;
+            return (
+              <tr key={p.id}>
+                <td>{p.date}</td><td>{nameOf(d, p.host_id)}</td>
+                <td>{p.status === 'waiting' ? (
+                  <select value={chosen} onChange={(e) => setPick({ ...pick, [p.id]: Number(e.target.value) })}>
+                    <option value={0}>— {p.charged_name} ?</option>
+                    {d.ctys.filter((c) => c.id !== p.host_id).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                ) : p.charged_name}</td>
+                <td><b>{p.person}</b></td><td>{p.note}</td>
+                <td className="num">{money(p.amount, p.cur)} {curName(p.cur, d.local)}</td>
+                <td>{p.status === 'waiting' ? (
+                  <div className="row" style={{ gap: 4 }}>
+                    <button className="btn primary" disabled={!chosen} onClick={() => decide(p.id, 'approved', chosen)}>✓</button>
+                    <button className="btn ghost" onClick={() => decide(p.id, 'refused')}>✗</button>
+                  </div>
+                ) : p.status === 'approved' ? <span className="ok">✓</span> : p.status === 'refused' ? <span className="desk-alert">✗ {p.decision_note}</span> : <span className="muted">{t3('سحبتها الجماعة', 'withdrawn', 'retirée')}</span>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

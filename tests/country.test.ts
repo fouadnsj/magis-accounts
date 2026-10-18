@@ -49,7 +49,7 @@ describe('a community: its month, consolidated, then its file', () => {
     await expect(runOp(H.EcoA, 'cty.community.close', { ym: '2025-10' })).rejects.toThrow(/Not closed yet: .*JesA/);
     await expect(runOp(H.JesA, 'cty.community.close', { ym: '2025-10' })).rejects.toThrow(/Not allowed/);
   });
-  it('once every book is closed, the file holds the totals by code, never a name', async () => {
+  it('once every book is closed, the file holds the totals by code; a claim carries the name of the Jesuit', async () => {
     const entries = await loadEntries(homs);
     const { balance } = await import('../src/community/domain');
     for (const b of await loadBooks(homs)) {
@@ -62,8 +62,7 @@ describe('a community: its month, consolidated, then its file', () => {
     expect(f.totals['61101'].LOC).toBe(-20000);
     expect(f.totals['63100'].LOC).toBe(-40000);
     expect(f.cash.expenses.LOC).toBe(-90000);
-    expect(f.claims.map((c) => [c.amount, c.reason, c.book_kind])).toEqual([[30000, 'health', 'personal']]);
-    expect(JSON.stringify(f)).not.toContain('JesA');
+    expect(f.claims.map((c) => [c.amount, c.reason, c.book_kind, c.person])).toEqual([[30000, 'health', 'personal', 'JesA']]);
   });
 });
 
@@ -128,5 +127,38 @@ describe('the return file, back in the community', () => {
     expect(data.statement.map((l) => [l.kind, l.amount])).toEqual([['claim', 20000], ['charged', -90000], ['paid_by_cty', 50000], ['cotisation', -37]]);
     // the Jesuit does not see the community's account
     expect(((await runOp(H.JesA, 'cty.data', undefined)) as CtyData).statement).toEqual([]);
+  });
+});
+
+describe('a charge marked by the host community, approved by the country econome', () => {
+  it('goes in the monthly file, waits, is approved, and comes back', async () => {
+    // B hosted a Jesuit of A in November; B does not know A's identity yet: it writes the name
+    await expect(runOp(D.MinB, 'cty.charge.save', { charge: { date: '2025-11-03', to_name: 'Community A', cur: 'LOC', amount: 60000, note: '2 nights' } })).rejects.toThrow(/Not allowed/);
+    await runOp(D.SupB, 'cty.charge.save', { charge: { date: '2025-11-03', to_name: 'Community A', person: 'Fr of A', cur: 'LOC', amount: 60000, note: '2 nights' } });
+    const minB = await bookOf(dam, 'house');
+    const { balance } = await import('../src/community/domain');
+    const b = (await loadBooks(dam)).find((x) => x.id === minB)!;
+    await runOp(D.MinB, 'cty.month.close', { bookId: minB, ym: '2025-11', counted: balance(await loadEntries(dam), b, '2025-11-30') });
+    await runOp(D.SupB, 'cty.community.close', { ym: '2025-11' });
+    const f = (await runOp(D.SupB, 'cty.month.file', { ym: '2025-11' })) as MonthFile;
+    expect(f.charges!.map((x) => [x.to_name, x.amount, x.person])).toEqual([['Community A', 60000, 'Fr of A']]);
+    await runOp(S['Country eco'], 'country.import', { file: f });
+    let d = (await runOp(S['Country eco'], 'country.data', undefined)) as CountryData;
+    const p = d.proposals[0];
+    expect(p.status).toBe('waiting');
+    const A = d.ctys.find((c) => c.name === 'Community A')!.id;
+    const B = d.ctys.find((c) => c.name === 'Community B')!.id;
+    const before = reconcile(2025, d.ctys, d.claims, d.charges, d.moves).find((x) => x.ctyId === A)!.end.LOC;
+    await expect(runOp(S['Country eco'], 'country.proposal.decide', { id: p.id, status: 'approved' })).rejects.toThrow(/Which community/);
+    await runOp(S['Country eco'], 'country.proposal.decide', { id: p.id, status: 'approved', chargedId: A });
+    d = (await runOp(S['Country eco'], 'country.data', undefined)) as CountryData;
+    expect(reconcile(2025, d.ctys, d.claims, d.charges, d.moves).find((x) => x.ctyId === A)!.end.LOC).toBe(before - 60000);
+    // back in B: the decision, and the list of communities to choose from next time
+    const ret = (await runOp(S['Country eco'], 'country.return.build', { ctyId: B })) as ReturnFile;
+    await runOp(D.SupB, 'cty.return.import', { file: ret });
+    const data = (await runOp(D.SupB, 'cty.data', undefined)) as CtyData;
+    expect(data.charges.map((x) => x.status)).toEqual(['approved']);
+    expect(data.known.map((k) => k.name)).toEqual(['Community A']);
+    await expect(runOp(D.SupB, 'cty.charge.delete', { id: data.charges[0].id, reason: 'x' })).rejects.toThrow(/decided/);
   });
 });

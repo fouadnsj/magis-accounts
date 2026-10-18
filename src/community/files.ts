@@ -1,8 +1,10 @@
 // The files between a community and the country econome (until there is one server for
 // the country). Two kinds:
 //  - the monthly file (community → country): the month's totals by code for the whole
-//    community (members and house together, never a Jesuit's detail), the cash, bank and
-//    économat at the end of the month, and the expenses claimed from the Province;
+//    community (members and house together), the cash, bank and économat at the end of
+//    the month, the expenses claimed from the Province (with the Jesuit's name, so the
+//    country econome can check them: Fouad, 18 October 2026), and the charges the
+//    community makes to other communities (it hosted one of their Jesuits);
 //  - the return file (country → community): the decisions on the claims and the
 //    community's account at the économat as the country econome keeps it.
 // Bringing the same file in twice changes nothing.
@@ -18,8 +20,10 @@ export interface FileClaim {
   date: string;
   code: string | null;
   line: string | null;
-  /** personal | house: whose book, without the person's name */
+  /** personal | house */
   book_kind: string | null;
+  /** the Jesuit whose expense it is (or the house's minister) */
+  person: string | null;
   cur: 'LOC' | 'USD' | 'EUR';
   amount: number;
   reason: string | null;
@@ -41,6 +45,20 @@ export interface MonthFile {
   books: { cash: Money; bank: Money; economat: Money };
   members: number;
   claims: FileClaim[];
+  /** what this community charges others (it hosted one of their Jesuits…) */
+  charges?: FileCharge[];
+}
+
+export interface FileCharge {
+  id: string;
+  date: string;
+  /** the community charged, if known (from a return file); otherwise its name */
+  to_uid: string | null;
+  to_name: string;
+  person: string | null;
+  cur: 'LOC' | 'USD' | 'EUR';
+  amount: number;
+  note: string;
 }
 
 export interface StatementLine {
@@ -63,6 +81,10 @@ export interface ReturnFile {
   made_by: string;
   decisions: { id: string; status: 'waiting' | 'accepted' | 'refused' | 'withdrawn'; accepted: number | null; note: string | null }[];
   statement: StatementLine[];
+  /** the decisions on the charges this community proposed */
+  chargeDecisions?: { id: string; status: 'waiting' | 'approved' | 'refused' | 'withdrawn'; note: string | null }[];
+  /** the communities of the country, to choose from when charging one */
+  communities?: { uid: string; name: string }[];
 }
 
 /** A short fingerprint of a file's content (to see whether a month was sent again unchanged). */

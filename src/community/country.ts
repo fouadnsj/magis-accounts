@@ -49,6 +49,7 @@ export async function createCountry(db: Db, s: CountrySetup): Promise<void> {
 
 // ---------------------------------------------------------------- reading
 
+export interface CountryProposal { id: string; host_id: number; date: string; charged_uid: string | null; charged_name: string; person: string | null; cur: Cur; amount: number; note: string; status: 'waiting' | 'approved' | 'refused' | 'withdrawn'; decision_note: string | null; decided_at: string | null; decided_by: string | null }
 export interface CountryMonth { cty_id: number; ym: string; hash: string; received_at: string; received_by: string | null; file: MonthFile }
 export interface CountryData {
   kind: string | null;
@@ -58,6 +59,7 @@ export interface CountryData {
   claims: CountryClaim[];
   charges: CountryCharge[];
   moves: CountryMove[];
+  proposals: CountryProposal[];
 }
 
 async function requireCountry(db: Db) {
@@ -77,6 +79,7 @@ export async function countryData(db: Db): Promise<CountryData> {
     claims: await db.query<CountryClaim>('SELECT * FROM country_claim ORDER BY date, id'),
     charges: await db.query<CountryCharge>('SELECT * FROM country_charge ORDER BY date, id'),
     moves: await db.query<CountryMove>('SELECT * FROM country_move ORDER BY date, id'),
+    proposals: await db.query<CountryProposal>('SELECT * FROM country_proposal ORDER BY date, id'),
   };
 }
 
@@ -107,12 +110,21 @@ export async function importMonthFile(db: Db, f: MonthFile, who: string): Promis
   const ids = new Set(f.claims.map((x) => x.id));
   for (const x of f.claims) {
     const was = await one<CountryClaim>(db, 'SELECT * FROM country_claim WHERE id = ?', [x.id]);
-    if (!was) stmts.push({ sql: 'INSERT INTO country_claim (id, cty_id, date, code, line, book_kind, cur, amount, reason, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [x.id, cty.id, x.date, x.code, x.line, x.book_kind, x.cur, x.amount, x.reason, x.note] });
-    else if (was.status === 'waiting' || was.status === 'withdrawn') stmts.push({ sql: "UPDATE country_claim SET date = ?, code = ?, line = ?, cur = ?, amount = ?, reason = ?, note = ?, status = 'waiting' WHERE id = ?", params: [x.date, x.code, x.line, x.cur, x.amount, x.reason, x.note, x.id] });
+    if (!was) stmts.push({ sql: 'INSERT INTO country_claim (id, cty_id, date, code, line, book_kind, person, cur, amount, reason, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [x.id, cty.id, x.date, x.code, x.line, x.book_kind, x.person ?? null, x.cur, x.amount, x.reason, x.note] });
+    else if (was.status === 'waiting' || was.status === 'withdrawn') stmts.push({ sql: "UPDATE country_claim SET date = ?, code = ?, line = ?, person = ?, cur = ?, amount = ?, reason = ?, note = ?, status = 'waiting' WHERE id = ?", params: [x.date, x.code, x.line, x.person ?? null, x.cur, x.amount, x.reason, x.note, x.id] });
   }
   // a claim of that month no longer in the file was taken back by the community (if not yet decided)
   for (const was of await db.query<CountryClaim>("SELECT * FROM country_claim WHERE cty_id = ? AND substr(date, 1, 7) = ? AND status = 'waiting'", [cty.id, f.ym]))
     if (!ids.has(was.id)) stmts.push({ sql: "UPDATE country_claim SET status = 'withdrawn' WHERE id = ?", params: [was.id] });
+  // the charges this community makes to others: they wait for the country econome's approval
+  const chargeIds = new Set((f.charges ?? []).map((x) => x.id));
+  for (const x of f.charges ?? []) {
+    const was = await one<{ status: string }>(db, 'SELECT status FROM country_proposal WHERE id = ?', [x.id]);
+    if (!was) stmts.push({ sql: 'INSERT INTO country_proposal (id, host_id, date, charged_uid, charged_name, person, cur, amount, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [x.id, cty.id, x.date, x.to_uid, x.to_name, x.person, x.cur, x.amount, x.note] });
+    else if (was.status === 'waiting' || was.status === 'withdrawn') stmts.push({ sql: "UPDATE country_proposal SET date = ?, charged_uid = ?, charged_name = ?, person = ?, cur = ?, amount = ?, note = ?, status = 'waiting' WHERE id = ?", params: [x.date, x.to_uid, x.to_name, x.person, x.cur, x.amount, x.note, x.id] });
+  }
+  for (const was of await db.query<{ id: string }>("SELECT id FROM country_proposal WHERE host_id = ? AND substr(date, 1, 7) = ? AND status = 'waiting'", [cty.id, f.ym]))
+    if (!chargeIds.has(was.id)) stmts.push({ sql: "UPDATE country_proposal SET status = 'withdrawn' WHERE id = ?", params: [was.id] });
   if (f.community.name && f.community.name !== cty.name) stmts.push({ sql: 'UPDATE country_cty SET name = ? WHERE id = ?', params: [f.community.name, cty.id] });
   stmts.push(auditStmt(who, old ? 'replace' : 'import', 'country_month', `${cty.id}:${f.ym}`, null, { community: f.community.name, ym: f.ym, claims: f.claims.length }));
   await db.batch(stmts);
@@ -128,6 +140,8 @@ export async function buildReturnFile(db: Db, ctyId: number, who: string): Promi
     kind: RETURN_FILE, version: 1, community_uid: cty.uid, country: (await getMeta(db, 'country')) ?? '', made_at: nowIso(), made_by: who,
     decisions: d.claims.filter((x) => x.cty_id === ctyId).map((x) => ({ id: x.id, status: x.status, accepted: x.accepted, note: x.decision_note })),
     statement: ledgerOf(ctyId, d.claims, d.charges, d.moves, new Map(d.ctys.map((c) => [c.id, c.name]))),
+    chargeDecisions: d.proposals.filter((p) => p.host_id === ctyId).map((p) => ({ id: p.id, status: p.status, note: p.decision_note })),
+    communities: d.ctys.filter((c) => c.active).map((c) => ({ uid: c.uid, name: c.name })),
   };
 }
 
@@ -175,6 +189,28 @@ async function saveCharge(c: OpCtx, a: { charge: Partial<CountryCharge>; reason?
   return row.id;
 }
 
+/** A charge proposed by a host community: approved (it becomes a charge between the two) or refused. */
+async function decideProposal(c: OpCtx, a: { id: string; status: 'approved' | 'refused' | 'waiting'; chargedId?: number | null; note?: string | null }) {
+  await requireCountry(c.db);
+  const p = await one<CountryProposal>(c.db, 'SELECT * FROM country_proposal WHERE id = ?', [a.id]);
+  if (!p) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+  if (p.status === 'withdrawn') throw new UserError(m('سحبتها الجماعة', 'The community withdrew it', 'La communauté l\u2019a retirée'));
+  const note = (a.note ?? '').trim() || null;
+  const stmts: Stmt[] = [{ sql: 'DELETE FROM country_charge WHERE id = ?', params: [p.id] }];
+  if (a.status === 'approved') {
+    const charged = a.chargedId ?? (p.charged_uid ? (await one<{ id: number }>(c.db, 'SELECT id FROM country_cty WHERE uid = ?', [p.charged_uid]))?.id : undefined);
+    if (!charged || !(await one(c.db, 'SELECT 1 AS x FROM country_cty WHERE id = ?', [charged]))) throw new UserError(m('أي جماعة تُحمَّل؟', 'Which community is charged?', 'Quelle communauté est facturée ?'));
+    if (charged === p.host_id) throw new UserError(m('اختر جماعتين مختلفتين', 'Choose two different communities', 'Choisissez deux communautés différentes'));
+    stmts.push({ sql: 'INSERT INTO country_charge (id, date, host_id, charged_id, cur, amount, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [p.id, p.date, p.host_id, charged, p.cur, p.amount, [p.note, p.person].filter(Boolean).join(' · '), nowIso(), c.who] });
+  }
+  if (a.status === 'refused' && !note) throw new UserError(m('الرفض: اكتب السبب', 'Refused: write why', 'Refusé : écrivez pourquoi'));
+  stmts.push(
+    { sql: 'UPDATE country_proposal SET status = ?, decision_note = ?, decided_at = ?, decided_by = ? WHERE id = ?', params: [a.status, note, a.status === 'waiting' ? null : nowIso(), a.status === 'waiting' ? null : c.who, a.id] },
+    auditStmt(c.who, 'decide', 'country_proposal', a.id, { status: p.status }, { status: a.status, chargedId: a.chargedId ?? null, note }),
+  );
+  await c.db.batch(stmts);
+}
+
 async function saveMove(c: OpCtx, a: { move: Partial<CountryMove>; reason?: string | null }) {
   await requireCountry(c.db);
   const x = a.move;
@@ -218,6 +254,7 @@ export const COUNTRY_OPS = {
   'country.data': { check: need, run: async (c: OpCtx) => { await requireCountry(c.db); return countryData(c.db); } },
   'country.import': { check: need, run: async (c: OpCtx, a: { file: MonthFile }) => { await requireCountry(c.db); return importMonthFile(c.db, a.file, c.who); } },
   'country.claim.decide': { check: need, run: (c: OpCtx, a: { id: string; status: 'accepted' | 'refused' | 'waiting'; accepted?: number | null; note?: string | null }) => decideClaim(c, a) },
+  'country.proposal.decide': { check: need, run: (c: OpCtx, a: { id: string; status: 'approved' | 'refused' | 'waiting'; chargedId?: number | null; note?: string | null }) => decideProposal(c, a) },
   'country.charge.save': { check: need, run: (c: OpCtx, a: { charge: Partial<CountryCharge>; reason?: string | null }) => saveCharge(c, a) },
   'country.move.save': { check: need, run: (c: OpCtx, a: { move: Partial<CountryMove>; reason?: string | null }) => saveMove(c, a) },
   'country.delete': { check: need, run: (c: OpCtx, a: { table: 'country_charge' | 'country_move'; id: string; reason: string }) => deleteRow(c, a) },

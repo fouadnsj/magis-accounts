@@ -2,7 +2,7 @@
 // the Jesuit mark and the MAGIS sun, and one card per database in its centre's colour.
 import { useState, type ReactNode } from 'react';
 import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
-import { tx } from '../i18n';
+import { m, tx } from '../i18n';
 import type { DbInfo } from '../net';
 import { serverCreateDb } from '../net';
 import { Field, errText, t } from './kit';
@@ -40,7 +40,7 @@ export function DbCard({ db, onOpen }: { db: DbInfo; onOpen: () => void }) {
       <div className="db-card-mark">{st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}</div>
       <div className="db-card-text">
         <b>{db.organisation}</b>
-        <span>{tx(st.name)}</span>
+        <span>{db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : db.kind === 'country' ? tx(m('مدبّر البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
         {db.setupNeeded && <span className="pill" style={{ background: '#fff6e0', color: '#6d4b00' }}>{t('لم تُعدّ بعد', 'not set up yet')}</span>}
       </div>
     </button>

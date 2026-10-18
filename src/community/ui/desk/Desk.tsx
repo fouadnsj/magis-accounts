@@ -16,8 +16,9 @@ import { ImportFdc } from './ImportFdc';
 import { Chart } from './Chart';
 import { SendMonth } from './SendMonth';
 import { Statement } from './Statement';
+import { HostCharges } from './HostCharges';
 
-export type DeskPage = 'dash' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'import' | 'chart' | 'mine' | 'settings';
+export type DeskPage = 'dash' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'import' | 'chart' | 'mine' | 'settings';
 
 export interface DeskNav {
   page: DeskPage;
@@ -41,6 +42,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
     { page: 'claims', label: t3('المطالبات', 'Claims', 'Réclamations') },
     { page: 'quarter', label: t3('الملف الفصلي', 'Quarterly file', 'Fichier trimestriel') },
     { page: 'send', label: t3('شهر الجماعة ← البلد', 'Consolidated month → country', 'Mois consolidé → pays') },
+    { page: 'host', label: t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés') },
     { page: 'statement', label: t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat") },
     { page: 'import', label: t3('استيراد FDC', 'Import an FDC', 'Importer une FDC'), hidden: !can('data.import') && !can('cty.write_all') },
     { page: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes') },
@@ -70,6 +72,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         {nav.page === 'quarter' && <Quarter />}
         {nav.page === 'send' && <SendMonth />}
         {nav.page === 'statement' && <Statement />}
+        {nav.page === 'host' && <HostCharges />}
         {nav.page === 'import' && <ImportFdc />}
         {nav.page === 'chart' && <Chart />}
         {nav.page === 'mine' && <div className="desk-narrow"><MyBooks /></div>}

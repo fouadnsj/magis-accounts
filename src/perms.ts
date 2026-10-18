@@ -77,6 +77,13 @@ export const CTY_PERM_GROUPS = [
       { key: 'cty.chart', label: m('يعدّل دليل الحسابات (الرموز والأسماء والخطوط)', 'Changes the chart of codes (codes, names, lines)', 'Modifie le plan des comptes (codes, noms, lignes)') },
     ],
   },
+  {
+    key: 'country',
+    label: m('البلد', 'Country', 'Pays'),
+    perms: [
+      { key: 'country.manage', label: m('مدبّر البلد: ملفات الجماعات، المطالبات، التكاليف بين الجماعات، المصالحة', 'Country econome: the communities\u2019 files, claims, charges between communities, reconciliation', "Économe du pays : fichiers des communautés, réclamations, charges entre communautés, réconciliation") },
+    ],
+  },
 ] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
 
 export type Perm = (typeof PERM_GROUPS)[number]['perms'][number]['key'] | (typeof CTY_PERM_GROUPS)[number]['perms'][number]['key'];

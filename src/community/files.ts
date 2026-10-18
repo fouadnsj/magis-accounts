@@ -1,0 +1,79 @@
+// The files between a community and the country econome (until there is one server for
+// the country). Two kinds:
+//  - the monthly file (community → country): the month's totals by code for the whole
+//    community (members and house together, never a Jesuit's detail), the cash, bank and
+//    économat at the end of the month, and the expenses claimed from the Province;
+//  - the return file (country → community): the decisions on the claims and the
+//    community's account at the économat as the country econome keeps it.
+// Bringing the same file in twice changes nothing.
+
+import type { Money } from './domain';
+
+export const MONTH_FILE = 'magis-cty-month';
+export const RETURN_FILE = 'magis-cty-return';
+
+export interface FileClaim {
+  /** the community's entry id: the same claim, whatever file brings it */
+  id: string;
+  date: string;
+  code: string | null;
+  line: string | null;
+  /** personal | house: whose book, without the person's name */
+  book_kind: string | null;
+  cur: 'LOC' | 'USD' | 'EUR';
+  amount: number;
+  reason: string | null;
+  note: string | null;
+}
+
+export interface MonthFile {
+  kind: typeof MONTH_FILE;
+  version: 1;
+  community: { uid: string; name: string; country: string | null; local: string };
+  ym: string;
+  made_at: string;
+  made_by: string;
+  /** income (+) and expenses (−) by code, members and house together */
+  totals: Record<string, Money>;
+  /** members and house together: carried over, received from the econome, given back, kept */
+  cash: { carried: Money; received: Money; givenBack: Money; kept: Money; income: Money; expenses: Money };
+  /** what the econome's books held at the end of the month */
+  books: { cash: Money; bank: Money; economat: Money };
+  members: number;
+  claims: FileClaim[];
+}
+
+export interface StatementLine {
+  id: string;
+  date: string;
+  /** claim | host | charged | paid_by_cty | paid_to_cty | cotisation | other */
+  kind: string;
+  note: string | null;
+  cur: 'LOC' | 'USD' | 'EUR';
+  /** > 0 in the community's favour, < 0 the community owes */
+  amount: number;
+}
+
+export interface ReturnFile {
+  kind: typeof RETURN_FILE;
+  version: 1;
+  community_uid: string;
+  country: string;
+  made_at: string;
+  made_by: string;
+  decisions: { id: string; status: 'waiting' | 'accepted' | 'refused' | 'withdrawn'; accepted: number | null; note: string | null }[];
+  statement: StatementLine[];
+}
+
+/** A short fingerprint of a file's content (to see whether a month was sent again unchanged). */
+export async function fingerprint(x: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(stable(x));
+  const h = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(h)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+/** JSON with the keys in order, so the same content always gives the same text. */
+function stable(x: unknown): string {
+  if (Array.isArray(x)) return `[${x.map(stable).join(',')}]`;
+  if (x && typeof x === 'object') return `{${Object.keys(x).sort().map((k) => `${JSON.stringify(k)}:${stable((x as Record<string, unknown>)[k])}`).join(',')}}`;
+  return JSON.stringify(x);
+}

@@ -80,6 +80,8 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
     setMetaStmt('organisation', s.community.trim()),
     setMetaStmt('country', s.country.trim()),
     setMetaStmt('local_currency', s.localCurrency.trim().toUpperCase()),
+    // the community's identity in its files to the country econome
+    setMetaStmt('cty_uid', crypto.randomUUID()),
     setMetaStmt('created_at', nowIso()),
     // the limits Fouad gave (18 October 2026); the econome changes them
     ...saveLimitsStmts(DEFAULT_LIMITS),

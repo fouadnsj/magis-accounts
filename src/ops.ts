@@ -32,6 +32,7 @@ import {
 import { applySeed, readWorkbook, type ImportReport } from './io/importWorkbook';
 import { m, type Msg } from './i18n';
 import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
+import { COUNTRY_OPS, COUNTRY_READ_ONLY } from './community/country';
 
 export type Install = 'office' | 'holder';
 
@@ -1062,6 +1063,8 @@ const fileHolderOnly = (c: OpCtx) => {
 export const OPS = {
   // the community databases (Jesuit communities): src/community/ops.ts
   ...CTY_OPS,
+  // the country econome's database: src/community/country.ts
+  ...COUNTRY_OPS,
   // ---------------------------------------------------------------- reading
   data: { check: anyone, run: (c: OpCtx) => loadData(c) },
   'cash.counts': {
@@ -1534,7 +1537,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

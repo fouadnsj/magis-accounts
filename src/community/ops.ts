@@ -11,10 +11,11 @@ import type { Perm } from '../perms';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CURS, approvalOf, balance, lastDay, leafAccounts, r2,
+  CURS, approvalOf, balance, lastDay, leafAccounts, monthSheet, r2,
   type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
+import { MONTH_FILE, RETURN_FILE, type FileClaim, type MonthFile, type ReturnFile } from './files';
 import { loadAccounts, loadBooks, loadEntries, loadLimits, loadMonths, loadNotes, saveLimitsStmts, writeEntryStmts } from './repo';
 
 export { loadAccounts, loadBooks, loadEntries, loadMonths, writeEntryStmts };
@@ -59,6 +60,9 @@ export interface CtyData {
   /** the Superior's private notes this person may read */
   notes: CtyNote[];
   limits: Limits;
+  /** the account at the économat, as the country econome sent it back (econome and Superior only) */
+  statement: { id: string; date: string; kind: string; note: string | null; cur: Cur; amount: number }[];
+  lastReturnAt: string | null;
 }
 
 /** What the screen sends to save an entry (id absent = a new one). */
@@ -449,6 +453,98 @@ async function setOpening(c: OpCtx, a: { bookId: number; opening: Money; reason:
   ]);
 }
 
+// ---------------------------------------------------------------- the community's month and its file to the country
+
+/** The community's identity in its files (made once). */
+export async function communityUid(db: Db): Promise<string> {
+  const uid = await getMeta(db, 'cty_uid');
+  if (uid) return uid;
+  const fresh = uuid();
+  await db.batch([{ sql: "INSERT INTO meta (key, value) VALUES ('cty_uid', ?)", params: [fresh] }]);
+  return fresh;
+}
+
+/** The econome closes the community's month once every member and the house have closed theirs. */
+async function closeCommunityMonth(c: OpCtx, a: { ym: string }) {
+  await requireCommunity(c.db);
+  if (!/^\d{4}-\d{2}$/.test(a.ym)) throw new UserError(m('شهر غير صالح', 'Invalid month', 'Mois invalide'));
+  if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [a.ym])) return;
+  const books = (await loadBooks(c.db)).filter((b) => b.active);
+  const months = await loadMonths(c.db);
+  const entries = await loadEntries(c.db);
+  const open = books.filter((b) => !months.some((x) => x.book_id === b.id && x.ym === a.ym) && entries.some((e) => (e.book_id === b.id || e.to_book_id === b.id) && e.date.slice(0, 7) <= a.ym));
+  if (open.length) throw new UserError(m(`لم يُغلق بعد: ${open.map((b) => b.keeper_name ?? b.name).join('، ')}`, `Not closed yet: ${open.map((b) => b.keeper_name ?? b.name).join(', ')}`, `Pas encore clôturé : ${open.map((b) => b.keeper_name ?? b.name).join(', ')}`));
+  await c.db.batch([
+    { sql: 'INSERT INTO closed_month (ym, closed_at, closed_by) VALUES (?, ?, ?)', params: [a.ym, nowIso(), c.who] },
+    auditStmt(c.who, 'close', 'closed_month', a.ym, null, null),
+  ]);
+}
+
+/** The month's file for the country econome: totals by code, no Jesuit's detail. */
+async function monthFile(c: OpCtx, a: { ym: string }): Promise<MonthFile> {
+  await requireCommunity(c.db);
+  if (!(await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [a.ym]))) throw new UserError(m('أغلق شهر الجماعة أولاً', "Close the community's month first", "Clôturez d'abord le mois de la communauté"));
+  const [books, accounts, entries] = [await loadBooks(c.db), await loadAccounts(c.db), await loadEntries(c.db)];
+  const code = new Map(accounts.map((x) => [x.id, x]));
+  const z = (): Money => ({ LOC: 0, USD: 0, EUR: 0 });
+  const totals: Record<string, Money> = {};
+  const cash = { carried: z(), received: z(), givenBack: z(), kept: z(), income: z(), expenses: z() };
+  const people = books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'house');
+  for (const b of people) {
+    const s = monthSheet(entries, b, a.ym);
+    for (const [id, v] of [...s.income, ...s.expenses]) {
+      const k = code.get(id)?.code ?? '?';
+      const t = (totals[k] ??= z());
+      for (const cur of CURS) t[cur] = r2(t[cur] + v[cur]);
+    }
+    for (const cur of CURS) {
+      cash.carried[cur] = r2(cash.carried[cur] + s.carried[cur]);
+      cash.received[cur] = r2(cash.received[cur] + s.received[cur]);
+      cash.givenBack[cur] = r2(cash.givenBack[cur] + s.givenBack[cur]);
+      cash.kept[cur] = r2(cash.kept[cur] + s.kept[cur]);
+      cash.income[cur] = r2(cash.income[cur] + s.totalIncome[cur]);
+      cash.expenses[cur] = r2(cash.expenses[cur] + s.totalExpenses[cur]);
+    }
+  }
+  const at = (kind: string) => { const b = books.find((x) => x.cty_kind === kind); return b ? balance(entries, b, lastDay(a.ym)) : z(); };
+  const claims: FileClaim[] = entries
+    .filter((e) => e.type === 'Exp' && e.claim && e.date.slice(0, 7) === a.ym)
+    .map((e) => {
+      const acc = code.get(e.account_id ?? -1);
+      return { id: e.id, date: e.date, code: acc?.code ?? null, line: acc?.name_en ?? null, book_kind: books.find((b) => b.id === e.book_id)?.cty_kind ?? null, cur: e.cur, amount: e.amount, reason: e.claim, note: [e.note, e.claim_note].filter(Boolean).join(' · ') || null };
+    });
+  return {
+    kind: MONTH_FILE, version: 1,
+    community: { uid: await communityUid(c.db), name: (await getMeta(c.db, 'organisation')) ?? '', country: await getMeta(c.db, 'country'), local: (await getMeta(c.db, 'local_currency')) ?? 'SYP' },
+    ym: a.ym, made_at: nowIso(), made_by: c.who,
+    totals, cash, books: { cash: at('cash'), bank: at('bank'), economat: at('economat') },
+    members: books.filter((b) => b.cty_kind === 'personal' && b.active).length,
+    claims,
+  };
+}
+
+/** The country econome's return file: his decisions on the claims, and the account at the économat. */
+async function importReturn(c: OpCtx, a: { file: ReturnFile }): Promise<{ decisions: number; lines: number }> {
+  await requireCommunity(c.db);
+  const f = a.file;
+  if (!f || f.kind !== RETURN_FILE) throw new UserError(m('ليس ملف رجوع من مدبّر البلد', 'Not a return file from the country econome', "Ce n'est pas un fichier de retour de l'économe du pays"));
+  if (f.community_uid !== (await communityUid(c.db))) throw new UserError(m('هذا الملف لجماعة أخرى', 'This file is for another community', 'Ce fichier est pour une autre communauté'));
+  const stmts: Stmt[] = [];
+  let decisions = 0;
+  for (const d of f.decisions ?? []) {
+    const e = await one<CtyEntry>(c.db, 'SELECT id FROM cty_entry WHERE id = ?', [d.id]);
+    if (!e) continue;
+    stmts.push({ sql: 'UPDATE cty_entry SET claim_status = ?, claim_accepted = ?, claim_decision_note = ? WHERE id = ?', params: [d.status, d.accepted, d.note, d.id] });
+    decisions++;
+  }
+  stmts.push({ sql: 'DELETE FROM cty_statement' });
+  for (const l of f.statement ?? []) stmts.push({ sql: 'INSERT INTO cty_statement (id, date, kind, note, cur, amount) VALUES (?, ?, ?, ?, ?, ?)', params: [l.id, l.date, l.kind, l.note, l.cur, l.amount] });
+  stmts.push({ sql: "INSERT INTO meta (key, value) VALUES ('last_return_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params: [f.made_at] });
+  stmts.push(auditStmt(c.who, 'import', 'cty_statement', null, null, { from: f.made_by, at: f.made_at, decisions, lines: (f.statement ?? []).length }));
+  await c.db.batch(stmts);
+  return { decisions, lines: (f.statement ?? []).length };
+}
+
 // ---------------------------------------------------------------- the operations
 
 async function data(c: OpCtx): Promise<CtyData> {
@@ -466,6 +562,8 @@ async function data(c: OpCtx): Promise<CtyData> {
     kept: c.profile.books,
     notes: (await loadNotes(c.db)).filter((n) => mayReadNotes(c, n.book_id)),
     limits: await loadLimits(c.db),
+    statement: can(c, 'cty.view_all') ? await c.db.query('SELECT * FROM cty_statement ORDER BY date, id') : [],
+    lastReturnAt: await getMeta(c.db, 'last_return_at'),
   };
 }
 
@@ -488,6 +586,9 @@ export const CTY_OPS = {
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
   'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },
   'cty.book.opening': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; opening: Money; reason: string }) => setOpening(c, a) },
+  'cty.community.close': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => closeCommunityMonth(c, a) },
+  'cty.month.file': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, a) },
+  'cty.return.import': { check: (c: OpCtx) => need(c, 'month.close', 'data.import'), run: (c: OpCtx, a: { file: ReturnFile }) => importReturn(c, a) },
   'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
   'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
   'cty.note.add': { check: anyone, run: (c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) => addNote(c, a) },

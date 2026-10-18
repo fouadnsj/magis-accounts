@@ -717,4 +717,87 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"cty.limits"]')
  WHERE perms LIKE '%"cty.write_all"%' AND perms NOT LIKE '%"cty.limits"%';
 `,
   },
+  {
+    n: 14,
+    name: 'country databases: monthly files from the communities, claims decided, charges between communities, account at the economat',
+    sql: `
+-- ---- In a community database ----
+-- The decision of the country econome on a claimed expense (brought back by the return file).
+ALTER TABLE cty_entry ADD COLUMN claim_status TEXT;
+ALTER TABLE cty_entry ADD COLUMN claim_accepted REAL;
+ALTER TABLE cty_entry ADD COLUMN claim_decision_note TEXT;
+-- The community's account at the economat as the country econome keeps it (replaced at each return file).
+CREATE TABLE cty_statement (
+  id     TEXT PRIMARY KEY,
+  date   TEXT NOT NULL,
+  kind   TEXT NOT NULL,
+  note   TEXT,
+  cur    TEXT NOT NULL,
+  amount REAL NOT NULL
+);
+
+-- ---- In a country database (meta kind = country) ----
+-- The communities, known by the identity written in their files.
+CREATE TABLE country_cty (
+  id     INTEGER PRIMARY KEY,
+  uid    TEXT NOT NULL UNIQUE,
+  name   TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1
+);
+-- One month of one community, as its file brought it: totals by code, never a Jesuit's detail.
+CREATE TABLE country_month (
+  cty_id      INTEGER NOT NULL REFERENCES country_cty(id),
+  ym          TEXT NOT NULL,
+  hash        TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  received_by TEXT,
+  PRIMARY KEY (cty_id, ym)
+);
+-- The expenses a community claims from the Province, and the decision.
+CREATE TABLE country_claim (
+  id          TEXT PRIMARY KEY,
+  cty_id      INTEGER NOT NULL REFERENCES country_cty(id),
+  date        TEXT NOT NULL,
+  code        TEXT,
+  line        TEXT,
+  book_kind   TEXT,
+  cur         TEXT NOT NULL,
+  amount      REAL NOT NULL,
+  reason      TEXT,
+  note        TEXT,
+  status      TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','accepted','refused','withdrawn')),
+  accepted    REAL,
+  decision_note TEXT,
+  decided_at  TEXT,
+  decided_by  TEXT
+);
+-- Charges between communities: the host community (credited) charges another (debited),
+-- e.g. three nights in Beirut for a Jesuit of Homs. Recorded by the country econome.
+CREATE TABLE country_charge (
+  id         TEXT PRIMARY KEY,
+  date       TEXT NOT NULL,
+  host_id    INTEGER NOT NULL REFERENCES country_cty(id),
+  charged_id INTEGER NOT NULL REFERENCES country_cty(id),
+  cur        TEXT NOT NULL,
+  amount     REAL NOT NULL CHECK (amount > 0),
+  note       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT
+);
+-- Other movements on a community's account at the economat: what it paid, what it
+-- received, cotisations… amount > 0 = in the community's favour, < 0 = it owes.
+CREATE TABLE country_move (
+  id         TEXT PRIMARY KEY,
+  cty_id     INTEGER NOT NULL REFERENCES country_cty(id),
+  date       TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('paid_by_cty','paid_to_cty','cotisation','other')),
+  cur        TEXT NOT NULL,
+  amount     REAL NOT NULL,
+  note       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT
+);
+`,
+  },
 ];

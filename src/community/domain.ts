@@ -61,6 +61,10 @@ export interface CtyEntry {
   approval_usd: number | null;
   approved_at: string | null;
   approved_by: string | null;
+  /** the country econome's decision on a claim (from the return file) */
+  claim_status?: string | null;
+  claim_accepted?: number | null;
+  claim_decision_note?: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;

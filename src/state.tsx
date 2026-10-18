@@ -28,6 +28,8 @@ export interface Session {
   brandColor?: string | null;
   brandLogo?: string | null;
   profile: Profile;
+  /** 'community' for a Jesuit community's accounts (its own screens); otherwise a MAGIS centre */
+  kind?: string;
   /** server mode: asks the server whether data changed since `v` */
   version?: () => Promise<number>;
 }

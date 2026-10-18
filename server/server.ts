@@ -27,6 +27,7 @@ import { getMeta, setMetaStmt } from '../src/db/repo';
 import { has, listProfiles, loadProfile, login, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
 import { createOffice } from '../src/setup';
+import { createCommunity, type CommunitySetup } from '../src/community/setup';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx } from '../src/domain/types';
@@ -350,6 +351,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     color: await getMeta(c.handle.db, 'brand_color'),
     logo: await getMeta(c.handle.db, 'brand_logo'),
     setupNeeded: await setupNeeded(c),
+    /** community = a Jesuit community's accounts; otherwise a MAGIS centre */
+    kind: (await getMeta(c.handle.db, 'kind')) ?? 'centre',
   });
   const centreOf = (slug: unknown): Centre => {
     const c = typeof slug === 'string' ? centres.get(slug) : undefined;
@@ -556,6 +559,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         c.version++;
         log(`setup: ${c.slug} (${organisation})`);
         return send(res, 200, { ok: true, report });
+      }
+      if (url === '/api/setup/community') {
+        const s = body as unknown as CommunitySetup;
+        await createCommunity(c.handle.db, { community: s.community || ((await getMeta(c.handle.db, 'organisation')) ?? ''), country: s.country ?? '', localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [] });
+        c.version++;
+        log(`setup: ${c.slug} (community)`);
+        return send(res, 200, { ok: true });
       }
       if (url === '/api/setup/upload-db') {
         await replaceDatabase(c, body.base64 ?? '');

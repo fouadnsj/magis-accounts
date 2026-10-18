@@ -26,6 +26,8 @@ import { Shell } from './Shell';
 import { ServerSetup } from './ServerSetup';
 import { IdleGuard } from './Idle';
 import { dropDraft } from './draft';
+import { CtyApp } from '../community/ui/CtyApp';
+import { triName } from '../community/ui/text';
 
 interface Opened {
   db: Db;
@@ -35,6 +37,7 @@ interface Opened {
   centre: string;
   brandColor: string | null;
   brandLogo: string | null;
+  kind: string;
 }
 
 export function App() {
@@ -73,12 +76,12 @@ export function App() {
     const centre = (await getMeta(tauriDb, 'centre')) ?? guessCentre(organisation);
     const cfg = await getConfig();
     await setConfig({ ...cfg, dbPath, recent: [dbPath, ...(cfg.recent ?? []).filter((p) => p !== dbPath)].slice(0, 8) });
-    setOpened({ db: tauriDb, dbPath, install, organisation, centre, brandColor: await getMeta(tauriDb, 'brand_color'), brandLogo: await getMeta(tauriDb, 'brand_logo') });
+    setOpened({ db: tauriDb, dbPath, install, organisation, centre, brandColor: await getMeta(tauriDb, 'brand_color'), brandLogo: await getMeta(tauriDb, 'brand_logo'), kind: (await getMeta(tauriDb, 'kind')) ?? 'centre' });
   }, []);
 
   const serverSession = useCallback((db: DbInfo, profile: Profile): Session => ({
     api: httpApi, mode: 'server', dbPath: null, install: 'office', organisation: db.organisation, centre: db.centre,
-    brandColor: db.color ?? null, brandLogo: db.logo ?? null, profile, version: serverVersion,
+    brandColor: db.color ?? null, brandLogo: db.logo ?? null, profile, version: serverVersion, kind: db.kind,
   }), []);
 
   /** Asks the server again for its databases (after a creation or a setup). */
@@ -159,7 +162,7 @@ export function App() {
     else {
       const install = ((await getMeta(db, 'install')) ?? 'office') as Install;
       const organisation = (await getMeta(db, 'organisation')) ?? '';
-      setOpened({ db, dbPath: null, install, organisation, centre: (await getMeta(db, 'centre')) ?? guessCentre(organisation), brandColor: await getMeta(db, 'brand_color'), brandLogo: await getMeta(db, 'brand_logo') });
+      setOpened({ db, dbPath: null, install, organisation, centre: (await getMeta(db, 'centre')) ?? guessCentre(organisation), brandColor: await getMeta(db, 'brand_color'), brandLogo: await getMeta(db, 'brand_logo'), kind: (await getMeta(db, 'kind')) ?? 'centre' });
     }
   }, [openPath]);
 
@@ -207,7 +210,7 @@ export function App() {
     setSession({
       api: localApi({ db: o.db, profile, who, install: o.install, files }),
       mode: o.dbPath ? 'desktop' : 'preview', dbPath: o.dbPath, install: o.install, organisation: o.organisation, centre: o.centre,
-      brandColor: o.brandColor, brandLogo: o.brandLogo, profile,
+      brandColor: o.brandColor, brandLogo: o.brandLogo, profile, kind: o.kind,
     });
   };
 
@@ -285,6 +288,7 @@ export function App() {
         title={serverDb.organisation}
         subtitle={serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
         brand={serverDb}
+        community={serverDb.kind === 'community'}
         loadProfiles={() => serverProfiles(serverDb.slug)}
         onLogin={async (id, pw) => {
           const r = await serverLogin(serverDb.slug, id, pw);
@@ -305,11 +309,19 @@ export function App() {
         title={opened.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}
         subtitle={opened.dbPath ?? t('معاينة', 'Preview')}
         brand={{ centre: opened.centre, color: opened.brandColor, logo: opened.brandLogo }}
+        community={opened.kind === 'community'}
         loadProfiles={() => listProfiles(opened.db)}
         onLogin={localLogin(opened)}
         onClose={closeDb}
         notice={idleOut}
       />
+    );
+  else if (session?.kind === 'community')
+    body = (
+      <>
+        <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
+        <CtyApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onCloseDb={server ? undefined : closeDb} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} />
+      </>
     );
   else
     body = (
@@ -338,9 +350,11 @@ const kindOf = (p: LoginPerson): keyof typeof ICON =>
     : p.access_id === 2 || (!p.access_id && p.role === 'com') ? 'accountant'
       : p.role === 'holder' || p.books ? 'holder' : 'person';
 
-function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack, notice }: {
+function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack, notice, community }: {
   /** signed out for inactivity */
   notice?: boolean;
+  /** a Jesuit community: one group of people, roles in three languages */
+  community?: boolean;
   title: string;
   subtitle: string;
   brand?: BrandInfo;
@@ -379,10 +393,17 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
       setBusy(false);
     }
   };
-  const office = profiles.filter((p) => kindOf(p) !== 'holder');
-  const holders = profiles.filter((p) => kindOf(p) === 'holder');
+  const office = community ? [] : profiles.filter((p) => kindOf(p) !== 'holder');
+  const holders = community ? [] : profiles.filter((p) => kindOf(p) === 'holder');
   const chosen = profiles.find((p) => p.id === pick);
-  const roleLabel = (p: LoginPerson) => (p.access_name ? biName(p.access_name) : roleName(p.role));
+  const roleLabel = (p: LoginPerson) => (p.access_name ? (community ? triName(p.access_name) : biName(p.access_name)) : roleName(p.role));
+  const ctyTile = (p: LoginPerson) => (
+    <button key={p.id} type="button" className={`person ${pick === p.id ? 'on' : ''}`} onClick={() => choose(p.id)} aria-pressed={pick === p.id}>
+      <PersonIcon kind="person" />
+      <span className="person-name">{p.name}</span>
+      <span className="person-sub">{roleLabel(p)}</span>
+    </button>
+  );
 
   const tile = (p: LoginPerson) => (
     <button key={p.id} type="button" className={`person ${pick === p.id ? 'on' : ''}`} onClick={() => choose(p.id)} aria-pressed={pick === p.id}>
@@ -398,6 +419,7 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
         <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>
         {notice && <div className="alert info">{t('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.')}</div>}
+        {community && <div className="people">{profiles.map(ctyTile)}</div>}
         {office.length > 0 && (
           <>
             <div className="people-group">{t('المكتب', 'Office')}</div>

@@ -11,8 +11,11 @@ import { parseListsPackage, type ListsPackage } from '../io/keeperFiles';
 import { baseName, getConfig, setConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath } from '../platform';
 import { Field, errText, t } from './kit';
 import { BrandFrame } from './Landing';
+import { CommunityForm } from '../community/ui/NewCommunity';
+import { createCommunity } from '../community/setup';
+import { t3 } from '../community/ui/text';
 
-type Mode = 'choose' | 'office' | 'holder' | 'server';
+type Mode = 'choose' | 'office' | 'holder' | 'server' | 'community';
 
 export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }: {
   onConnect?: (address: string) => Promise<void>;
@@ -78,6 +81,10 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
               <b>{t('قاعدة المكتب', 'Office database')}</b>
               <span className="muted small">{t('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.')}</span>
             </button>
+            <button onClick={() => setMode('community')}>
+              <b>{t3('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')}</b>
+              <span className="muted small">{t3('حسابات اليسوعيين وبيتهم، بثلاث عملات.', 'The accounts of the Jesuits and their house, in three currencies.', 'Les comptes des jésuites et de leur maison, en trois monnaies.')}</span>
+            </button>
             <button onClick={openExisting} disabled={!isDesktop()}>
               <b>{t('فتح ملف موجود', 'Open an existing file')}</b>
               <span className="muted small">{t('ملف ‎.db أنشئ سابقاً', 'A .db file created before')}</span>
@@ -86,6 +93,18 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
         )}
         {mode === 'server' && onConnect && <ServerForm onBack={() => setMode('choose')} onConnect={onConnect} />}
         {mode === 'office' && <OfficeForm onBack={() => setMode('choose')} onCreated={onCreated} newWebDb={newWebDb} />}
+        {mode === 'community' && (
+          <CommunityForm
+            demo={!isDesktop()}
+            onBack={() => setMode('choose')}
+            onSubmit={async (s) => {
+              const target = await newDb(newWebDb, `${s.community.replace(/[^\w؀-ۿ -]/g, '').trim() || 'community'}.db`);
+              if (!target) return;
+              await createCommunity(target.db, { ...s, mustChange: isDesktop() });
+              await onCreated(target.db, target.path);
+            }}
+          />
+        )}
         {mode === 'holder' && <HolderForm onBack={() => setMode('choose')} onCreated={onCreated} newWebDb={newWebDb} />}
     </BrandFrame>
   );

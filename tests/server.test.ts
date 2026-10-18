@@ -63,7 +63,7 @@ describe('server: first setup', () => {
     expect(c.status).toBe(200);
     DB = c.body.slug;
     expect(DB).toBe('test-centre');
-    expect((await call('/api/hello')).body.dbs).toEqual([{ slug: DB, organisation: 'Test centre', centre: 'homs', color: null, logo: null, setupNeeded: true }]);
+    expect((await call('/api/hello')).body.dbs).toEqual([{ slug: DB, organisation: 'Test centre', centre: 'homs', color: null, logo: null, setupNeeded: true, kind: 'centre' }]);
     const r = await call('/api/setup/new', {
       db: DB,
       organisation: 'Test centre', supName: 'Fouad', supPin: 'sup-secret', comName: 'Comptable', comPin: 'com-secret',
@@ -604,7 +604,7 @@ describe('server: a database from an earlier version is moved in', () => {
     const srv3 = await startServer({ dataDir: dir3, webRoot: dir3, config: { httpMode: 'serve', httpPort: 0 }, log: () => undefined });
     try {
       const hello = await (await fetch(`http://127.0.0.1:${srv3.httpPort}/api/hello`)).json();
-      expect(hello.dbs).toEqual([{ slug: 'magis-homs', organisation: 'MAGIS Homs', centre: 'homs', color: null, logo: null, setupNeeded: false }]);
+      expect(hello.dbs).toEqual([{ slug: 'magis-homs', organisation: 'MAGIS Homs', centre: 'homs', color: null, logo: null, setupNeeded: false, kind: 'centre' }]);
       expect(fs.existsSync(path.join(dir3, 'magis.db'))).toBe(false);
       expect(fs.existsSync(path.join(dir3, 'dbs', 'magis-homs', 'backups', 'old-copy.db'))).toBe(true);
     } finally {

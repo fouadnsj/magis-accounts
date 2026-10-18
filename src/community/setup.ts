@@ -4,7 +4,8 @@
 // several roles (Homs: Fouad econome and minister; Damascus: Alvaro Superior and econome).
 
 import { type Db, type Stmt, migrate, nowIso, one } from '../db/db';
-import { auditStmt, setMetaStmt } from '../db/repo';
+import { auditStmt, setMetaStmt, UserError } from '../db/repo';
+import { m } from '../i18n';
 import { profileStmt } from '../auth';
 import type { Perm } from '../perms';
 import { CHART } from './chart';
@@ -41,6 +42,8 @@ export interface CommunitySetup {
   /** the local currency, e.g. SYP */
   localCurrency: string;
   people: CtyPerson[];
+  /** each person changes his password at the first sign-in (default yes; the browser demo says no) */
+  mustChange?: boolean;
 }
 
 /** The permission profile of a set of roles: found, or made once (e.g. "Superior · Econome"). */
@@ -56,9 +59,18 @@ async function accessFor(db: Db, roles: CtyRole[]): Promise<number> {
 
 export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> {
   await migrate(db);
-  if (await one(db, "SELECT 1 AS x FROM meta WHERE key = 'install'")) throw new Error('This database is already set up');
+  // (a database made on the server already has its name and "install": it is new while nobody is in it)
+  if (await one(db, 'SELECT 1 AS x FROM profile LIMIT 1')) throw new UserError(m('قاعدة البيانات مُعدّة مسبقاً', 'This database is already set up', 'Cette base est déjà préparée'));
+  if (!s.community.trim()) throw new UserError(m('اكتب اسم الجماعة', 'Write the name of the community', 'Écrivez le nom de la communauté'));
+  const names = s.people.map((p) => p.name.trim().toLowerCase());
+  if (names.some((n) => !n) || new Set(names).size !== names.length) throw new UserError(m('لكل شخص اسم مختلف', 'Each person needs a different name', 'Chaque personne a besoin d\u2019un nom différent'));
   const roles = s.people.flatMap((p) => p.roles);
-  for (const r of ['superior', 'econome', 'minister'] as const) if (!roles.includes(r)) throw new Error(`The community needs a ${r}`);
+  const need: [CtyRole, ReturnType<typeof m>][] = [
+    ['superior', m('من هو الرئيس؟', 'Who is the Superior?', 'Qui est le Supérieur ?')],
+    ['econome', m('من هو المدبّر؟', 'Who is the econome?', "Qui est l'économe ?")],
+    ['minister', m('من هو الوزير؟', 'Who is the minister?', 'Qui est le ministre ?')],
+  ];
+  for (const [r, msg] of need) if (!roles.includes(r)) throw new UserError(msg);
 
   // The MAGIS centre profiles made by migration 2 mean nothing here: community profiles replace them.
   const stmts: Stmt[] = [
@@ -98,6 +110,7 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
     await db.batch([
       { sql: 'INSERT INTO book (name, keeper_name, cty_kind, is_main, sort) VALUES (?, ?, ?, 0, ?)', params: [p.name.trim(), p.name.trim(), 'personal', 10 + i] },
       await profileStmt({ name: p.name, role, pin: p.password, access_id: access }),
+      ...(s.mustChange !== false ? [{ sql: 'UPDATE profile SET must_change = 1 WHERE id = (SELECT MAX(id) FROM profile)' }] : []),
       { sql: "INSERT INTO user_book (profile_id, book_id) SELECT (SELECT MAX(id) FROM profile), (SELECT MAX(id) FROM book WHERE cty_kind = 'personal')" },
       ...(p.roles.includes('minister') ? [{ sql: "INSERT INTO user_book (profile_id, book_id) SELECT (SELECT MAX(id) FROM profile), id FROM book WHERE cty_kind = 'house'" }] : []),
       ...(p.roles.includes('econome') ? [{ sql: "INSERT INTO user_book (profile_id, book_id) SELECT (SELECT MAX(id) FROM profile), id FROM book WHERE cty_kind IN ('cash', 'bank', 'economat')" }] : []),

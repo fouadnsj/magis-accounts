@@ -47,6 +47,8 @@ export interface CtyMonth {
 
 export interface CtyData {
   kind: string | null;
+  /** the local currency (SYP in Syria) */
+  local: string;
   accounts: CtyAccount[];
   books: CtyBook[];
   entries: CtyEntry[];
@@ -437,6 +439,7 @@ async function data(c: OpCtx): Promise<CtyData> {
   const entries = (await loadEntries(c.db)).filter((e) => visible.has(e.book_id) || (e.to_book_id != null && visible.has(e.to_book_id)));
   return {
     kind: await getMeta(c.db, 'kind'),
+    local: (await getMeta(c.db, 'local_currency')) ?? 'SYP',
     accounts: await loadAccounts(c.db),
     books,
     entries,

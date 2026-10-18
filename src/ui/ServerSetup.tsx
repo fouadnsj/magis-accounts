@@ -7,9 +7,11 @@ import type { ImportReport } from '../io/importWorkbook';
 import { Field, errText, t } from './kit';
 import { MigrationReport } from './Welcome';
 import { BrandFrame } from './Landing';
+import { CommunityForm } from '../community/ui/NewCommunity';
+import { t3 } from '../community/ui/text';
 
 export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => void; onBack: () => void }) {
-  const [mode, setMode] = useState<'choose' | 'upload' | 'new'>('choose');
+  const [mode, setMode] = useState<'choose' | 'upload' | 'new' | 'community'>('choose');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
@@ -59,7 +61,7 @@ export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => 
           </>
         ) : mode === 'choose' ? (
           <>
-            <div className="choice" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+            <div className="choice" style={{ gridTemplateColumns: 'repeat(3, minmax(0,1fr))' }}>
               <button onClick={() => setMode('upload')}>
                 <b>{t('من ملف البرنامج المكتبي', "From the desktop program's file")}</b>
                 <span className="muted small">{t('ملف ‎.db (أو نسخة احتياطية منه): الحسابات والقوائم والمستخدمون كما هم.', 'A .db file (or a backup copy of it): accounts, lists and users as they are.')}</span>
@@ -68,9 +70,15 @@ export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => 
                 <b>{t('قاعدة جديدة', 'A new database')}</b>
                 <span className="muted small">{t('من ملف Excel، أو فارغة.', 'From the Excel workbook, or empty.')}</span>
               </button>
+              <button onClick={() => setMode('community')}>
+                <b>{t3('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')}</b>
+                <span className="muted small">{t3('حسابات اليسوعيين وبيتهم.', 'The accounts of the Jesuits and their house.', 'Les comptes des jésuites et de leur maison.')}</span>
+              </button>
             </div>
             <div className="modal-foot"><button className="btn" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button></div>
           </>
+        ) : mode === 'community' ? (
+          <CommunityForm initialName={db.organisation} onBack={() => setMode('choose')} onSubmit={async (s) => { await serverSetup('community', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'upload' ? (
           <>
             <ol>

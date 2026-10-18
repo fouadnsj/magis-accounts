@@ -72,7 +72,8 @@ export const CTY_PERM_GROUPS = [
     perms: [
       { key: 'cty.view_all', label: m('يرى دفاتر كل أعضاء الجماعة', 'Sees the books of every member of the community', 'Voit les comptes de tous les membres de la communauté') },
       { key: 'cty.write_all', label: m('يكتب لأي عضو (ورقة مطبوعة)، ويسجّل ما يعطيه الصندوق', 'Writes for any member (paper sheet) and records what the cash gives', 'Écrit pour tout membre (feuille papier) et enregistre ce que la caisse donne') },
-      { key: 'cty.month_seen', label: m('يقرأ شهر كل عضو: اطّلعت ✓ أو سؤال', "Reads each member's month: seen ✓ or a question", 'Lit le mois de chaque membre : vu ✓ ou une question') },
+      { key: 'cty.month_seen', label: m('يقرأ شهر كل عضو (اطّلعت ✓ أو سؤال خاص)، ويوافق على النفقات الكبيرة', "Reads each member's month (seen ✓ or a private question), approves large expenses", "Lit le mois de chaque membre (vu ✓ ou une question privée), approuve les grosses dépenses") },
+      { key: 'cty.limits', label: m('يحدد المبلغ الذي تحتاج فوقه النفقة إلى موافقة الرئيس', "Sets the amount above which an expense needs the Superior's approval", "Fixe le montant au-delà duquel une dépense demande l'accord du Supérieur") },
       { key: 'cty.chart', label: m('يعدّل دليل الحسابات (الرموز والأسماء والخطوط)', 'Changes the chart of codes (codes, names, lines)', 'Modifie le plan des comptes (codes, noms, lignes)') },
     ],
   },

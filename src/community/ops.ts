@@ -11,13 +11,27 @@ import type { Perm } from '../perms';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CURS, balance, lastDay, leafAccounts, r2,
-  type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Money,
+  CURS, balance, lastDay, leafAccounts, needsApproval, r2,
+  type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
-import { loadAccounts, loadBooks, loadEntries, loadMonths, writeEntryStmts } from './repo';
+import { loadAccounts, loadBooks, loadEntries, loadLimits, loadMonths, loadNotes, saveLimitsStmts, writeEntryStmts } from './repo';
 
 export { loadAccounts, loadBooks, loadEntries, loadMonths, writeEntryStmts };
+
+/** A question or comment of the Superior, or an answer. Private: see mayReadNotes. */
+export interface CtyNote {
+  id: string;
+  book_id: number;
+  ym: string | null;
+  entry_id: string | null;
+  parent_id: string | null;
+  author_id: number | null;
+  author: string | null;
+  body: string;
+  created_at: string;
+  read_at: string | null;
+}
 
 export interface CtyMonth {
   book_id: number;
@@ -40,6 +54,9 @@ export interface CtyData {
   closed: string[];
   /** the books this person keeps */
   kept: number[];
+  /** the Superior's private notes this person may read */
+  notes: CtyNote[];
+  limits: Limits;
 }
 
 /** What the screen sends to save an entry (id absent = a new one). */
@@ -58,6 +75,14 @@ function need(c: OpCtx, ...perms: Perm[]) {
 const writes = (c: OpCtx, bookId: number) => (keeps(c, bookId) && can(c, 'book.own')) || can(c, 'cty.write_all');
 /** May read this book. A Jesuit's detail is seen by himself, his Superior and the community econome only. */
 const reads = (c: OpCtx, bookId: number | null) => keeps(c, bookId) || can(c, 'cty.view_all');
+
+/**
+ * The Superior's notes are private (Fouad, 18 October 2026): only the Jesuit who keeps
+ * the book and the Superior read them, not the econome (who sees every book).
+ */
+const mayReadNotes = (c: OpCtx, bookId: number) => keeps(c, bookId) || can(c, 'cty.month_seen');
+/** The Superior approves; what he records himself needs no other approval. */
+const approves = (c: OpCtx) => can(c, 'cty.month_seen');
 
 async function requireCommunity(db: Db) {
   if ((await getMeta(db, 'kind')) !== 'community') throw new UserError(m('هذه ليست قاعدة بيانات جماعة', 'This is not a community database', "Ce n'est pas une base de données de communauté"));
@@ -148,6 +173,9 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
     // a changed transfer must be confirmed again by the receiver
     received_at: null, received_by: null, disputed_at: null, dispute_note: null,
     source: old?.source ?? null,
+    approval_needed: 0,
+    approved_at: null,
+    approved_by: null,
     created_at: old?.created_at ?? at,
     created_by: old?.created_by ?? c.who,
     updated_at: old ? at : null,
@@ -155,6 +183,12 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
   if (old && old.type === 'Transfer' && row.type === 'Transfer' && old.to_book_id === row.to_book_id && old.amount === row.amount && old.cur === row.cur && old.date === row.date) {
     // only the note changed: the confirmation stands
     Object.assign(row, { received_at: old.received_at, received_by: old.received_by, disputed_at: old.disputed_at, dispute_note: old.dispute_note });
+  }
+  // The limit of the moment decides; an approved expense keeps its approval while amount and currency stay.
+  row.approval_needed = needsApproval(row, books.find((b) => b.id === row.book_id), await loadLimits(c.db)) ? 1 : 0;
+  if (row.approval_needed) {
+    if (old?.approved_at && old.amount === row.amount && old.cur === row.cur && old.type === row.type) Object.assign(row, { approved_at: old.approved_at, approved_by: old.approved_by });
+    else if (approves(c)) Object.assign(row, { approved_at: at, approved_by: c.who });
   }
   await c.db.batch([...writeEntryStmts(row, !old), auditStmt(c.who, old ? 'edit' : 'add', 'cty_entry', row.id, old ?? null, old ? { ...row, reason } : row)]);
   return row.id;
@@ -202,6 +236,11 @@ export async function closingProblems(db: Db, bookId: number, ym: string): Promi
     `SELECT COUNT(*) AS n FROM cty_entry WHERE type = 'Transfer' AND date <= ? AND (book_id = ? OR to_book_id = ?) AND disputed_at IS NOT NULL`,
     [end, bookId, bookId],
   );
+  const approval = await db.query<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM cty_entry WHERE type = 'Exp' AND book_id = ? AND date <= ? AND approval_needed = 1 AND approved_at IS NULL`,
+    [bookId, end],
+  );
+  if (approval[0].n) out.push(m(`${approval[0].n} نفقة تنتظر موافقة الرئيس`, `${approval[0].n} expenses wait for the Superior's approval`, `${approval[0].n} dépenses attendent l'accord du Supérieur`));
   if (disputed[0].n) out.push(m(`${disputed[0].n} مبلغاً قيل إنه لم يصل`, `${disputed[0].n} transfers marked "not received"`, `${disputed[0].n} transferts marqués « non reçu »`));
   return out;
 }
@@ -293,6 +332,60 @@ async function saveAccount(c: OpCtx, a: { account: AccountInput; reason?: string
   await c.db.batch([stmt, auditStmt(c.who, old ? 'edit' : 'add', 'cty_account', old ? String(old.id) : code, old ?? null, old ? { ...row, reason } : row)]);
 }
 
+// ---------------------------------------------------------------- the Superior's approval and notes
+
+async function approveEntries(c: OpCtx, a: { ids: string[] }) {
+  await requireCommunity(c.db);
+  const stmts: Stmt[] = [];
+  for (const id of a.ids) {
+    const e = await one<CtyEntry>(c.db, 'SELECT * FROM cty_entry WHERE id = ?', [id]);
+    if (!e || !e.approval_needed) throw new UserError(m('هذه النفقة لا تحتاج موافقة', 'This expense needs no approval', "Cette dépense n'a pas besoin d'accord"));
+    if (e.approved_at) continue;
+    stmts.push({ sql: 'UPDATE cty_entry SET approved_at = ?, approved_by = ? WHERE id = ?', params: [nowIso(), c.who, id] }, auditStmt(c.who, 'approve', 'cty_entry', id, null, null));
+  }
+  if (stmts.length) await c.db.batch(stmts);
+}
+
+async function saveLimits(c: OpCtx, a: { limits: Limits }) {
+  await requireCommunity(c.db);
+  for (const book of ['house', 'personal'] as const) for (const k of CURS) {
+    const x = Number(a.limits?.[book]?.[k] ?? 0);
+    if (!(x >= 0) || !Number.isFinite(x)) throw new UserError(m('حد غير صالح', 'Invalid limit', 'Limite invalide'));
+  }
+  const before = await loadLimits(c.db);
+  await c.db.batch([...saveLimitsStmts(a.limits), auditStmt(c.who, 'edit', 'setting', 'cty_limits', before, a.limits)]);
+}
+
+/** The Superior writes a question or a comment (on a month or an entry); the Jesuit answers. */
+async function addNote(c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) {
+  await requireCommunity(c.db);
+  if (!mayReadNotes(c, a.bookId)) throw refuse();
+  const body = (a.body ?? '').trim();
+  if (!body) throw new UserError(m('الملاحظة فارغة', 'The note is empty', 'La note est vide'));
+  if (a.entryId) {
+    const e = await one<CtyEntry>(c.db, 'SELECT book_id, to_book_id FROM cty_entry WHERE id = ?', [a.entryId]);
+    if (!e || (e.book_id !== a.bookId && e.to_book_id !== a.bookId)) throw new UserError(m('القيد غير موجود', 'Entry not found', 'Écriture introuvable'));
+  }
+  if (a.parentId && !(await one(c.db, 'SELECT 1 AS x FROM cty_note WHERE id = ? AND book_id = ?', [a.parentId, a.bookId]))) throw new UserError(m('الملاحظة غير موجودة', 'Note not found', 'Note introuvable'));
+  const id = uuid();
+  await c.db.batch([{
+    sql: 'INSERT INTO cty_note (id, book_id, ym, entry_id, parent_id, author_id, author, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    params: [id, a.bookId, a.ym ?? null, a.entryId ?? null, a.parentId ?? null, c.profile.id, c.who, body, nowIso()],
+  }]);
+  // the audit says a note was written, not what it says: it stays private
+  await c.db.batch([auditStmt(c.who, 'note', 'cty_note', id, null, { bookId: a.bookId })]);
+  return id;
+}
+
+async function readNotes(c: OpCtx, a: { ids: string[] }) {
+  const stmts: Stmt[] = [];
+  for (const id of a.ids) {
+    const n = await one<CtyNote>(c.db, 'SELECT * FROM cty_note WHERE id = ?', [id]);
+    if (n && !n.read_at && n.author_id !== c.profile.id && mayReadNotes(c, n.book_id)) stmts.push({ sql: 'UPDATE cty_note SET read_at = ? WHERE id = ?', params: [nowIso(), id] });
+  }
+  if (stmts.length) await c.db.batch(stmts);
+}
+
 // ---------------------------------------------------------------- the operations
 
 async function data(c: OpCtx): Promise<CtyData> {
@@ -307,6 +400,8 @@ async function data(c: OpCtx): Promise<CtyData> {
     months: (await loadMonths(c.db)).filter((x) => visible.has(x.book_id)),
     closed: (await c.db.query<{ ym: string }>('SELECT ym FROM closed_month')).map((r) => r.ym),
     kept: c.profile.books,
+    notes: (await loadNotes(c.db)).filter((n) => mayReadNotes(c, n.book_id)),
+    limits: await loadLimits(c.db),
   };
 }
 
@@ -327,6 +422,10 @@ export const CTY_OPS = {
   'cty.month.close': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null }) => closeMonth(c, a) },
   'cty.month.reopen': { check: (c: OpCtx) => need(c, 'month.reopen'), run: (c: OpCtx, a: { bookId: number; ym: string; reason: string }) => reopenMonth(c, a) },
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
+  'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
+  'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
+  'cty.note.add': { check: anyone, run: (c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) => addNote(c, a) },
+  'cty.note.read': { check: anyone, run: (c: OpCtx, a: { ids: string[] }) => readNotes(c, a) },
   'cty.account.save': { check: (c: OpCtx) => need(c, 'cty.chart'), run: (c: OpCtx, a: { account: AccountInput; reason?: string | null }) => saveAccount(c, a) },
   'cty.import.fdc': {
     check: (c: OpCtx) => need(c, 'data.import', 'cty.write_all'),

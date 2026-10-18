@@ -15,7 +15,7 @@ export type CtyRole = 'jesuit' | 'minister' | 'econome' | 'superior';
 export const ROLE_PERMS: Record<CtyRole, Perm[]> = {
   jesuit: ['book.own'],
   minister: ['book.own'],
-  econome: ['book.own', 'cty.view_all', 'cty.write_all', 'cty.chart', 'month.close', 'data.backup', 'data.export', 'data.import', 'audit.view'],
+  econome: ['book.own', 'cty.view_all', 'cty.write_all', 'cty.limits', 'cty.chart', 'month.close', 'data.backup', 'data.export', 'data.import', 'audit.view'],
   superior: ['book.own', 'cty.view_all', 'cty.month_seen', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'],
 };
 export const ROLE_NAME: Record<CtyRole, string> = {

@@ -55,6 +55,10 @@ export interface CtyEntry {
   disputed_at: string | null;
   dispute_note: string | null;
   source: string | null;
+  /** at or above the limit when it was saved: waits for the Superior */
+  approval_needed: number;
+  approved_at: string | null;
+  approved_by: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;
@@ -95,6 +99,26 @@ export function balance(entries: CtyEntry[], book: CtyBook, until: string): Mone
   }
   for (const c of CURS) m[c] = r2(m[c]);
   return m;
+}
+
+// ---------------------------------------------------------------- the Superior's approval
+
+/**
+ * The limits set by the econome: an expense at or above the limit of its currency waits
+ * for the Superior's approval. One set for the house book (held by the minister), one for
+ * the personal books. 0 = no limit in that currency.
+ */
+export interface Limits {
+  house: Money;
+  personal: Money;
+}
+export const noLimits = (): Limits => ({ house: zero(), personal: zero() });
+
+export function needsApproval(e: Pick<CtyEntry, 'type' | 'cur' | 'amount'>, book: Pick<CtyBook, 'cty_kind'> | undefined, l: Limits): boolean {
+  if (e.type !== 'Exp' || !book) return false;
+  const set = book.cty_kind === 'house' ? l.house : book.cty_kind === 'personal' ? l.personal : null;
+  const limit = set?.[e.cur] ?? 0;
+  return limit > 0 && e.amount >= limit;
 }
 
 // ---------------------------------------------------------------- the year (October → September)

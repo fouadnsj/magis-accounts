@@ -683,4 +683,37 @@ CREATE TABLE cty_month (
 );
 `,
   },
+  {
+    n: 13,
+    name: "community: the Superior's approval above a limit, his private notes",
+    sql: `
+-- An expense at or above the limit (set by the econome, per currency, for the house
+-- book and for the personal books) waits for the Superior's approval. Whether it needs
+-- it is decided when it is saved, so a later change of the limit never touches the past.
+ALTER TABLE cty_entry ADD COLUMN approval_needed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cty_entry ADD COLUMN approved_at TEXT;
+ALTER TABLE cty_entry ADD COLUMN approved_by TEXT;
+
+-- The Superior's questions and comments, on an entry or on a month of a book, and
+-- the answers. PRIVATE: only the Jesuit who keeps the book and the Superior see them
+-- (Fouad, 18 October 2026), not the econome.
+CREATE TABLE cty_note (
+  id         TEXT PRIMARY KEY,
+  book_id    INTEGER NOT NULL REFERENCES book(id),
+  ym         TEXT,
+  entry_id   TEXT,
+  parent_id  TEXT,
+  author_id  INTEGER REFERENCES profile(id),
+  author     TEXT,
+  body       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  read_at    TEXT
+);
+CREATE INDEX cty_note_book ON cty_note(book_id);
+
+-- the econome sets the limits
+UPDATE access_profile SET perms = replace(perms, ']', ',"cty.limits"]')
+ WHERE perms LIKE '%"cty.write_all"%' AND perms NOT LIKE '%"cty.limits"%';
+`,
+  },
 ];

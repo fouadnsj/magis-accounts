@@ -170,3 +170,73 @@ describe('a MAGIS centre database is not a community', () => {
     await expect(runOp(c, 'cty.entry.save', { entry: spend() })).rejects.toThrow(/not a community/);
   });
 });
+
+describe("the Superior's approval above a limit, and his private notes", () => {
+  const c2: Record<string, OpCtx> = {};
+  let db2: Db;
+  let bk: (kind: string, name?: string) => number;
+  let food: number;
+  const r2 = (who: string, op: string, args?: unknown) => runOp(c2[who], op, args);
+  const exp = (bookId: number, amount: number, cur = 'LOC') => ({ entry: { book_id: bookId, date: '2025-11-05', type: 'Exp', account_id: food, cur, amount } });
+
+  beforeAll(async () => {
+    db2 = nodeDb();
+    await createCommunity(db2, {
+      community: 'Demo 2', country: 'Syria', localCurrency: 'SYP',
+      people: [
+        { name: 'Sup', password: 'test-pass-1', roles: ['superior'] },
+        { name: 'Eco', password: 'test-pass-2', roles: ['econome'] },
+        { name: 'Min', password: 'test-pass-3', roles: ['minister'] },
+      ],
+    });
+    for (const p of await db2.query<{ id: number; name: string }>('SELECT id, name FROM profile')) c2[p.name] = { db: db2, profile: (await loadProfile(db2, p.id))!, who: p.name, install: 'office', files };
+    const bs = await loadBooks(db2);
+    bk = (kind, name) => bs.find((b) => b.cty_kind === kind && (!name || b.name === name))!.id;
+    food = (await loadAccounts(db2)).find((a) => a.code === '61101')!.id;
+  });
+
+  it('only the econome sets the limits', async () => {
+    const limits = { house: { LOC: 1000000, USD: 100, EUR: 100 }, personal: { LOC: 0, USD: 0, EUR: 0 } };
+    await expect(r2('Min', 'cty.limits.save', { limits })).rejects.toThrow(/Not allowed/);
+    await expect(r2('Sup', 'cty.limits.save', { limits })).rejects.toThrow(/Not allowed/);
+    await r2('Eco', 'cty.limits.save', { limits });
+    expect(((await r2('Min', 'cty.data')) as CtyData).limits.house.LOC).toBe(1000000);
+  });
+  it("the minister's large house expense waits; a small one and a personal one do not", async () => {
+    const big = (await r2('Min', 'cty.entry.save', exp(bk('house'), 1500000))) as string;
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 999999));
+    await r2('Min', 'cty.entry.save', exp(bk('personal', 'Min'), 5000000));
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 50, 'USD'));
+    const es = await loadEntries(db2);
+    expect(es.filter((e) => e.approval_needed).map((e) => [e.amount, e.cur])).toEqual([[1500000, 'LOC']]);
+    await expect(r2('Min', 'cty.month.close', { bookId: bk('house'), ym: '2025-11', counted: balance(es, (await loadBooks(db2)).find((b) => b.id === bk('house'))!, '2025-11-30') })).rejects.toThrow(/approval/);
+    await expect(r2('Eco', 'cty.entry.approve', { ids: [big] })).rejects.toThrow(/Not allowed/);
+    await r2('Sup', 'cty.entry.approve', { ids: [big] });
+    expect((await loadEntries(db2)).find((e) => e.id === big)!.approved_by).toBe('Sup');
+  });
+  it('a later change of the limit does not touch the past', async () => {
+    await r2('Eco', 'cty.limits.save', { limits: { house: { LOC: 100, USD: 0, EUR: 0 }, personal: { LOC: 0, USD: 0, EUR: 0 } } });
+    expect((await loadEntries(db2)).filter((e) => e.approval_needed).length).toBe(1);
+  });
+  it('a changed amount needs the approval again', async () => {
+    await r2('Eco', 'cty.limits.save', { limits: { house: { LOC: 1000000, USD: 100, EUR: 100 }, personal: { LOC: 0, USD: 0, EUR: 0 } } });
+    const big = (await loadEntries(db2)).find((e) => e.approved_at)!;
+    await r2('Min', 'cty.entry.save', { entry: { ...big, amount: 1600000 }, reason: 'real bill' });
+    expect((await loadEntries(db2)).find((e) => e.id === big.id)!.approved_at).toBeNull();
+    await r2('Min', 'cty.entry.save', { entry: { ...big, amount: 1600000, note: 'gas cylinders' }, reason: 'note' });
+    await r2('Sup', 'cty.entry.approve', { ids: [big.id] });
+    await r2('Min', 'cty.entry.save', { entry: { ...big, amount: 1600000, note: 'gas cylinders for winter' }, reason: 'note' });
+    expect((await loadEntries(db2)).find((e) => e.id === big.id)!.approved_at).not.toBeNull();
+  });
+  it("the Superior's notes: the Jesuit and the Superior read them, the econome does not", async () => {
+    const q = (await r2('Sup', 'cty.note.add', { bookId: bk('personal', 'Min'), ym: '2025-11', body: 'What was this large expense?' })) as string;
+    await r2('Min', 'cty.note.add', { bookId: bk('personal', 'Min'), parentId: q, body: 'A doctor for my mother.' });
+    await expect(r2('Eco', 'cty.note.add', { bookId: bk('personal', 'Min'), body: 'x' })).rejects.toThrow(/Not allowed/);
+    const seen = async (who: string) => ((await r2(who, 'cty.data')) as CtyData).notes.map((n) => n.body);
+    expect(await seen('Min')).toHaveLength(2);
+    expect(await seen('Sup')).toHaveLength(2);
+    expect(await seen('Eco')).toEqual([]);
+    const audit = await db2.query<{ after: string }>("SELECT after FROM audit_log WHERE tbl = 'cty_note'");
+    expect(audit.some((a) => a.after.includes('doctor'))).toBe(false);
+  });
+});

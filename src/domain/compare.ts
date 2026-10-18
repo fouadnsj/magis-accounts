@@ -6,7 +6,6 @@ import type { Trx } from './types';
 export const ENTRY_FIELDS = [
   'date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt',
   'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd',
-  'bill_date', 'rate', 'cancelled_at', 'cancel_reason',
 ] as const;
 export type EntryField = (typeof ENTRY_FIELDS)[number];
 

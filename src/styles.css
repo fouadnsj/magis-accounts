@@ -115,8 +115,6 @@ table.t tr.click:hover td { background: #f2f7fc; }
 .reg tr.Income td { background: var(--inc); }
 .reg tr.Exp td { background: #fdf0f0; }
 .reg tr.Transfer td { background: var(--trf); }
-/* building sites: a cancelled row keeps its number and bill code, greyed */
-.reg tr.cancelled td { background: #f3f4f6; color: #8a929c; }
 .reg tr.Exchange td { background: var(--exc); }
 .reg tr.sel td { outline: 2px solid var(--brand-2); outline-offset: -2px; }
 .reg tfoot td { position: sticky; bottom: 0; background: #f3f6f9; font-weight: 700; border-top: 2px solid var(--line); height: 34px; z-index: 2; }

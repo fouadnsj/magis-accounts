@@ -143,24 +143,16 @@ export interface SeedRow {
   trf_syp: number;
   trf_usd: number;
   /** Excel's own computed values, kept to prove the app computes the same */
-  excel: { rate: number | null; incUsdTot: number | null; expUsdTot: number | null; code: string | null; conv?: number | null; billCode?: string | null; n?: number | null };
-  /** building sites: date on the bill, rate typed on the row, why the row is cancelled */
-  billDate?: string | null;
-  rate?: number | null;
-  cancelReason?: string | null;
-  /** why the reader changed something Excel had (shown "to review") */
-  reviewNote?: string | null;
+  excel: { rate: number | null; incUsdTot: number | null; expUsdTot: number | null; code: string | null };
 }
 
 export interface Seed {
-  /** 'building': a building-site workbook (Homs compte.xlsx: tables REC and Table2) */
-  kind?: 'building';
   cities: string[];
   accounts: string[];
   projects: string[];
   parties: string[];
   books: { name: string; keeper: string | null; city: string | null; account: string | null; isMain: boolean; openSyp: number; openUsd: number }[];
-  headings: { name: string; code: string; budgetUsd?: number | null }[];
+  headings: { name: string; code: string }[];
   headingTypes: { type: string; heading: string }[];
   lines: { heading: string; line: string; code: string | null }[];
   projectFundLines: string[];
@@ -173,7 +165,6 @@ export interface Seed {
 }
 
 export function readWorkbook(wb: ExcelJS.Workbook): Seed {
-  if (findTable(wb, 'REC') && findTable(wb, 'Table2')) return readBuildingWorkbook(wb);
   const warnings: string[] = [];
   const need = (name: string) => {
     const t = findTable(wb, name);
@@ -368,7 +359,6 @@ export interface ImportReport {
 
 /** `exact`: keep the workbook's rows as they are (the juge's check), without making the Respo book. */
 export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: string, opts: { exact?: boolean } = {}): Promise<ImportReport> {
-  const building = seed.kind === 'building';
   const existing = await db.query<{ c: number }>('SELECT COUNT(*) AS c FROM trx');
   if (existing[0].c > 0) throw new Error('The database already has register rows: migration only works on an empty database.');
 
@@ -417,7 +407,7 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
   seed.headings.forEach((h, i) => {
     const id = i + 1;
     ids.heading.set(key(h.name), id);
-    stmts.push({ sql: 'INSERT INTO heading (id, name, code, sort, budget_usd) VALUES (?,?,?,?,?)', params: [id, h.name, h.code, id, h.budgetUsd ?? null] });
+    stmts.push({ sql: 'INSERT INTO heading (id, name, code, sort) VALUES (?,?,?,?)', params: [id, h.name, h.code, id] });
   });
   seed.headingTypes.forEach((ht) => {
     const hid = ids.heading.get(key(ht.heading));
@@ -459,7 +449,7 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
     stmts.push({ sql: 'INSERT INTO donor (id, name, default_project_id, sort) VALUES (?,?,?,?)', params: [id, d.name, d.project ? ensure('project', d.project) : null, id] });
   });
   // SJ (the Society of Jesus) covers what no other donor covers: always in the list
-  if (!building && !seed.donors.some((d) => key(d.name) === 'sj')) {
+  if (!seed.donors.some((d) => key(d.name) === 'sj')) {
     const id = seed.donors.length + 1;
     ids.donor.set('sj', id);
     stmts.push({ sql: 'INSERT INTO donor (id, name, default_project_id, sort) VALUES (?,?,?,?)', params: [id, 'SJ', null, id] });
@@ -499,7 +489,6 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
   stmts.push(setSettingStmt('def_account_id', seed.settings.account ? ensure('account', seed.settings.account) : null));
   stmts.push(setSettingStmt('def_book_id', seed.settings.book ? ids.book.get(key(seed.settings.book)) ?? null : null));
   stmts.push(setSettingStmt('exchange_tolerance', 0.25));
-  stmts.push(setSettingStmt('building', building ? 1 : 0));
 
   // ---- Register rows (first pass: build them; second pass: check them)
   const rows: Trx[] = [];
@@ -522,8 +511,6 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
       inc_syp: s.inc_syp, exp_syp: s.exp_syp, inc_usd: s.inc_usd, exp_usd: s.exp_usd, trf_syp: s.trf_syp, trf_usd: s.trf_usd,
       transfer_group: null, review: null, sent_at: null,
       created_at: nowIso(), created_by: who, updated_at: null, source_file: `${sourceFile}#row${s.excelRow}`,
-      bill_date: s.billDate ?? null, rate: s.rate ?? null,
-      cancelled_at: s.cancelReason ? nowIso() : null, cancelled_by: s.cancelReason ? who : null, cancel_reason: s.cancelReason ?? null,
     };
     const extra: string[] = [];
     if (s.book) {
@@ -531,7 +518,6 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
       if (bid) t.book_id = bid;
       else extra.push(`Book "${s.book}" is not in the book list`);
     }
-    if (s.reviewNote) extra.push(s.reviewNote);
     if (s.type && !t.type) extra.push(`Type "${s.type}" unknown`);
     if (s.heading && t.heading_id == null) extra.push(`Heading "${s.heading}" is not in the budget`);
     if (s.line && t.line_id == null && t.heading_id != null) extra.push(`Line "${s.line}" is not under heading "${s.heading}"`);
@@ -569,8 +555,7 @@ export async function applySeed(db: Db, seed: Seed, who: string, sourceFile: str
   stmts.push(...splitSql(TRANSFER_SQL).map((sql) => ({ sql })));
   // the Respo book: "From the Respo" incomes become transfers from it
   stmts.push({ sql: "DELETE FROM meta WHERE key = 'grants_book_id'" }, { sql: 'DELETE FROM user_book WHERE book_id NOT IN (SELECT id FROM book)' });
-  // (a building site has no Respo: one cash box, filled by the Superior)
-  if (!opts.exact && !building) stmts.push(...splitSql(RESPO_SQL).map((sql) => ({ sql })));
+  if (!opts.exact) stmts.push(...splitSql(RESPO_SQL).map((sql) => ({ sql })));
   await db.batch(stmts);
   return report;
 }
@@ -604,114 +589,6 @@ function seedLists(
       })),
     donors: [],
     rules: [],
-    settings: { ...DEFAULT_SETTINGS, usd_rate: seed.settings.usdRate ?? 130, building: seed.kind === 'building' ? 1 : 0 },
-  };
-}
-
-// ---------------------------------------------------------------- building sites
-
-const KINDS: Record<string, { line: string; letter: string }> = {
-  m: { line: 'Materials', letter: 'M' },
-  w: { line: 'Wages', letter: 'W' },
-  o: { line: 'Other', letter: 'O' },
-};
-const kindOf = (v: string | null) => KINDS[(v ?? 'o').trim().charAt(0).toLowerCase()] ?? KINDS.o;
-
-/**
- * A building-site workbook (Homs compte.xlsx): the register REC (sheet Record) and the
- * headings with their budget in USD, Table2 (sheet Data). The detailed lines (sheet
- * Detailed) are left out: Fouad budgets headings only.
- * - Category → heading; Kind (Materiales / Wages / Other) → the line under it, coded heading + letter.
- * - "Exchange" rows (EXP, USD given + SYP received) become exchanges, no longer spending.
- * - Date of payement → date; Date of Bill → bill_date; Rate (typed) → rate.
- * - An expense row with no amount was kept in Excel only to hold its number: imported cancelled.
- */
-export function readBuildingWorkbook(wb: ExcelJS.Workbook): Seed {
-  const warnings: string[] = [];
-  const data = findTable(wb, 'Table2')!;
-  const rec = findTable(wb, 'REC')!;
-  const col = (t: TableData, header: string) => {
-    const i = t.headers.findIndex((h) => h.trim().toLowerCase() === header.toLowerCase());
-    if (i < 0) warnings.push(`Column "${header}" not found`);
-    return (r: Cell[]) => (i < 0 ? null : r[i]);
-  };
-
-  // ---- headings (Table2: cod, EXP, INCOM, budget usd)
-  const dCod = col(data, 'cod'), dExp = col(data, 'EXP'), dInc = col(data, 'INCOM'), dBudget = col(data, 'budget usd');
-  const headings: Seed['headings'] = [];
-  const headingTypes: Seed['headingTypes'] = [];
-  const lines: Seed['lines'] = [];
-  const byCategory = new Map<string, { name: string; code: string; type: TrxType }>();
-  for (const r of data.rows) {
-    const code = str(dCod(r));
-    const exp = str(dExp(r));
-    const inc = str(dInc(r));
-    if (!code || (!exp && !inc)) continue;
-    const name = exp ?? inc!;
-    const type: TrxType = exp?.toLowerCase() === 'exchange' ? 'Exchange' : exp ? 'Exp' : 'Income';
-    const budget = num(dBudget(r));
-    headings.push({ name, code, budgetUsd: budget || null });
-    headingTypes.push({ type, heading: name });
-    for (const k of Object.values(KINDS)) lines.push({ heading: name, line: k.line, code: code + k.letter });
-    for (const alias of [exp, inc]) if (alias) byCategory.set(alias.trim().toLowerCase(), { name, code, type });
-  }
-
-  // ---- register (REC)
-  const c = {
-    n: col(rec, 'N'), type: col(rec, 'Type'), cat: col(rec, 'Category'), kind: col(rec, 'Kind'), code: col(rec, 'Code BOQ'),
-    billDate: col(rec, 'Date of Bill'), payDate: col(rec, 'Date of payement'), bill: col(rec, 'Bill number2'), from: col(rec, 'From'),
-    details: col(rec, 'Detailes'), incUsd: col(rec, 'incom USD'), usd: col(rec, 'USD'), incSyp: col(rec, 'Incom SYP'), syp: col(rec, 'Syp'),
-    rate: col(rec, 'Rate'), conv: col(rec, 'conv'), billCode: col(rec, 'Code Bill'), note: col(rec, 'Column1'),
-  };
-  const trx: SeedRow[] = [];
-  const parties = new Set<string>();
-  rec.rows.forEach((r, i) => {
-    const xlType = str(c.type(r));
-    if (!xlType) return; // the Total row
-    const cat = str(c.cat(r));
-    const h = cat ? byCategory.get(cat.toLowerCase()) : undefined;
-    const kind = kindOf(str(c.kind(r)));
-    const type: string = xlType === 'INCOM' ? 'Income' : xlType === 'EXP' ? (h?.type === 'Exchange' ? 'Exchange' : 'Exp') : xlType;
-    const K = num(c.incUsd(r)), L = num(c.usd(r)), M = num(c.incSyp(r)), N = num(c.syp(r));
-    const heading = h?.name ?? cat;
-    // dollars given and pounds received under a heading that is not an expense: probably an
-    // exchange. Imported as Excel has it (its bill code must not change), for Fouad to decide.
-    const reviewNote = type === 'Exp' && h && h.type !== 'Exp' && L > 0 && M > 0 && !K && !N
-      ? `Probably an exchange: ${L} USD given, ${M} SYP received, under "${cat}" · على الأرجح تصريف`
-      : null;
-    const note = cellValue(c.note(r));
-    const details = str(c.details(r));
-    const explanation = [details, typeof note === 'string' && note.trim() ? note.trim() : null].filter(Boolean).join(' · ') || null;
-    const party = str(c.from(r));
-    if (party) parties.add(party);
-    const bill = str(c.bill(r));
-    const receipt = bill && bill !== '0' ? bill : null;
-    const row: SeedRow = {
-      excelRow: i + 2, n: null, city: 'Homs', account: 'Building', book: 'Main',
-      date: dateOf(c.payDate(r)), rawDate: null, dateKind: 'date', type,
-      heading, line: kind.line, explanation, party, receipt,
-      inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0,
-      excel: {
-        rate: num(c.rate(r)) || null, incUsdTot: null, expUsdTot: null, code: str(c.code(r)),
-        conv: num(c.conv(r)), billCode: str(c.billCode(r)), n: Number(str(c.n(r))) || null,
-      },
-      billDate: dateOf(c.billDate(r)), rate: num(c.rate(r)) || null, cancelReason: null, reviewNote,
-    };
-    if (type === 'Exchange') Object.assign(row, { trf_usd: L, trf_syp: M, inc_usd: K, exp_syp: N });
-    else Object.assign(row, { inc_usd: K, exp_usd: L, inc_syp: M, exp_syp: N });
-    if (type === 'Exp' && !K && !L && !M && !N)
-      row.cancelReason = details && details.includes('نقل') ? details : `فاتورة رقم ${bill ?? '—'} · Bill no. ${bill ?? '—'}`;
-    if (!row.date) row.dateKind = 'blank';
-    trx.push(row);
-  });
-
-  const last = [...trx].filter((t) => t.date && t.rate).sort((a, b) => (a.date! < b.date! ? -1 : a.date! > b.date! ? 1 : 0)).pop();
-  return {
-    kind: 'building',
-    cities: ['Homs'], accounts: ['Building'], projects: [], parties: [...parties],
-    books: [{ name: 'Main', keeper: null, city: 'Homs', account: 'Building', isMain: true, openSyp: 0, openUsd: 0 }],
-    headings, headingTypes, lines, projectFundLines: [], donors: [], rules: [], grants: [],
-    settings: { usdRate: last?.rate ?? null, city: 'Homs', account: 'Building', book: 'Main' },
-    trx, warnings,
+    settings: { ...DEFAULT_SETTINGS, usd_rate: seed.settings.usdRate ?? 130 },
   };
 }

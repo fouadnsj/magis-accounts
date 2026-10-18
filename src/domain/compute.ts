@@ -98,42 +98,23 @@ export function billCode(t: Trx, code: string, month: number | null, year: numbe
   return `${head}-${rec}-${mm}${yy}`;
 }
 
-/**
- * Building sites (Homs compte.xlsx, column "Code Bill"):
- * =N & " " & Code BOQ & LEFT(Kind,1) & " " & DAY(Date of Bill) & " " & MONTH(Date of Bill), e.g. "0003 TO 24 2".
- * The line's code is the heading's code + the kind's letter (TO = Stationary, Other).
- * The number never changes, so neither does the code.
- */
-export function buildingBillCode(t: Pick<Trx, 'n' | 'bill_date' | 'date'>, lineCode: string): string {
-  const d = t.bill_date || t.date;
-  const n = t.n == null ? '----' : String(t.n).padStart(4, '0');
-  const day = d ? String(Number(d.slice(8, 10))) : '';
-  const month = d ? String(Number(d.slice(5, 7))) : '';
-  return `${n} ${lineCode} ${day} ${month}`;
-}
-
 export function computeAll(rows: Trx[], lists: Lists): Map<string, Computed> {
   const idx = buildRateIndex(rows);
   const fallback = lists.settings.usd_rate;
-  const building = !!lists.settings.building;
   const lineCode = new Map(lists.lines.map((l) => [l.id, l.code]));
-  const headingCode = new Map(lists.headings.map((h) => [h.id, h.code]));
   const out = new Map<string, Computed>();
   for (const t of rows) {
-    // building sites: the rate typed on the row wins; without one, the last exchange's (same formula)
-    const rate = t.rate != null && t.rate > 0 ? t.rate : rateFor(t, idx, fallback);
+    const rate = rateFor(t, idx, fallback);
     const div = (x: number) => (rate ? x / rate : 0); // IFERROR(L/R, 0)
     const month = t.date ? Number(t.date.slice(5, 7)) : null;
     const year = t.date ? Number(t.date.slice(0, 4)) : null;
-    const lcode = t.line_id != null ? lineCode.get(t.line_id) ?? '' : '';
-    // building sites: Code = the heading's code ("Code BOQ")
-    const code = building ? (t.heading_id != null ? headingCode.get(t.heading_id) ?? '' : '') : lcode;
+    const code = t.line_id != null ? lineCode.get(t.line_id) ?? '' : '';
     out.set(t.id, {
       rate,
       incUsdTot: t.inc_usd + div(t.inc_syp),
       expUsdTot: t.exp_usd + div(t.exp_syp),
       code,
-      billCode: building ? buildingBillCode(t, lcode) : billCode(t, code, month, year),
+      billCode: billCode(t, code, month, year),
       month,
       monthEn: month ? MONTHS_EN[month - 1] : '',
       year,
@@ -148,17 +129,4 @@ export function rateOn(rows: Trx[], bookId: number | null, date: string, fallbac
   const idx = buildRateIndex(rows);
   const probe = { id: '', type: 'Exp', date, book_id: bookId } as Trx;
   return rateFor(probe, idx, fallback);
-}
-
-/**
- * Building sites: the rate offered on a new row — the rate of the last row on or before
- * that date that has one (the last rate typed), else the last exchange's (rateOn).
- */
-export function lastTypedRate(rows: Trx[], date: string, fallback: number): number {
-  let best: Trx | null = null;
-  for (const r of rows) {
-    if (!(r.rate && r.rate > 0) || !r.date || r.date > date || r.cancelled_at) continue;
-    if (!best || r.date > best.date! || (r.date === best.date && (r.n ?? 0) > (best.n ?? 0))) best = r;
-  }
-  return best?.rate ?? rateOn(rows, null, date, fallback);
 }

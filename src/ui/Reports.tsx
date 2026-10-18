@@ -55,8 +55,8 @@ export function Reports() {
         { value: 'summary', label: t('الملخص', 'Summary'), hidden: !can('reports.summary') },
         { value: 'explore', label: t('التحليل', 'Explore'), hidden: !can('reports.summary') },
         { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
-        { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') || !!d.lists.settings.building },
-        { value: 'funding', label: t('التمويل', 'Funding'), hidden: !can('reports.funding') || !!d.lists.settings.building },
+        { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') },
+        { value: 'funding', label: t('التمويل', 'Funding'), hidden: !can('reports.funding') },
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
       {tab === 'funding' && can('reports.funding') && <FundingTab p={p} />}

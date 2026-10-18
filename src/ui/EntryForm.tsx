@@ -8,7 +8,7 @@ import { DocsPanel, uploadPending, type PendingDoc } from './Docs';
 import { useApp } from '../state';
 import { blankTrx } from '../db/repo';
 import { validateTrx } from '../domain/validate';
-import { lastTypedRate, rateOn } from '../domain/compute';
+import { rateOn } from '../domain/compute';
 import type { Trx, TrxType } from '../domain/types';
 import { TYPE_LABEL, tx, type Msg } from '../i18n';
 import { Combo, Field, Modal, Msgs, Seg, Select, promptBox, errText, fmtDate, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
@@ -34,9 +34,6 @@ interface FormState {
   syp: string;
   /** a transfer from the Superior's (private) book: the grant the money comes from */
   grantId?: string | null;
-  /** building sites: the bill's date (empty = the payment date) and the rate typed (empty = the last rate) */
-  billDate?: string;
-  rate?: string;
 }
 
 const remember = (k: string, v: string | number | null) => {
@@ -63,10 +60,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
   };
   const { d, s, reload, can, writeBooks: myBooks, fileHolder } = app;
   const L = d.lists;
-  /** a building-site database: USD and SYP on one row, bill date, typed rate, cancel instead of delete */
-  const building = !!L.settings.building;
   const editing = typeof start === 'object' ? start : null;
-  const cancelled = !!editing?.cancelled_at;
   const mainId = L.books.find((b) => b.is_main)?.id ?? null;
   /** Without "write in every book", a person writes only in the books he keeps. */
   const restricted = !can('register.edit');
@@ -78,7 +72,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
   const bookLocked = !!(restricted && editing?.date && d.bookClosed.has(`${editing.book_id}|${editing.date.slice(0, 7)}`));
   // a row of a book he may not write in: shown, not changed
   const notMine = !!(restricted && editing && editing.type !== 'Transfer' && !myBooks.includes(editing.book_id!));
-  const readOnly = !!(fileHolder && editing?.sent_at) || lockedTransfer || bookLocked || notMine || cancelled;
+  const readOnly = !!(fileHolder && editing?.sent_at) || lockedTransfer || bookLocked || notMine;
 
   // a transfer is always under the heading and line "Transfer" (details in the explanation)
   const transferClass = (): [number | null, number | null] => {
@@ -115,14 +109,6 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
         base.currency = amt[0] as Cur | null;
         base.amount = amt[1] ? String(amt[1]) : '';
       }
-      if (building) {
-        base.billDate = tr.bill_date ?? '';
-        base.rate = tr.rate ? String(tr.rate) : '';
-        if (tr.type === 'Income' || tr.type === 'Exp') {
-          base.usd = tr.inc_usd || tr.exp_usd ? String(tr.inc_usd || tr.exp_usd) : '';
-          base.syp = tr.inc_syp || tr.exp_syp ? String(tr.inc_syp || tr.exp_syp) : '';
-        }
-      }
       if (tr.type === 'Exchange') {
         base.usd = tr.trf_usd ? String(tr.trf_usd) : '';
         base.syp = tr.trf_syp ? String(tr.trf_syp) : '';
@@ -156,7 +142,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       accountId: Number(recall('lastAccount')) || book?.account_id || L.settings.def_account_id,
       cityId: book?.city_id ?? L.settings.def_city_id,
       headingId: h, lineId: l, partyId: null, explanation: '', receipt: '', currency: null, amount: '',
-      fromBook: restricted ? myBooks[0] ?? null : mainId, toBook: null, usd: '', syp: '', billDate: '', rate: '',
+      fromBook: restricted ? myBooks[0] ?? null : mainId, toBook: null, usd: '', syp: '',
     };
   };
 
@@ -214,19 +200,6 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
     const amount = parseAmount(f.amount);
     if (Number.isNaN(amount)) formErrors.push({ ar: 'المبلغ غير مفهوم', en: 'The amount is not a number' });
 
-    if (building && (f.type === 'Income' || f.type === 'Exp')) {
-      // a bill may be paid partly in dollars and partly in pounds; the rate: typed, or the last one
-      const t1 = base(editing?.id);
-      t1.book_id = f.bookId;
-      const usd = parseAmount(f.usd) || 0;
-      const syp = parseAmount(f.syp) || 0;
-      if (Number.isNaN(parseAmount(f.usd)) || Number.isNaN(parseAmount(f.syp))) formErrors.push({ ar: 'المبلغ غير مفهوم', en: 'The amount is not a number' });
-      if (f.type === 'Income') Object.assign(t1, { inc_usd: usd, inc_syp: syp });
-      else Object.assign(t1, { exp_usd: usd, exp_syp: syp });
-      t1.bill_date = f.billDate || f.date || null;
-      t1.rate = parseAmount(f.rate ?? '') || preview?.rate || null;
-      return { rows: [t1], deletes: [], formErrors };
-    }
     if (f.type === 'Income' || f.type === 'Exp') {
       if (!f.currency) formErrors.push({ ar: 'اختر العملة: ليرة أو دولار', en: 'Choose the currency: SYP or USD' });
       const t1 = base(editing?.id);
@@ -240,8 +213,6 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       t1.book_id = f.bookId;
       t1.trf_usd = parseAmount(f.usd) || 0;
       t1.trf_syp = parseAmount(f.syp) || 0;
-      // an exchange's rate is its own (pounds ÷ dollars)
-      if (building) Object.assign(t1, { bill_date: f.billDate || f.date || null, rate: null });
       return { rows: [t1], deletes: partner ? [partner.id] : [], formErrors };
     }
     // Transfer: one row on the keeper's book; two rows (−/+) between two keepers.
@@ -278,15 +249,14 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
 
   const preview = useMemo(() => {
     if (!f.date) return null;
-    const others = d.rows.filter((r) => r.id !== editing?.id);
-    const rate = building && f.type !== 'Exchange' ? lastTypedRate(others, f.date, L.settings.usd_rate) : rateOn(others, f.bookId, f.date, L.settings.usd_rate);
+    const rate = rateOn(d.rows.filter((r) => r.id !== editing?.id), f.bookId, f.date, L.settings.usd_rate);
     if (f.type === 'Exchange') {
       const u = parseAmount(f.usd);
       const sy = parseAmount(f.syp);
       return { rate, implied: u > 0 && sy > 0 ? sy / u : null };
     }
     return { rate, implied: null };
-  }, [d.rows, f.date, f.bookId, f.type, f.usd, f.syp, L.settings.usd_rate, editing?.id, building]);
+  }, [d.rows, f.date, f.bookId, f.type, f.usd, f.syp, L.settings.usd_rate, editing?.id]);
 
   const save = async (andNew: boolean) => {
     const { rows, deletes, formErrors } = build();
@@ -307,7 +277,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       return;
     }
     // a row already saved that changes (or a leg that goes): say why, for the audit log
-    const FIELDS = ['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd', 'bill_date', 'rate'] as const;
+    const FIELDS = ['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd'] as const;
     const changesOld = deletes.some((id) => d.rows.some((x) => x.id === id)) || rows.some((r) => {
       const old = d.rows.find((x) => x.id === r.id);
       return old && FIELDS.some((k) => (old[k] ?? null) !== (r[k] ?? null));
@@ -336,7 +306,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       await reload();
       toast(t('حُفظ', 'Saved') + (rows.length > 1 ? ` (${rows.length})` : ''));
       if (andNew) {
-        setF((x) => ({ ...x, amount: '', usd: '', syp: '', explanation: '', receipt: '', partyId: null, billDate: '', rate: '', toBook: x.type === 'Transfer' ? null : x.toBook }));
+        setF((x) => ({ ...x, amount: '', usd: '', syp: '', explanation: '', receipt: '', partyId: null, toBook: x.type === 'Transfer' ? null : x.toBook }));
         setWarnings([]);
         setWarnAccepted(false);
         if (editing) onClose();
@@ -365,22 +335,6 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
     onClose();
   };
 
-  // building sites: a row is cancelled, never deleted (its number and bill code stay)
-  const cancel = async () => {
-    if (!editing) return;
-    const reason = await promptBox(t('إلغاء هذا السطر: يبقى رقمه ورمز فاتورته، ومبالغه تصبح 0. السبب؟', 'Cancel this row: it keeps its number and bill code, its amounts become 0. Why?'), '');
-    if (reason == null) return;
-    if (!reason.trim()) return toast(t('اكتب السبب', 'Write the reason'), true);
-    try {
-      await s.api.call('trx.cancel', { id: editing.id, reason });
-    } catch (e) {
-      return toast(errText(e), true);
-    }
-    await reload();
-    toast(t('أُلغي', 'Cancelled'));
-    onClose();
-  };
-
   const addParty = can('lists.manage')
     ? async (name: string) => {
         try {
@@ -395,10 +349,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
     : undefined;
 
   // On a holder's own computer (files), transfers are booked by the office.
-  const types: TrxType[] = fileHolder || building ? ['Income', 'Exp', 'Exchange'] : ['Income', 'Exp', 'Transfer', 'Exchange'];
-  const singleBook = building && L.books.filter((b) => b.active).length <= 1;
-  const sypNow = parseAmount(f.syp);
-  const rateNow = parseAmount(f.rate ?? '') || preview?.rate || 0;
+  const types: TrxType[] = fileHolder ? ['Income', 'Exp', 'Exchange'] : ['Income', 'Exp', 'Transfer', 'Exchange'];
   const curSeg = <Seg value={f.currency} options={[{ value: 'SYP', label: t('ليرة', 'SYP') }, { value: 'USD', label: t('دولار', 'USD') }]} onChange={(v) => set('currency', v)} />;
 
   return (
@@ -407,16 +358,10 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
         <>
           {editing ? t('تعديل', 'Edit') : t('قيد جديد', 'New entry')}
           {editing?.n != null && <span className="muted small"> · N {String(editing.n).padStart(4, '0')}</span>}
-          {building && editing && d.comp.get(editing.id) && <span className="muted small ltr"> · {d.comp.get(editing.id)!.billCode}</span>}
         </>
       }
       onClose={onClose}
     >
-      {cancelled && (
-        <div className="alert info">
-          <b>{t('ملغى', 'Cancelled')}</b> · {editing!.cancel_reason} <span className="muted small">({editing!.cancelled_by} · {fmtDate(editing!.cancelled_at!.slice(0, 10))})</span>
-        </div>
-      )}
       {editing?.review && (
         <div className="alert warn">
           <b>{t('للمراجعة', 'To review')}:</b> <span className="ltr">{editing.review}</span>
@@ -449,15 +394,10 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
         </div>
 
         <div className="grid4">
-          <Field label={building ? t('تاريخ الدفع', 'Payment date') : t('التاريخ', 'Date')}>
+          <Field label={t('التاريخ', 'Date')}>
             <input type="date" value={f.date} onChange={(e) => set('date', e.target.value)} />
           </Field>
-          {building && (
-            <Field label={t('تاريخ الفاتورة', 'Bill date')}>
-              <input type="date" value={f.billDate || f.date} onChange={(e) => set('billDate', e.target.value)} />
-            </Field>
-          )}
-          {singleBook ? null : f.type !== 'Transfer' ? (
+          {f.type !== 'Transfer' ? (
             <Field label={t('الدفتر', 'Book')}>
               <Select value={f.bookId} options={myBookOpts} disabled={restricted && myBookOpts.length <= 1} onChange={(v) => {
                 const b = L.books.find((x) => x.id === v);
@@ -478,12 +418,10 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
               )}
             </>
           )}
-          {!singleBook && (
           <Field label={t('الحساب', 'Account')}>
             <Select value={f.accountId} options={opts(L.accounts, f.accountId)} onChange={(v) => set('accountId', v)} />
           </Field>
-          )}
-          {f.type !== 'Transfer' && !singleBook && (
+          {f.type !== 'Transfer' && (
             <Field label={t('المدينة', 'City')}>
               <Select value={f.cityId} options={opts(L.cities, f.cityId)} onChange={(v) => set('cityId', v)} />
             </Field>
@@ -498,30 +436,13 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
               <Field label={t('بند الموازنة', 'Budget heading')} className="span2">
                 <Select value={f.headingId} options={headingOpts} onChange={(v) => setF((x) => ({ ...x, headingId: v, lineId: L.lines.filter((l) => l.heading_id === v && l.active).length === 1 ? L.lines.find((l) => l.heading_id === v && l.active)!.id : null }))} />
               </Field>
-              <Field label={building ? t('النوع (مواد، أجور، أخرى)', 'Kind (materials, wages, other)') : t('خط الموازنة', 'Budget line')} className="span2">
+              <Field label={t('خط الموازنة', 'Budget line')} className="span2">
                 <Select value={f.lineId} options={lineOpts} onChange={(v) => set('lineId', v)} disabled={f.headingId == null} />
               </Field>
             </>
           )}
 
-          {building && (f.type === 'Income' || f.type === 'Exp') && (
-            <>
-              <Field label={f.type === 'Income' ? t('دولار مقبوض', 'USD received') : t('دولار مدفوع', 'USD paid')}>
-                <input className="num" inputMode="decimal" value={f.usd} onChange={(e) => set('usd', e.target.value)} autoFocus={!editing} />
-              </Field>
-              <Field label={f.type === 'Income' ? t('ليرة مقبوضة', 'SYP received') : t('ليرة مدفوعة', 'SYP paid')}>
-                <input className="num" inputMode="decimal" value={f.syp} onChange={(e) => set('syp', e.target.value)} />
-              </Field>
-              <Field label={t('السعر (فارغ = آخر سعر)', 'Rate (empty = last rate)')}>
-                <input className="num" inputMode="decimal" value={f.rate ?? ''} placeholder={preview ? String(Math.round(preview.rate * 100) / 100) : ''} onChange={(e) => set('rate', e.target.value)} />
-              </Field>
-              <div className="muted small" style={{ alignSelf: 'end', paddingBottom: 8 }}>
-                {sypNow > 0 && rateNow > 0 && <>≈ <span className="ltr">{fmtUsd((parseAmount(f.usd) || 0) + sypNow / rateNow)} USD</span></>}
-              </div>
-            </>
-          )}
-
-          {!building && (f.type === 'Income' || f.type === 'Exp' || f.type === 'Transfer') && (
+          {(f.type === 'Income' || f.type === 'Exp' || f.type === 'Transfer') && (
             <>
               <Field label={t('العملة', 'Currency')}>{curSeg}</Field>
               <Field label={f.type === 'Income' ? t('المبلغ المقبوض', 'Amount received') : f.type === 'Exp' ? t('المبلغ المدفوع', 'Amount paid') : t('المبلغ المحوَّل', 'Amount moved')}>
@@ -568,13 +489,13 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
             </>
           )}
 
-          <Field label={`${building ? t('التفاصيل', 'Details') : t('الشرح', 'Explanation')}${f.type === 'Exchange' ? '' : ' *'}`} className="span2">
+          <Field label={`${t('الشرح', 'Explanation')}${f.type === 'Exchange' ? '' : ' *'}`} className="span2">
             <input value={f.explanation} onChange={(e) => set('explanation', e.target.value)} />
           </Field>
-          <Field label={building ? t('من (المورّد)', 'From (supplier)') : t('الجهة', 'Party')}>
+          <Field label={t('الجهة', 'Party')}>
             <Combo value={f.partyId} options={opts(L.parties, f.partyId)} onChange={(v) => set('partyId', v)} onAdd={addParty} />
           </Field>
-          <Field label={building ? t('رقم الفاتورة', 'Bill number') : t('رقم الوصل', 'Receipt')}>
+          <Field label={t('رقم الوصل', 'Receipt')}>
             <input value={f.receipt} onChange={(e) => set('receipt', e.target.value)} />
           </Field>
         </div>
@@ -594,13 +515,8 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       </div>
 
       <div className="modal-foot">
-        {editing && !readOnly && building && (
-          <button className="btn danger" onClick={cancel} style={{ marginInlineEnd: can('users.manage') ? undefined : 'auto' }}>
-            {t('إلغاء السطر', 'Cancel row')}
-          </button>
-        )}
-        {editing && (building ? can('users.manage') && !(editing.date && d.closed.has(editing.date.slice(0, 7))) : !readOnly) && (
-          <button className="btn danger ghost" onClick={remove} style={{ marginInlineEnd: 'auto' }}>
+        {editing && !readOnly && (
+          <button className="btn danger" onClick={remove} style={{ marginInlineEnd: 'auto' }}>
             {t('حذف', 'Delete')}
           </button>
         )}

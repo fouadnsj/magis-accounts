@@ -8,7 +8,7 @@ import { DocsPanel, uploadPending, type PendingDoc } from './Docs';
 import { useApp } from '../state';
 import { blankTrx } from '../db/repo';
 import { validateTrx } from '../domain/validate';
-import { lastTypedRate, rateOn } from '../domain/compute';
+import { rateOn } from '../domain/compute';
 import type { Trx, TrxType } from '../domain/types';
 import { TYPE_LABEL, tx, type Msg } from '../i18n';
 import { Combo, Field, Modal, Msgs, Seg, Select, promptBox, errText, fmtDate, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
@@ -34,9 +34,8 @@ interface FormState {
   syp: string;
   /** a transfer from the Superior's (private) book: the grant the money comes from */
   grantId?: string | null;
-  /** building sites: the bill's date (empty = the payment date) and the rate typed (empty = the last rate) */
+  /** building sites: the bill's date (empty = the payment date) */
   billDate?: string;
-  rate?: string;
 }
 
 const remember = (k: string, v: string | number | null) => {
@@ -117,7 +116,6 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       }
       if (building) {
         base.billDate = tr.bill_date ?? '';
-        base.rate = tr.rate ? String(tr.rate) : '';
         if (tr.type === 'Income' || tr.type === 'Exp') {
           base.usd = tr.inc_usd || tr.exp_usd ? String(tr.inc_usd || tr.exp_usd) : '';
           base.syp = tr.inc_syp || tr.exp_syp ? String(tr.inc_syp || tr.exp_syp) : '';
@@ -156,7 +154,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       accountId: Number(recall('lastAccount')) || book?.account_id || L.settings.def_account_id,
       cityId: book?.city_id ?? L.settings.def_city_id,
       headingId: h, lineId: l, partyId: null, explanation: '', receipt: '', currency: null, amount: '',
-      fromBook: restricted ? myBooks[0] ?? null : mainId, toBook: null, usd: '', syp: '', billDate: '', rate: '',
+      fromBook: restricted ? myBooks[0] ?? null : mainId, toBook: null, usd: '', syp: '', billDate: '',
     };
   };
 
@@ -215,7 +213,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
     if (Number.isNaN(amount)) formErrors.push({ ar: 'المبلغ غير مفهوم', en: 'The amount is not a number' });
 
     if (building && (f.type === 'Income' || f.type === 'Exp')) {
-      // a bill may be paid partly in dollars and partly in pounds; the rate: typed, or the last one
+      // a bill may be paid partly in dollars and partly in pounds; the rate is the centres' (last exchange)
       const t1 = base(editing?.id);
       t1.book_id = f.bookId;
       const usd = parseAmount(f.usd) || 0;
@@ -224,7 +222,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       if (f.type === 'Income') Object.assign(t1, { inc_usd: usd, inc_syp: syp });
       else Object.assign(t1, { exp_usd: usd, exp_syp: syp });
       t1.bill_date = f.billDate || f.date || null;
-      t1.rate = parseAmount(f.rate ?? '') || preview?.rate || null;
+      t1.rate = editing?.rate ?? null; // a rate typed in Excel stays; never typed here
       return { rows: [t1], deletes: [], formErrors };
     }
     if (f.type === 'Income' || f.type === 'Exp') {
@@ -278,15 +276,15 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
 
   const preview = useMemo(() => {
     if (!f.date) return null;
-    const others = d.rows.filter((r) => r.id !== editing?.id);
-    const rate = building && f.type !== 'Exchange' ? lastTypedRate(others, f.date, L.settings.usd_rate) : rateOn(others, f.bookId, f.date, L.settings.usd_rate);
+    // a row brought from Excel keeps the rate typed there; otherwise the last exchange's
+    const rate = editing?.rate ?? rateOn(d.rows.filter((r) => r.id !== editing?.id), f.bookId, f.date, L.settings.usd_rate);
     if (f.type === 'Exchange') {
       const u = parseAmount(f.usd);
       const sy = parseAmount(f.syp);
       return { rate, implied: u > 0 && sy > 0 ? sy / u : null };
     }
     return { rate, implied: null };
-  }, [d.rows, f.date, f.bookId, f.type, f.usd, f.syp, L.settings.usd_rate, editing?.id, building]);
+  }, [d.rows, f.date, f.bookId, f.type, f.usd, f.syp, L.settings.usd_rate, editing?.id, editing?.rate]);
 
   const save = async (andNew: boolean) => {
     const { rows, deletes, formErrors } = build();
@@ -336,7 +334,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       await reload();
       toast(t('حُفظ', 'Saved') + (rows.length > 1 ? ` (${rows.length})` : ''));
       if (andNew) {
-        setF((x) => ({ ...x, amount: '', usd: '', syp: '', explanation: '', receipt: '', partyId: null, billDate: '', rate: '', toBook: x.type === 'Transfer' ? null : x.toBook }));
+        setF((x) => ({ ...x, amount: '', usd: '', syp: '', explanation: '', receipt: '', partyId: null, billDate: '', toBook: x.type === 'Transfer' ? null : x.toBook }));
         setWarnings([]);
         setWarnAccepted(false);
         if (editing) onClose();
@@ -398,7 +396,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
   const types: TrxType[] = fileHolder || building ? ['Income', 'Exp', 'Exchange'] : ['Income', 'Exp', 'Transfer', 'Exchange'];
   const singleBook = building && L.books.filter((b) => b.active).length <= 1;
   const sypNow = parseAmount(f.syp);
-  const rateNow = parseAmount(f.rate ?? '') || preview?.rate || 0;
+  const rateNow = preview?.rate || 0;
   const curSeg = <Seg value={f.currency} options={[{ value: 'SYP', label: t('ليرة', 'SYP') }, { value: 'USD', label: t('دولار', 'USD') }]} onChange={(v) => set('currency', v)} />;
 
   return (
@@ -512,11 +510,10 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
               <Field label={f.type === 'Income' ? t('ليرة مقبوضة', 'SYP received') : t('ليرة مدفوعة', 'SYP paid')}>
                 <input className="num" inputMode="decimal" value={f.syp} onChange={(e) => set('syp', e.target.value)} />
               </Field>
-              <Field label={t('السعر (فارغ = آخر سعر)', 'Rate (empty = last rate)')}>
-                <input className="num" inputMode="decimal" value={f.rate ?? ''} placeholder={preview ? String(Math.round(preview.rate * 100) / 100) : ''} onChange={(e) => set('rate', e.target.value)} />
-              </Field>
-              <div className="muted small" style={{ alignSelf: 'end', paddingBottom: 8 }}>
-                {sypNow > 0 && rateNow > 0 && <>≈ <span className="ltr">{fmtUsd((parseAmount(f.usd) || 0) + sypNow / rateNow)} USD</span></>}
+              <div className="span2 muted small" style={{ alignSelf: 'end', paddingBottom: 8 }}>
+                {t('السعر', 'Rate')} <span className="ltr">{fmtRate(rateNow)}</span>
+                {' '}({editing?.rate ? t('كما في Excel', 'as in Excel') : t('آخر تصريف', 'last exchange')})
+                {sypNow > 0 && rateNow > 0 && <> · ≈ <span className="ltr">{fmtUsd((parseAmount(f.usd) || 0) + sypNow / rateNow)} USD</span></>}
               </div>
             </>
           )}

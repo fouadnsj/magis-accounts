@@ -393,6 +393,8 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
       // an approval stays only while the amount, date, book and line stay the same
       approved_at: old && SAME(old, r) ? old.approved_at ?? null : null,
       approved_by: old && SAME(old, r) ? old.approved_by ?? null : null,
+      // building sites: a rate typed in Excel stays on its row; new rows take the last exchange's (never typed)
+      rate: lists.settings.building && !a.restoring ? old?.rate ?? null : r.rate ?? null,
       // only "cancel" cancels a row (or a backup puts one back as it was)
       cancelled_at: a.restoring ? r.cancelled_at ?? null : old?.cancelled_at ?? null,
       cancelled_by: a.restoring ? r.cancelled_by ?? null : old?.cancelled_by ?? null,

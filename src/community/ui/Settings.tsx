@@ -44,7 +44,7 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases }: { o
       {can('cty.limits') && (
         <Card>
           <div className="cty-label">{t3('موافقة الرئيس فوق', "The Superior's approval above", "L'accord du Supérieur au-delà de")}</div>
-          <label className="field"><span>{t3('دفتر البيت (الوزير)، بالدولار', 'House book (minister), in dollars', 'Compte de la maison (ministre), en dollars')}</span><input inputMode="decimal" value={house} onChange={(e) => setHouse(e.target.value)} /></label>
+          <label className="field"><span>{t3('دفتر البيت (المدبّر)، بالدولار', 'House book (minister), in dollars', 'Compte de la maison (ministre), en dollars')}</span><input inputMode="decimal" value={house} onChange={(e) => setHouse(e.target.value)} /></label>
           <label className="field"><span>{t3('كل دفتر شخصي، بالدولار', 'Each personal book, in dollars', 'Chaque compte personnel, en dollars')}</span><input inputMode="decimal" value={personal} onChange={(e) => setPersonal(e.target.value)} /></label>
           <label className="field"><span>{t3('السعر قبل أول صرافة: ليرة للدولار', 'Rate before the first exchange: pounds for $1', 'Taux avant le premier change : livres pour 1 $')}</span><input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></label>
           <p className="muted small">{t3('0 = بلا حد. الليرة واليورو بسعر آخر صرافة.', '0 = no limit. Pounds and euros at the rate of the last exchange.', '0 = sans limite. Livres et euros au taux du dernier change.')}</p>

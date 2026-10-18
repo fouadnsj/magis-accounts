@@ -13,6 +13,9 @@ import type { Money } from './domain';
 
 export const MONTH_FILE = 'magis-cty-month';
 export const RETURN_FILE = 'magis-cty-return';
+/** The months of a quarter in one file (a community that closes by quarter). */
+export const MONTH_BUNDLE = 'magis-cty-months';
+export interface MonthBundle { kind: typeof MONTH_BUNDLE; version: 1; files: MonthFile[] }
 
 export interface FileClaim {
   /** the community's entry id: the same claim, whatever file brings it */
@@ -85,6 +88,22 @@ export interface ReturnFile {
   chargeDecisions?: { id: string; status: 'waiting' | 'approved' | 'refused' | 'withdrawn'; note: string | null }[];
   /** the communities of the country, to choose from when charging one */
   communities?: { uid: string; name: string }[];
+  /** the chart of codes, kept by the country econome (later the Province) */
+  chart?: ChartRow[];
+}
+
+export interface ChartRow {
+  uid: string;
+  parent_uid: string | null;
+  code: string;
+  type: 'Income' | 'Exp';
+  name_en: string;
+  name_fr: string;
+  name_ar: string;
+  scope: 'P' | 'H';
+  claim: string | null;
+  active: number;
+  sort: number;
 }
 
 /** A short fingerprint of a file's content (to see whether a month was sent again unchanged). */

@@ -8,8 +8,8 @@ import { t3 } from './text';
 
 const ROLES: { r: CtyRole; label: () => string }[] = [
   { r: 'superior', label: () => t3('الرئيس', 'Superior', 'Supérieur') },
-  { r: 'econome', label: () => t3('المدبّر', 'Econome', 'Économe') },
-  { r: 'minister', label: () => t3('الوزير', 'Minister', 'Ministre') },
+  { r: 'econome', label: () => t3('القيّم', 'Econome', 'Économe') },
+  { r: 'minister', label: () => t3('المدبّر', 'Minister', 'Ministre') },
 ];
 
 export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
@@ -49,7 +49,7 @@ export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
   return (
     <div className="panel">
       <h2>{t3('جماعة يسوعية', 'A Jesuit community', 'Une communauté jésuite')}</h2>
-      <p className="muted">{t3('لكل يسوعي دفتره. الوزير يمسك أيضاً دفتر البيت، والمدبّر الصندوق والمصرف والإيكونوماتو.', 'Each Jesuit has his book. The minister also keeps the house book; the econome keeps the cash, the bank and the économat.', "Chaque jésuite a son compte. Le ministre tient aussi celui de la maison ; l'économe la caisse, la banque et l'économat.")}</p>
+      <p className="muted">{t3('لكل يسوعي دفتره. المدبّر يمسك أيضاً دفتر البيت، والقيّم الصندوق والمصرف والإيكونوماتو.', 'Each Jesuit has his book. The minister also keeps the house book; the econome keeps the cash, the bank and the économat.', "Chaque jésuite a son compte. Le ministre tient aussi celui de la maison ; l'économe la caisse, la banque et l'économat.")}</p>
       {err && <div className="alert err">{err}</div>}
       <div className="grid3">
         <label className="field span3"><span>{t3('اسم الجماعة', 'Name of the community', 'Nom de la communauté')}</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="St … – Homs" /></label>
@@ -108,13 +108,13 @@ export function CountryForm({ initialName = '', onSubmit, onBack, demo }: {
   };
   return (
     <div className="panel">
-      <h2>{t3('مدبّر البلد', 'The country econome', "L'économe du pays")}</h2>
+      <h2>{t3('قيّم البلد', 'The country econome', "L'économe du pays")}</h2>
       <p className="muted">{t3('يستلم ملف كل جماعة كل شهر، يقرّر في المطالبات، يسجّل ما بين الجماعات، ويصنع مصالحة آخر السنة. لا يرى إلا المجاميع.', "He receives each community's monthly file, decides on the claims, records the charges between communities, and makes the year-end reconciliation. He sees totals only.", "Il reçoit le fichier mensuel de chaque communauté, décide des réclamations, enregistre les charges entre communautés et fait la réconciliation annuelle. Il ne voit que des totaux.")}</p>
       {err && <div className="alert err">{err}</div>}
       <div className="grid2">
         <label className="field"><span>{t3('البلد', 'Country', 'Pays')}</span><input value={country} onChange={(e) => setCountry(e.target.value)} /></label>
         <label className="field"><span>{t3('العملة المحلية', 'Local currency', 'Monnaie locale')}</span><input value={local} onChange={(e) => setLocal(e.target.value)} /></label>
-        <label className="field"><span>{t3('اسم مدبّر البلد', 'Name of the country econome', "Nom de l'économe du pays")}</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label className="field"><span>{t3('اسم قيّم البلد', 'Name of the country econome', "Nom de l'économe du pays")}</span><input value={name} onChange={(e) => setName(e.target.value)} /></label>
         <label className="field"><span>{t3('كلمة سر (6+)', 'Password (6+)', 'Mot de passe (6+)')}</span><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
       </div>
       <div className="modal-foot">

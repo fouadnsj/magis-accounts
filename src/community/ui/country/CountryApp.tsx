@@ -16,11 +16,13 @@ import { curName, money, monthName, t3, yearName } from '../text';
 import { claimName } from '../desk/Claims';
 import { kindName } from '../desk/Statement';
 import { exportExcel } from '../desk/excel';
+import { ChartTable } from '../desk/Chart';
 import '../cty.css';
 import '../desk/desk.css';
 
-type Page = 'dash' | 'claims' | 'charges' | 'accounts' | 'reco' | 'totals' | 'ctys' | 'settings';
-const NAMES = new Map(CHART.map((a) => [a.code, a]));
+type Page = 'dash' | 'claims' | 'charges' | 'accounts' | 'reco' | 'totals' | 'ctys' | 'chart' | 'settings';
+let NAMES = new Map<string, { en: string; fr: string; ar: string }>(CHART.map((a) => [a.code, a]));
+/** The name of a code, from the country's chart (kept up to date when the data loads). */
 const codeName = (code: string) => {
   const a = NAMES.get(code);
   if (!a) return code;
@@ -33,7 +35,12 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
   const [page, setPage] = useState<Page>('dash');
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(async () => {
-    try { setD(await session.api.call('country.data')); setErr(null); } catch (e) { setErr(errText(e)); }
+    try {
+      const data = await session.api.call('country.data');
+      NAMES = new Map(data.accounts.map((a) => [a.code, { en: a.name_en, fr: a.name_fr, ar: a.name_ar }]));
+      setD(data);
+      setErr(null);
+    } catch (e) { setErr(errText(e)); }
   }, [session]);
   useEffect(() => { void reload(); }, [reload]);
   if (!d) return <div className="cty"><div className="cty-page">{err ? <div className="alert err">{err}</div> : '…'}</div></div>;
@@ -47,13 +54,14 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
     { p: 'reco', label: t3('مصالحة آخر السنة', 'Year-end reconciliation', 'Réconciliation annuelle') },
     { p: 'totals', label: t3('المجاميع حسب الرمز', 'Totals by code', 'Totaux par code') },
     { p: 'ctys', label: t3('الجماعات وملفات الرجوع', 'Communities & return files', 'Communautés et retours') },
+    { p: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes') },
     { p: 'settings', label: t3('الإعدادات', 'Settings', 'Réglages') },
   ];
   const ctx = { s: session, d, reload };
   return (
     <div className="cty desk">
       <aside className="desk-side">
-        <div className="desk-org"><b>{session.organisation}</b><span>{session.profile.name} · {t3('مدبّر البلد', 'country econome', 'économe du pays')}</span></div>
+        <div className="desk-org"><b>{session.organisation}</b><span>{session.profile.name} · {t3('قيّم البلد', 'country econome', 'économe du pays')}</span></div>
         {items.map((x) => (
           <button key={x.p} className={page === x.p ? 'on' : ''} onClick={() => setPage(x.p)}><span>{x.label}</span>{x.badge ? <i className="cty-badge static">{x.badge}</i> : null}</button>
         ))}
@@ -69,6 +77,11 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
         {page === 'reco' && <Reco {...ctx} />}
         {page === 'totals' && <Totals {...ctx} />}
         {page === 'ctys' && <Ctys {...ctx} />}
+        {page === 'chart' && (
+          <ChartTable accounts={d.accounts} used={new Set()} may
+            note={t3('هذا الدليل يُرسل إلى كل جماعة مع ملف الرجوع. لاحقاً يحفظه الإقليم.', 'This chart goes to every community with the return file. Later the Province will keep it.', "Ce plan part vers chaque communauté avec le fichier de retour. Plus tard, la Province le tiendra.")}
+            save={async (account, reason) => { await session.api.call('country.account.save', { account, reason }); await reload(); }} />
+        )}
         {page === 'settings' && <Settings onLang={onLang} onLogout={onLogout} />}
       </main>
     </div>

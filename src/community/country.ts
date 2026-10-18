@@ -6,10 +6,13 @@
 import { type Db, type Stmt, migrate, nowIso, one, uuid } from '../db/db';
 import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { has, profileStmt } from '../auth';
+import { chartSeedStmts } from './setup';
+import { chartRows, loadAccounts, saveAccountRow, type AccountInput } from './ops';
+import type { CtyAccount } from './domain';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import { CURS, r2, type Cur } from './domain';
-import { MONTH_FILE, RETURN_FILE, fingerprint, type MonthFile, type ReturnFile } from './files';
+import { MONTH_BUNDLE, MONTH_FILE, RETURN_FILE, fingerprint, type MonthBundle, type MonthFile, type ReturnFile } from './files';
 import { ledgerOf, signedMove, type CountryCharge, type CountryClaim, type CountryCty, type CountryMove, type MoveKind } from './ledger';
 
 export interface CountrySetup {
@@ -26,17 +29,19 @@ export async function createCountry(db: Db, s: CountrySetup): Promise<void> {
   if (await one(db, 'SELECT 1 AS x FROM profile LIMIT 1')) throw new UserError(m('قاعدة البيانات مُعدّة مسبقاً', 'This database is already set up', 'Cette base est déjà préparée'));
   if (!s.country.trim()) throw new UserError(m('اكتب اسم البلد', 'Write the name of the country', 'Écrivez le nom du pays'));
   const people = s.people.filter((p) => p.name.trim());
-  if (!people.length) throw new UserError(m('من هو مدبّر البلد؟', 'Who is the country econome?', "Qui est l'économe du pays ?"));
+  if (!people.length) throw new UserError(m('من هو قيّم البلد؟', 'Who is the country econome?', "Qui est l'économe du pays ?"));
   await db.batch([
     { sql: 'DELETE FROM access_profile' },
     // (the table is empty: this profile gets the number 1)
-    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (1, ?, ?, 1)', params: ['مدبّر البلد · Country econome · Économe du pays', JSON.stringify(COUNTRY_PERMS)] },
+    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (1, ?, ?, 1)', params: ['قيّم البلد · Country econome · Économe du pays', JSON.stringify(COUNTRY_PERMS)] },
     setMetaStmt('install', 'office'),
     setMetaStmt('kind', 'country'),
     setMetaStmt('organisation', s.country.trim()),
     setMetaStmt('country', s.country.trim()),
     setMetaStmt('local_currency', s.localCurrency.trim().toUpperCase() || 'SYP'),
     setMetaStmt('created_at', nowIso()),
+    // the chart of codes is kept here for now (later the Province) and sent to the communities
+    ...chartSeedStmts(),
   ]);
   for (const p of people) {
     await db.batch([
@@ -60,6 +65,7 @@ export interface CountryData {
   charges: CountryCharge[];
   moves: CountryMove[];
   proposals: CountryProposal[];
+  accounts: CtyAccount[];
 }
 
 async function requireCountry(db: Db) {
@@ -80,6 +86,7 @@ export async function countryData(db: Db): Promise<CountryData> {
     charges: await db.query<CountryCharge>('SELECT * FROM country_charge ORDER BY date, id'),
     moves: await db.query<CountryMove>('SELECT * FROM country_move ORDER BY date, id'),
     proposals: await db.query<CountryProposal>('SELECT * FROM country_proposal ORDER BY date, id'),
+    accounts: await loadAccounts(db),
   };
 }
 
@@ -142,6 +149,7 @@ export async function buildReturnFile(db: Db, ctyId: number, who: string): Promi
     statement: ledgerOf(ctyId, d.claims, d.charges, d.moves, new Map(d.ctys.map((c) => [c.id, c.name]))),
     chargeDecisions: d.proposals.filter((p) => p.host_id === ctyId).map((p) => ({ id: p.id, status: p.status, note: p.decision_note })),
     communities: d.ctys.filter((c) => c.active).map((c) => ({ uid: c.uid, name: c.name })),
+    chart: chartRows(d.accounts),
   };
 }
 
@@ -252,9 +260,21 @@ async function renameCty(c: OpCtx, a: { id: number; name: string; active?: numbe
 
 export const COUNTRY_OPS = {
   'country.data': { check: need, run: async (c: OpCtx) => { await requireCountry(c.db); return countryData(c.db); } },
-  'country.import': { check: need, run: async (c: OpCtx, a: { file: MonthFile }) => { await requireCountry(c.db); return importMonthFile(c.db, a.file, c.who); } },
+  'country.import': {
+    check: need,
+    run: async (c: OpCtx, a: { file: MonthFile | MonthBundle }): Promise<ImportResult> => {
+      await requireCountry(c.db);
+      if ((a.file as MonthBundle)?.kind !== MONTH_BUNDLE) return importMonthFile(c.db, a.file as MonthFile, c.who);
+      // a quarter: its months, one by one
+      const rs: ImportResult[] = [];
+      for (const f of (a.file as MonthBundle).files ?? []) rs.push(await importMonthFile(c.db, f, c.who));
+      if (!rs.length) throw new UserError(m('الملف فارغ', 'The file is empty', 'Le fichier est vide'));
+      return { community: rs[0].community, ym: `${rs[0].ym} → ${rs[rs.length - 1].ym}`, status: rs.every((r) => r.status === 'same') ? 'same' : rs.some((r) => r.status === 'replaced') ? 'replaced' : 'new', claims: rs.reduce((n, r) => n + r.claims, 0) };
+    },
+  },
   'country.claim.decide': { check: need, run: (c: OpCtx, a: { id: string; status: 'accepted' | 'refused' | 'waiting'; accepted?: number | null; note?: string | null }) => decideClaim(c, a) },
   'country.proposal.decide': { check: need, run: (c: OpCtx, a: { id: string; status: 'approved' | 'refused' | 'waiting'; chargedId?: number | null; note?: string | null }) => decideProposal(c, a) },
+  'country.account.save': { check: need, run: async (c: OpCtx, a: { account: AccountInput; reason?: string | null }) => { await requireCountry(c.db); return saveAccountRow(c, a); } },
   'country.charge.save': { check: need, run: (c: OpCtx, a: { charge: Partial<CountryCharge>; reason?: string | null }) => saveCharge(c, a) },
   'country.move.save': { check: need, run: (c: OpCtx, a: { move: Partial<CountryMove>; reason?: string | null }) => saveMove(c, a) },
   'country.delete': { check: need, run: (c: OpCtx, a: { table: 'country_charge' | 'country_move'; id: string; reason: string }) => deleteRow(c, a) },

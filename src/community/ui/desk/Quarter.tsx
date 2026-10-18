@@ -29,10 +29,10 @@ export function Quarter() {
   const total = (id: number, c: Cur) => cols.reduce((n, x) => n + v(x.up, id, c), 0);
   const fixed: { key: keyof ReturnType<typeof sheet>; label: string }[] = [
     { key: 'carried', label: t3('رصيد سابق', 'Carried over', 'Report') },
-    { key: 'received', label: t3('من المدبّر', 'From the econome', "Reçu de l'économe") },
+    { key: 'received', label: t3('من القيّم', 'From the econome', "Reçu de l'économe") },
     { key: 'totalIncome', label: t3('مجموع الدخل', 'Total income', 'Total revenus') },
     { key: 'totalExpenses', label: t3('مجموع النفقات', 'Total expenses', 'Total dépenses') },
-    { key: 'givenBack', label: t3('أعيد إلى المدبّر', 'Given back', "Rendu à l'économe") },
+    { key: 'givenBack', label: t3('أعيد إلى القيّم', 'Given back', "Rendu à l'économe") },
     { key: 'kept', label: t3('في النهاية', 'Kept at the end', 'Gardé à la fin') },
   ];
   const colName = (b: (typeof books)[number]) => (b.cty_kind === 'house' ? bookLabel(b) : bookName(b));

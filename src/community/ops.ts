@@ -11,11 +11,12 @@ import type { Perm } from '../perms';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CURS, approvalOf, balance, lastDay, leafAccounts, monthSheet, r2,
+  CURS, approvalOf, balance, lastDay, leafAccounts, monthSheet, periodMonths, r2,
   type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
-import { MONTH_FILE, RETURN_FILE, type FileCharge, type FileClaim, type MonthFile, type ReturnFile } from './files';
+import { loadSettings, type CtySettings } from './people';
+import { MONTH_FILE, RETURN_FILE, type ChartRow, type FileCharge, type FileClaim, type MonthFile, type ReturnFile } from './files';
 import { loadAccounts, loadBooks, loadEntries, loadLimits, loadMonths, loadNotes, saveLimitsStmts, writeEntryStmts } from './repo';
 
 export { loadAccounts, loadBooks, loadEntries, loadMonths, writeEntryStmts };
@@ -63,6 +64,7 @@ export interface CtyData {
   /** the account at the économat, as the country econome sent it back (econome and Superior only) */
   statement: { id: string; date: string; kind: string; note: string | null; cur: Cur; amount: number }[];
   lastReturnAt: string | null;
+  settings: CtySettings;
   /** what this community charges others, and the other communities known */
   charges: CtyCharge[];
   known: { uid: string; name: string }[];
@@ -120,7 +122,7 @@ export function entryProblems(e: EntryInput, accounts: CtyAccount[], books: CtyB
     else {
       if (acc.type !== e.type) out.push(m('هذا البند لا يناسب هذا النوع', 'This line does not belong to this type', 'Cette ligne ne correspond pas à ce type'));
       if (!leafAccounts(accounts).some((a) => a.id === acc.id)) out.push(m('اختر بنداً تفصيلياً', 'Choose a detailed line', 'Choisissez une ligne détaillée'));
-      if (book?.cty_kind === 'personal' && acc.scope !== 'P') out.push(m('هذا البند لدفتر البيت', 'This line belongs to the house book', 'Cette ligne est pour le compte de la maison'));
+      if ((book?.cty_kind === 'personal' || book?.cty_kind === 'personal_bank') && acc.scope !== 'P') out.push(m('هذا البند لدفتر البيت', 'This line belongs to the house book', 'Cette ligne est pour le compte de la maison'));
     }
     if (e.to_book_id || e.cur2) out.push(m('حقول زائدة', 'Fields that do not belong to this type', "Champs qui n'appartiennent pas à ce type"));
   } else if (e.type === 'Transfer') {
@@ -260,39 +262,54 @@ export async function closingProblems(db: Db, bookId: number, ym: string): Promi
 const curKey = { LOC: 'loc', USD: 'usd', EUR: 'eur' } as const;
 
 /** The keeper closes his month after counting his cash in each currency. A difference needs a note. */
-async function closeMonth(c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null }) {
+/**
+ * The keeper closes his period (a quarter, or a month: the econome's choice) after counting
+ * his cash in each currency, banknote by banknote. A difference needs a note. Every month
+ * of the period is then closed; nobody writes in it any more.
+ */
+async function closeMonth(c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) {
   await requireCommunity(c.db);
   if (!/^\d{4}-\d{2}$/.test(a.ym)) throw new UserError(m('شهر غير صالح', 'Invalid month', 'Mois invalide'));
   if (!(keeps(c, a.bookId) && can(c, 'book.own')) && !can(c, 'cty.write_all')) throw refuse();
-  if (await one(c.db, 'SELECT 1 AS x FROM cty_month WHERE book_id = ? AND ym = ?', [a.bookId, a.ym])) throw monthClosed(a.ym);
-  const problems = await closingProblems(c.db, a.bookId, a.ym);
+  const months = periodMonths(a.ym, (await loadSettings(c.db)).closePeriod);
+  const last = months[months.length - 1];
+  const now = new Date().toISOString().slice(0, 7);
+  if (months[months.length - 1] > now && months[0] > now) throw new UserError(m('هذه الفترة لم تبدأ بعد', 'This period has not started yet', "Cette période n'a pas encore commencé"));
+  if (await one(c.db, 'SELECT 1 AS x FROM cty_month WHERE book_id = ? AND ym = ?', [a.bookId, last])) throw monthClosed(last);
+  const problems = await closingProblems(c.db, a.bookId, last);
   if (problems.length) throw fail(problems);
   const book = (await loadBooks(c.db)).find((b) => b.id === a.bookId);
   if (!book) throw new UserError(m('الدفتر غير موجود', 'Unknown book', 'Compte inconnu'));
-  const held = balance(await loadEntries(c.db), book, lastDay(a.ym));
+  const held = balance(await loadEntries(c.db), book, lastDay(last));
   const counted = Object.fromEntries(CURS.map((k) => [k, r2(Number(a.counted?.[k] ?? 0))])) as Money;
   const differs = CURS.some((k) => counted[k] !== held[k]);
   const note = (a.note ?? '').trim() || null;
   if (differs && !note) throw new UserError(m('النقد المعدود لا يساوي الدفتر: اكتب ملاحظة أو أضف ما نُسي', 'The cash counted is not what the book says: write a note or add what was forgotten', "L'argent compté ne correspond pas au compte : écrivez une note ou ajoutez l'oubli"));
-  const params = [a.bookId, a.ym, nowIso(), c.who, ...CURS.map((k) => held[k]), ...CURS.map((k) => counted[k]), note];
-  await c.db.batch([
-    {
-      sql: `INSERT INTO cty_month (book_id, ym, closed_at, closed_by, ${CURS.map((k) => 'book_' + curKey[k]).join(', ')}, ${CURS.map((k) => 'counted_' + curKey[k]).join(', ')}, count_note)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      params,
-    },
-    auditStmt(c.who, 'close', 'cty_month', `${a.bookId}:${a.ym}`, null, { held, counted, note }),
-  ]);
+  const at = nowIso();
+  const stmts: Stmt[] = [];
+  for (const ym of months) {
+    if (await one(c.db, 'SELECT 1 AS x FROM cty_month WHERE book_id = ? AND ym = ?', [a.bookId, ym])) continue;
+    const isLast = ym === last;
+    stmts.push({
+      sql: `INSERT INTO cty_month (book_id, ym, closed_at, closed_by, ${CURS.map((k) => 'book_' + curKey[k]).join(', ')}, ${CURS.map((k) => 'counted_' + curKey[k]).join(', ')}, count_note, count_detail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [a.bookId, ym, at, c.who, ...CURS.map((k) => (isLast ? held[k] : null)), ...CURS.map((k) => (isLast ? counted[k] : null)), isLast ? note : null, isLast && a.detail ? JSON.stringify(a.detail) : null],
+    });
+  }
+  stmts.push(auditStmt(c.who, 'close', 'cty_month', `${a.bookId}:${months.join(',')}`, null, { held, counted, note }));
+  await c.db.batch(stmts);
 }
 
+/** The Superior reopens a book's period (every month of it, so it can be closed again with a new count). */
 async function reopenMonth(c: OpCtx, a: { bookId: number; ym: string; reason: string }) {
   const reason = (a.reason ?? '').trim();
   if (!reason) throw new UserError(m('اكتب السبب', 'Write the reason', 'Écrivez la raison'));
-  const old = await one<CtyMonth>(c.db, 'SELECT * FROM cty_month WHERE book_id = ? AND ym = ?', [a.bookId, a.ym]);
-  if (!old) return;
+  const months = periodMonths(a.ym, (await loadSettings(c.db)).closePeriod);
+  const old = await c.db.query<CtyMonth>(`SELECT * FROM cty_month WHERE book_id = ? AND ym IN (${months.map(() => '?').join(', ')})`, [a.bookId, ...months]);
+  if (!old.length) return;
   await c.db.batch([
-    { sql: 'DELETE FROM cty_month WHERE book_id = ? AND ym = ?', params: [a.bookId, a.ym] },
-    auditStmt(c.who, 'reopen', 'cty_month', `${a.bookId}:${a.ym}`, old, { reason }),
+    { sql: `DELETE FROM cty_month WHERE book_id = ? AND ym IN (${months.map(() => '?').join(', ')})`, params: [a.bookId, ...months] },
+    auditStmt(c.who, 'reopen', 'cty_month', `${a.bookId}:${months.join(',')}`, old, { reason }),
   ]);
 }
 
@@ -314,6 +331,11 @@ export type AccountInput = Partial<Pick<CtyAccount, 'id' | 'parent_id' | 'type' 
 /** Change a code or a name, add a line, switch one off. Past entries follow: they point to the row. */
 async function saveAccount(c: OpCtx, a: { account: AccountInput; reason?: string | null }) {
   await requireCommunity(c.db);
+  return saveAccountRow(c, a);
+}
+
+/** Change or add a line of the chart (in the country database, or a community allowed to). */
+export async function saveAccountRow(c: OpCtx, a: { account: AccountInput; reason?: string | null }) {
   const x = a.account;
   const all = await loadAccounts(c.db);
   const old = x.id ? all.find((r) => r.id === x.id) : undefined;
@@ -340,7 +362,7 @@ async function saveAccount(c: OpCtx, a: { account: AccountInput; reason?: string
   const keys = Object.keys(row) as (keyof typeof row)[];
   const stmt: Stmt = old
     ? { sql: `UPDATE cty_account SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`, params: [...keys.map((k) => row[k]), old.id] }
-    : { sql: `INSERT INTO cty_account (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`, params: keys.map((k) => row[k]) };
+    : { sql: `INSERT INTO cty_account (uid, ${keys.join(', ')}) VALUES (?, ${keys.map(() => '?').join(', ')})`, params: [uuid(), ...keys.map((k) => row[k])] };
   await c.db.batch([stmt, auditStmt(c.who, old ? 'edit' : 'add', 'cty_account', old ? String(old.id) : code, old ?? null, old ? { ...row, reason } : row)]);
 }
 
@@ -456,6 +478,31 @@ async function setOpening(c: OpCtx, a: { bookId: number; opening: Money; reason:
   ]);
 }
 
+// ---------------------------------------------------------------- the chart, as the country keeps it
+
+/**
+ * The chart sent by the country econome replaces the community's: lines are matched by
+ * their identity (uid), so a changed code moves every past entry along with it.
+ * Codes are first set aside (to the uid) so two lines can swap codes without a clash.
+ */
+export function applyChartStmts(mine: CtyAccount[], chart: ChartRow[]): Stmt[] {
+  const out: Stmt[] = [];
+  const byUid = new Map(mine.map((a) => [a.uid, a]));
+  for (const r of chart) if (byUid.has(r.uid)) out.push({ sql: 'UPDATE cty_account SET code = ? WHERE uid = ?', params: [`~${r.uid}`, r.uid] });
+  for (const r of chart) {
+    if (byUid.has(r.uid)) out.push({ sql: 'UPDATE cty_account SET code = ?, type = ?, name_en = ?, name_fr = ?, name_ar = ?, scope = ?, claim = ?, active = ?, sort = ? WHERE uid = ?', params: [r.code, r.type, r.name_en, r.name_fr, r.name_ar, r.scope, r.claim, r.active, r.sort, r.uid] });
+    else out.push({ sql: 'INSERT INTO cty_account (uid, code, type, name_en, name_fr, name_ar, scope, claim, active, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [r.uid, r.code, r.type, r.name_en, r.name_fr, r.name_ar, r.scope, r.claim, r.active, r.sort] });
+  }
+  for (const r of chart) out.push({ sql: 'UPDATE cty_account SET parent_id = (SELECT id FROM cty_account WHERE uid = ?) WHERE uid = ?', params: [r.parent_uid, r.uid] });
+  return out;
+}
+
+/** The chart as it travels: each line with its identity and its parent's. */
+export function chartRows(all: CtyAccount[]): ChartRow[] {
+  const uid = new Map(all.map((a) => [a.id, a.uid]));
+  return all.map((a) => ({ uid: a.uid, parent_uid: a.parent_id != null ? uid.get(a.parent_id) ?? null : null, code: a.code, type: a.type, name_en: a.name_en, name_fr: a.name_fr, name_ar: a.name_ar, scope: a.scope, claim: a.claim, active: a.active, sort: a.sort }));
+}
+
 // ---------------------------------------------------------------- the community's month and its file to the country
 
 /** The community's identity in its files (made once). */
@@ -471,6 +518,9 @@ export async function communityUid(db: Db): Promise<string> {
 async function closeCommunityMonth(c: OpCtx, a: { ym: string }) {
   await requireCommunity(c.db);
   if (!/^\d{4}-\d{2}$/.test(a.ym)) throw new UserError(m('شهر غير صالح', 'Invalid month', 'Mois invalide'));
+  // the whole period (the quarter, or the month)
+  const period = periodMonths(a.ym, (await loadSettings(c.db)).closePeriod);
+  a = { ym: period[period.length - 1] };
   if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [a.ym])) return;
   const books = (await loadBooks(c.db)).filter((b) => b.active);
   const months = await loadMonths(c.db);
@@ -478,8 +528,8 @@ async function closeCommunityMonth(c: OpCtx, a: { ym: string }) {
   const open = books.filter((b) => !months.some((x) => x.book_id === b.id && x.ym === a.ym) && entries.some((e) => (e.book_id === b.id || e.to_book_id === b.id) && e.date.slice(0, 7) <= a.ym));
   if (open.length) throw new UserError(m(`لم يُغلق بعد: ${open.map((b) => b.keeper_name ?? b.name).join('، ')}`, `Not closed yet: ${open.map((b) => b.keeper_name ?? b.name).join(', ')}`, `Pas encore clôturé : ${open.map((b) => b.keeper_name ?? b.name).join(', ')}`));
   await c.db.batch([
-    { sql: 'INSERT INTO closed_month (ym, closed_at, closed_by) VALUES (?, ?, ?)', params: [a.ym, nowIso(), c.who] },
-    auditStmt(c.who, 'close', 'closed_month', a.ym, null, null),
+    ...period.map((ym) => ({ sql: 'INSERT OR IGNORE INTO closed_month (ym, closed_at, closed_by) VALUES (?, ?, ?)', params: [ym, nowIso(), c.who] })),
+    auditStmt(c.who, 'close', 'closed_month', period.join(','), null, null),
   ]);
 }
 
@@ -493,7 +543,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
   const z = (): Money => ({ LOC: 0, USD: 0, EUR: 0 });
   const totals: Record<string, Money> = {};
   const cash = { carried: z(), received: z(), givenBack: z(), kept: z(), income: z(), expenses: z() };
-  const people = books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'house');
+  const people = books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house');
   for (const b of people) {
     const s = monthSheet(entries, b, a.ym);
     for (const [id, v] of [...s.income, ...s.expenses]) {
@@ -537,7 +587,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
 async function importReturn(c: OpCtx, a: { file: ReturnFile }): Promise<{ decisions: number; lines: number }> {
   await requireCommunity(c.db);
   const f = a.file;
-  if (!f || f.kind !== RETURN_FILE) throw new UserError(m('ليس ملف رجوع من مدبّر البلد', 'Not a return file from the country econome', "Ce n'est pas un fichier de retour de l'économe du pays"));
+  if (!f || f.kind !== RETURN_FILE) throw new UserError(m('ليس ملف رجوع من قيّم البلد', 'Not a return file from the country econome', "Ce n'est pas un fichier de retour de l'économe du pays"));
   if (f.community_uid !== (await communityUid(c.db))) throw new UserError(m('هذا الملف لجماعة أخرى', 'This file is for another community', 'Ce fichier est pour une autre communauté'));
   const stmts: Stmt[] = [];
   let decisions = 0;
@@ -553,6 +603,7 @@ async function importReturn(c: OpCtx, a: { file: ReturnFile }): Promise<{ decisi
     stmts.push({ sql: 'DELETE FROM cty_known' });
     for (const k of f.communities) if (k.uid !== me) stmts.push({ sql: 'INSERT OR REPLACE INTO cty_known (uid, name) VALUES (?, ?)', params: [k.uid, k.name] });
   }
+  if (f.chart?.length) stmts.push(...applyChartStmts(await loadAccounts(c.db), f.chart));
   stmts.push({ sql: 'DELETE FROM cty_statement' });
   for (const l of f.statement ?? []) stmts.push({ sql: 'INSERT INTO cty_statement (id, date, kind, note, cur, amount) VALUES (?, ?, ?, ?, ?, ?)', params: [l.id, l.date, l.kind, l.note, l.cur, l.amount] });
   stmts.push({ sql: "INSERT INTO meta (key, value) VALUES ('last_return_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params: [f.made_at] });
@@ -571,7 +622,7 @@ async function saveCharge(c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: st
   const x = a.charge;
   const old = x.id ? await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [x.id]) : undefined;
   if (x.id && !old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
-  if (old && old.status !== 'waiting') throw new UserError(m('قرّر فيها مدبّر البلد: لا تُعدَّل', 'The country econome has decided on it: it cannot change', "L'économe du pays a décidé : elle ne change plus"));
+  if (old && old.status !== 'waiting') throw new UserError(m('قرّر فيها قيّم البلد: لا تُعدَّل', 'The country econome has decided on it: it cannot change', "L'économe du pays a décidé : elle ne change plus"));
   if (!x.date || !validDate(x.date)) throw new UserError(m('التاريخ مطلوب', 'The date is required', 'La date est requise'));
   if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [x.date.slice(0, 7)])) throw monthClosed(x.date.slice(0, 7));
   const known = x.to_uid ? await one<{ name: string }>(c.db, 'SELECT name FROM cty_known WHERE uid = ?', [x.to_uid]) : undefined;
@@ -595,7 +646,7 @@ async function deleteCharge(c: OpCtx, a: { id: string; reason: string }) {
   await requireCommunity(c.db);
   const old = await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [a.id]);
   if (!old) return;
-  if (old.status !== 'waiting') throw new UserError(m('قرّر فيها مدبّر البلد: لا تُحذف', 'The country econome has decided on it: it cannot be deleted', "L'économe du pays a décidé : elle ne peut être supprimée"));
+  if (old.status !== 'waiting') throw new UserError(m('قرّر فيها قيّم البلد: لا تُحذف', 'The country econome has decided on it: it cannot be deleted', "L'économe du pays a décidé : elle ne peut être supprimée"));
   if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [old.date.slice(0, 7)])) throw monthClosed(old.date.slice(0, 7));
   const reason = (a.reason ?? '').trim();
   if (!reason) throw new UserError(m('اكتب سبب الحذف', 'Write the reason for this deletion', 'Écrivez la raison de cette suppression'));
@@ -623,6 +674,7 @@ async function data(c: OpCtx): Promise<CtyData> {
     lastReturnAt: await getMeta(c.db, 'last_return_at'),
     charges: can(c, 'cty.view_all') ? await c.db.query<CtyCharge>('SELECT * FROM cty_charge ORDER BY date DESC, id') : [],
     known: await c.db.query<{ uid: string; name: string }>('SELECT * FROM cty_known ORDER BY name'),
+    settings: await loadSettings(c.db),
   };
 }
 
@@ -640,7 +692,7 @@ export const CTY_OPS = {
       return closingProblems(c.db, a.bookId, a.ym);
     },
   },
-  'cty.month.close': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null }) => closeMonth(c, a) },
+  'cty.month.close': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) => closeMonth(c, a) },
   'cty.month.reopen': { check: (c: OpCtx) => need(c, 'month.reopen'), run: (c: OpCtx, a: { bookId: number; ym: string; reason: string }) => reopenMonth(c, a) },
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
   'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },

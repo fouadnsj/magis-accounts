@@ -87,7 +87,7 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
               <span className="muted small">{t3('حسابات اليسوعيين وبيتهم، بثلاث عملات.', 'The accounts of the Jesuits and their house, in three currencies.', 'Les comptes des jésuites et de leur maison, en trois monnaies.')}</span>
             </button>
             <button onClick={() => setMode('country')}>
-              <b>{t3('مدبّر البلد', 'Country econome', "Économe du pays")}</b>
+              <b>{t3('قيّم البلد', 'Country econome', "Économe du pays")}</b>
               <span className="muted small">{t3('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.')}</span>
             </button>
             <button onClick={openExisting} disabled={!isDesktop()}>

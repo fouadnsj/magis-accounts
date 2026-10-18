@@ -847,4 +847,29 @@ CREATE TABLE country_proposal (
 );
 `,
   },
+  {
+    n: 16,
+    name: 'chart of codes kept by the country (stable identity per line); a personal bank book',
+    sql: `
+-- Each line of the chart keeps one identity everywhere (country and communities), whatever
+-- its code becomes. The chart is kept by the country econome (later the Province) and sent
+-- to the communities in the return file (Fouad, 18 October 2026).
+ALTER TABLE cty_account ADD COLUMN uid TEXT;
+UPDATE cty_account SET uid = 'c' || code WHERE uid IS NULL;
+CREATE UNIQUE INDEX cty_account_uid ON cty_account(uid);
+-- the econome no longer changes the chart in a community
+UPDATE access_profile SET perms = replace(replace(perms, ',"cty.chart"', ''), '"cty.chart",', '') WHERE perms LIKE '%"cty.chart"%';
+`,
+  },
+  {
+    n: 17,
+    name: 'community: roles that change during the year, optional bank, closing by quarter, banknotes counted',
+    sql: `
+-- The roles of each person in a community (superior, econome, minister): the Superior changes
+-- them during the year (Fouad, 18 October 2026: "a Jesuit becomes econome instead of another").
+ALTER TABLE profile ADD COLUMN cty_roles TEXT;
+-- The banknotes counted at closing, currency by currency ({"LOC": {"500": 3, …}, …}).
+ALTER TABLE cty_month ADD COLUMN count_detail TEXT;
+`,
+  },
 ];

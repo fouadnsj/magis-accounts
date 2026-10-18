@@ -34,6 +34,9 @@ beforeAll(async () => {
   ] });
   await createCountry(syria, { country: 'Syria', localCurrency: 'SYP', people: [{ name: 'Country eco', password: 'test-pass-9' }] });
   [H, D, S] = [await people(homs), await people(dam), await people(syria)];
+  // these tests close month by month
+  await runOp(H.EcoA, 'cty.settings.save', { closePeriod: 'month' });
+  await runOp(D.SupB, 'cty.settings.save', { closePeriod: 'month' });
 });
 
 const code = async (db: Db, c: string) => (await loadAccounts(db)).find((a) => a.code === c)!.id;
@@ -160,5 +163,24 @@ describe('a charge marked by the host community, approved by the country econome
     expect(data.charges.map((x) => x.status)).toEqual(['approved']);
     expect(data.known.map((k) => k.name)).toEqual(['Community A']);
     await expect(runOp(D.SupB, 'cty.charge.delete', { id: data.charges[0].id, reason: 'x' })).rejects.toThrow(/decided/);
+  });
+});
+
+describe('the chart of codes: changed by the country econome, received by the communities', () => {
+  it('a changed code and a new line arrive with the return file; past entries follow', async () => {
+    const d = (await runOp(S['Country eco'], 'country.data', undefined)) as CountryData;
+    const med = d.accounts.find((a) => a.code === '61402')!;
+    await runOp(S['Country eco'], 'country.account.save', { account: { ...med, code: '61406' }, reason: 'new Province chart' });
+    const head = d.accounts.find((a) => a.code === '61300')!;
+    await runOp(S['Country eco'], 'country.account.save', { account: { code: '61304', parent_id: head.id, name_en: 'Haircut', name_fr: 'Coiffeur', name_ar: 'حلاقة' } });
+    const A = d.ctys.find((c) => c.name === 'Community A')!.id;
+    const medInA = (await loadAccounts(homs)).find((a) => a.uid === med.uid)!;
+    const used = (await loadEntries(homs)).filter((e) => e.account_id === medInA.id).length;
+    await runOp(H.EcoA, 'cty.return.import', { file: await runOp(S['Country eco'], 'country.return.build', { ctyId: A }) });
+    const accs = await loadAccounts(homs);
+    expect(accs.find((a) => a.id === medInA.id)!.code).toBe('61406');
+    expect((await loadEntries(homs)).filter((e) => e.account_id === medInA.id).length).toBe(used);
+    const hair = accs.find((a) => a.code === '61304')!;
+    expect([hair.name_fr, hair.parent_id, hair.scope]).toEqual(['Coiffeur', accs.find((a) => a.code === '61300')!.id, 'P']);
   });
 });

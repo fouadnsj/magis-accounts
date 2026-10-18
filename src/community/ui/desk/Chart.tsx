@@ -8,13 +8,27 @@ import type { AccountInput } from '../../ops';
 import { useCty } from '../CtyApp';
 import { t3 } from '../text';
 
+/** The community's chart: read only, kept by the country econome (who sends it in the return file). */
 export function Chart() {
   const { d, s, reload, can } = useCty();
+  return (
+    <ChartTable
+      accounts={d.accounts} used={new Set(d.entries.map((e) => e.account_id))} may={can('cty.chart')}
+      note={t3('يحفظ قيّم البلد الدليل ويرسله مع ملف الرجوع (لاحقاً الإقليم).', 'The country econome keeps the chart and sends it with the return file (later the Province).', "L'économe du pays tient le plan et l'envoie avec le fichier de retour (plus tard la Province).")}
+      save={async (account, reason) => { await s.api.call('cty.account.save', { account, reason }); await reload(); }}
+    />
+  );
+}
+
+/** The chart of codes as a table; editable when `may`. */
+export function ChartTable({ accounts, used, may, note, save: send }: {
+  accounts: CtyAccount[]; used: Set<number | null>; may: boolean; note?: string;
+  save: (account: AccountInput, reason: string | null) => Promise<void>;
+}) {
+  const d = { accounts };
   const [edit, setEdit] = useState<AccountInput | null>(null);
   const [filter, setFilter] = useState('');
-  const may = can('cty.chart');
   const depth = (a: CtyAccount) => { let n = 0; for (let p = a.parent_id; p != null; p = d.accounts.find((x) => x.id === p)?.parent_id ?? null) n++; return n; };
-  const used = new Set(d.entries.map((e) => e.account_id));
   const word = filter.trim().toLowerCase();
   const shown = d.accounts.filter((a) => !word || [a.code, a.name_en, a.name_fr, a.name_ar].join(' ').toLowerCase().includes(word));
 
@@ -26,8 +40,7 @@ export function Chart() {
       if (!reason) return;
     }
     try {
-      await s.api.call('cty.account.save', { account: edit, reason });
-      await reload();
+      await send(edit, reason);
       setEdit(null);
       toast(t3('حُفظ ✓', 'Saved ✓', 'Enregistré ✓'));
     } catch (e) { toast(errText(e), true); }
@@ -39,7 +52,8 @@ export function Chart() {
         <h1>{t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes')}</h1>
         <input placeholder={t3('بحث…', 'Search…', 'Chercher…')} value={filter} onChange={(e) => setFilter(e.target.value)} />
       </div>
-      {!may && <p className="muted">{t3('للقراءة فقط.', 'Read only.', 'Lecture seule.')}</p>}
+      {note && <p className="muted">{note}</p>}
+      {!may && <p className="muted small">{t3('للقراءة فقط.', 'Read only.', 'Lecture seule.')}</p>}
       <p className="muted small">P = {t3('دفتر شخصي والبيت', 'personal book and house', 'compte personnel et maison')} · H = {t3('البيت فقط', 'house only', 'maison seulement')}</p>
       <div className="cty-card desk-scroll">
         <table className="desk-table">

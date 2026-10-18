@@ -35,6 +35,8 @@ beforeAll(async () => {
     ctx[p.name] = { db, profile: (await loadProfile(db, p.id))!, who: p.name, install: 'office', files };
   }
   books = await loadBooks(db);
+  // these tests close month by month (a quarter is tried on its own below)
+  await runOp(ctx.Paul, 'cty.settings.save', { closePeriod: 'month' });
   const accounts = await loadAccounts(db);
   code = (c) => accounts.find((a) => a.code === c)!.id;
 });
@@ -52,7 +54,7 @@ describe('setup', () => {
     for (const a of accounts) expect(a.name_en && a.name_fr && a.name_ar).toBeTruthy();
   });
   it('the books and who keeps them', () => {
-    expect(books.map((b) => b.cty_kind).sort()).toEqual(['bank', 'cash', 'economat', 'house', 'personal', 'personal', 'personal']);
+    expect(books.map((b) => b.cty_kind).sort()).toEqual(['cash', 'economat', 'house', 'personal', 'personal', 'personal']); // no bank unless the community has one
     expect(ctx.Marc.profile.books).toEqual(expect.arrayContaining([bookOf('Marc'), books.find((b) => b.cty_kind === 'house')!.id]));
     expect(ctx.Paul.profile.perms).toEqual(expect.arrayContaining(['users.manage', 'cty.write_all', 'cty.month_seen']));
     expect(ctx.Jean.profile.perms).toEqual(['book.own']);
@@ -143,21 +145,10 @@ describe('money from the econome, exchange, end of the month', () => {
   });
 });
 
-describe('the chart can change later (Province econome)', () => {
-  it('a code changes: past entries follow', async () => {
-    const before = (await loadEntries(db)).filter((e) => e.account_id === code('61402')).length;
+describe('the chart of codes is kept by the country econome', () => {
+  it('a community econome cannot change it', async () => {
     const a = (await loadAccounts(db)).find((x) => x.code === '61402')!;
-    await expect(run('Jean', 'cty.account.save', { account: { ...a, code: '61406' }, reason: 'x' })).rejects.toThrow(/Not allowed/);
-    await run('Paul', 'cty.account.save', { account: { ...a, code: '61406' }, reason: 'new Province chart' });
-    const now = (await loadAccounts(db)).find((x) => x.id === a.id)!;
-    expect(now.code).toBe('61406');
-    expect((await loadEntries(db)).filter((e) => e.account_id === a.id).length).toBe(before);
-  });
-  it('a line is added under a heading', async () => {
-    await expect(run('Paul', 'cty.account.save', { account: { code: '61303', parent_id: code('61300'), name_en: 'x', name_fr: 'x', name_ar: 'x' } })).rejects.toThrow(/already used/);
-    await run('Paul', 'cty.account.save', { account: { code: '61304', parent_id: code('61300'), name_en: 'Haircut', name_fr: 'Coiffeur', name_ar: 'حلاقة' } });
-    const added = (await loadAccounts(db)).find((x) => x.code === '61304')!;
-    expect([added.type, added.scope]).toEqual(['Exp', 'P']);
+    await expect(run('Paul', 'cty.account.save', { account: { ...a, code: '61406' }, reason: 'x' })).rejects.toThrow(/Not allowed/);
   });
 });
 
@@ -279,5 +270,66 @@ describe('what a book holds at the start', () => {
     const cash = (await loadBooks(db)).find((b) => b.id === cashId)!;
     expect([cash.opening_syp, cash.opening_usd]).toEqual([5000000, 400]);
     await expect(run('Paul', 'cty.book.opening', { bookId: bookOf('Jean'), opening: { LOC: 1, USD: 0, EUR: 0 }, reason: 'x' })).rejects.toThrow(/closed month/);
+  });
+});
+
+describe('people and roles change during the year (the Superior)', () => {
+  it('a Jesuit becomes econome instead of another: books follow, he sees all the old records', async () => {
+    const people = (await run('Paul', 'cty.people', undefined)) as { id: number; name: string; roles: string[] }[];
+    const jean = people.find((p) => p.name === 'Jean')!;
+    const paul = people.find((p) => p.name === 'Paul')!;
+    await expect(run('Jean', 'cty.person.save', { id: jean.id, name: 'Jean', roles: ['econome'] })).rejects.toThrow(/Not allowed/);
+    await expect(run('Paul', 'cty.person.save', { id: paul.id, name: 'Paul', roles: ['econome'] })).rejects.toThrow(/Superior/);
+    await run('Paul', 'cty.person.save', { id: jean.id, name: 'Jean', roles: ['econome'] });
+    await run('Paul', 'cty.person.save', { id: paul.id, name: 'Paul', roles: ['superior'] });
+    const jeanNow = (await loadProfile(db, jean.id))!;
+    const cashId = (await loadBooks(db)).find((b) => b.cty_kind === 'cash')!.id;
+    expect(jeanNow.books).toContain(cashId);
+    expect((await loadProfile(db, paul.id))!.books).not.toContain(cashId);
+    const ctxJean = { ...ctx.Jean, profile: jeanNow };
+    const seen = (await runOp(ctxJean, 'cty.data', undefined)) as CtyData;
+    expect(seen.entries.some((e) => e.book_id === bookOf('Marc'))).toBe(true); // the old records of others
+  });
+  it('a new Jesuit arrives (password to change at first sign-in), another leaves', async () => {
+    await expect(run('Paul', 'cty.person.save', { name: 'Luc', roles: [], password: '123' })).rejects.toThrow(/6 characters/);
+    await run('Paul', 'cty.person.save', { name: 'Luc', roles: [], password: 'luc-pass-1', hasBank: true });
+    const people = (await run('Paul', 'cty.people', undefined)) as { id: number; name: string; hasBank: boolean; mustChange: number; active: number }[];
+    const luc = people.find((p) => p.name === 'Luc')!;
+    expect([luc.hasBank, luc.mustChange]).toEqual([true, 1]);
+    const kinds = (await loadProfile(db, luc.id))!.books.map((id) => books.concat([]).find((b) => b.id === id)?.cty_kind ?? 'new');
+    expect(kinds.length).toBe(2);
+    await run('Paul', 'cty.person.save', { id: luc.id, name: 'Luc', roles: [], active: 0 });
+    expect(await loadProfile(db, luc.id)).toBeNull();
+  });
+  it('the community can have a bank (or not); closing by quarter by default', async () => {
+    let d = (await run('Paul', 'cty.data', undefined)) as CtyData;
+    expect([d.settings.hasBank, d.settings.closePeriod]).toEqual([false, 'month']); // set to month for this file
+    await run('Paul', 'cty.settings.save', { hasBank: true, closePeriod: 'month', notes: { LOC: [100, 500, 50], USD: [100, 20], EUR: [50] } });
+    d = (await run('Paul', 'cty.data', undefined)) as CtyData;
+    expect([d.settings.hasBank, d.settings.closePeriod, d.settings.notes.LOC]).toEqual([true, 'month', [500, 100, 50]]);
+    expect(d.books.some((b) => b.cty_kind === 'bank' && b.active)).toBe(true);
+    await run('Paul', 'cty.settings.save', { hasBank: false, closePeriod: 'quarter' });
+  });
+});
+
+describe('closing by quarter (the default)', () => {
+  it('one count at the end of the quarter closes its three months; the community closes the quarter', async () => {
+    const q = nodeDb();
+    await createCommunity(q, { community: 'Q', country: 'Syria', localCurrency: 'SYP', people: [
+      { name: 'S', password: 'test-pass-1', roles: ['superior', 'econome', 'minister'] }, { name: 'J', password: 'test-pass-2', roles: [] },
+    ] });
+    const P: Record<string, OpCtx> = {};
+    for (const p of await q.query<{ id: number; name: string }>('SELECT id, name FROM profile')) P[p.name] = { db: q, profile: (await loadProfile(q, p.id))!, who: p.name, install: 'office', files };
+    expect(((await runOp(P.S, 'cty.data', undefined)) as CtyData).settings.closePeriod).toBe('quarter');
+    const jb = (await loadBooks(q)).find((b) => b.name === 'J')!;
+    const food = (await loadAccounts(q)).find((a) => a.code === '61101')!.id;
+    await runOp(P.J, 'cty.entry.save', { entry: { book_id: jb.id, date: '2025-10-05', type: 'Exp', account_id: food, cur: 'LOC', amount: 100 } });
+    await runOp(P.J, 'cty.entry.save', { entry: { book_id: jb.id, date: '2025-12-05', type: 'Exp', account_id: food, cur: 'LOC', amount: 50 } });
+    await runOp(P.J, 'cty.month.close', { bookId: jb.id, ym: '2025-11', counted: { LOC: -150, USD: 0, EUR: 0 }, detail: { LOC: { '50': 0 } } });
+    const ms = (await q.query<{ ym: string; counted_loc: number | null }>('SELECT ym, counted_loc FROM cty_month WHERE book_id = ? ORDER BY ym', [jb.id]));
+    expect(ms).toEqual([{ ym: '2025-10', counted_loc: null }, { ym: '2025-11', counted_loc: null }, { ym: '2025-12', counted_loc: -150 }]);
+    await expect(runOp(P.J, 'cty.entry.save', { entry: { book_id: jb.id, date: '2025-11-20', type: 'Exp', account_id: food, cur: 'LOC', amount: 1 } })).rejects.toThrow(/closed/);
+    await runOp(P.S, 'cty.community.close', { ym: '2025-10' });
+    expect((await q.query<{ ym: string }>('SELECT ym FROM closed_month ORDER BY ym')).map((r) => r.ym)).toEqual(['2025-10', '2025-11', '2025-12']);
   });
 });

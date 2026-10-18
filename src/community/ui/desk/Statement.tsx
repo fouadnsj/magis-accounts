@@ -21,7 +21,7 @@ export function Statement() {
   return (
     <>
       <div className="desk-head"><h1>{t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat")}</h1></div>
-      <p className="muted">{d.lastReturnAt ? `${t3('كما أرسله مدبّر البلد في', 'As the country econome sent it on', "Tel que l'économe du pays l'a envoyé le")} ${d.lastReturnAt.slice(0, 10)}.` : t3('لم يصل ملف رجوع بعد (صفحة «شهر الجماعة»).', "No return file yet (page “Consolidated month”).", 'Pas encore de fichier de retour (page « Mois consolidé »).')}</p>
+      <p className="muted">{d.lastReturnAt ? `${t3('كما أرسله قيّم البلد في', 'As the country econome sent it on', "Tel que l'économe du pays l'a envoyé le")} ${d.lastReturnAt.slice(0, 10)}.` : t3('لم يصل ملف رجوع بعد (صفحة «شهر الجماعة»).', "No return file yet (page “Consolidated month”).", 'Pas encore de fichier de retour (page « Mois consolidé »).')}</p>
       <div className="desk-cards">
         {CURS.filter((c) => c === 'LOC' || total[c]).map((c) => (
           <div key={c} className="cty-card desk-card">

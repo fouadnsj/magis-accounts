@@ -18,13 +18,14 @@ export type CtyRole = 'jesuit' | 'minister' | 'econome' | 'superior';
 export const ROLE_PERMS: Record<CtyRole, Perm[]> = {
   jesuit: ['book.own'],
   minister: ['book.own'],
-  econome: ['book.own', 'cty.view_all', 'cty.write_all', 'cty.limits', 'cty.chart', 'month.close', 'data.backup', 'data.export', 'data.import', 'audit.view'],
+  // the chart of codes is kept by the country econome (cty.chart stays for a community that would need it)
+  econome: ['book.own', 'cty.view_all', 'cty.write_all', 'cty.limits', 'month.close', 'data.backup', 'data.export', 'data.import', 'audit.view'],
   superior: ['book.own', 'cty.view_all', 'cty.month_seen', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'],
 };
 export const ROLE_NAME: Record<CtyRole, string> = {
   jesuit: 'يسوعي · Jesuit · Jésuite',
-  minister: 'الوزير · Minister · Ministre',
-  econome: 'المدبّر · Econome · Économe',
+  minister: 'المدبّر · Minister · Ministre',
+  econome: 'القيّم · Econome · Économe',
   superior: 'الرئيس · Superior · Supérieur',
 };
 const ORDER: CtyRole[] = ['superior', 'econome', 'minister', 'jesuit'];
@@ -44,10 +45,12 @@ export interface CommunitySetup {
   people: CtyPerson[];
   /** each person changes his password at the first sign-in (default yes; the browser demo says no) */
   mustChange?: boolean;
+  /** the community has a bank account (default no: in Syria there is usually none) */
+  hasBank?: boolean;
 }
 
 /** The permission profile of a set of roles: found, or made once (e.g. "Superior · Econome"). */
-async function accessFor(db: Db, roles: CtyRole[]): Promise<number> {
+export async function accessFor(db: Db, roles: CtyRole[]): Promise<number> {
   const rs = ORDER.filter((r) => roles.includes(r));
   const name = rs.map((r) => ROLE_NAME[r]).join(' + ');
   const found = await one<{ id: number }>(db, 'SELECT id FROM access_profile WHERE name = ?', [name]);
@@ -55,6 +58,15 @@ async function accessFor(db: Db, roles: CtyRole[]): Promise<number> {
   const perms = [...new Set(rs.flatMap((r) => ROLE_PERMS[r]))];
   await db.batch([{ sql: 'INSERT INTO access_profile (name, perms, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile))', params: [name, JSON.stringify(perms)] }]);
   return (await one<{ id: number }>(db, 'SELECT id FROM access_profile WHERE name = ?', [name]))!.id;
+}
+
+/** The chart of codes as it starts (compt1 with Fouad's corrections), in the order of the sheet. */
+export function chartSeedStmts(): Stmt[] {
+  return CHART.map((a, i) => ({
+    sql: `INSERT INTO cty_account (uid, code, parent_id, type, name_en, name_fr, name_ar, scope, claim, sort)
+          VALUES (?, ?, (SELECT id FROM cty_account WHERE code = ?), ?, ?, ?, ?, ?, ?, ?)`,
+    params: [`c${a.code}`, a.code, a.parent, a.type, a.en, a.fr, a.ar, a.scope, a.claim ?? null, i + 1],
+  }));
 }
 
 export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> {
@@ -67,8 +79,8 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
   const roles = s.people.flatMap((p) => p.roles);
   const need: [CtyRole, ReturnType<typeof m>][] = [
     ['superior', m('من هو الرئيس؟', 'Who is the Superior?', 'Qui est le Supérieur ?')],
-    ['econome', m('من هو المدبّر؟', 'Who is the econome?', "Qui est l'économe ?")],
-    ['minister', m('من هو الوزير؟', 'Who is the minister?', 'Qui est le ministre ?')],
+    ['econome', m('من هو القيّم؟', 'Who is the econome?', "Qui est l'économe ?")],
+    ['minister', m('من هو المدبّر؟', 'Who is the minister?', 'Qui est le ministre ?')],
   ];
   for (const [r, msg] of need) if (!roles.includes(r)) throw new UserError(msg);
 
@@ -85,19 +97,14 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
     setMetaStmt('created_at', nowIso()),
     // the limits Fouad gave (18 October 2026); the econome changes them
     ...saveLimitsStmts(DEFAULT_LIMITS),
+    { sql: "INSERT INTO setting (key, value) VALUES ('cty_has_bank', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params: [s.hasBank ? '1' : '0'] },
   ];
-  // the chart of codes, in the order of the sheet
-  CHART.forEach((a, i) => {
-    stmts.push({
-      sql: `INSERT INTO cty_account (code, parent_id, type, name_en, name_fr, name_ar, scope, claim, sort)
-            VALUES (?, (SELECT id FROM cty_account WHERE code = ?), ?, ?, ?, ?, ?, ?, ?)`,
-      params: [a.code, a.parent, a.type, a.en, a.fr, a.ar, a.scope, a.claim ?? null, i + 1],
-    });
-  });
+  // the chart of codes (the country econome's one replaces it with the first return file)
+  stmts.push(...chartSeedStmts());
   // the econome's books and the house book
   const shared: [string, string][] = [
     ['Cash · الصندوق · Caisse', 'cash'],
-    ['Bank · المصرف · Banque', 'bank'],
+    ...(s.hasBank ? ([['Bank · المصرف · Banque', 'bank']] as [string, string][]) : []),
     ['Économat · الإيكونوماتو · Économat', 'economat'],
     ['House · البيت · Maison', 'house'],
   ];
@@ -112,6 +119,7 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
     await db.batch([
       { sql: 'INSERT INTO book (name, keeper_name, cty_kind, is_main, sort) VALUES (?, ?, ?, 0, ?)', params: [p.name.trim(), p.name.trim(), 'personal', 10 + i] },
       await profileStmt({ name: p.name, role, pin: p.password, access_id: access }),
+      { sql: 'UPDATE profile SET cty_roles = ? WHERE id = (SELECT MAX(id) FROM profile)', params: [JSON.stringify(p.roles)] },
       ...(s.mustChange !== false ? [{ sql: 'UPDATE profile SET must_change = 1 WHERE id = (SELECT MAX(id) FROM profile)' }] : []),
       { sql: "INSERT INTO user_book (profile_id, book_id) SELECT (SELECT MAX(id) FROM profile), (SELECT MAX(id) FROM book WHERE cty_kind = 'personal')" },
       ...(p.roles.includes('minister') ? [{ sql: "INSERT INTO user_book (profile_id, book_id) SELECT (SELECT MAX(id) FROM profile), id FROM book WHERE cty_kind = 'house'" }] : []),

@@ -45,11 +45,11 @@ export function SendMonth() {
       const f = await s.api.call('cty.month.file', { ym });
       const name = `${(f.community.name || 'community').replace(/[^\w؀-ۿ -]/g, '').trim()}-${ym}.json`;
       await saveFile(name, ['json'], new TextEncoder().encode(JSON.stringify(f, null, 1)), name);
-      toast(t3('الملف جاهز: أرسله إلى مدبّر البلد', 'The file is ready: send it to the country econome', "Le fichier est prêt : envoyez-le à l'économe du pays"));
+      toast(t3('الملف جاهز: أرسله إلى قيّم البلد', 'The file is ready: send it to the country econome', "Le fichier est prêt : envoyez-le à l'économe du pays"));
     } catch (e) { toast(errText(e), true); }
   };
   const bringReturn = async () => {
-    const f = await pickFile(['json'], t3('ملف الرجوع من مدبّر البلد', "The country econome's return file", "Le fichier de retour de l'économe du pays"));
+    const f = await pickFile(['json'], t3('ملف الرجوع من قيّم البلد', "The country econome's return file", "Le fichier de retour de l'économe du pays"));
     if (!f) return;
     try {
       const r = await s.api.call('cty.return.import', { file: JSON.parse(new TextDecoder().decode(f.bytes)) as ReturnFile });
@@ -98,7 +98,7 @@ export function SendMonth() {
               <thead><tr><th /><th /><th className="num">{curName('LOC', d.local)}</th><th className="num">$</th><th className="num">€</th></tr></thead>
               <tbody>
                 <Line label={t3('رصيد سابق', 'Carried over', 'Report')} v={file.cash.carried} />
-                <Line label={t3('من المدبّر', 'Received from the econome', "Reçu de l'économe")} v={file.cash.received} />
+                <Line label={t3('من القيّم', 'Received from the econome', "Reçu de l'économe")} v={file.cash.received} />
                 <tr className="fdc-part"><td colSpan={5}>{t3('الدخل والنفقات حسب الرمز', 'Income and expenses by code', 'Revenus et dépenses par code')}</td></tr>
                 {codes.map((k) => (
                   <tr key={k}><td className="muted small">{k}</td><td>{accName(accByCode.get(k))}</td>{CURS.map((c) => <td key={c} className="num">{file.totals[k][c] ? money(file.totals[k][c], c) : ''}</td>)}</tr>
@@ -106,9 +106,9 @@ export function SendMonth() {
                 {codes.length === 0 && <tr><td /><td className="muted">{t3('لا شيء هذا الشهر.', 'Nothing this month.', 'Rien ce mois-ci.')}</td><td /><td /><td /></tr>}
                 <Line label={t3('مجموع الدخل', 'Total income', 'Total revenus')} v={file.cash.income} cls="fdc-total" />
                 <Line label={t3('مجموع النفقات', 'Total expenses', 'Total dépenses')} v={file.cash.expenses} cls="fdc-total" />
-                <Line label={t3('أعيد إلى المدبّر', 'Given back to the econome', "Rendu à l'économe")} v={file.cash.givenBack} />
+                <Line label={t3('أعيد إلى القيّم', 'Given back to the econome', "Rendu à l'économe")} v={file.cash.givenBack} />
                 <Line label={t3('في أيدي الأعضاء والبيت', 'Held by the members and the house', 'Gardé par les membres et la maison')} v={file.cash.kept} cls="fdc-total" />
-                <tr className="fdc-part"><td colSpan={5}>{t3('دفاتر المدبّر في آخر الشهر', "The econome's books at the end of the month", "Les comptes de l'économe en fin de mois")}</td></tr>
+                <tr className="fdc-part"><td colSpan={5}>{t3('دفاتر القيّم في آخر الشهر', "The econome's books at the end of the month", "Les comptes de l'économe en fin de mois")}</td></tr>
                 <Line label={t3('الصندوق', 'Cash', 'Caisse')} v={file.books.cash} />
                 <Line label={t3('المصرف', 'Bank', 'Banque')} v={file.books.bank} />
                 <Line label={t3('الإيكونوماتو', 'Économat', 'Économat')} v={file.books.economat} />
@@ -127,7 +127,7 @@ export function SendMonth() {
               </tbody>
             </table>
             {!closed && can('month.close') && <button className="btn primary cty-wide" disabled={!allClosed} onClick={closeIt}>{t3('أغلق شهر الجماعة', "Close the community's month", 'Clôturer le mois de la communauté')}</button>}
-            {closed && can('month.close') && <button className="btn primary cty-wide" onClick={makeFile}>{t3('اصنع الملف لمدبّر البلد', 'Make the file for the country econome', "Faire le fichier pour l'économe du pays")}</button>}
+            {closed && can('month.close') && <button className="btn primary cty-wide" onClick={makeFile}>{t3('اصنع الملف لقيّم البلد', 'Make the file for the country econome', "Faire le fichier pour l'économe du pays")}</button>}
             <p className="muted small">{t3('الملف فيه المجاميع حسب الرمز فقط، لا تفاصيل أي يسوعي.', "The file holds totals by code only, no Jesuit's detail.", "Le fichier ne contient que des totaux par code, aucun détail d'un jésuite.")}</p>
           </div>
           {file && file.claims.length > 0 && (
@@ -144,7 +144,7 @@ export function SendMonth() {
           )}
           {can('month.close') && (
             <div className="cty-card">
-              <div className="cty-label">{t3('من مدبّر البلد', 'From the country econome', "De l'économe du pays")}</div>
+              <div className="cty-label">{t3('من قيّم البلد', 'From the country econome', "De l'économe du pays")}</div>
               <p className="muted small">{d.lastReturnAt ? `${t3('آخر ملف رجوع', 'Last return file', 'Dernier fichier de retour')}: ${d.lastReturnAt.slice(0, 10)}` : t3('لم يصل ملف رجوع بعد.', 'No return file yet.', 'Pas encore de fichier de retour.')}</p>
               <button className="btn" onClick={bringReturn}>{t3('أدخل ملف الرجوع…', 'Bring in the return file…', 'Importer le fichier de retour…')}</button>
             </div>

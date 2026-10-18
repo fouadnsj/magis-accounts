@@ -8,10 +8,12 @@ import type { CtyType, Scope, ClaimReason } from './chart';
 export type Cur = 'LOC' | 'USD' | 'EUR';
 export const CURS: readonly Cur[] = ['LOC', 'USD', 'EUR'];
 export type EntryType = 'Income' | 'Exp' | 'Transfer' | 'Exchange';
-export type BookKind = 'personal' | 'house' | 'cash' | 'bank' | 'economat';
+export type BookKind = 'personal' | 'personal_bank' | 'house' | 'cash' | 'bank' | 'economat';
 
 export interface CtyAccount {
   id: number;
+  /** the same line everywhere (country, communities), whatever its code */
+  uid: string;
   code: string;
   parent_id: number | null;
   type: CtyType;
@@ -173,6 +175,14 @@ export const prevMonth = (ym: string) => {
   return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, '0')}`;
 };
 export const lastDay = (ym: string) => `${ym}-31`;
+/** The months closed together: the quarter of that month (T1 = Oct–Dec…), or the month alone. */
+export function periodMonths(ym: string, period: 'quarter' | 'month'): string[] {
+  if (period === 'month') return [ym];
+  const y = Number(ym.slice(0, 4));
+  const mo = Number(ym.slice(5, 7));
+  const first = mo >= 10 ? 10 : Math.floor((mo - 1) / 3) * 3 + 1;
+  return [0, 1, 2].map((i) => `${y}-${String(first + i).padStart(2, '0')}`);
+}
 
 // ---------------------------------------------------------------- the monthly sheet (FDC)
 

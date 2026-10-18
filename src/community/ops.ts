@@ -431,6 +431,24 @@ async function readNotes(c: OpCtx, a: { ids: string[] }) {
   if (stmts.length) await c.db.batch(stmts);
 }
 
+// ---------------------------------------------------------------- what a book holds at the start
+
+/** What a book held before its first entry (the cash, the bank… when the program starts). */
+async function setOpening(c: OpCtx, a: { bookId: number; opening: Money; reason: string }) {
+  await requireCommunity(c.db);
+  const book = (await loadBooks(c.db)).find((b) => b.id === a.bookId);
+  if (!book) throw new UserError(m('الدفتر غير موجود', 'Unknown book', 'Compte inconnu'));
+  const reason = (a.reason ?? '').trim();
+  if (!reason) throw new UserError(m('اكتب السبب', 'Write the reason', 'Écrivez la raison'));
+  if (await one(c.db, 'SELECT 1 AS x FROM cty_month WHERE book_id = ?', [a.bookId])) throw new UserError(m('في هذا الدفتر شهر مغلق: أعد فتحه أولاً', 'This book has a closed month: reopen it first', 'Ce compte a un mois clôturé : rouvrez-le d\u2019abord'));
+  const v = CURS.map((k) => Number(a.opening?.[k] ?? 0));
+  if (v.some((x) => !Number.isFinite(x) || !cents(x))) throw new UserError(m('مبلغ غير صالح', 'Invalid amount', 'Montant invalide'));
+  await c.db.batch([
+    { sql: 'UPDATE book SET opening_syp = ?, opening_usd = ?, opening_eur = ? WHERE id = ?', params: [...v, a.bookId] },
+    auditStmt(c.who, 'edit', 'book', String(a.bookId), { opening: [book.opening_syp, book.opening_usd, book.opening_eur] }, { opening: v, reason }),
+  ]);
+}
+
 // ---------------------------------------------------------------- the operations
 
 async function data(c: OpCtx): Promise<CtyData> {
@@ -469,6 +487,7 @@ export const CTY_OPS = {
   'cty.month.reopen': { check: (c: OpCtx) => need(c, 'month.reopen'), run: (c: OpCtx, a: { bookId: number; ym: string; reason: string }) => reopenMonth(c, a) },
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
   'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },
+  'cty.book.opening': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; opening: Money; reason: string }) => setOpening(c, a) },
   'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
   'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
   'cty.note.add': { check: anyone, run: (c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) => addNote(c, a) },

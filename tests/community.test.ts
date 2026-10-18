@@ -269,3 +269,15 @@ describe("the Superior's approval above a limit, and his private notes", () => {
     expect(audit.some((a) => a.after.includes('doctor'))).toBe(false);
   });
 });
+
+describe('what a book holds at the start', () => {
+  it('only the econome sets it, with a reason; a book with a closed month refuses', async () => {
+    const cashId = books.find((b) => b.cty_kind === 'cash')!.id;
+    await expect(run('Jean', 'cty.book.opening', { bookId: cashId, opening: { LOC: 5000000, USD: 400, EUR: 0 }, reason: 'start' })).rejects.toThrow(/Not allowed/);
+    await expect(run('Paul', 'cty.book.opening', { bookId: cashId, opening: { LOC: 5000000, USD: 400, EUR: 0 }, reason: '' })).rejects.toThrow(/reason/);
+    await run('Paul', 'cty.book.opening', { bookId: cashId, opening: { LOC: 5000000, USD: 400, EUR: 0 }, reason: 'start of the program' });
+    const cash = (await loadBooks(db)).find((b) => b.id === cashId)!;
+    expect([cash.opening_syp, cash.opening_usd]).toEqual([5000000, 400]);
+    await expect(run('Paul', 'cty.book.opening', { bookId: bookOf('Jean'), opening: { LOC: 1, USD: 0, EUR: 0 }, reason: 'x' })).rejects.toThrow(/closed month/);
+  });
+});

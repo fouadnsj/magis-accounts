@@ -1,0 +1,57 @@
+/* The econome's desk (computer layout): a menu on the side, wide tables. */
+.cty.desk { display: grid; grid-template-columns: 220px 1fr; padding-bottom: 0; }
+.desk-side { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: #3d2f0c; color: #fff; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
+.desk-org { display: flex; flex-direction: column; padding: 4px 10px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.15); margin-bottom: 8px; }
+.desk-org span { font-size: 12px; opacity: 0.75; }
+.desk-side button { background: none; border: 0; color: #fff; text-align: start; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font: inherit; }
+.desk-side button:hover { background: rgba(255, 255, 255, 0.1); }
+.desk-side button.on { background: #B8891B; font-weight: 650; }
+.desk-spacer { flex: 1; }
+.cty-badge.static { position: static; }
+.desk-main { padding: 18px 26px 60px; min-width: 0; }
+.desk-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.desk-head h1 { font-size: 22px; color: #3d2f0c; margin: 0; }
+.desk-head input { padding: 7px 10px; border: 1px solid #ece6d8; border-radius: 8px; }
+.desk-narrow { max-width: 600px; }
+.desk-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.desk-filters select, .desk-filters input { padding: 7px 10px; border: 1px solid #ece6d8; border-radius: 8px; background: #fff; }
+.desk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 4px; }
+.desk-card { margin: 0; text-align: start; font: inherit; }
+.desk-card.click { cursor: pointer; }
+.desk-card.click:hover { border-color: #B8891B; }
+.desk-bal b { font-size: 20px; color: #3d2f0c; font-variant-numeric: tabular-nums; }
+.desk-todo ul { margin: 0; padding-inline-start: 20px; }
+.desk-todo li { margin: 3px 0; }
+.desk-alert { color: var(--err); }
+.desk-scroll { overflow-x: auto; }
+.desk-two { display: grid; grid-template-columns: minmax(0, 3fr) minmax(260px, 2fr); gap: 14px; align-items: start; }
+.desk-two .cty-card { margin-top: 0; }
+
+.desk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.desk-table th { text-align: start; font-weight: 600; color: var(--muted); border-bottom: 2px solid #ece6d8; padding: 6px 8px; white-space: nowrap; }
+.desk-table td { border-bottom: 1px solid #f3efe5; padding: 6px 8px; vertical-align: top; }
+.desk-table .num { text-align: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.desk-table td.out { color: #B5521A; }
+.desk-table td.in { color: #2A6FB0; }
+.desk-table tr.click { cursor: pointer; }
+.desk-table tr.click:hover td { background: #fffaf0; }
+.desk-table tfoot td { font-weight: 650; border-top: 2px solid #ece6d8; border-bottom: 0; }
+.desk-table tr.off td { color: #b0a890; text-decoration: line-through; }
+.desk-note { max-width: 260px; color: var(--muted); }
+.desk-table .ok { color: var(--ok); }
+.fdc .fdc-part td, .desk-table .fdc-part td { background: #f7f2e4; font-weight: 650; color: #3d2f0c; }
+.desk-table .fdc-total td { font-weight: 650; }
+.desk-table .fdc-head td { font-weight: 600; background: #fcfaf4; }
+.desk-table .fdc-line td:nth-child(2) { padding-inline-start: 22px; color: #444; }
+
+/* on the desk, the entry sheet opens as a panel on the right */
+@media (min-width: 1000px) {
+  .cty-sheet { inset: 0 0 0 auto; width: 520px; box-shadow: -8px 0 30px rgba(0, 0, 0, 0.18); border-inline-start: 1px solid #ece6d8; }
+  [dir='rtl'] .cty-sheet { inset: 0 auto 0 0; }
+}
+
+@media print {
+  .desk-side, .desk-head .row, .desk-filters, .cty-plus, .cty-bar { display: none !important; }
+  .cty.desk { display: block; }
+  .desk-two { display: block; }
+}

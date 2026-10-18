@@ -16,6 +16,8 @@ export interface EntryStart {
   kind: EntryType;
   /** an existing entry, to change or delete */
   edit?: CtyEntry;
+  /** a new entry in this book (the econome's desk); otherwise the book on screen */
+  bookId?: number;
 }
 
 const ICONS: [string, string][] = [
@@ -62,8 +64,9 @@ export function offered(accounts: CtyAccount[], book: CtyBook, type: 'Income' | 
 }
 
 export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () => void }) {
-  const { d, book, s, reload } = useCty();
+  const { d, book: shown, s, reload } = useCty();
   const edit = start.edit;
+  const book = d.books.find((b) => b.id === (edit?.book_id ?? start.bookId)) ?? shown;
   const [kind, setKind] = useState<EntryType>(start.kind);
   const [stage, setStage] = useState<'amount' | 'heading' | 'line' | 'save'>(edit ? 'save' : 'amount');
   const [amount, setAmount] = useState(edit ? String(edit.amount) : '');

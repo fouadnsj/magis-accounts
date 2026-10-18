@@ -15,7 +15,9 @@ import { LookBack } from './LookBack';
 import { NotesScreen } from './Notes';
 import { Approvals } from './Approvals';
 import { SettingsScreen } from './Settings';
+import { Desk } from './desk/Desk';
 import './cty.css';
+import './desk/desk.css';
 
 export type View = 'month' | 'look' | 'notes' | 'approvals' | 'settings';
 
@@ -87,6 +89,12 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   }, [d]);
   const book = myBooks.find((b) => b.id === bookId) ?? myBooks[0];
   const can = useCallback((p: Perm) => has(session.profile, p), [session]);
+  // the computer layout: for those who see every book (econome, Superior), on a wide screen,
+  // unless the person chose the phone view
+  const wide = useWide();
+  const [phoneView, setPhoneView] = useState(() => { try { return localStorage.getItem('cty-phone-view') === '1'; } catch { return false; } });
+  const choosePhone = (v: boolean) => { setPhoneView(v); try { localStorage.setItem('cty-phone-view', v ? '1' : '0'); } catch { /* no storage */ } };
+  const desk = wide && !phoneView && has(session.profile, 'cty.view_all');
 
   if (err && !d) return <div className="cty"><div className="cty-page"><div className="alert err">{err}</div><button className="btn" onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button></div></div>;
   if (!d) return <div className="cty"><div className="cty-page muted">…</div></div>;
@@ -106,6 +114,14 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
     go: setView,
   };
   const approver = can('cty.month_seen');
+
+  if (desk)
+    return (
+      <CtyCtx.Provider value={ctx}>
+        <Desk onPhone={() => choosePhone(true)} onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />
+        {sheet && <EntrySheet start={sheet} onClose={() => setSheet(null)} />}
+      </CtyCtx.Provider>
+    );
 
   return (
     <CtyCtx.Provider value={ctx}>
@@ -131,6 +147,9 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
           {view === 'notes' && <NotesScreen />}
           {view === 'approvals' && approver && <Approvals />}
           {view === 'settings' && <SettingsScreen onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />}
+          {view === 'settings' && wide && can('cty.view_all') && (
+            <button className="btn cty-wide" onClick={() => choosePhone(false)}>🖥 {t3('عرض الحاسوب', 'Computer view', 'Vue ordinateur')}</button>
+          )}
         </main>
         {view !== 'settings' && (
           <button className="cty-plus" onClick={() => setSheet({ kind: 'Exp' })} aria-label={t3('صرفتُ', 'I spent', "J'ai dépensé")}>＋</button>
@@ -145,6 +164,19 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
       </div>
     </CtyCtx.Provider>
   );
+}
+
+/** A screen at least 1000 px wide (a computer). */
+function useWide() {
+  const q = '(min-width: 1000px)';
+  const [w, setW] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const on = () => setW(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return w;
 }
 
 /** Expenses waiting for the Superior, as far as this person sees them. */

@@ -15,12 +15,13 @@ export async function loadLimits(db: Db): Promise<Limits> {
   const rows = await db.query<{ key: string; value: string | null }>("SELECT key, value FROM setting WHERE key LIKE 'cty_limit_%'");
   const l = noLimits();
   for (const book of ['house', 'personal'] as const) l[book] = Number(rows.find((r) => r.key === LIMIT_KEY(book))?.value ?? 0) || 0;
+  l.startRate = Number(rows.find((r) => r.key === 'cty_limit_start_rate')?.value ?? 0) || 0;
   return l;
 }
 export const saveLimitsStmts = (l: Limits): Stmt[] =>
-  (['house', 'personal'] as const).map((book) => ({
+  ([[LIMIT_KEY('house'), l.house], [LIMIT_KEY('personal'), l.personal], ['cty_limit_start_rate', l.startRate]] as const).map(([key, v]) => ({
     sql: 'INSERT INTO setting (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-    params: [LIMIT_KEY(book), String(Math.max(0, Number(l[book]) || 0))],
+    params: [key, String(Math.max(0, Number(v) || 0))],
   }));
 
 const COLS = ['id', 'n', 'book_id', 'date', 'type', 'account_id', 'cur', 'amount', 'cur2', 'amount2', 'to_book_id', 'note', 'claim', 'claim_note',

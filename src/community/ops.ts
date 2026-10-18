@@ -390,12 +390,13 @@ async function approvals(c: OpCtx): Promise<ApprovalItem[]> {
 
 async function saveLimits(c: OpCtx, a: { limits: Limits }) {
   await requireCommunity(c.db);
-  for (const book of ['house', 'personal'] as const) {
-    const x = Number(a.limits?.[book] ?? 0);
+  for (const k of ['house', 'personal', 'startRate'] as const) {
+    const x = Number(a.limits?.[k] ?? 0);
     if (!(x >= 0) || !Number.isFinite(x)) throw new UserError(m('حد غير صالح', 'Invalid limit', 'Limite invalide'));
   }
   const before = await loadLimits(c.db);
-  await c.db.batch([...saveLimitsStmts(a.limits), auditStmt(c.who, 'edit', 'setting', 'cty_limits', before, a.limits)]);
+  const limits = { ...before, ...a.limits };
+  await c.db.batch([...saveLimitsStmts(limits), auditStmt(c.who, 'edit', 'setting', 'cty_limits', before, a.limits)]);
 }
 
 /** The Superior writes a question or a comment (on a month or an entry); the Jesuit answers. */

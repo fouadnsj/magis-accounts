@@ -113,34 +113,36 @@ export function balance(entries: CtyEntry[], book: CtyBook, until: string): Mone
 export interface Limits {
   house: number;
   personal: number;
+  /** local currency for $1 until the first exchange gives the real rate (Fouad: 130 SYP) */
+  startRate: number;
 }
-export const DEFAULT_LIMITS: Limits = { house: 500, personal: 300 };
-export const noLimits = (): Limits => ({ house: 0, personal: 0 });
+export const DEFAULT_LIMITS: Limits = { house: 500, personal: 300, startRate: 130 };
+export const noLimits = (): Limits => ({ house: 0, personal: 0, startRate: 0 });
 
 /**
  * An amount in dollars, at the rate of the last exchange made up to that day (never typed).
+ * Before any exchange between pounds and dollars, the starting rate (130 SYP = $1).
  * Euros without a direct exchange to dollars go through the local currency.
- * null: no exchange yet tells the rate.
+ * null: nothing tells the rate (euros never exchanged).
  */
-export function usdValue(entries: CtyEntry[], cur: Cur, amount: number, date: string): number | null {
+export function usdValue(entries: CtyEntry[], cur: Cur, amount: number, date: string, startRate = 0): number | null {
   if (cur === 'USD') return amount;
   const direct = rateFromExchanges(entries, cur, 'USD', date);
   if (direct != null) return r2(amount * direct);
-  const other: Cur = cur === 'LOC' ? 'EUR' : 'LOC';
-  const a = rateFromExchanges(entries, cur, other, date);
-  const b = rateFromExchanges(entries, other, 'USD', date);
-  return a != null && b != null ? r2(amount * a * b) : null;
+  const locToUsd = rateFromExchanges(entries, 'LOC', 'USD', date) ?? (startRate > 0 ? 1 / startRate : null);
+  if (cur === 'LOC') return locToUsd != null ? r2(amount * locToUsd) : null;
+  const eurToLoc = rateFromExchanges(entries, 'EUR', 'LOC', date);
+  return eurToLoc != null && locToUsd != null ? r2(amount * eurToLoc * locToUsd) : null;
 }
 
 /**
- * Does this expense wait for the Superior? usd: its value in dollars (null = no rate yet).
- * Without any rate the program cannot tell: the expense waits (to be safe; the Superior
- * sees it in his list).
+ * Does this expense wait for the Superior? usd: its value in dollars (null = no rate).
+ * Without any rate (euros never exchanged) the program cannot tell: the expense waits.
  */
 export function approvalOf(e: Pick<CtyEntry, 'type' | 'cur' | 'amount' | 'date'>, book: Pick<CtyBook, 'cty_kind'> | undefined, l: Limits, entries: CtyEntry[]): { needed: boolean; usd: number | null } {
   const limit = book?.cty_kind === 'house' ? l.house : book?.cty_kind === 'personal' ? l.personal : 0;
   if (e.type !== 'Exp' || !(limit > 0)) return { needed: false, usd: null };
-  const usd = usdValue(entries, e.cur, e.amount, e.date);
+  const usd = usdValue(entries, e.cur, e.amount, e.date, l.startRate);
   return { needed: usd == null || usd >= limit, usd };
 }
 

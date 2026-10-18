@@ -198,13 +198,16 @@ describe("the Superior's approval above a limit, and his private notes", () => {
   const cash = () => bk('cash');
   const waiting = async () => (await loadEntries(db2)).filter((e) => e.approval_needed && !e.approved_at).map((e) => [e.amount, e.cur]);
 
-  it("Fouad's limits from the start: minister $500, each person $300", async () => {
-    expect(((await r2('Min', 'cty.data')) as CtyData).limits).toEqual({ house: 500, personal: 300 });
+  it("Fouad's limits from the start: minister $500, each person $300, 130 SYP = $1", async () => {
+    expect(((await r2('Min', 'cty.data')) as CtyData).limits).toEqual({ house: 500, personal: 300, startRate: 130 });
   });
-  it('without any exchange yet, the program cannot tell: a pound expense waits', async () => {
-    await r2('Min', 'cty.entry.save', exp(bk('house'), 1000));
-    expect(await waiting()).toEqual([[1000, 'LOC']]);
-    await r2('Sup', 'cty.entry.approve', { ids: [(await loadEntries(db2))[0].id] });
+  it('before any exchange, the starting rate (130 SYP = $1) decides; euros never exchanged wait', async () => {
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 64000)); // $492
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 66000)); // $507.69: waits
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 10, 'EUR'));
+    expect(await waiting()).toEqual([[66000, 'LOC'], [10, 'EUR']]);
+    const ids = (await loadEntries(db2)).filter((e) => e.approval_needed).map((e) => e.id);
+    await r2('Sup', 'cty.entry.approve', { ids });
   });
   it('the limit in dollars applies to pounds and euros at the rate of the last exchange', async () => {
     // the econome changes $100 into 1,300,000 SYP: 13,000 SYP a dollar; then €100 into 1,500,000 SYP
@@ -216,7 +219,7 @@ describe("the Superior's approval above a limit, and his private notes", () => {
     await r2('Min', 'cty.entry.save', exp(bk('house'), 400, 'EUR')); // €400 = $461.54 through the pound
     await r2('Min', 'cty.entry.save', exp(bk('personal', 'Min'), 4000000)); // $307.69 > $300: waits
     expect(await waiting()).toEqual([[7000000, 'LOC'], [4000000, 'LOC']]);
-    const eur = (await loadEntries(db2)).find((e) => e.cur === 'EUR' && e.type === 'Exp')!;
+    const eur = (await loadEntries(db2)).find((e) => e.cur === 'EUR' && e.amount === 400)!;
     expect(eur.approval_usd).toBe(461.54);
   });
   it("the Superior's list shows each waiting expense with its details and the Jesuit's note", async () => {
@@ -244,6 +247,7 @@ describe("the Superior's approval above a limit, and his private notes", () => {
     await expect(r2('Sup', 'cty.limits.save', { limits: { house: 50, personal: 50 } })).rejects.toThrow(/Not allowed/);
     await r2('Eco', 'cty.limits.save', { limits: { house: 50, personal: 50 } });
     expect(await waiting()).toEqual([[4000000, 'LOC']]);
+    expect(((await r2('Eco', 'cty.data')) as CtyData).limits.startRate).toBe(130);
     await r2('Eco', 'cty.limits.save', { limits: { house: 500, personal: 300 } });
   });
   it('a changed amount needs the approval again; a changed note does not', async () => {

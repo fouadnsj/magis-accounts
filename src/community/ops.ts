@@ -11,7 +11,7 @@ import type { Perm } from '../perms';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CURS, balance, lastDay, leafAccounts, needsApproval, r2,
+  CURS, approvalOf, balance, lastDay, leafAccounts, r2,
   type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
@@ -174,6 +174,7 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
     received_at: null, received_by: null, disputed_at: null, dispute_note: null,
     source: old?.source ?? null,
     approval_needed: 0,
+    approval_usd: null,
     approved_at: null,
     approved_by: null,
     created_at: old?.created_at ?? at,
@@ -185,7 +186,9 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
     Object.assign(row, { received_at: old.received_at, received_by: old.received_by, disputed_at: old.disputed_at, dispute_note: old.dispute_note });
   }
   // The limit of the moment decides; an approved expense keeps its approval while amount and currency stay.
-  row.approval_needed = needsApproval(row, books.find((b) => b.id === row.book_id), await loadLimits(c.db)) ? 1 : 0;
+  const appr = approvalOf(row, books.find((b) => b.id === row.book_id), await loadLimits(c.db), await loadEntries(c.db));
+  row.approval_needed = appr.needed ? 1 : 0;
+  row.approval_usd = appr.usd;
   if (row.approval_needed) {
     if (old?.approved_at && old.amount === row.amount && old.cur === row.cur && old.type === row.type) Object.assign(row, { approved_at: old.approved_at, approved_by: old.approved_by });
     else if (approves(c)) Object.assign(row, { approved_at: at, approved_by: c.who });
@@ -346,10 +349,49 @@ async function approveEntries(c: OpCtx, a: { ids: string[] }) {
   if (stmts.length) await c.db.batch(stmts);
 }
 
+/** One line of the Superior's "needs approval" list: the expense with everything about it. */
+export interface ApprovalItem {
+  entry: CtyEntry;
+  book: string;
+  keeper: string | null;
+  bookKind: string | null;
+  account: Pick<CtyAccount, 'code' | 'name_en' | 'name_fr' | 'name_ar'> | null;
+  /** the limit of that book, in dollars */
+  limit: number;
+  /** what the Jesuit wrote on it (its note), and the private notes about it */
+  notes: CtyNote[];
+  /** receipts or photos attached */
+  documents: number;
+}
+
+/** The Superior's list: every expense still waiting for his approval, oldest first. */
+async function approvals(c: OpCtx): Promise<ApprovalItem[]> {
+  await requireCommunity(c.db);
+  const [books, accounts, limits, notes] = [await loadBooks(c.db), await loadAccounts(c.db), await loadLimits(c.db), await loadNotes(c.db)];
+  const waiting = await c.db.query<CtyEntry>("SELECT * FROM cty_entry WHERE type = 'Exp' AND approval_needed = 1 AND approved_at IS NULL ORDER BY date, n");
+  const out: ApprovalItem[] = [];
+  for (const e of waiting) {
+    const b = books.find((x) => x.id === e.book_id);
+    const acc = accounts.find((x) => x.id === e.account_id);
+    const docs = await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM attachment WHERE trx_id = ? AND deleted_at IS NULL', [e.id]);
+    out.push({
+      entry: e,
+      book: b?.name ?? '',
+      keeper: b?.keeper_name ?? null,
+      bookKind: b?.cty_kind ?? null,
+      account: acc ? { code: acc.code, name_en: acc.name_en, name_fr: acc.name_fr, name_ar: acc.name_ar } : null,
+      limit: b?.cty_kind === 'house' ? limits.house : limits.personal,
+      notes: notes.filter((n) => n.entry_id === e.id),
+      documents: docs?.n ?? 0,
+    });
+  }
+  return out;
+}
+
 async function saveLimits(c: OpCtx, a: { limits: Limits }) {
   await requireCommunity(c.db);
-  for (const book of ['house', 'personal'] as const) for (const k of CURS) {
-    const x = Number(a.limits?.[book]?.[k] ?? 0);
+  for (const book of ['house', 'personal'] as const) {
+    const x = Number(a.limits?.[book] ?? 0);
     if (!(x >= 0) || !Number.isFinite(x)) throw new UserError(m('حد غير صالح', 'Invalid limit', 'Limite invalide'));
   }
   const before = await loadLimits(c.db);
@@ -422,6 +464,7 @@ export const CTY_OPS = {
   'cty.month.close': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null }) => closeMonth(c, a) },
   'cty.month.reopen': { check: (c: OpCtx) => need(c, 'month.reopen'), run: (c: OpCtx, a: { bookId: number; ym: string; reason: string }) => reopenMonth(c, a) },
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
+  'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },
   'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
   'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
   'cty.note.add': { check: anyone, run: (c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) => addNote(c, a) },
@@ -437,5 +480,5 @@ export const CTY_OPS = {
   },
 };
 
-export const CTY_READ_ONLY = ['cty.data', 'cty.month.problems'];
+export const CTY_READ_ONLY = ['cty.data', 'cty.month.problems', 'cty.approvals'];
 export type { Cur };

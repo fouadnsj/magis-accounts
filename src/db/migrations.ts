@@ -687,10 +687,11 @@ CREATE TABLE cty_month (
     n: 13,
     name: "community: the Superior's approval above a limit, his private notes",
     sql: `
--- An expense at or above the limit (set by the econome, per currency, for the house
--- book and for the personal books) waits for the Superior's approval. Whether it needs
+-- An expense worth at least the limit (in dollars, set by the econome, one for the house
+-- book and one for the personal books) waits for the Superior's approval. Whether it needs
 -- it is decided when it is saved, so a later change of the limit never touches the past.
 ALTER TABLE cty_entry ADD COLUMN approval_needed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cty_entry ADD COLUMN approval_usd REAL;
 ALTER TABLE cty_entry ADD COLUMN approved_at TEXT;
 ALTER TABLE cty_entry ADD COLUMN approved_by TEXT;
 

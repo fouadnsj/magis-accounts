@@ -57,6 +57,8 @@ export interface CtyEntry {
   source: string | null;
   /** at or above the limit when it was saved: waits for the Superior */
   approval_needed: number;
+  /** its value in dollars when it was saved (null = no rate yet) */
+  approval_usd: number | null;
   approved_at: string | null;
   approved_by: string | null;
   created_at: string;
@@ -104,21 +106,42 @@ export function balance(entries: CtyEntry[], book: CtyBook, until: string): Mone
 // ---------------------------------------------------------------- the Superior's approval
 
 /**
- * The limits set by the econome: an expense at or above the limit of its currency waits
- * for the Superior's approval. One set for the house book (held by the minister), one for
- * the personal books. 0 = no limit in that currency.
+ * The limits set by the econome, in dollars (Fouad, 18 October 2026: minister $500,
+ * each person $300): an expense worth at least the limit waits for the Superior's approval.
+ * One limit for the house book (held by the minister), one for the personal books. 0 = none.
  */
 export interface Limits {
-  house: Money;
-  personal: Money;
+  house: number;
+  personal: number;
 }
-export const noLimits = (): Limits => ({ house: zero(), personal: zero() });
+export const DEFAULT_LIMITS: Limits = { house: 500, personal: 300 };
+export const noLimits = (): Limits => ({ house: 0, personal: 0 });
 
-export function needsApproval(e: Pick<CtyEntry, 'type' | 'cur' | 'amount'>, book: Pick<CtyBook, 'cty_kind'> | undefined, l: Limits): boolean {
-  if (e.type !== 'Exp' || !book) return false;
-  const set = book.cty_kind === 'house' ? l.house : book.cty_kind === 'personal' ? l.personal : null;
-  const limit = set?.[e.cur] ?? 0;
-  return limit > 0 && e.amount >= limit;
+/**
+ * An amount in dollars, at the rate of the last exchange made up to that day (never typed).
+ * Euros without a direct exchange to dollars go through the local currency.
+ * null: no exchange yet tells the rate.
+ */
+export function usdValue(entries: CtyEntry[], cur: Cur, amount: number, date: string): number | null {
+  if (cur === 'USD') return amount;
+  const direct = rateFromExchanges(entries, cur, 'USD', date);
+  if (direct != null) return r2(amount * direct);
+  const other: Cur = cur === 'LOC' ? 'EUR' : 'LOC';
+  const a = rateFromExchanges(entries, cur, other, date);
+  const b = rateFromExchanges(entries, other, 'USD', date);
+  return a != null && b != null ? r2(amount * a * b) : null;
+}
+
+/**
+ * Does this expense wait for the Superior? usd: its value in dollars (null = no rate yet).
+ * Without any rate the program cannot tell: the expense waits (to be safe; the Superior
+ * sees it in his list).
+ */
+export function approvalOf(e: Pick<CtyEntry, 'type' | 'cur' | 'amount' | 'date'>, book: Pick<CtyBook, 'cty_kind'> | undefined, l: Limits, entries: CtyEntry[]): { needed: boolean; usd: number | null } {
+  const limit = book?.cty_kind === 'house' ? l.house : book?.cty_kind === 'personal' ? l.personal : 0;
+  if (e.type !== 'Exp' || !(limit > 0)) return { needed: false, usd: null };
+  const usd = usdValue(entries, e.cur, e.amount, e.date);
+  return { needed: usd == null || usd >= limit, usd };
 }
 
 // ---------------------------------------------------------------- the year (October → September)

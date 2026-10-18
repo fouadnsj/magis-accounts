@@ -9,7 +9,7 @@ import { createCommunity } from '../src/community/setup';
 import { CHART } from '../src/community/chart';
 import { loadAccounts, loadBooks, loadEntries } from '../src/community/repo';
 import { balance, monthSheet, quarterOf, rateFromExchanges, rollUp, yearOf, type CtyBook } from '../src/community/domain';
-import type { CtyData, EntryInput } from '../src/community/ops';
+import type { ApprovalItem, CtyData, EntryInput } from '../src/community/ops';
 import { nodeDb } from './nodeDb';
 
 let db: Db;
@@ -195,38 +195,63 @@ describe("the Superior's approval above a limit, and his private notes", () => {
     food = (await loadAccounts(db2)).find((a) => a.code === '61101')!.id;
   });
 
-  it('only the econome sets the limits', async () => {
-    const limits = { house: { LOC: 1000000, USD: 100, EUR: 100 }, personal: { LOC: 0, USD: 0, EUR: 0 } };
-    await expect(r2('Min', 'cty.limits.save', { limits })).rejects.toThrow(/Not allowed/);
-    await expect(r2('Sup', 'cty.limits.save', { limits })).rejects.toThrow(/Not allowed/);
-    await r2('Eco', 'cty.limits.save', { limits });
-    expect(((await r2('Min', 'cty.data')) as CtyData).limits.house.LOC).toBe(1000000);
+  const cash = () => bk('cash');
+  const waiting = async () => (await loadEntries(db2)).filter((e) => e.approval_needed && !e.approved_at).map((e) => [e.amount, e.cur]);
+
+  it("Fouad's limits from the start: minister $500, each person $300", async () => {
+    expect(((await r2('Min', 'cty.data')) as CtyData).limits).toEqual({ house: 500, personal: 300 });
   });
-  it("the minister's large house expense waits; a small one and a personal one do not", async () => {
-    const big = (await r2('Min', 'cty.entry.save', exp(bk('house'), 1500000))) as string;
-    await r2('Min', 'cty.entry.save', exp(bk('house'), 999999));
-    await r2('Min', 'cty.entry.save', exp(bk('personal', 'Min'), 5000000));
+  it('without any exchange yet, the program cannot tell: a pound expense waits', async () => {
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 1000));
+    expect(await waiting()).toEqual([[1000, 'LOC']]);
+    await r2('Sup', 'cty.entry.approve', { ids: [(await loadEntries(db2))[0].id] });
+  });
+  it('the limit in dollars applies to pounds and euros at the rate of the last exchange', async () => {
+    // the econome changes $100 into 1,300,000 SYP: 13,000 SYP a dollar; then €100 into 1,500,000 SYP
+    await r2('Eco', 'cty.entry.save', { entry: { book_id: cash(), date: '2025-11-01', type: 'Exchange', cur: 'USD', amount: 100, cur2: 'LOC', amount2: 1300000 } });
+    await r2('Eco', 'cty.entry.save', { entry: { book_id: cash(), date: '2025-11-01', type: 'Exchange', cur: 'EUR', amount: 100, cur2: 'LOC', amount2: 1500000 } });
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 7000000)); // $538: waits
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 6000000)); // $461
     await r2('Min', 'cty.entry.save', exp(bk('house'), 50, 'USD'));
+    await r2('Min', 'cty.entry.save', exp(bk('house'), 400, 'EUR')); // €400 = $461.54 through the pound
+    await r2('Min', 'cty.entry.save', exp(bk('personal', 'Min'), 4000000)); // $307.69 > $300: waits
+    expect(await waiting()).toEqual([[7000000, 'LOC'], [4000000, 'LOC']]);
+    const eur = (await loadEntries(db2)).find((e) => e.cur === 'EUR' && e.type === 'Exp')!;
+    expect(eur.approval_usd).toBe(461.54);
+  });
+  it("the Superior's list shows each waiting expense with its details and the Jesuit's note", async () => {
+    const e = (await loadEntries(db2)).find((x) => x.amount === 7000000)!;
+    await r2('Min', 'cty.entry.save', { entry: { ...e, note: 'fuel for the generator, winter' }, reason: 'note' });
+    await expect(r2('Eco', 'cty.approvals')).rejects.toThrow(/Not allowed/);
+    const list = (await r2('Sup', 'cty.approvals')) as ApprovalItem[];
+    expect(list.map((x) => [x.keeper ?? x.book, x.entry.amount, x.entry.approval_usd, x.limit, x.account?.code])).toEqual([
+      ['House · البيت · Maison', 7000000, 538.46, 500, '61101'],
+      ['Min', 4000000, 307.69, 300, '61101'],
+    ]);
+    expect(list[0].entry.note).toBe('fuel for the generator, winter');
+  });
+  it('only the Superior approves; the month cannot close before', async () => {
     const es = await loadEntries(db2);
-    expect(es.filter((e) => e.approval_needed).map((e) => [e.amount, e.cur])).toEqual([[1500000, 'LOC']]);
-    await expect(r2('Min', 'cty.month.close', { bookId: bk('house'), ym: '2025-11', counted: balance(es, (await loadBooks(db2)).find((b) => b.id === bk('house'))!, '2025-11-30') })).rejects.toThrow(/approval/);
+    const big = es.find((x) => x.amount === 7000000)!.id;
+    const house = (await loadBooks(db2)).find((b) => b.id === bk('house'))!;
+    await expect(r2('Min', 'cty.month.close', { bookId: house.id, ym: '2025-11', counted: balance(es, house, '2025-11-30') })).rejects.toThrow(/approval/);
     await expect(r2('Eco', 'cty.entry.approve', { ids: [big] })).rejects.toThrow(/Not allowed/);
     await r2('Sup', 'cty.entry.approve', { ids: [big] });
     expect((await loadEntries(db2)).find((e) => e.id === big)!.approved_by).toBe('Sup');
   });
-  it('a later change of the limit does not touch the past', async () => {
-    await r2('Eco', 'cty.limits.save', { limits: { house: { LOC: 100, USD: 0, EUR: 0 }, personal: { LOC: 0, USD: 0, EUR: 0 } } });
-    expect((await loadEntries(db2)).filter((e) => e.approval_needed).length).toBe(1);
+  it('only the econome changes the limits, and the past stays as it was', async () => {
+    await expect(r2('Min', 'cty.limits.save', { limits: { house: 50, personal: 50 } })).rejects.toThrow(/Not allowed/);
+    await expect(r2('Sup', 'cty.limits.save', { limits: { house: 50, personal: 50 } })).rejects.toThrow(/Not allowed/);
+    await r2('Eco', 'cty.limits.save', { limits: { house: 50, personal: 50 } });
+    expect(await waiting()).toEqual([[4000000, 'LOC']]);
+    await r2('Eco', 'cty.limits.save', { limits: { house: 500, personal: 300 } });
   });
-  it('a changed amount needs the approval again', async () => {
-    await r2('Eco', 'cty.limits.save', { limits: { house: { LOC: 1000000, USD: 100, EUR: 100 }, personal: { LOC: 0, USD: 0, EUR: 0 } } });
-    const big = (await loadEntries(db2)).find((e) => e.approved_at)!;
-    await r2('Min', 'cty.entry.save', { entry: { ...big, amount: 1600000 }, reason: 'real bill' });
-    expect((await loadEntries(db2)).find((e) => e.id === big.id)!.approved_at).toBeNull();
-    await r2('Min', 'cty.entry.save', { entry: { ...big, amount: 1600000, note: 'gas cylinders' }, reason: 'note' });
-    await r2('Sup', 'cty.entry.approve', { ids: [big.id] });
-    await r2('Min', 'cty.entry.save', { entry: { ...big, amount: 1600000, note: 'gas cylinders for winter' }, reason: 'note' });
+  it('a changed amount needs the approval again; a changed note does not', async () => {
+    const big = (await loadEntries(db2)).find((e) => e.amount === 7000000)!;
+    await r2('Min', 'cty.entry.save', { entry: { ...big, note: 'fuel, winter' }, reason: 'note' });
     expect((await loadEntries(db2)).find((e) => e.id === big.id)!.approved_at).not.toBeNull();
+    await r2('Min', 'cty.entry.save', { entry: { ...big, amount: 7100000 }, reason: 'real bill' });
+    expect((await loadEntries(db2)).find((e) => e.id === big.id)!.approved_at).toBeNull();
   });
   it("the Superior's notes: the Jesuit and the Superior read them, the econome does not", async () => {
     const q = (await r2('Sup', 'cty.note.add', { bookId: bk('personal', 'Min'), ym: '2025-11', body: 'What was this large expense?' })) as string;

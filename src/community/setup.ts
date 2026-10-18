@@ -8,6 +8,8 @@ import { auditStmt, setMetaStmt } from '../db/repo';
 import { profileStmt } from '../auth';
 import type { Perm } from '../perms';
 import { CHART } from './chart';
+import { DEFAULT_LIMITS } from './domain';
+import { saveLimitsStmts } from './repo';
 
 export type CtyRole = 'jesuit' | 'minister' | 'econome' | 'superior';
 
@@ -67,6 +69,8 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
     setMetaStmt('country', s.country.trim()),
     setMetaStmt('local_currency', s.localCurrency.trim().toUpperCase()),
     setMetaStmt('created_at', nowIso()),
+    // the limits Fouad gave (18 October 2026); the econome changes them
+    ...saveLimitsStmts(DEFAULT_LIMITS),
   ];
   // the chart of codes, in the order of the sheet
   CHART.forEach((a, i) => {

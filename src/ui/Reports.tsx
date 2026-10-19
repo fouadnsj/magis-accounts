@@ -9,8 +9,9 @@ import { BarList, EXPENSE, INCOME, MonthColumns, type Bar } from './Charts';
 import { useNav } from './Shell';
 import type { Trx } from '../domain/types';
 import { CurrencyFrame } from './Cash';
+import { QuartersTab } from './Quarters';
 
-type Tab = 'summary' | 'explore' | 'monthly' | 'accounts' | 'funding' | 'exchange';
+type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'funding' | 'exchange';
 
 const monthName = (ym: string) => {
   const m = Number(ym.slice(5, 7)) - 1;
@@ -54,15 +55,17 @@ export function Reports() {
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'summary', label: t('الملخص', 'Summary'), hidden: !can('reports.summary') },
         { value: 'explore', label: t('التحليل', 'Explore'), hidden: !can('reports.summary') },
+        { value: 'quarters', label: t('الفصول والبنود', 'Quarters & categories'), hidden: !can('reports.summary') },
         { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
         { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') },
         { value: 'funding', label: t('التمويل', 'Funding'), hidden: !can('reports.funding') },
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
       {tab === 'funding' && can('reports.funding') && <FundingTab p={p} />}
-      {can('users.manage') && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{t('من يرى أي تقرير: الإدارة ← ملفات الصلاحيات ← مجموعة «التقارير».', 'Who sees which report: Admin → Permission profiles → the "Reports" group.')}</p>}
+      {can('users.manage') && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{t('من يرى أي تقرير: الإدارة ← الأدوار والصلاحيات ← مجموعة «التقارير».', 'Who sees which report: Admin → Roles and permissions → the "Reports" group.')}</p>}
       {tab === 'summary' && can('reports.summary') && <SummaryTab p={p} />}
       {tab === 'explore' && can('reports.summary') && <ExploreTab p={p} />}
+      {tab === 'quarters' && can('reports.summary') && <QuartersTab />}
       {tab === 'monthly' && can('reports.monthly') && <MonthlyTab year={year} />}
       {tab === 'accounts' && can('reports.accounts') && <AccountsTab p={p} />}
       {tab === 'exchange' && can('reports.exchange') && <ExchangeTab p={p} names={names} />}

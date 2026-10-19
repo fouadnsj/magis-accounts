@@ -9,6 +9,7 @@ import { errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
 import { holderBalance } from './Cash';
 import { needsApproval } from '../ops';
 import { PersonIcon } from './icons';
+import { rateOn } from '../domain/compute';
 
 /** The sign of each kind of movement on its button. */
 export const TYPE_ICON: Record<TrxType, string> = { Exp: '−', Income: '+', Transfer: '⇄', Exchange: '💱' };
@@ -45,6 +46,8 @@ export function Home() {
   const disputed = d.transfers.filter((x) => x.disputedAt && (iGave(x) || iReceive(x) || can('register.edit')));
 
   const showAll = !limited && (can('reports.cash') || can('register.view'));
+  // today's rate (the last exchange), for one total in dollars on each card
+  const rateNow = useMemo(() => rateOn(d.rows, null, new Date().toISOString().slice(0, 10), d.lists.settings.usd_rate), [d.rows, d.lists.settings.usd_rate]);
 
   // per book: when it last changed, and its last closed month
   const lastChange = useMemo(() => {
@@ -154,7 +157,7 @@ export function Home() {
               const b = holderBalance(d, id, fileHolder);
               const main = !!d.lists.books.find((x) => x.id === id)?.is_main;
               return (
-                <Balance key={id} title={names.book(id)} syp={b.syp.shouldHold} usd={b.usd.shouldHold} main={main} lastChange={lastChange.get(id) ?? null} lastClosed={lastClosed(id, main)} onOpen={() => nav.go('register', { book: id })} />
+                <Balance key={id} rate={rateNow} title={names.book(id)} syp={b.syp.shouldHold} usd={b.usd.shouldHold} main={main} lastChange={lastChange.get(id) ?? null} lastClosed={lastClosed(id, main)} onOpen={() => nav.go('register', { book: id })} />
               );
             })}
           </div>
@@ -167,7 +170,7 @@ export function Home() {
           <p className="muted small" style={{ marginTop: -6 }}>{t('ما يجب أن يحمله كل صندوق الآن.', 'What each holder should hold now.')}</p>
           <div className="cards">
             {syp.filter((l) => l.book && (l.book.active || l.shouldHold !== 0)).map((l, i) => (
-              <Balance key={l.book!.id} title={l.book!.name} sub={l.book!.keeper_name} syp={l.shouldHold} usd={usd[i].shouldHold}
+              <Balance key={l.book!.id} rate={rateNow} title={l.book!.name} sub={l.book!.keeper_name} syp={l.shouldHold} usd={usd[i].shouldHold}
                 main={!!l.book!.is_main} lastChange={lastChange.get(l.book!.id) ?? null} lastClosed={lastClosed(l.book!.id, !!l.book!.is_main)} onOpen={() => nav.go('register', { book: l.book!.id })} />
             ))}
           </div>
@@ -221,8 +224,10 @@ function ApproveList({ rows }: { rows: import('../domain/types').Trx[] }) {
 }
 
 /** One book: who holds it, pounds and dollars side by side, when it last changed, its last closed month. */
-export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed, onOpen }: {
+export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed, onOpen, rate }: {
   title: string; sub?: string | null; syp: number; usd: number; main?: boolean; lastChange?: string | null; lastClosed?: string | null;
+  /** today's rate (SYP for $1): gives the one total in dollars */
+  rate?: number;
   /** open this book's register */
   onOpen?: () => void;
 }) {
@@ -241,6 +246,7 @@ export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed, on
         <div className={syp < 0 ? 'neg' : ''}><span>{t('ل.س', 'SYP')}</span><b>{fmtSyp(syp)}</b></div>
         <div className={usd < 0 ? 'neg' : ''}><span>{t('دولار', 'USD')}</span><b>{fmtUsd(usd)}</b></div>
       </div>
+      {rate ? <div className="balance-usd muted small">≈ <b className="ltr">{fmtUsd(usd + syp / rate)} $</b> {t('الكل بالدولار', 'all in dollars')}</div> : null}
       {(lastChange !== undefined || lastClosed !== undefined) && (
         <div className="balance-foot">
           <span title={lastChange ?? ''}>✎ {t('آخر تعديل', 'Last change')}: <span className="ltr">{when ? `${fmtDate(lastChange!.slice(0, 10))} ${when.toTimeString().slice(0, 5)}` : '—'}</span></span>

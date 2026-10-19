@@ -85,12 +85,12 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
   ctyLocked?: boolean;
   onCtyUnlocked?: () => Promise<void>;
 }) {
-  const [creating, setCreating] = useState(dbs.length === 0 && canCreate);
+  const [creating, setCreating] = useState(false);
   const [howTo, setHowTo] = useState(false);
   // one program: first "centres" or "communities", when the server holds both
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   // (also when only one kind exists but the person may create: he can start the other kind)
-  const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || (canCreate && dbs.length > 0) || !!ctyLocked;
+  const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || canCreate || !!ctyLocked;
   const [area, setArea] = useState<'centres' | 'cty' | null>(startArea ?? null);
   const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
   const choosing = both && area === null && !signedIn && !creating;

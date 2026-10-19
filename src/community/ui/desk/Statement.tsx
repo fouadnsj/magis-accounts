@@ -21,7 +21,12 @@ export function Statement() {
   return (
     <>
       <div className="desk-head"><h1>{t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat")}</h1></div>
-      <p className="muted">{d.lastReturnAt ? `${t3('كما أرسله قيّم البلد في', 'As the country econome sent it on', "Tel que l'économe du pays l'a envoyé le")} ${d.lastReturnAt.slice(0, 10)}.` : t3('لم يصل ملف رجوع بعد (صفحة «شهر الجماعة»).', "No return file yet (page “Consolidated month”).", 'Pas encore de fichier de retour (page « Mois consolidé »).')}</p>
+      <div className="cty-card cty-explain">
+        <b>{t3('ما هذا؟', 'What is this?', "Qu'est-ce que c'est ?")}</b>
+        <p>{t3('هذا حساب جماعتكم عند خزينة الإقليم (الإيكونوماتو)، كما يمسكه قيم البلد. فيه ما للجماعة على الإقليم (مطالبات قُبلت، استضافة إخوة من جماعات أخرى) وما عليها (مساهمات، تكاليف إخوتنا عند غيرنا، مال استلمته).', 'This is your community’s account with the Province treasury (the économat), as the country econome keeps it. It shows what the Province owes the community (claims accepted, brothers of other communities hosted) and what the community owes (cotisations, our brothers’ stays elsewhere, money it received).', "C'est le compte de votre communauté auprès de la trésorerie de la Province (l'économat), tel que l'économe du pays le tient. Il montre ce que la Province doit à la communauté (réclamations acceptées, frères d'autres communautés accueillis) et ce que la communauté doit (cotisations, séjours de nos frères ailleurs, argent reçu).")}</p>
+        <p className="muted small">＋ {t3('للجماعة', 'in the community’s favour', 'en faveur de la communauté')} · − {t3('على الجماعة', 'the community owes', 'la communauté doit')}</p>
+      </div>
+      <p className="muted">{d.lastReturnAt ? `${t3('كما أرسله قيم البلد في', 'As the country econome sent it on', "Tel que l'économe du pays l'a envoyé le")} ${d.lastReturnAt.slice(0, 10)}.` : t3('لم يصل ملف رجوع بعد (صفحة «شهر الجماعة»).', "No return file yet (page “Consolidated month”).", 'Pas encore de fichier de retour (page « Mois consolidé »).')}</p>
       <div className="desk-cards">
         {CURS.filter((c) => c === 'LOC' || total[c]).map((c) => (
           <div key={c} className="cty-card desk-card">

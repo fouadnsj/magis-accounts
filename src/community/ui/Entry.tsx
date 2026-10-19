@@ -10,8 +10,8 @@ import { confirmBox, errText, parseAmount, promptBox, toast, todayIso } from '..
 import { CURS, accountBooks, leafAccounts, usdValue, type CtyAccount, type CtyBook, type CtyEntry, type Cur, type EntryType } from '../domain';
 import type { ClaimReason } from '../chart';
 import { useCty, bookName, partLabel } from './CtyApp';
-import { accName, curName, money, moneyCur, t3 } from './text';
-import { BOOK_ICON, iconOf } from './icons';
+import { accName, curCode, curLong, curName, money, moneyCur, t3 } from './text';
+import { BOOK_ICON, iconOf, tintOf } from './icons';
 
 export interface EntryStart {
   kind: EntryType;
@@ -210,13 +210,15 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
         {edit ? <b>{t3('القيد', 'The entry', "L'écriture")}</b> : (
           <div className="cty-kinds">
             {kinds.map((x) => (
-              <button key={x.k} className={kind === x.k ? 'on' : ''} onClick={() => { setKind(x.k); setStage('amount'); setAccountId(null); setHeading(null); }}>{KIND_ICON[x.k]} {x.label}</button>
+              <button key={x.k} className={`k-${x.k} ${kind === x.k ? 'on' : ''}`} onClick={() => { setKind(x.k); setStage('amount'); setAccountId(null); setHeading(null); }}>{KIND_ICON[x.k]} {x.label}</button>
             ))}
           </div>
         )}
       </div>
+      <div className="cty-sheet-title">{BOOK_ICON[main.cty_kind ?? ''] ?? ''} {main.cty_kind === 'personal' || main.cty_kind === 'personal_bank' ? t3('دفترك', 'Your account', 'Votre compte') : bookName(main)}</div>
       <div className="cty-sheet-body">
         {err && <div className="alert err">{err}</div>}
+        {!edit && isLine && <div className="cty-step">{stage === 'amount' ? t3('1 · كم؟', '1 · How much?', '1 · Combien ?') : stage === 'heading' ? t3('2 · أي نوع؟', '2 · Which category?', '2 · Quelle catégorie ?') : stage === 'line' ? t3('3 · بالتفصيل', '3 · Which one exactly?', '3 · Laquelle exactement ?') : t3('4 · احفظ', '4 · Save', '4 · Enregistrer')}</div>}
 
         {/* 1 · the amount (and, for an exchange, what came back; for a gift, to whom) */}
         {(stage === 'amount' || edit) && (
@@ -241,7 +243,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
                 <div className="cty-label">{t3('إلى', 'To', 'À')}</div>
                 <div className="cty-tiles small">
                   {siblings.map((b) => <button key={b.id} className={toBook === b.id ? 'on' : ''} onClick={() => setToBook(b.id)}>{BOOK_ICON[b.cty_kind ?? ''] ?? ''} {partLabel(b)}</button>)}
-                  {cashToo && <button className={toBook === cashBook!.id ? 'on' : ''} onClick={() => setToBook(cashBook!.id)}>💰 {t3('صندوق القيّم', "The econome's cash", "La caisse de l'économe")}</button>}
+                  {cashToo && <button className={toBook === cashBook!.id ? 'on' : ''} onClick={() => setToBook(cashBook!.id)}>💰 {t3('صندوق القيم', "The econome's cash", "La caisse de l'économe")}</button>}
                   {(others || (!siblings.length && !cashToo)) && targets.filter((b) => b.id !== cashBook?.id).map((b) => (
                     <button key={b.id} className={toBook === b.id ? 'on' : ''} onClick={() => setToBook(b.id)}>{bookName(b)}</button>
                   ))}
@@ -272,7 +274,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
             <Summary />
             <div className="cty-tiles">
               {order.map(({ heading: h, lines }) => (
-                <button key={h.id} onClick={() => (lines.length ? (setHeading(h.id), setStage('line')) : chooseLine(h))}>
+                <button key={h.id} className="cty-tint" style={{ background: tintOf(h.code)[0], borderColor: tintOf(h.code)[1] }} onClick={() => (lines.length ? (setHeading(h.id), setStage('line')) : chooseLine(h))}>
                   <span className="cty-tile-icon">{iconOf(h.code)}</span>
                   <span>{accName(h)}</span>
                 </button>
@@ -288,7 +290,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
             <button className="cty-back" onClick={() => setStage('heading')}>‹ {accName(d.accounts.find((a) => a.id === heading))}</button>
             <div className="cty-tiles">
               {order.find((g) => g.heading.id === heading)!.lines.map((l) => (
-                <button key={l.id} onClick={() => chooseLine(l)}><span className="cty-tile-icon">{iconOf(l.code)}</span><span>{accName(l)}</span></button>
+                <button key={l.id} className="cty-tint" style={{ background: tintOf(l.code)[0], borderColor: tintOf(l.code)[1] }} onClick={() => chooseLine(l)}><span className="cty-tile-icon">{iconOf(l.code)}</span><span>{accName(l)}</span></button>
               ))}
             </div>
           </>
@@ -366,9 +368,17 @@ function AmountInput({ label, value, onChange, cur, onCur, local, onEnter, refEl
   return (
     <div className="cty-amount">
       <div className="cty-label">{label}</div>
-      <input ref={refEl} inputMode="decimal" value={value} placeholder="0" onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onEnter?.()} />
-      <div className="cty-curs">
-        {CURS.map((c) => <button key={c} className={c === cur ? 'on' : ''} onClick={() => onCur(c)}>{curName(c, local)}</button>)}
+      <div className="cty-amount-row">
+        <input ref={refEl} inputMode="decimal" value={value} placeholder="0" onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onEnter?.()} />
+        <span className={`cty-cur-badge c-${cur}`}>{curCode(cur, local)}</span>
+      </div>
+      <div className="cty-curs wide">
+        {CURS.map((c) => (
+          <button key={c} className={`c-${c} ${c === cur ? 'on' : ''}`} onClick={() => onCur(c)}>
+            <b>{curName(c, local)}</b>
+            <small>{curLong(c, local)}</small>
+          </button>
+        ))}
       </div>
     </div>
   );

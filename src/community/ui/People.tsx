@@ -8,7 +8,7 @@ import type { CtyRole } from '../setup';
 import { useCty, Card } from './CtyApp';
 import { t3 } from './text';
 
-export const roleLabel = (r: CtyRole) => (r === 'superior' ? t3('الرئيس', 'Superior', 'Supérieur') : r === 'econome' ? t3('القيّم', 'Econome', 'Économe') : r === 'minister' ? t3('المدبّر', 'Minister', 'Ministre') : t3('يسوعي', 'Jesuit', 'Jésuite'));
+export const roleLabel = (r: CtyRole) => (r === 'superior' ? t3('الرئيس', 'Superior', 'Supérieur') : r === 'econome' ? t3('القيم', 'Econome', 'Économe') : r === 'minister' ? t3('المدبر', 'Minister', 'Ministre') : t3('يسوعي', 'Jesuit', 'Jésuite'));
 const ROLES: CtyRole[] = ['superior', 'econome', 'minister'];
 
 type Row = CtyPersonRow & { dirty?: boolean };
@@ -51,7 +51,7 @@ export function PeopleScreen() {
   return (
     <>
       <h1>{t3('الأشخاص والأدوار', 'People and roles', 'Personnes et rôles')}</h1>
-      <p className="muted small">{t3('كل الإخوة وأدوارهم. ضع علامة لتغيير دور، ثم «احفظ» في السطر. في كل جماعة رئيس وقيّم ومدبّر؛ الدفاتر تتبع الدور، والقيّم الجديد يرى كل القيود القديمة.', 'Everyone and his roles. Tick to change a role, then "Save" on that row. Every community has a Superior, an econome and a minister; the books follow the role, and a new econome sees all the old records.', "Tous et leurs rôles. Cochez pour changer un rôle, puis « Enregistrer » sur la ligne. Chaque communauté a un Supérieur, un économe et un ministre ; les comptes suivent le rôle, et le nouvel économe voit toutes les anciennes écritures.")}</p>
+      <p className="muted small">{t3('كل الإخوة وأدوارهم. ضع علامة لتغيير دور، ثم «احفظ» في السطر. في كل جماعة رئيس وقيم ومدبر؛ الدفاتر تتبع الدور، والقيم الجديد يرى كل القيود القديمة.', 'Everyone and his roles. Tick to change a role, then "Save" on that row. Every community has a Superior, an econome and a minister; the books follow the role, and a new econome sees all the old records.', "Tous et leurs rôles. Cochez pour changer un rôle, puis « Enregistrer » sur la ligne. Chaque communauté a un Supérieur, un économe et un ministre ; les comptes suivent le rôle, et le nouvel économe voit toutes les anciennes écritures.")}</p>
       {err && <div className="alert err">{err}</div>}
       <Card className="cty-people-card">
         <table className="cty-people">

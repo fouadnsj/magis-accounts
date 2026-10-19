@@ -75,7 +75,7 @@ export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => 
                 <span className="muted small">{t3('حسابات اليسوعيين وبيتهم.', 'The accounts of the Jesuits and their house.', 'Les comptes des jésuites et de leur maison.')}</span>
               </button>
               <button onClick={() => setMode('country')}>
-                <b>{t3('قيّم البلد', 'Country econome', "Économe du pays")}</b>
+                <b>{t3('قيم البلد', 'Country econome', "Économe du pays")}</b>
                 <span className="muted small">{t3('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.')}</span>
               </button>
             </div>

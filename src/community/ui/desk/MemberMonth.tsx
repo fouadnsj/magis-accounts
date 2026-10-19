@@ -67,13 +67,13 @@ export function MemberMonth({ initialBook, initialYm }: { initialBook: number | 
     const rows: (string | number | null)[][] = [];
     const add = (code: string, label: string, v: Money) => rows.push([code, label, ...CURS.map((c) => v[c] || null)]);
     add('', t3('من الشهر الماضي', 'Carried over', 'Report du mois précédent'), sheet.carried);
-    add('', t3('من القيّم', 'Received from the econome', "Reçu de l'économe"), sheet.received);
+    add('', t3('من القيم', 'Received from the econome', "Reçu de l'économe"), sheet.received);
     add('', t3('دخل بالصرافة', 'In by exchange', 'Entré par change'), sheet.inByExchange);
     for (const g of income) for (const l of g.lines.length ? g.lines : [{ a: g.h, v: g.total }]) add(l.a.code, accName(l.a), l.v);
     add('', t3('مجموع الدخل', 'Total income', 'Total revenus'), sheet.totalIncome);
     for (const g of expenses) for (const l of g.lines.length ? g.lines : [{ a: g.h, v: g.total }]) add(l.a.code, accName(l.a), l.v);
     add('', t3('مجموع النفقات', 'Total expenses', 'Total dépenses'), sheet.totalExpenses);
-    add('', t3('أعاده إلى القيّم', 'Given back to the econome', "Rendu à l'économe"), sheet.givenBack);
+    add('', t3('أعاده إلى القيم', 'Given back to the econome', "Rendu à l'économe"), sheet.givenBack);
     add('', t3('خرج بالصرافة', 'Out by exchange', 'Sorti par change'), sheet.outByExchange);
     add('', t3('في آخر الشهر', 'Kept at the end of the month', 'Gardé en fin de mois'), sheet.kept);
     try {
@@ -104,7 +104,7 @@ export function MemberMonth({ initialBook, initialYm }: { initialBook: number | 
             <thead><tr><th /><th /><th className="num">{curName('LOC', d.local)}</th><th className="num">$</th><th className="num">€</th></tr></thead>
             <tbody>
               <Row label={t3('من الشهر الماضي', 'Carried over', 'Report du mois précédent')} v={sheet.carried} />
-              <Row label={t3('من القيّم', 'Received from the econome', "Reçu de l'économe")} v={sheet.received} />
+              <Row label={t3('من القيم', 'Received from the econome', "Reçu de l'économe")} v={sheet.received} />
               <Row label={t3('دخل بالصرافة', 'In by exchange', 'Entré par change')} v={sheet.inByExchange} />
               <tr className="fdc-part"><td colSpan={5}>{t3('الدخل', 'Income', 'Revenus')}</td></tr>
               {income.map((g) => g.lines.length ? g.lines.map((l) => <Row key={l.a.id} code={l.a.code} label={accName(l.a)} v={l.v} />) : <Row key={g.h.id} code={g.h.code} label={accName(g.h)} v={g.total} />)}
@@ -117,7 +117,7 @@ export function MemberMonth({ initialBook, initialYm }: { initialBook: number | 
                 </FragmentRows>
               ))}
               <Row label={t3('مجموع النفقات', 'Total expenses', 'Total dépenses')} v={sheet.totalExpenses} cls="fdc-total" />
-              <Row label={t3('أعاده إلى القيّم', 'Given back to the econome', "Rendu à l'économe")} v={sheet.givenBack} />
+              <Row label={t3('أعاده إلى القيم', 'Given back to the econome', "Rendu à l'économe")} v={sheet.givenBack} />
               <Row label={t3('خرج بالصرافة', 'Out by exchange', 'Sorti par change')} v={sheet.outByExchange} />
               <Row label={t3('في آخر الشهر', 'Kept at the end of the month', 'Gardé en fin de mois')} v={sheet.kept} cls="fdc-total" />
             </tbody>

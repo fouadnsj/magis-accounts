@@ -55,7 +55,7 @@ export function DbCard({ db, onOpen }: { db: DbInfo; onOpen: () => void }) {
       <div className="db-card-mark">{db.kind === 'community' || db.kind === 'country' ? <img src="/brand/jesuits.png" alt="" /> : st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}</div>
       <div className="db-card-text">
         <b>{db.organisation}</b>
-        <span>{db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : db.kind === 'country' ? tx(m('قيّم البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
+        <span>{db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : db.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
         {db.setupNeeded && <span className="pill" style={{ background: '#fff6e0', color: '#6d4b00' }}>{t('لم تُعدّ بعد', 'not set up yet')}</span>}
       </div>
     </button>
@@ -96,7 +96,7 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
           <button className="area-card" onClick={() => setArea('cty')}>
             <img src="/brand/jesuits.png" alt="" />
             <b>{tx(m('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites'))}</b>
-            <span>{tx(m('اليسوعيون وبيتهم، والقيّم', 'The Jesuits, their house, the econome', "Les jésuites, leur maison, l'économe"))}</span>
+            <span>{tx(m('اليسوعيون وبيتهم، والقيم', 'The Jesuits, their house, the econome', "Les jésuites, leur maison, l'économe"))}</span>
           </button>
         </div>
       </BrandFrame>

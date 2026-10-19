@@ -59,3 +59,12 @@ export const yearName = (y: number) => `${monthName(`${y}-10`, true)} ${y} – $
 export function dayName(d: string): string {
   return `${Number(d.slice(8, 10))} ${monthName(d.slice(0, 7), true)}`;
 }
+
+/** The currency with its name: "SYP · Syrian pound". */
+export function curLong(c: Cur, local: string): string {
+  if (c === 'USD') return t3('دولار أمريكي', 'US dollar', 'Dollar américain');
+  if (c === 'EUR') return t3('يورو', 'Euro', 'Euro');
+  return local === 'SYP' ? t3('ليرة سورية', 'Syrian pound', 'Livre syrienne') : local;
+}
+/** The short code shown beside an amount. */
+export const curCode = (c: Cur, local: string) => (c === 'LOC' ? local : c);

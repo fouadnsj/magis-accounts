@@ -71,7 +71,7 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDes
     };
     return (
       <Card>
-        <div className="cty-label">{t3('لوحة القيّم', "The econome's control panel", "Le tableau de bord de l'économe")}</div>
+        <div className="cty-label">{t3('لوحة القيم', "The econome's control panel", "Le tableau de bord de l'économe")}</div>
         <div className="cty-label" style={{ marginTop: 8 }}>{t3('إغلاق الحسابات', 'Closing the accounts', 'Clôture des comptes')}</div>
         <div className="cty-seg" style={{ justifyContent: 'flex-start' }}>
           <button className={period === 'quarter' ? 'on' : ''} onClick={() => setPeriod('quarter')}>{t3('كل فصل', 'Every quarter', 'Chaque trimestre')}</button>

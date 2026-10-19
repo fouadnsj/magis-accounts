@@ -23,13 +23,13 @@ export function HostCharges() {
     if (!reason) return;
     try { await s.api.call('cty.charge.delete', { id, reason }); await reload(); } catch (e) { toast(errText(e), true); }
   };
-  const status = (x: string) => (x === 'approved' ? <span className="ok">✓ {t3('وافق قيّم البلد', 'approved', 'approuvé')}</span>
+  const status = (x: string) => (x === 'approved' ? <span className="ok">✓ {t3('وافق قيم البلد', 'approved', 'approuvé')}</span>
     : x === 'refused' ? <span className="desk-alert">✗ {t3('رُفض', 'refused', 'refusé')}</span>
-      : <span className="muted">{t3('بانتظار قيّم البلد', 'waiting for the country econome', "en attente de l'économe du pays")}</span>);
+      : <span className="muted">{t3('بانتظار قيم البلد', 'waiting for the country econome', "en attente de l'économe du pays")}</span>);
   return (
     <>
       <div className="desk-head"><h1>{t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés')}</h1></div>
-      <p className="muted">{t3('مثلاً: يسوعي من حمص أقام عندنا 3 ليالٍ. نسجّلها هنا، فتذهب في ملف الشهر، ويوافق عليها قيّم البلد.', 'E.g. a Jesuit of Homs stayed 3 nights with us. Record it here: it goes in the month’s file, and the country econome approves it.', "P. ex. un jésuite de Homs a passé 3 nuits chez nous. Enregistrez-le ici : il part dans le fichier du mois, et l'économe du pays l'approuve.")}</p>
+      <p className="muted">{t3('مثلاً: يسوعي من حمص أقام عندنا 3 ليالٍ. نسجّلها هنا، فتذهب في ملف الشهر، ويوافق عليها قيم البلد.', 'E.g. a Jesuit of Homs stayed 3 nights with us. Record it here: it goes in the month’s file, and the country econome approves it.', "P. ex. un jésuite de Homs a passé 3 nuits chez nous. Enregistrez-le ici : il part dans le fichier du mois, et l'économe du pays l'approuve.")}</p>
       <div className="cty-card">
         <div className="desk-filters" style={{ marginBottom: 0 }}>
           <input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
@@ -46,7 +46,7 @@ export function HostCharges() {
           <input placeholder={t3('الشرح: كم ليلة؟ لماذا؟', 'What: how many nights? why?', 'Quoi : combien de nuits ? pourquoi ?')} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} style={{ minWidth: 200 }} />
           <button className="btn primary" onClick={save}>{t3('سجّل', 'Record', 'Enregistrer')}</button>
         </div>
-        {!d.known.length && <p className="muted small">{t3('قائمة الجماعات تأتي مع أول ملف رجوع من قيّم البلد.', 'The list of communities comes with the first return file from the country econome.', "La liste des communautés arrive avec le premier fichier de retour de l'économe du pays.")}</p>}
+        {!d.known.length && <p className="muted small">{t3('قائمة الجماعات تأتي مع أول ملف رجوع من قيم البلد.', 'The list of communities comes with the first return file from the country econome.', "La liste des communautés arrive avec le premier fichier de retour de l'économe du pays.")}</p>}
       </div>
       <div className="cty-card desk-scroll">
         <table className="desk-table">

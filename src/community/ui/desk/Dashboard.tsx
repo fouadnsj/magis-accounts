@@ -6,18 +6,19 @@ import { todayIso } from '../../../ui/kit';
 import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, monthsOfYear, prevMonth, rateFromExchanges, yearOf, type CtyBook, type Cur } from '../../domain';
 import { Columns, Ring } from '../charts';
 import { headingOf } from '../Month';
-import { useCty, bookLabel, bookName } from '../CtyApp';
+import { useCty, bookHelp, bookLabel, bookName } from '../CtyApp';
 import { accName, curName, money, monthName, t3 } from '../text';
 import type { DeskNav } from './Desk';
 
 export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
-  const { d, give } = useCty();
+  const { d, give, write } = useCty();
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
   const end = ym === today.slice(0, 7) ? today : lastDay(ym);
   const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
   const grp = (b: CtyBook) => accountBooks(d.books, b);
-  const own = d.books.filter((b) => b.active && ['cash', 'bank', 'economat'].includes(b.cty_kind ?? ''));
+  // the community's money (cash box + bank, added together) and its account at the économat
+  const own = d.books.filter((b) => b.active && ['cash', 'economat'].includes(b.cty_kind ?? ''));
   const cash = own.find((b) => b.cty_kind === 'cash');
 
   const rows = useMemo(() => people.map((b) => {
@@ -60,11 +61,18 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
           <h1>{monthName(ym)}</h1>
           <button disabled={ym >= today.slice(0, 7)} onClick={() => setYm(nextMonth(ym))}>›</button>
         </div>
-        <div className="row">
-          {cash && <button className="btn primary" onClick={give}>💰 {t3('إعطاء مال…', 'Give money…', 'Donner de l’argent…')}</button>}
-          <button className="btn" onClick={() => go({ page: 'register' })}>{t3('السجل', 'Register', 'Registre')}</button>
-        </div>
+        <button className="btn" onClick={() => go({ page: 'register' })}>{t3('كل القيود', 'All entries', 'Toutes les écritures')}</button>
       </div>
+
+      {/* the four things the econome does, "Give money" first: it is what he uses most */}
+      {cash && (
+        <div className="desk-four">
+          <button className="give" onClick={give}><i>💰</i><b>{t3('إعطاء مال', 'Give money', 'Donner de l’argent')}</b><small>{t3('لأحد الإخوة أو للبيت', 'to a brother or to the house', 'à un frère ou à la maison')}</small></button>
+          <button className="out" onClick={() => write({ kind: 'Exp', bookId: cash.id })}><i>－</i><b>{t3('صرفتُ', 'Spent', 'Dépensé')}</b><small>{t3('نفقة من صندوق الجماعة', 'an expense from the community money', 'une dépense sur l’argent de la communauté')}</small></button>
+          <button className="in" onClick={() => write({ kind: 'Income', bookId: cash.id })}><i>＋</i><b>{t3('قبضتُ', 'Received', 'Reçu')}</b><small>{t3('مال دخل الجماعة', 'money that came to the community', 'de l’argent arrivé à la communauté')}</small></button>
+          <button className="exc" onClick={() => write({ kind: 'Exchange', bookId: cash.id })}><i>⇄</i><b>{t3('صرافة', 'Exchange', 'Change')}</b><small>{t3('تبديل عملة بأخرى', 'one currency for another', 'une monnaie contre une autre')}</small></button>
+        </div>
+      )}
 
       <div className="desk-cards">
         {own.map((b) => <BookCard key={b.id} b={b} end={end} onOpen={() => go({ page: 'register', bookId: b.id, ym })} />)}
@@ -135,12 +143,15 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
 
 function BookCard({ b, end, onOpen }: { b: CtyBook; end: string; onOpen: () => void }) {
   const { d } = useCty();
-  const bal = balance(d.entries, b, end);
+  const group = accountBooks(d.books, b);
+  const bal = balanceOf(d.entries, group, end);
   const curs: Cur[] = CURS.filter((c) => c === 'LOC' || bal[c] !== 0);
   return (
-    <button className="cty-card desk-card click" onClick={onOpen}>
-      <div className="cty-label">{bookLabel(b)}</div>
+    <button className="cty-card desk-card click" onClick={onOpen} title={bookHelp(b.cty_kind)}>
+      <div className="cty-label">{b.cty_kind === 'cash' ? (group.length > 1 ? t3('مال الجماعة (صندوق + مصرف)', "The community's money (cash + bank)", "L'argent de la communauté (caisse + banque)") : t3('صندوق الجماعة', "The community's cash", 'La caisse de la communauté')) : bookLabel(b)}</div>
       {curs.map((c) => <div key={c} className="desk-bal"><b>{money(bal[c], c)}</b> <span className="muted">{curName(c, d.local)}</span></div>)}
+      {group.length > 1 && <div className="small muted">{group.map((x) => `${x.cty_kind === 'bank' ? '🏦' : '💰'} ${money(balance(d.entries, x, end).LOC, 'LOC')}`).join(' · ')}</div>}
+      <div className="small muted" style={{ marginTop: 4 }}>{b.cty_kind === 'cash' ? t3('ما يعطيه القيم للإخوة والبيت', 'what the econome gives to the brothers and the house', "ce que l'économe donne aux frères et à la maison") : b.cty_kind === 'economat' ? t3('عند خزينة الإقليم', 'with the Province treasury', 'auprès de la trésorerie de la Province') : ''}</div>
     </button>
   );
 }

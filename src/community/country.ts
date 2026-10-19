@@ -29,11 +29,11 @@ export async function createCountry(db: Db, s: CountrySetup): Promise<void> {
   if (await one(db, 'SELECT 1 AS x FROM profile LIMIT 1')) throw new UserError(m('قاعدة البيانات مُعدّة مسبقاً', 'This database is already set up', 'Cette base est déjà préparée'));
   if (!s.country.trim()) throw new UserError(m('اكتب اسم البلد', 'Write the name of the country', 'Écrivez le nom du pays'));
   const people = s.people.filter((p) => p.name.trim());
-  if (!people.length) throw new UserError(m('من هو قيّم البلد؟', 'Who is the country econome?', "Qui est l'économe du pays ?"));
+  if (!people.length) throw new UserError(m('من هو قيم البلد؟', 'Who is the country econome?', "Qui est l'économe du pays ?"));
   await db.batch([
     { sql: 'DELETE FROM access_profile' },
     // (the table is empty: this profile gets the number 1)
-    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (1, ?, ?, 1)', params: ['قيّم البلد · Country econome · Économe du pays', JSON.stringify(COUNTRY_PERMS)] },
+    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (1, ?, ?, 1)', params: ['قيم البلد · Country econome · Économe du pays', JSON.stringify(COUNTRY_PERMS)] },
     setMetaStmt('install', 'office'),
     setMetaStmt('kind', 'country'),
     setMetaStmt('organisation', s.country.trim()),

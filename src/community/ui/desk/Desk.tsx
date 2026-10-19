@@ -50,7 +50,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
       { page: 'claims', label: t3('المطالبات', 'Claims', 'Réclamations') },
       { page: 'host', label: t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés') },
       { page: 'statement', label: t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat") },
-      { page: 'quarter', label: t3('الملف الفصلي', 'Quarterly file', 'Fichier trimestriel') },
+      { page: 'quarter', label: t3('الفصول والبنود', 'Quarters & categories', 'Trimestres et catégories') },
     ] },
     { title: t3('الإعدادات', 'Settings', 'Réglages'), items: [
       { page: 'people', label: t3('الأشخاص والأدوار', 'People and roles', 'Personnes et rôles') },
@@ -105,9 +105,10 @@ function MyBooks() {
   const { myBooks, book, setBook } = useCty();
   return (
     <>
+      <p className="muted small">{t3('كل دفتر من دفاترك. اضغط للانتقال بينها؛ تحت كل واحد شرح ما هو.', 'Each of your books. Tap to move between them; under each one, what it is.', 'Chacun de vos comptes. Touchez pour passer de l’un à l’autre ; sous chacun, ce que c’est.')}</p>
       {myBooks.length > 1 && (
         <nav className="cty-books" style={{ padding: 0 }}>
-          {myBooks.map((b) => <button key={b.id} className={b.id === book.id ? 'on' : ''} onClick={() => setBook(b.id)}>{bookLabel(b)}</button>)}
+          {myBooks.filter((b) => !['personal_bank', 'envelope', 'bank'].includes(b.cty_kind ?? '')).map((b) => <button key={b.id} className={b.id === book.id ? 'on' : ''} onClick={() => setBook(b.id)}>{bookLabel(b)}</button>)}
         </nav>
       )}
       <MonthScreen />

@@ -287,7 +287,7 @@ export function App() {
       <Login
         key={serverDb.slug}
         title={serverDb.organisation}
-        subtitle={serverDb.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : serverDb.kind === 'country' ? tx(m('قيّم البلد', 'Country econome', "Économe du pays")) : serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
+        subtitle={serverDb.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : serverDb.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
         brand={serverDb}
         community={serverDb.kind === 'community' || serverDb.kind === 'country'}
         loadProfiles={() => serverProfiles(serverDb.slug)}

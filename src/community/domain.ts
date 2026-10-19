@@ -289,7 +289,8 @@ export function rateFromExchanges(entries: CtyEntry[], from: Cur, to: Cur, until
  * The books that act as ONE account for the person (Fouad, 19 October 2026: "bank and cash:
  * the book must add the two amounts; we only say from where"):
  *  - a Jesuit: his pocket and his bank account (if he has one);
- *  - the minister: the house and its envelopes (cook, steward, cleaner…).
+ *  - the minister: the house and its envelopes (cook, steward, cleaner…);
+ *  - the econome: the community's cash box and its bank (if it has one).
  * The first one is the main book. Money moved between them is not income or expense.
  */
 export function accountBooks(books: CtyBook[], book: CtyBook): CtyBook[] {
@@ -301,6 +302,11 @@ export function accountBooks(books: CtyBook[], book: CtyBook): CtyBook[] {
   if (book.cty_kind === 'house' || book.cty_kind === 'envelope') {
     const house = book.cty_kind === 'house' ? book : live.find((b) => b.cty_kind === 'house') ?? book;
     return [house, ...live.filter((b) => b.cty_kind === 'envelope')];
+  }
+  if (book.cty_kind === 'cash' || book.cty_kind === 'bank') {
+    // the community's money: the cash box and the bank (if it has one) add up
+    const cash = book.cty_kind === 'cash' ? book : live.find((b) => b.cty_kind === 'cash') ?? book;
+    return [cash, ...live.filter((b) => b.cty_kind === 'bank' && b.id !== cash.id)];
   }
   return [book];
 }

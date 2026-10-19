@@ -87,7 +87,7 @@ export function Claims() {
           </table>
         )}
       </div>
-      <p className="muted small">{t3('يقرّر قيّم البلد ويُرسل قراره في ملف الرجوع.', 'The country econome decides and sends his decision back in the return file.', "L'économe du pays décide et renvoie sa décision dans le fichier de retour.")}</p>
+      <p className="muted small">{t3('يقرّر قيم البلد ويُرسل قراره في ملف الرجوع.', 'The country econome decides and sends his decision back in the return file.', "L'économe du pays décide et renvoie sa décision dans le fichier de retour.")}</p>
     </>
   );
 }

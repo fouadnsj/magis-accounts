@@ -14,7 +14,7 @@ export function Chart() {
   return (
     <ChartTable
       accounts={d.accounts} used={new Set(d.entries.map((e) => e.account_id))} may={can('cty.chart')}
-      note={t3('يحفظ قيّم البلد الدليل ويرسله مع ملف الرجوع (لاحقاً الإقليم).', 'The country econome keeps the chart and sends it with the return file (later the Province).', "L'économe du pays tient le plan et l'envoie avec le fichier de retour (plus tard la Province).")}
+      note={t3('يحفظ قيم البلد الدليل ويرسله مع ملف الرجوع (لاحقاً الإقليم).', 'The country econome keeps the chart and sends it with the return file (later the Province).', "L'économe du pays tient le plan et l'envoie avec le fichier de retour (plus tard la Province).")}
       save={async (account, reason) => { await s.api.call('cty.account.save', { account, reason }); await reload(); }}
     />
   );

@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import { promptBox, toast, errText, todayIso } from '../../ui/kit';
 import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, periodMonths, prevMonth, quarterOf, type CtyBook, type CtyAccount, type CtyEntry, type Cur, type Money } from '../domain';
-import { useCty, Card, bookLabel, bookName, partLabel } from './CtyApp';
+import { useCty, Card, bookHelp, bookLabel, bookName, partLabel } from './CtyApp';
 import { BOOK_ICON, iconOf } from './icons';
 import { Ring } from './charts';
 import { accName, curName, dayName, money, moneyCur, monthName, t3 } from './text';
@@ -31,6 +31,7 @@ export function MonthScreen() {
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
   const [closing, setClosing] = useState<string | null>(null);
+  const [counting, setCounting] = useState(false);
   // one account: his pocket + his bank, or the house + its envelopes
   const group = useMemo(() => accountBooks(d.books, book), [d.books, book]);
   const ids = useMemo(() => new Set(group.map((b) => b.id)), [group]);
@@ -83,6 +84,7 @@ export function MonthScreen() {
   };
 
   if (closing) return <CloseMonth ym={closing} onDone={() => setClosing(null)} />;
+  if (counting) return <CloseMonth ym={today.slice(0, 7)} check onDone={() => setCounting(false)} />;
   const from = (e: CtyEntry) => bookName(d.books.find((b) => b.id === e.book_id));
 
   return (
@@ -122,6 +124,7 @@ export function MonthScreen() {
             <div key={c} className="cty-pocket-cur"><b>{money(pocket[c], c)}</b><span>{curName(c, d.local)}</span></div>
           ))}
         </div>
+        <p className="cty-help">{bookHelp(book.cty_kind)}</p>
         {group.length > 1 && (
           <div className="cty-parts">
             {group.map((b) => {
@@ -178,6 +181,7 @@ export function MonthScreen() {
         {inMonth.map((e) => <EntryRow key={e.id} e={e} />)}
       </Card>
 
+      <button className="cty-give" onClick={() => setCounting(true)}>🧮 {t3('عدّ نقدي الآن (دون إغلاق)', 'Count my cash now (without closing)', "Compter mon argent maintenant (sans clôturer)")}</button>
       <Card>
         {closed ? (
           <div>
@@ -206,7 +210,7 @@ function UnreadLink({ n }: { n: number }) {
 }
 
 /** One entry of the month, as a line; a tap opens it to change or delete. */
-export function EntryRow({ e }: { e: CtyEntry }) {
+export function EntryRow({ e, showDate }: { e: CtyEntry; showDate?: boolean }) {
   const { d, book, write } = useCty();
   const ids = new Set(accountBooks(d.books, book).map((b) => b.id));
   const acc = d.accounts.find((a) => a.id === e.account_id);
@@ -226,7 +230,7 @@ export function EntryRow({ e }: { e: CtyEntry }) {
   } else { label = `⇄ ${t3('صرافة', 'Exchange', 'Change')}${part}`; sign = ''; }
   return (
     <button className="cty-entry" onClick={() => write({ kind: e.type, edit: e })}>
-      <span className="cty-entry-day">{Number(e.date.slice(8, 10))}</span>
+      <span className="cty-entry-day">{showDate ? <>{Number(e.date.slice(8, 10))}<small>{monthName(e.date.slice(0, 7), true).slice(0, 3)}</small></> : Number(e.date.slice(8, 10))}</span>
       <span className="cty-entry-text">
         {label}
         {e.note && <small>{e.note}</small>}

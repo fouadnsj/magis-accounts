@@ -3,21 +3,22 @@
 // the total is computed and compared with the book. If it matches, the period closes;
 // if not, add what was forgotten or write a note.
 import { useEffect, useState } from 'react';
-import { errText, parseAmount, toast } from '../../ui/kit';
+import { errText, parseAmount, toast, todayIso } from '../../ui/kit';
 import { tx, type Msg } from '../../i18n';
 import { CURS, accountBooks, balanceOf, lastDay, periodMonths, quarterOf, r2, type Cur } from '../domain';
 import { useCty, Card, bookLabel } from './CtyApp';
 import { usedCurs } from './Month';
 import { curName, money, monthName, t3 } from './text';
 
-export function CloseMonth({ ym, onDone }: { ym: string; onDone: () => void }) {
+/** `check`: only count the cash (any day, today's balance), without closing anything. */
+export function CloseMonth({ ym, onDone, check }: { ym: string; onDone: () => void; check?: boolean }) {
   const { d, book, s, reload, write } = useCty();
   const months = periodMonths(ym, d.settings.closePeriod);
   const last = months[months.length - 1];
   // one account = several books (pocket + bank; house + envelopes): counted together
   const group = accountBooks(d.books, book);
   const curs = CURS.filter((c) => group.some((b) => usedCurs(d.entries, b.id, { LOC: b.opening_syp, USD: b.opening_usd, EUR: b.opening_eur }).includes(c)));
-  const held = balanceOf(d.entries, group, lastDay(last));
+  const held = balanceOf(d.entries, group, check ? todayIso() : lastDay(last));
   const hasBank = group.some((b) => b.cty_kind === 'personal_bank');
   // how many of each note, and loose change / other, per currency
   const [qty, setQty] = useState<Record<string, string>>({});
@@ -59,9 +60,10 @@ export function CloseMonth({ ym, onDone }: { ym: string; onDone: () => void }) {
   return (
     <>
       <button className="cty-back" onClick={onDone}>‹ {t3('رجوع', 'Back', 'Retour')}</button>
-      <h1>{t3('عُدَّ ما معك', 'Count what you have', 'Comptez ce que vous avez')}</h1>
+      <h1>{check ? t3('عدّ النقد', 'Count the cash', "Compter l'argent") : t3('عُدَّ ما معك', 'Count what you have', 'Comptez ce que vous avez')}</h1>
+      {check && <div className="alert info">{t3('للتحقق فقط: لا يُغلق شيء ولا يُحفظ شيء. يمكنك العدّ في أي يوم.', 'Just a check: nothing is closed and nothing is saved. You can count on any day.', "Simple vérification : rien n'est clôturé ni enregistré. Vous pouvez compter n'importe quel jour.")}</div>}
       <p className="muted">{bookLabel(book)} · {title}. {t3('اكتب عدد كل ورقة نقدية؛ البرنامج يجمع ويقارن بدفترك.', 'Write how many of each banknote; the program adds up and compares with your book.', 'Écrivez combien de chaque billet ; le programme additionne et compare avec votre compte.')}</p>
-      {problems.length > 0 && <div className="alert warn">{problems.map((p, i) => <div key={i}>{tx(p)}</div>)}</div>}
+      {!check && problems.length > 0 && <div className="alert warn">{problems.map((p, i) => <div key={i}>{tx(p)}</div>)}</div>}
       {curs.map((c) => (
         <Card key={c}>
           <div className="cty-notes-head"><b>{curName(c, d.local)}</b><span className="muted small">{t3('الدفتر', 'Book', 'Compte')}: {money(held[c], c)}</span></div>
@@ -87,16 +89,20 @@ export function CloseMonth({ ym, onDone }: { ym: string; onDone: () => void }) {
         </Card>
       ))}
       {diffs.length === 0 && <div className="alert ok">✓ {t3('مطابق للدفتر', 'It matches your book', 'Cela correspond à votre compte')}</div>}
-      {diffs.length > 0 && (
+      {diffs.length > 0 && !check && (
         <Card>
           <button className="btn cty-wide" onClick={() => write({ kind: 'Exp' })}>＋ {t3('أضف نفقة نُسيت', 'Add a forgotten expense', 'Ajouter une dépense oubliée')}</button>
           <label className="field" style={{ marginTop: 8 }}><span>{t3('أو اكتب ملاحظة تشرح الفرق', 'Or write a note explaining the difference', "Ou écrivez une note qui explique l'écart")}</span><input value={note} onChange={(e) => setNote(e.target.value)} /></label>
         </Card>
       )}
       {err && <div className="alert err">{err}</div>}
-      <button className="btn primary cty-wide" disabled={busy || problems.length > 0 || (diffs.length > 0 && !note.trim())} onClick={close}>
-        {busy ? '…' : months.length > 1 ? t3('أغلق الفصل', 'Close the quarter', 'Clôturer le trimestre') : t3('أغلق الشهر', 'Close the month', 'Clôturer le mois')}
-      </button>
+      {check ? (
+        <button className="btn primary cty-wide" onClick={onDone}>{t3('تم', 'Done', 'Terminé')}</button>
+      ) : (
+        <button className="btn primary cty-wide" disabled={busy || problems.length > 0 || (diffs.length > 0 && !note.trim())} onClick={close}>
+          {busy ? '…' : months.length > 1 ? t3('أغلق الفصل', 'Close the quarter', 'Clôturer le trimestre') : t3('أغلق الشهر', 'Close the month', 'Clôturer le mois')}
+        </button>
+      )}
     </>
   );
 }

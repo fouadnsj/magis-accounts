@@ -7,10 +7,11 @@ import { CURS, accountBooks, rollUp, sheetOf, type Sheet, yearOf, type Cur, type
 import { useCty, bookLabel, bookName } from '../CtyApp';
 import { accName, curName, money, t3, yearName } from '../text';
 import { exportExcel } from './excel';
+import { QuartersByCategory } from './QuarterView';
 
 const QUARTERS: Record<number, [string, string]> = { 1: ['10-01', '12-31'], 2: ['01-01', '03-31'], 3: ['04-01', '06-30'], 4: ['07-01', '09-30'] };
 
-export function Quarter() {
+function QuarterByMember() {
   const { d } = useCty();
   const [year, setYear] = useState(yearOf(todayIso()));
   const [q, setQ] = useState<number>(1);
@@ -29,10 +30,10 @@ export function Quarter() {
   const total = (id: number, c: Cur) => cols.reduce((n, x) => n + v(x.up, id, c), 0);
   const fixed: { key: keyof Sheet; label: string }[] = [
     { key: 'carried', label: t3('رصيد سابق', 'Carried over', 'Report') },
-    { key: 'received', label: t3('من القيّم', 'From the econome', "Reçu de l'économe") },
+    { key: 'received', label: t3('من القيم', 'From the econome', "Reçu de l'économe") },
     { key: 'totalIncome', label: t3('مجموع الدخل', 'Total income', 'Total revenus') },
     { key: 'totalExpenses', label: t3('مجموع النفقات', 'Total expenses', 'Total dépenses') },
-    { key: 'givenBack', label: t3('أعيد إلى القيّم', 'Given back', "Rendu à l'économe") },
+    { key: 'givenBack', label: t3('أعيد إلى القيم', 'Given back', "Rendu à l'économe") },
     { key: 'kept', label: t3('في النهاية', 'Kept at the end', 'Gardé à la fin') },
   ];
   const colName = (b: (typeof books)[number]) => (b.cty_kind === 'house' ? bookLabel(b) : bookName(b));
@@ -91,6 +92,23 @@ export function Quarter() {
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+/** The quarters: every category in each quarter with a chart, or each member's column. */
+export function Quarter() {
+  const [view, setView] = useState<'cat' | 'member'>('cat');
+  return (
+    <>
+      <div className="desk-head">
+        <h1>{t3('الفصول والبنود', 'Quarters and categories', 'Trimestres et catégories')}</h1>
+        <div className="cty-seg" style={{ margin: 0 }}>
+          <button className={view === 'cat' ? 'on' : ''} onClick={() => setView('cat')}>{t3('كل البنود فصلاً بفصل', 'Every category by quarter', 'Chaque catégorie par trimestre')}</button>
+          <button className={view === 'member' ? 'on' : ''} onClick={() => setView('member')}>{t3('الملف الفصلي: عمود لكل واحد', 'Quarterly file: a column for each', 'Fichier trimestriel : une colonne par membre')}</button>
+        </div>
+      </div>
+      {view === 'cat' ? <QuartersByCategory /> : <QuarterByMember />}
     </>
   );
 }

@@ -57,3 +57,20 @@
   .cty.desk { display: block; }
   .desk-two { display: block; }
 }
+
+/* the econome's four transactions, "Give money" first */
+.desk-four { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 12px; margin: 6px 0 14px; }
+.desk-four button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; border: 0; border-radius: 14px; padding: 16px; color: #fff; cursor: pointer; text-align: start; font: inherit; min-height: 96px; }
+.desk-four button i { font-style: normal; font-size: 26px; }
+.desk-four button b { font-size: 17px; }
+.desk-four button small { opacity: 0.9; font-size: 12px; line-height: 1.3; }
+.desk-four .give { background: linear-gradient(135deg, #B8891B, #8a6a1a); box-shadow: 0 6px 16px rgba(138, 106, 26, 0.35); }
+.desk-four .out { background: var(--c-out); }
+.desk-four .in { background: var(--c-in); }
+.desk-four .exc { background: #5b6b8a; }
+@media (max-width: 1250px) { .desk-four { grid-template-columns: 1fr 1fr; } }
+.desk-qpick { display: inline-flex; gap: 4px; margin-inline-start: 6px; }
+.desk-qpick button { border: 1px solid var(--c-line); background: #fff; border-radius: 12px; padding: 1px 9px; cursor: pointer; font: inherit; font-size: 12px; }
+.desk-qpick button.on { background: var(--c-gold); border-color: var(--c-gold); color: #fff; }
+.desk-table th.qsel, .desk-table td.qsel { background: #fffaf0; }
+.desk-table tr.picked td { background: #fff3cf; }

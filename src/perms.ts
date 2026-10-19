@@ -81,7 +81,7 @@ export const CTY_PERM_GROUPS = [
     key: 'country',
     label: m('البلد', 'Country', 'Pays'),
     perms: [
-      { key: 'country.manage', label: m('قيّم البلد: ملفات الجماعات، المطالبات، التكاليف بين الجماعات، المصالحة', 'Country econome: the communities\u2019 files, claims, charges between communities, reconciliation', "Économe du pays : fichiers des communautés, réclamations, charges entre communautés, réconciliation") },
+      { key: 'country.manage', label: m('قيم البلد: ملفات الجماعات، المطالبات، التكاليف بين الجماعات، المصالحة', 'Country econome: the communities\u2019 files, claims, charges between communities, reconciliation', "Économe du pays : fichiers des communautés, réclamations, charges entre communautés, réconciliation") },
     ],
   },
 ] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];

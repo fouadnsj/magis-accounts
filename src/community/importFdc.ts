@@ -90,7 +90,7 @@ export async function importFdc(db: Db, a: { bookId: number; year: number; bytes
       for (const [row, dir] of [[4, 1], [47, -1]] as const) {
         const x = v(row) * dir;
         if (!x) continue;
-        if (!cash) { problems.push(m(`${where(col + row)}: لا صندوق للقيّم`, `${where(col + row)}: no econome cash book`, `${where(col + row)} : pas de caisse de l'économe`)); continue; }
+        if (!cash) { problems.push(m(`${where(col + row)}: لا صندوق للقيم`, `${where(col + row)}: no econome cash book`, `${where(col + row)} : pas de caisse de l'économe`)); continue; }
         if (x < 0) { problems.push(m(`${where(col + row)}: إشارة خاطئة`, `${where(col + row)}: wrong sign`, `${where(col + row)} : mauvais signe`)); continue; }
         rows.push({
           ...base(ym, where(col + row)), type: 'Transfer', cur, amount: x,

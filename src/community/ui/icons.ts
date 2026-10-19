@@ -33,3 +33,18 @@ export function iconOf(code: string | null | undefined): string {
 
 /** Icons of the kinds of books and of the choices of money. */
 export const BOOK_ICON: Record<string, string> = { personal: '💰', personal_bank: '🏦', house: '🏠', envelope: '✉️', cash: '💰', bank: '🏦', economat: '🏛️' };
+
+/** A soft colour for each family of the chart, so categories are told apart at a glance. */
+const TINTS: Record<string, [string, string]> = {
+  '61': ['#fbf0d4', '#d9a93a'], // support: amber
+  '62': ['#e3eefb', '#4f86c6'], // common: blue
+  '63': ['#dff3ee', '#3f9a8a'], // general: teal
+  '64': ['#efe6f7', '#8a5cb0'], // sharing: purple
+  '65': ['#fbe3e0', '#c9594a'], // extraordinary: red
+  '67': ['#ececec', '#8a8a8a'], // financial: grey
+  '71': ['#e2f1e2', '#4c9a54'], // income: green
+  '72': ['#e2f1e2', '#4c9a54'],
+  '73': ['#e6edf8', '#5a7fb8'],
+};
+/** [background, border] for a code. */
+export const tintOf = (code: string | null | undefined): [string, string] => TINTS[(code ?? '').slice(0, 2)] ?? ['#f5f2ea', '#b8b098'];

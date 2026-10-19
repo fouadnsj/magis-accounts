@@ -24,8 +24,8 @@ export const ROLE_PERMS: Record<CtyRole, Perm[]> = {
 };
 export const ROLE_NAME: Record<CtyRole, string> = {
   jesuit: 'يسوعي · Jesuit · Jésuite',
-  minister: 'المدبّر · Minister · Ministre',
-  econome: 'القيّم · Econome · Économe',
+  minister: 'المدبر · Minister · Ministre',
+  econome: 'القيم · Econome · Économe',
   superior: 'الرئيس · Superior · Supérieur',
 };
 const ORDER: CtyRole[] = ['superior', 'econome', 'minister', 'jesuit'];
@@ -79,8 +79,8 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
   const roles = s.people.flatMap((p) => p.roles);
   const need: [CtyRole, ReturnType<typeof m>][] = [
     ['superior', m('من هو الرئيس؟', 'Who is the Superior?', 'Qui est le Supérieur ?')],
-    ['econome', m('من هو القيّم؟', 'Who is the econome?', "Qui est l'économe ?")],
-    ['minister', m('من هو المدبّر؟', 'Who is the minister?', 'Qui est le ministre ?')],
+    ['econome', m('من هو القيم؟', 'Who is the econome?', "Qui est l'économe ?")],
+    ['minister', m('من هو المدبر؟', 'Who is the minister?', 'Qui est le ministre ?')],
   ];
   for (const [r, msg] of need) if (!roles.includes(r)) throw new UserError(msg);
 

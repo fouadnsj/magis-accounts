@@ -599,7 +599,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
 async function importReturn(c: OpCtx, a: { file: ReturnFile }): Promise<{ decisions: number; lines: number }> {
   await requireCommunity(c.db);
   const f = a.file;
-  if (!f || f.kind !== RETURN_FILE) throw new UserError(m('ليس ملف رجوع من قيّم البلد', 'Not a return file from the country econome', "Ce n'est pas un fichier de retour de l'économe du pays"));
+  if (!f || f.kind !== RETURN_FILE) throw new UserError(m('ليس ملف رجوع من قيم البلد', 'Not a return file from the country econome', "Ce n'est pas un fichier de retour de l'économe du pays"));
   if (f.community_uid !== (await communityUid(c.db))) throw new UserError(m('هذا الملف لجماعة أخرى', 'This file is for another community', 'Ce fichier est pour une autre communauté'));
   const stmts: Stmt[] = [];
   let decisions = 0;
@@ -634,7 +634,7 @@ async function saveCharge(c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: st
   const x = a.charge;
   const old = x.id ? await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [x.id]) : undefined;
   if (x.id && !old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
-  if (old && old.status !== 'waiting') throw new UserError(m('قرّر فيها قيّم البلد: لا تُعدَّل', 'The country econome has decided on it: it cannot change', "L'économe du pays a décidé : elle ne change plus"));
+  if (old && old.status !== 'waiting') throw new UserError(m('قرّر فيها قيم البلد: لا تُعدَّل', 'The country econome has decided on it: it cannot change', "L'économe du pays a décidé : elle ne change plus"));
   if (!x.date || !validDate(x.date)) throw new UserError(m('التاريخ مطلوب', 'The date is required', 'La date est requise'));
   if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [x.date.slice(0, 7)])) throw monthClosed(x.date.slice(0, 7));
   const known = x.to_uid ? await one<{ name: string }>(c.db, 'SELECT name FROM cty_known WHERE uid = ?', [x.to_uid]) : undefined;
@@ -658,7 +658,7 @@ async function deleteCharge(c: OpCtx, a: { id: string; reason: string }) {
   await requireCommunity(c.db);
   const old = await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [a.id]);
   if (!old) return;
-  if (old.status !== 'waiting') throw new UserError(m('قرّر فيها قيّم البلد: لا تُحذف', 'The country econome has decided on it: it cannot be deleted', "L'économe du pays a décidé : elle ne peut être supprimée"));
+  if (old.status !== 'waiting') throw new UserError(m('قرّر فيها قيم البلد: لا تُحذف', 'The country econome has decided on it: it cannot be deleted', "L'économe du pays a décidé : elle ne peut être supprimée"));
   if (await one(c.db, 'SELECT 1 AS x FROM closed_month WHERE ym = ?', [old.date.slice(0, 7)])) throw monthClosed(old.date.slice(0, 7));
   const reason = (a.reason ?? '').trim();
   if (!reason) throw new UserError(m('اكتب سبب الحذف', 'Write the reason for this deletion', 'Écrivez la raison de cette suppression'));

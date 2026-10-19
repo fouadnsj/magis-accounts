@@ -910,4 +910,11 @@ DELETE FROM user_book WHERE book_id IN (SELECT id FROM book WHERE cty_kind = 'ba
 UPDATE access_profile SET name = replace(replace(replace(name, 'المدبّر · Econome', 'القيّم · Econome'), 'الوزير · Minister', 'المدبّر · Minister'), 'مدبّر البلد', 'قيّم البلد');
 `,
   },
+  {
+    n: 20,
+    name: 'Arabic role names without extra marks: القيم (econome), المدبر (minister), قيم البلد (country econome)',
+    sql: `
+UPDATE access_profile SET name = replace(replace(replace(replace(name, 'القيّم', 'القيم'), 'المدبّر', 'المدبر'), 'قيّم البلد', 'قيم البلد'), 'مدبّر البلد', 'قيم البلد');
+`,
+  },
 ];

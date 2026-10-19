@@ -109,8 +109,8 @@ async function savePerson(c: OpCtx, a: { id?: number | null; name: string; roles
   const after = [...people.filter((p) => p.id !== a.id && p.active), ...(active ? [{ roles }] : [])];
   for (const [r, msg] of [
     ['superior', m('يبقى رئيس واحد على الأقل', 'There must still be a Superior', 'Il faut toujours un Supérieur')],
-    ['econome', m('يبقى قيّم واحد على الأقل', 'There must still be an econome', 'Il faut toujours un économe')],
-    ['minister', m('يبقى مدبّر واحد على الأقل', 'There must still be a minister', 'Il faut toujours un ministre')],
+    ['econome', m('يبقى قيم واحد على الأقل', 'There must still be an econome', 'Il faut toujours un économe')],
+    ['minister', m('يبقى مدبر واحد على الأقل', 'There must still be a minister', 'Il faut toujours un ministre')],
   ] as const) if (!after.some((p) => p.roles.includes(r))) throw new UserError(msg);
   const access = await accessFor(c.db, roles.length ? roles : ['jesuit']);
   const role = roles.includes('superior') ? 'sup' : roles.includes('econome') ? 'com' : 'holder';

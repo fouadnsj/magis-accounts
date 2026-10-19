@@ -54,13 +54,16 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
   // an entry left half-typed at a sign-out for inactivity comes back
   const [editing, setEditing] = useState<EntryStart | null>(() => (draftFor(draftKey(s))?.start as EntryStart | undefined) ?? null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // a new key each time a form is opened, so a copy opened from a form starts fresh
+  const [formKey, setFormKey] = useState(0);
+  const openEntry = (x: EntryStart | null) => { setFormKey((k) => k + 1); setEditing(x); };
   const nav: Nav = {
     go: (p, o) => {
       setReviewOnly(!!o?.review);
       setBookOnly(o?.book ?? null);
       setPage(p);
     },
-    entry: setEditing,
+    entry: openEntry,
     reviewOnly,
     bookOnly,
   };
@@ -86,8 +89,8 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
     return (
       <NavCtx.Provider value={nav}>
         <div style={theme}>
-          <PhoneShell onComputer={() => choose('pc')} onToggleLang={onToggleLang} onCloseDb={onCloseDb} onDatabases={onDatabases} onEntry={setEditing} />
-          {editing && <EntryForm start={editing} onClose={() => setEditing(null)} />}
+          <PhoneShell onComputer={() => choose('pc')} onToggleLang={onToggleLang} onCloseDb={onCloseDb} onDatabases={onDatabases} onEntry={openEntry} />
+          {editing && <EntryForm key={formKey} start={editing} onClose={() => setEditing(null)} onCopy={openEntry} />}
         </div>
       </NavCtx.Provider>
     );
@@ -138,7 +141,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {page === 'admin' && <Admin />}
         </main>
       </div>
-      {editing && <EntryForm start={editing} onClose={() => setEditing(null)} />}
+      {editing && <EntryForm key={formKey} start={editing} onClose={() => setEditing(null)} onCopy={openEntry} />}
       </div>
     </NavCtx.Provider>
   );

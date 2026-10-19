@@ -322,3 +322,7 @@
 .cty-four.four-eq { grid-template-columns: 1fr 1fr; }
 .cty-four.four-eq button { flex-direction: column; justify-content: center; gap: 4px; padding: 16px 6px; font-size: 16px; text-align: center; }
 .magis-phone { --c-soft: #fffaf0; }
+
+/* duplicate an entry: two buttons side by side */
+.cty-copy { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cty-copy .cty-wide { margin-top: 8px; }

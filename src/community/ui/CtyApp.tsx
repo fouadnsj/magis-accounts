@@ -62,6 +62,9 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   const [view, setView] = useState<View>('month');
   const [bookId, setBookId] = useState<number | null>(null);
   const [sheet, setSheet] = useState<EntryStart | null>(null);
+  // a copy opened from an entry starts a fresh sheet
+  const [sheetKey, setSheetKey] = useState(0);
+  const openCopy = (x: EntryStart) => { setSheetKey((k) => k + 1); setSheet(x); };
 
   const reload = useCallback(async () => {
     try {
@@ -137,7 +140,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
     return (
       <CtyCtx.Provider value={ctx}>
         <Desk onPhone={() => choosePhone(true)} onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />
-        {sheet && <EntrySheet start={sheet} onClose={() => setSheet(null)} />}
+        {sheet && <EntrySheet key={sheetKey} start={sheet} onClose={() => setSheet(null)} onCopy={openCopy} />}
         {giving && <GiveSheet onClose={() => setGiving(false)} />}
       </CtyCtx.Provider>
     );
@@ -186,7 +189,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
           <Tab on={view === 'notes'} onClick={() => setView('notes')} icon="✉︎" label={t3('ملاحظات', 'Notes', 'Notes')} badge={unread} />
           {approver && <Tab on={view === 'approvals'} onClick={() => setView('approvals')} icon="✓" label={t3('موافقات', 'Approvals', 'Accords')} badge={approvalsWaiting(d)} />}
         </nav>
-        {sheet && <EntrySheet start={sheet} onClose={() => setSheet(null)} />}
+        {sheet && <EntrySheet key={sheetKey} start={sheet} onClose={() => setSheet(null)} onCopy={openCopy} />}
         {giving && <GiveSheet onClose={() => setGiving(false)} />}
       </div>
     </CtyCtx.Provider>

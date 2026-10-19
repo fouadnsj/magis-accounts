@@ -54,11 +54,11 @@ const recall = (k: string) => {
 };
 
 /** A new entry with some choices already made (an envelope's Give / Spent / Put back). */
-export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null }
+export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null; /** a copy of this record (opens as a new entry, saved only when he presses Save) */ copyOf?: Trx; date?: string }
 export type EntryStart = TrxType | Trx | NewEntry;
 const isPreset = (x: EntryStart): x is NewEntry => typeof x === 'object' && 'preset' in x;
 
-export function EntryForm({ start, onClose: close }: { start: EntryStart; onClose: () => void }) {
+export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart; onClose: () => void; /** open a copy of the record being looked at */ onCopy?: (x: EntryStart) => void }) {
   const app = useApp();
   const onClose = () => {
     dropDraft();
@@ -78,7 +78,11 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
   const ownBook = ownPrivate ?? L.books.find((b) => b.active && app.myBooks.includes(b.id) && b.id !== d.grantsBookId && b.parent_id == null)?.id ?? null;
 
   // The other row of a keeper-to-keeper transfer, and the transfer as a whole.
+  // (a copy is built from a record the same way an edit is, but saved as a NEW entry)
+  const copyOf = isPreset(start) ? start.copyOf ?? null : null;
+  const source = editing ?? copyOf;
   const partner = editing?.transfer_group ? d.rows.find((r) => r.transfer_group === editing.transfer_group && r.id !== editing.id) ?? null : null;
+  const srcPartner = source?.transfer_group ? d.rows.find((r) => r.transfer_group === source.transfer_group && r.id !== source.id) ?? null : null;
   const transfer = editing?.type === 'Transfer' ? d.transfers.find((x) => x.rowIds.includes(editing.id)) ?? null : null;
   const lockedTransfer = !!(restricted && transfer && (transfer.receivedAt || !myBooks.includes(transfer.from!)));
   const bookLocked = !!(restricted && editing?.date && d.bookClosed.has(`${editing.book_id}|${editing.date.slice(0, 7)}`));
@@ -109,8 +113,8 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
   };
 
   const initial = (): FormState => {
-    if (editing) {
-      const tr = editing;
+    if (source) {
+      const tr = source;
       const base: FormState = {
         type: tr.type ?? 'Exp', date: tr.date ?? '', bookId: tr.book_id, accountId: tr.account_id, cityId: tr.city_id,
         headingId: tr.heading_id, lineId: tr.line_id, partyId: tr.party_id, explanation: tr.explanation ?? '', receipt: tr.receipt ?? '',
@@ -130,9 +134,9 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
         const v = tr.trf_syp || tr.trf_usd;
         base.currency = tr.trf_syp ? 'SYP' : tr.trf_usd ? 'USD' : null;
         base.amount = v ? String(Math.abs(v)) : '';
-        if (partner) {
-          const out = v < 0 ? tr : partner;
-          const inn = v < 0 ? partner : tr;
+        if (srcPartner) {
+          const out = v < 0 ? tr : srcPartner;
+          const inn = v < 0 ? srcPartner : tr;
           base.fromBook = out.book_id;
           base.toBook = inn.book_id;
         } else if (v < 0) {
@@ -141,6 +145,16 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
         } else {
           base.fromBook = mainId;
           base.toBook = tr.book_id;
+        }
+      }
+      if (copyOf) {
+        // the copy: today (or the date asked), no bill number (each bill has its own), no grant link; he changes what differs
+        base.date = (start as NewEntry).date ?? copyOf.date ?? todayIso();
+        base.receipt = '';
+        // a person writes in his own books only
+        if (restricted) {
+          if (base.type === 'Transfer') { if (base.fromBook == null || !myBooks.includes(base.fromBook)) base.fromBook = myBooks[0] ?? null; }
+          else if (base.bookId == null || !myBooks.includes(base.bookId)) base.bookId = myBooks[0] ?? null;
         }
       }
       return base;
@@ -543,6 +557,12 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
           </button>
         )}
         <button className="btn" onClick={onClose}>{t('إغلاق', 'Close')}</button>
+        {editing && onCopy && (
+          <>
+            <button className="btn" title={t('نسخة بالتاريخ نفسه، وتفتح للتعديل', 'A copy with the same date, opened to change')} onClick={() => { dropDraft(); onCopy({ preset: true, type: editing.type ?? 'Exp', copyOf: editing }); }}>⧉ {t('نسخ', 'Duplicate')}</button>
+            <button className="btn" title={t('نسخة بتاريخ اليوم، وتفتح للتعديل', 'A copy dated today, opened to change')} onClick={() => { dropDraft(); onCopy({ preset: true, type: editing.type ?? 'Exp', copyOf: editing, date: todayIso() }); }}>⧉ {t('نسخ لليوم', 'Duplicate for today')}</button>
+          </>
+        )}
         {!readOnly && !editing && (
           <button className="btn" disabled={busy} onClick={() => save(true)} title="Ctrl/⌘ + Enter">
             {warnAccepted && warnings.length ? t('احفظ رغم ذلك وجديد', 'Save anyway & new') : t('احفظ وجديد', 'Save & new')}

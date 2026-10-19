@@ -4,6 +4,10 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  "Duplicate": "Dupliquer",
+  "Duplicate for today": "Dupliquer pour aujourd'hui",
+  "A copy with the same date, opened to change": "Une copie à la même date, ouverte pour la modifier",
+  "A copy dated today, opened to change": "Une copie à la date d'aujourd'hui, ouverte pour la modifier",
   "Main is seen by the Accountant, line by line; your own book is private.": "Main est vu par le comptable, ligne par ligne ; votre propre caisse est privée.",
   "The helper's name (e.g. the facilitator, the cleaner)": "Le nom de l'aide (par ex. l'animateur, l'agent d'entretien)",
   "Envelope made": "Enveloppe créée",

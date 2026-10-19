@@ -17,6 +17,10 @@ export interface EntryStart {
   kind: EntryType;
   /** an existing entry, to change or delete */
   edit?: CtyEntry;
+  /** a copy of this entry: opens like an edit but is saved as a NEW entry (nothing is saved until he presses Save) */
+  copy?: CtyEntry;
+  /** the date of the copy (the same date, or today) */
+  date?: string;
   /** a new entry in this book (the econome's desk; an envelope); otherwise the book on screen */
   bookId?: number;
   /** a transfer to this book (give to an envelope, put back in the house) */
@@ -58,27 +62,33 @@ export function offered(accounts: CtyAccount[], book: CtyBook, type: 'Income' | 
   return [...headings.values()];
 }
 
-export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () => void }) {
+export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onClose: () => void; /** open a copy of the entry being looked at */ onCopy?: (s: EntryStart) => void }) {
   const { d, book: shown, s, reload } = useCty();
   const edit = start.edit;
-  const main = d.books.find((b) => b.id === (edit?.book_id ?? start.bookId)) ?? shown;
+  const copy = start.copy;
+  const src = edit ?? copy;
+  /** an edit or a copy: the whole entry is shown, not the step-by-step */
+  const editLike = !!src;
+  // a copy of someone else's entry goes to the book on screen (he writes in his own)
+  const srcBookId = copy && !d.kept.includes(copy.book_id) ? undefined : src?.book_id;
+  const main = d.books.find((b) => b.id === (srcBookId ?? start.bookId)) ?? shown;
   // (an envelope on screen is the house account's: its group starts from the house)
   // one account may be several books (pocket + bank, house + envelopes): we only say from where
   const group = accountBooks(d.books, main).filter((b) => d.kept.includes(b.id) || b.id === main.id);
   const [pocketId, setPocketId] = useState<number>(main.id);
   const book = d.books.find((b) => b.id === pocketId) ?? main;
   const [kind, setKind] = useState<EntryType>(start.kind);
-  const [stage, setStage] = useState<'amount' | 'heading' | 'line' | 'save'>(edit ? 'save' : 'amount');
-  const [amount, setAmount] = useState(edit ? String(edit.amount) : '');
-  const [cur, setCur] = useState<Cur>(edit?.cur ?? lastCur(s.profile.id));
-  const [amount2, setAmount2] = useState(edit?.amount2 ? String(edit.amount2) : '');
-  const [cur2, setCur2] = useState<Cur>(edit?.cur2 ?? (cur === 'LOC' ? 'USD' : 'LOC'));
+  const [stage, setStage] = useState<'amount' | 'heading' | 'line' | 'save'>(editLike ? 'save' : 'amount');
+  const [amount, setAmount] = useState(src ? String(src.amount) : '');
+  const [cur, setCur] = useState<Cur>(src?.cur ?? lastCur(s.profile.id));
+  const [amount2, setAmount2] = useState(src?.amount2 ? String(src.amount2) : '');
+  const [cur2, setCur2] = useState<Cur>(src?.cur2 ?? (cur === 'LOC' ? 'USD' : 'LOC'));
   const [heading, setHeading] = useState<number | null>(null);
-  const [accountId, setAccountId] = useState<number | null>(edit?.account_id ?? null);
-  const [toBook, setToBook] = useState<number | null>(edit?.to_book_id ?? start.toBookId ?? null);
-  const [date, setDate] = useState(edit?.date ?? todayIso());
-  const [note, setNote] = useState(edit?.note ?? '');
-  const [claim, setClaim] = useState<ClaimReason | null>(edit?.claim ?? null);
+  const [accountId, setAccountId] = useState<number | null>(src?.account_id ?? null);
+  const [toBook, setToBook] = useState<number | null>(src?.to_book_id ?? start.toBookId ?? null);
+  const [date, setDate] = useState(copy ? start.date ?? copy.date : edit?.date ?? todayIso());
+  const [note, setNote] = useState(src?.note ?? '');
+  const [claim, setClaim] = useState<ClaimReason | null>(src?.claim ?? null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const amountRef = useRef<HTMLInputElement>(null);
@@ -216,7 +226,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
     <div className="cty-sheet" role="dialog">
       <div className="cty-sheet-head">
         <button className="cty-icon" onClick={onClose} aria-label="close">✕</button>
-        {edit ? <b>{t3('القيد', 'The entry', "L'écriture")}</b> : (
+        {editLike ? <b>{edit ? t3('القيد', 'The entry', "L'écriture") : t3('نسخة من القيد', 'A copy of the entry', "Une copie de l'écriture")}</b> : (
           <div className="cty-kinds">
             {kinds.map((x) => (
               <button key={x.k} className={`k-${x.k} ${kind === x.k ? 'on' : ''}`} onClick={() => { setKind(x.k); setStage('amount'); setAccountId(null); setHeading(null); }}>{KIND_ICON[x.k]} {x.label}</button>
@@ -229,12 +239,12 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
       </div>
       <div className="cty-sheet-body">
         {err && <div className="alert err">{err}</div>}
-        {!edit && isLine && <div className="cty-step">{stage === 'amount' ? t3('1 · كم؟', '1 · How much?', '1 · Combien ?') : stage === 'heading' ? t3('2 · أي نوع؟', '2 · Which category?', '2 · Quelle catégorie ?') : stage === 'line' ? t3('3 · بالتفصيل', '3 · Which one exactly?', '3 · Laquelle exactement ?') : t3('4 · احفظ', '4 · Save', '4 · Enregistrer')}</div>}
+        {!editLike && isLine && <div className="cty-step">{stage === 'amount' ? t3('1 · كم؟', '1 · How much?', '1 · Combien ?') : stage === 'heading' ? t3('2 · أي نوع؟', '2 · Which category?', '2 · Quelle catégorie ?') : stage === 'line' ? t3('3 · بالتفصيل', '3 · Which one exactly?', '3 · Laquelle exactement ?') : t3('4 · احفظ', '4 · Save', '4 · Enregistrer')}</div>}
 
         {/* 1 · the amount (and, for an exchange, what came back; for a gift, to whom) */}
-        {(stage === 'amount' || edit) && (
+        {(stage === 'amount' || editLike) && (
           <>
-            {group.length > 1 && !edit && (
+            {group.length > 1 && !editLike && (
               <>
                 <div className="cty-label">{kind === 'Income' ? t3('قُبض في', 'Received in', 'Reçu dans') : kind === 'Transfer' ? t3('من', 'From', 'De') : t3('دُفع من', 'Paid from', 'Payé depuis')}</div>
                 <div className="cty-tiles small">
@@ -242,7 +252,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
                 </div>
               </>
             )}
-            <AmountInput refEl={amountRef} label={kind === 'Exchange' ? t3('أعطيتُ', 'I gave', "J'ai donné") : t3('المبلغ', 'Amount', 'Montant')} value={amount} onChange={setAmount} cur={cur} onCur={setCur} local={d.local} onEnter={() => isLine && n > 0 && !edit && setStage('heading')} />
+            <AmountInput refEl={amountRef} label={kind === 'Exchange' ? t3('أعطيتُ', 'I gave', "J'ai donné") : t3('المبلغ', 'Amount', 'Montant')} value={amount} onChange={setAmount} cur={cur} onCur={setCur} local={d.local} onEnter={() => isLine && n > 0 && !editLike && setStage('heading')} />
             {kind === 'Exchange' && (
               <AmountInput label={t3('استلمتُ', 'I received', "J'ai reçu")} value={amount2} onChange={setAmount2} cur={cur2} onCur={setCur2} local={d.local} />
             )}
@@ -263,7 +273,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
                 <p className="muted small">{siblings.some((b) => b.id === toBook) ? t3('بين دفاترك: لا حاجة إلى تأكيد.', 'Between your own books: no confirmation needed.', 'Entre vos propres comptes : pas de confirmation.') : t3('من يستلم يؤكّد أنه استلم.', 'The one who receives confirms he received it.', 'Celui qui reçoit confirme qu’il a reçu.')}</p>
               </>
             )}
-            {!edit && isLine && recent.length > 0 && n === 0 && (
+            {!editLike && isLine && recent.length > 0 && n === 0 && (
               <>
                 <div className="cty-label">{t3('مثل المرة الماضية', 'Same as last time', 'Comme la dernière fois')}</div>
                 <div className="cty-chips">
@@ -273,14 +283,14 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
                 </div>
               </>
             )}
-            {!edit && isLine && (
+            {!editLike && isLine && (
               <button className="btn primary cty-wide" disabled={!(n > 0)} onClick={() => setStage('heading')}>{t3('التالي', 'Next', 'Suivant')} ›</button>
             )}
           </>
         )}
 
         {/* 2 · the heading */}
-        {!edit && stage === 'heading' && (
+        {!editLike && stage === 'heading' && (
           <>
             <Summary />
             {frequent.length > 0 && (
@@ -304,7 +314,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
         )}
 
         {/* 3 · the line */}
-        {!edit && stage === 'line' && heading != null && (
+        {!editLike && stage === 'line' && heading != null && (
           <>
             <Summary />
             <button className="cty-back" onClick={() => setStage('heading')}>‹ {accName(d.accounts.find((a) => a.id === heading))}</button>
@@ -317,10 +327,10 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
         )}
 
         {/* 4 · save (with what is optional) */}
-        {(stage === 'save' || (!isLine && stage === 'amount') || edit) && (
+        {(stage === 'save' || (!isLine && stage === 'amount') || editLike) && (
           <>
-            {!edit && isLine && <Summary />}
-            {edit && isLine && (
+            {!editLike && isLine && <Summary />}
+            {editLike && isLine && (
               <label className="field">
                 <span>{t3('البند', 'Line', 'Ligne')}</span>
                 <select value={accountId ?? ''} onChange={(e) => setAccountId(Number(e.target.value) || null)}>
@@ -344,7 +354,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
                 {busy ? '…' : t3('احفظ', 'Save', 'Enregistrer')}
               </button>
             )}
-            <details className="cty-more" open={!!edit}>
+            <details className="cty-more" open={editLike}>
               <summary>{t3('التاريخ، ملاحظة، مطالبة…', 'Date, note, claim…', 'Date, note, réclamation…')}</summary>
               <label className="field"><span>{t3('التاريخ', 'Date', 'Date')}</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
               <label className="field"><span>{t3('ملاحظة (اختيارية)', 'Note (optional)', 'Note (facultative)')}</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t3('مثلاً: لماذا؟ لمن؟', 'e.g. why? for whom?', 'p. ex. pourquoi ? pour qui ?')} /></label>
@@ -363,6 +373,12 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
                 </label>
               )}
             </details>
+            {edit && onCopy && (
+              <div className="cty-copy">
+                <button className="btn cty-wide" onClick={() => onCopy({ kind: edit.type as EntryType, copy: edit, date: edit.date })}>⧉ {t3('نسخ', 'Duplicate', 'Dupliquer')}</button>
+                <button className="btn cty-wide" onClick={() => onCopy({ kind: edit.type as EntryType, copy: edit, date: todayIso() })}>⧉ {t3('نسخ لليوم', 'Duplicate for today', "Dupliquer pour aujourd'hui")}</button>
+              </div>
+            )}
             {edit && !readOnly && <button className="btn ghost danger cty-wide" onClick={remove}>{t3('حذف…', 'Delete…', 'Supprimer…')}</button>}
           </>
         )}

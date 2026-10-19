@@ -11,7 +11,7 @@ import type { Perm } from '../perms';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CURS, approvalOf, balance, lastDay, leafAccounts, monthSheet, periodMonths, r2,
+  CURS, accountBooks, approvalOf, balance, balanceOf, lastDay, leafAccounts, monthSheet, periodMonths, r2,
   type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
@@ -192,6 +192,8 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
     created_by: old?.created_by ?? c.who,
     updated_at: old ? at : null,
   };
+  // money moved between two books of the same keeper (pocket ↔ bank, house ↔ envelope) needs no confirmation
+  if (row.type === 'Transfer' && row.to_book_id != null && keeps(c, row.book_id) && keeps(c, row.to_book_id)) Object.assign(row, { received_at: at, received_by: c.who });
   if (old && old.type === 'Transfer' && row.type === 'Transfer' && old.to_book_id === row.to_book_id && old.amount === row.amount && old.cur === row.cur && old.date === row.date) {
     // only the note changed: the confirmation stands
     Object.assign(row, { received_at: old.received_at, received_by: old.received_by, disputed_at: old.disputed_at, dispute_note: old.dispute_note });
@@ -267,49 +269,59 @@ const curKey = { LOC: 'loc', USD: 'usd', EUR: 'eur' } as const;
  * his cash in each currency, banknote by banknote. A difference needs a note. Every month
  * of the period is then closed; nobody writes in it any more.
  */
-async function closeMonth(c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) {
+async function closeMonth(c: OpCtx, a: { bookId: number; bookIds?: number[]; ym: string; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) {
   await requireCommunity(c.db);
   if (!/^\d{4}-\d{2}$/.test(a.ym)) throw new UserError(m('شهر غير صالح', 'Invalid month', 'Mois invalide'));
-  if (!(keeps(c, a.bookId) && can(c, 'book.own')) && !can(c, 'cty.write_all')) throw refuse();
+  // one account may be several books (pocket + bank, house + envelopes): counted together
+  const ids = [...new Set([a.bookId, ...(a.bookIds ?? [])])];
+  for (const id of ids) if (!(keeps(c, id) && can(c, 'book.own')) && !can(c, 'cty.write_all')) throw refuse();
   const months = periodMonths(a.ym, (await loadSettings(c.db)).closePeriod);
   const last = months[months.length - 1];
   const now = new Date().toISOString().slice(0, 7);
   if (months[months.length - 1] > now && months[0] > now) throw new UserError(m('هذه الفترة لم تبدأ بعد', 'This period has not started yet', "Cette période n'a pas encore commencé"));
   if (await one(c.db, 'SELECT 1 AS x FROM cty_month WHERE book_id = ? AND ym = ?', [a.bookId, last])) throw monthClosed(last);
-  const problems = await closingProblems(c.db, a.bookId, last);
+  const all = await loadBooks(c.db);
+  const bs = ids.map((id) => all.find((b) => b.id === id)).filter((b): b is CtyBook => !!b);
+  if (bs.length !== ids.length) throw new UserError(m('الدفتر غير موجود', 'Unknown book', 'Compte inconnu'));
+  const problems: Msg[] = [];
+  for (const id of ids) problems.push(...(await closingProblems(c.db, id, last)));
   if (problems.length) throw fail(problems);
-  const book = (await loadBooks(c.db)).find((b) => b.id === a.bookId);
-  if (!book) throw new UserError(m('الدفتر غير موجود', 'Unknown book', 'Compte inconnu'));
-  const held = balance(await loadEntries(c.db), book, lastDay(last));
+  const entries = await loadEntries(c.db);
+  const held = balanceOf(entries, bs, lastDay(last));
   const counted = Object.fromEntries(CURS.map((k) => [k, r2(Number(a.counted?.[k] ?? 0))])) as Money;
   const differs = CURS.some((k) => counted[k] !== held[k]);
   const note = (a.note ?? '').trim() || null;
   if (differs && !note) throw new UserError(m('النقد المعدود لا يساوي الدفتر: اكتب ملاحظة أو أضف ما نُسي', 'The cash counted is not what the book says: write a note or add what was forgotten', "L'argent compté ne correspond pas au compte : écrivez une note ou ajoutez l'oubli"));
   const at = nowIso();
   const stmts: Stmt[] = [];
-  for (const ym of months) {
-    if (await one(c.db, 'SELECT 1 AS x FROM cty_month WHERE book_id = ? AND ym = ?', [a.bookId, ym])) continue;
-    const isLast = ym === last;
+  for (const b of bs) for (const ym of months) {
+    if (await one(c.db, 'SELECT 1 AS x FROM cty_month WHERE book_id = ? AND ym = ?', [b.id, ym])) continue;
+    // the count is kept on the main book of the group, at the end of the period
+    const keep = b.id === a.bookId && ym === last;
     stmts.push({
       sql: `INSERT INTO cty_month (book_id, ym, closed_at, closed_by, ${CURS.map((k) => 'book_' + curKey[k]).join(', ')}, ${CURS.map((k) => 'counted_' + curKey[k]).join(', ')}, count_note, count_detail)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      params: [a.bookId, ym, at, c.who, ...CURS.map((k) => (isLast ? held[k] : null)), ...CURS.map((k) => (isLast ? counted[k] : null)), isLast ? note : null, isLast && a.detail ? JSON.stringify(a.detail) : null],
+      params: [b.id, ym, at, c.who, ...CURS.map((k) => (keep ? held[k] : null)), ...CURS.map((k) => (keep ? counted[k] : null)), keep ? note : null, keep && a.detail ? JSON.stringify(a.detail) : null],
     });
   }
-  stmts.push(auditStmt(c.who, 'close', 'cty_month', `${a.bookId}:${months.join(',')}`, null, { held, counted, note }));
+  stmts.push(auditStmt(c.who, 'close', 'cty_month', `${ids.join('+')}:${months.join(',')}`, null, { held, counted, note }));
   await c.db.batch(stmts);
 }
 
-/** The Superior reopens a book's period (every month of it, so it can be closed again with a new count). */
 async function reopenMonth(c: OpCtx, a: { bookId: number; ym: string; reason: string }) {
   const reason = (a.reason ?? '').trim();
   if (!reason) throw new UserError(m('اكتب السبب', 'Write the reason', 'Écrivez la raison'));
   const months = periodMonths(a.ym, (await loadSettings(c.db)).closePeriod);
-  const old = await c.db.query<CtyMonth>(`SELECT * FROM cty_month WHERE book_id = ? AND ym IN (${months.map(() => '?').join(', ')})`, [a.bookId, ...months]);
+  // the whole account (pocket + bank, house + envelopes) is reopened together
+  const all = await loadBooks(c.db);
+  const main = all.find((b) => b.id === a.bookId);
+  const ids = main ? accountBooks(all, main).map((b) => b.id) : [a.bookId];
+  const marks = `${ids.map(() => '?').join(', ')}`;
+  const old = await c.db.query<CtyMonth>(`SELECT * FROM cty_month WHERE book_id IN (${marks}) AND ym IN (${months.map(() => '?').join(', ')})`, [...ids, ...months]);
   if (!old.length) return;
   await c.db.batch([
-    { sql: `DELETE FROM cty_month WHERE book_id = ? AND ym IN (${months.map(() => '?').join(', ')})`, params: [a.bookId, ...months] },
-    auditStmt(c.who, 'reopen', 'cty_month', `${a.bookId}:${months.join(',')}`, old, { reason }),
+    { sql: `DELETE FROM cty_month WHERE book_id IN (${marks}) AND ym IN (${months.map(() => '?').join(', ')})`, params: [...ids, ...months] },
+    auditStmt(c.who, 'reopen', 'cty_month', `${ids.join('+')}:${months.join(',')}`, old, { reason }),
   ]);
 }
 
@@ -653,6 +665,38 @@ async function deleteCharge(c: OpCtx, a: { id: string; reason: string }) {
   await c.db.batch([{ sql: 'DELETE FROM cty_charge WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'cty_charge', a.id, old, { reason })]);
 }
 
+// ---------------------------------------------------------------- envelopes (the minister's helpers)
+
+/**
+ * An envelope is a small account for a helper of the house (the cook, the steward, the
+ * cleaner…): the minister gives it money, records what is spent from it, and puts back
+ * what is left. No login, no confirmation: the money stays in the minister's hands.
+ */
+async function saveEnvelope(c: OpCtx, a: { id?: number | null; name: string; active?: number }) {
+  await requireCommunity(c.db);
+  const house = (await loadBooks(c.db)).find((b) => b.cty_kind === 'house');
+  if (!house || !(keeps(c, house.id) || can(c, 'cty.write_all'))) throw refuse();
+  const name = (a.name ?? '').trim();
+  if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty', 'Le nom est vide'));
+  const all = await loadBooks(c.db);
+  if (all.some((b) => b.id !== a.id && b.name.toLowerCase() === name.toLowerCase())) throw new UserError(m('هذا الاسم موجود', 'This name already exists', 'Ce nom existe déjà'));
+  const keepers = await c.db.query<{ profile_id: number }>('SELECT DISTINCT profile_id FROM user_book WHERE book_id = ?', [house.id]);
+  if (a.id) {
+    const env = all.find((b) => b.id === a.id && b.cty_kind === 'envelope');
+    if (!env) throw new UserError(m('الظرف غير موجود', 'Envelope not found', 'Enveloppe introuvable'));
+    const bal = balance(await loadEntries(c.db), env, '9999-12-31');
+    if (a.active === 0 && CURS.some((k) => bal[k] !== 0)) throw new UserError(m('في الظرف مال: أعده إلى البيت أولاً', 'There is money in it: put it back in the house first', "Il reste de l'argent : remettez-le d'abord à la maison"));
+    await c.db.batch([{ sql: 'UPDATE book SET name = ?, keeper_name = ?, active = ? WHERE id = ?', params: [name, name, a.active ?? 1, a.id] }, auditStmt(c.who, 'edit', 'book', String(a.id), { name: env.name }, { name, active: a.active ?? 1 })]);
+    return a.id;
+  }
+  await c.db.batch([
+    { sql: "INSERT INTO book (name, keeper_name, cty_kind, is_main, sort) VALUES (?, ?, 'envelope', 0, (SELECT COALESCE(MAX(sort), 0) + 1 FROM book))", params: [name, name] },
+    ...keepers.map((k) => ({ sql: "INSERT OR IGNORE INTO user_book (profile_id, book_id) SELECT ?, MAX(id) FROM book WHERE cty_kind = 'envelope'", params: [k.profile_id] })),
+    auditStmt(c.who, 'add', 'book', name, null, { envelope: name }),
+  ]);
+  return (await one<{ id: number }>(c.db, "SELECT MAX(id) AS id FROM book WHERE cty_kind = 'envelope'"))!.id;
+}
+
 // ---------------------------------------------------------------- the operations
 
 async function data(c: OpCtx): Promise<CtyData> {
@@ -692,7 +736,7 @@ export const CTY_OPS = {
       return closingProblems(c.db, a.bookId, a.ym);
     },
   },
-  'cty.month.close': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; ym: string; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) => closeMonth(c, a) },
+  'cty.month.close': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; bookIds?: number[]; ym: string; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) => closeMonth(c, a) },
   'cty.month.reopen': { check: (c: OpCtx) => need(c, 'month.reopen'), run: (c: OpCtx, a: { bookId: number; ym: string; reason: string }) => reopenMonth(c, a) },
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
   'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },
@@ -703,6 +747,7 @@ export const CTY_OPS = {
   'cty.return.import': { check: (c: OpCtx) => need(c, 'month.close', 'data.import'), run: (c: OpCtx, a: { file: ReturnFile }) => importReturn(c, a) },
   'cty.charge.save': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: string | null }) => saveCharge(c, a) },
   'cty.charge.delete': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { id: string; reason: string }) => deleteCharge(c, a) },
+  'cty.envelope.save': { check: anyone, run: (c: OpCtx, a: { id?: number | null; name: string; active?: number }) => saveEnvelope(c, a) },
   'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
   'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
   'cty.note.add': { check: anyone, run: (c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) => addNote(c, a) },

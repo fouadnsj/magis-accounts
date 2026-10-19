@@ -26,6 +26,8 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
   bootErr: string | null;
 }) {
   const [mode, setMode] = useState<Mode>('choose');
+  /** the first choice: the MAGIS centres, or the Jesuit communities */
+  const [area, setArea] = useState<'centres' | 'cty' | null>(null);
   const [err, setErr] = useState<string | null>(bootErr);
   // the databases opened recently on this computer
   const [recent, setRecent] = useState<string[]>([]);
@@ -55,7 +57,7 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
   };
 
   return (
-    <BrandFrame wide jesuit={mode === 'community' || mode === 'country'}>
+    <BrandFrame wide jesuit={mode === 'community' || mode === 'country' || (mode === 'choose' && area !== 'centres')} title={mode === 'choose' && area === null ? t3('حسابات اليسوعيين', 'Jesuit accounts', 'Comptes jésuites') : undefined}>
         {err && <div className="alert err">{err}</div>}
         {mode === 'choose' && recent.length > 0 && (
           <>
@@ -70,31 +72,59 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
             </div>
           </>
         )}
-        {mode === 'choose' && (
-          <div className="choice">
-            {onConnect && isDesktop() && (
-              <button onClick={() => setMode('server')} style={{ borderColor: 'var(--gold, #B8891B)' }}>
-                <b>{t('خادم المركز', "The centre's server")}</b>
-                <span className="muted small">{t('الاتصال بقاعدة البيانات المشتركة على شبكة المركز.', "Connect to the shared database on the centre's network.")}</span>
+        {mode === 'choose' && area === null && (
+          <>
+            <h2 className="brand-h2">{t3('ماذا تريد أن تفتح؟', 'What do you want to open?', 'Que voulez-vous ouvrir ?')}</h2>
+            <div className="area-grid">
+              <button className="area-card" onClick={() => setArea('centres')}>
+                <img src="/brand/magis-sun.png" alt="" />
+                <b>{t3('مراكز ماجيس', 'MAGIS centres', 'Centres MAGIS')}</b>
+                <span>{t3('جرمانا · حلب · حمص', 'Jaramana · Aleppo · Homs', 'Jaramana · Alep · Homs')}</span>
               </button>
-            )}
-            <button onClick={() => setMode('office')}>
-              <b>{t('قاعدة المكتب', 'Office database')}</b>
-              <span className="muted small">{t('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.')}</span>
-            </button>
-            <button onClick={() => setMode('community')}>
-              <b>{t3('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')}</b>
-              <span className="muted small">{t3('حسابات اليسوعيين وبيتهم، بثلاث عملات.', 'The accounts of the Jesuits and their house, in three currencies.', 'Les comptes des jésuites et de leur maison, en trois monnaies.')}</span>
-            </button>
-            <button onClick={() => setMode('country')}>
-              <b>{t3('قيّم البلد', 'Country econome', "Économe du pays")}</b>
-              <span className="muted small">{t3('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.')}</span>
-            </button>
-            <button onClick={openExisting} disabled={!isDesktop()}>
-              <b>{t('فتح ملف موجود', 'Open an existing file')}</b>
-              <span className="muted small">{t('ملف ‎.db أنشئ سابقاً', 'A .db file created before')}</span>
-            </button>
-          </div>
+              <button className="area-card" onClick={() => setArea('cty')}>
+                <img src="/brand/jesuits.png" alt="" />
+                <b>{t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</b>
+                <span>{t3('اليسوعيون وبيتهم، والقيّم', 'The Jesuits, their house, the econome', "Les jésuites, leur maison, l'économe")}</span>
+              </button>
+            </div>
+            <div className="choice" style={{ marginTop: 16 }}>
+              {onConnect && isDesktop() && (
+                <button onClick={() => setMode('server')}>
+                  <b>{t('خادم المركز', "The centre's server")}</b>
+                  <span className="muted small">{t('الاتصال بقاعدة البيانات المشتركة على الشبكة.', 'Connect to the shared database on the network.')}</span>
+                </button>
+              )}
+              <button onClick={openExisting} disabled={!isDesktop()}>
+                <b>{t('فتح ملف موجود', 'Open an existing file')}</b>
+                <span className="muted small">{t('ملف ‎.db أنشئ سابقاً', 'A .db file created before')}</span>
+              </button>
+            </div>
+          </>
+        )}
+        {mode === 'choose' && area !== null && (
+          <>
+            <button className="cty-back" onClick={() => setArea(null)}>‹ {t3('رجوع', 'Back', 'Retour')}</button>
+            <div className="choice">
+              {area === 'centres' && (
+                <button onClick={() => setMode('office')}>
+                  <b>{t('قاعدة المكتب', 'Office database')}</b>
+                  <span className="muted small">{t('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.')}</span>
+                </button>
+              )}
+              {area === 'cty' && (
+                <>
+                  <button onClick={() => setMode('community')}>
+                    <b>{t3('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')}</b>
+                    <span className="muted small">{t3('حسابات اليسوعيين وبيتهم، بثلاث عملات.', 'The accounts of the Jesuits and their house, in three currencies.', 'Les comptes des jésuites et de leur maison, en trois monnaies.')}</span>
+                  </button>
+                  <button onClick={() => setMode('country')}>
+                    <b>{t3('قيّم البلد', 'Country econome', "Économe du pays")}</b>
+                    <span className="muted small">{t3('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.')}</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </>
         )}
         {mode === 'server' && onConnect && <ServerForm onBack={() => setMode('choose')} onConnect={onConnect} />}
         {mode === 'office' && <OfficeForm onBack={() => setMode('choose')} onCreated={onCreated} newWebDb={newWebDb} />}

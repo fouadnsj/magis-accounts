@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { errText, parseAmount, toast } from '../../ui/kit';
 import { tx, type Msg } from '../../i18n';
-import { balance, lastDay, periodMonths, quarterOf, r2, type Cur } from '../domain';
+import { CURS, accountBooks, balanceOf, lastDay, periodMonths, quarterOf, r2, type Cur } from '../domain';
 import { useCty, Card, bookLabel } from './CtyApp';
 import { usedCurs } from './Month';
 import { curName, money, monthName, t3 } from './text';
@@ -14,8 +14,11 @@ export function CloseMonth({ ym, onDone }: { ym: string; onDone: () => void }) {
   const { d, book, s, reload, write } = useCty();
   const months = periodMonths(ym, d.settings.closePeriod);
   const last = months[months.length - 1];
-  const curs = usedCurs(d.entries, book.id, { LOC: book.opening_syp, USD: book.opening_usd, EUR: book.opening_eur });
-  const held = balance(d.entries, book, lastDay(last));
+  // one account = several books (pocket + bank; house + envelopes): counted together
+  const group = accountBooks(d.books, book);
+  const curs = CURS.filter((c) => group.some((b) => usedCurs(d.entries, b.id, { LOC: b.opening_syp, USD: b.opening_usd, EUR: b.opening_eur }).includes(c)));
+  const held = balanceOf(d.entries, group, lastDay(last));
+  const hasBank = group.some((b) => b.cty_kind === 'personal_bank');
   // how many of each note, and loose change / other, per currency
   const [qty, setQty] = useState<Record<string, string>>({});
   const [other, setOther] = useState<Record<Cur, string>>({ LOC: '', USD: '', EUR: '' });
@@ -25,8 +28,8 @@ export function CloseMonth({ ym, onDone }: { ym: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    s.api.call('cty.month.problems', { bookId: book.id, ym: last }).then(setProblems).catch((e) => setErr(errText(e)));
-  }, [s, book.id, last, d]);
+    Promise.all(group.map((b) => s.api.call('cty.month.problems', { bookId: b.id, ym: last }))).then((ps) => setProblems(ps.flat())).catch((e) => setErr(errText(e)));
+  }, [s, book.id, last, d, group.length]);
 
   const n = (k: string) => parseAmount(qty[k] ?? '') || 0;
   const counted = (c: Cur) => r2(d.settings.notes[c].reduce((sum, v) => sum + v * n(`${c}${v}`), 0) + (parseAmount(other[c]) || 0));
@@ -42,7 +45,7 @@ export function CloseMonth({ ym, onDone }: { ym: string; onDone: () => void }) {
         detail[c] = Object.fromEntries(d.settings.notes[c].map((v) => [String(v), n(`${c}${v}`)]).filter(([, q]) => q));
         if (parseAmount(other[c])) detail[c].other = parseAmount(other[c]);
       }
-      await s.api.call('cty.month.close', { bookId: book.id, ym: last, counted: { LOC: counted('LOC'), USD: counted('USD'), EUR: counted('EUR') }, note, detail });
+      await s.api.call('cty.month.close', { bookId: book.id, bookIds: group.map((b) => b.id), ym: last, counted: { LOC: counted('LOC'), USD: counted('USD'), EUR: counted('EUR') }, note, detail });
       await reload();
       toast(months.length > 1 ? t3('أُغلق الفصل ✓', 'Quarter closed ✓', 'Trimestre clôturé ✓') : t3('أُغلق الشهر ✓', 'Month closed ✓', 'Mois clôturé ✓'));
       onDone();
@@ -72,7 +75,7 @@ export function CloseMonth({ ym, onDone }: { ym: string; onDone: () => void }) {
               </label>
             ))}
             <label className="cty-note">
-              <span className="cty-note-face small">{t3('فراطة / غير ذلك', 'Coins / other', 'Pièces / autre')}</span>
+              <span className="cty-note-face small">{hasBank ? t3('رصيد المصرف / فراطة', 'Bank balance / coins', 'Solde banque / pièces') : t3('فراطة / غير ذلك', 'Coins / other', 'Pièces / autre')}</span>
               <span />
               <input inputMode="decimal" value={other[c]} placeholder="0" onChange={(e) => setOther({ ...other, [c]: e.target.value })} />
               <span />

@@ -3,7 +3,7 @@
 // and what is left to do. A click on a member opens his month.
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
-import { CURS, balance, lastDay, monthSheet, monthsOfYear, prevMonth, rateFromExchanges, yearOf, type CtyBook, type Cur } from '../../domain';
+import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, monthsOfYear, prevMonth, rateFromExchanges, yearOf, type CtyBook, type Cur } from '../../domain';
 import { Columns, Ring } from '../charts';
 import { headingOf } from '../Month';
 import { useCty, bookLabel, bookName } from '../CtyApp';
@@ -15,18 +15,19 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
   const end = ym === today.slice(0, 7) ? today : lastDay(ym);
-  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house'));
+  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
+  const grp = (b: CtyBook) => accountBooks(d.books, b);
   const own = d.books.filter((b) => b.active && ['cash', 'bank', 'economat'].includes(b.cty_kind ?? ''));
   const cash = own.find((b) => b.cty_kind === 'cash');
 
   const rows = useMemo(() => people.map((b) => {
     const m = d.months.find((x) => x.book_id === b.id && x.ym === ym);
-    const s = monthSheet(d.entries, b, ym);
+    const s = monthSheetOf(d.entries, grp(b), ym);
     const unconfirmed = d.entries.filter((e) => e.type === 'Transfer' && (e.to_book_id === b.id || e.book_id === b.id) && !e.received_at && !e.disputed_at && e.date <= lastDay(ym)).length;
     const disputed = d.entries.filter((e) => e.type === 'Transfer' && (e.to_book_id === b.id || e.book_id === b.id) && e.disputed_at).length;
     const approvals = d.entries.filter((e) => e.book_id === b.id && e.approval_needed && !e.approved_at).length;
     const used = d.entries.some((e) => (e.book_id === b.id || e.to_book_id === b.id) && e.date.slice(0, 7) === ym);
-    return { b, m, s, pocket: balance(d.entries, b, end), unconfirmed, disputed, approvals, used };
+    return { b, m, s, pocket: balanceOf(d.entries, grp(b), end), unconfirmed, disputed, approvals, used };
   }), [d, ym, end, people]);
 
   // where the community's money went (members and house together) and month by month
@@ -40,8 +41,8 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
   }, [rows, d.accounts]);
   const yearCols = monthsOfYear(yearOf(`${ym}-01`)).map((m) => ({
     label: m.slice(5), title: monthName(m),
-    now: people.reduce((n, b) => n - monthSheet(d.entries, b, m).totalExpenses.LOC, 0),
-    before: people.reduce((n, b) => n - monthSheet(d.entries, b, `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`).totalExpenses.LOC, 0),
+    now: people.reduce((n, b) => n - monthSheetOf(d.entries, grp(b), m).totalExpenses.LOC, 0),
+    before: people.reduce((n, b) => n - monthSheetOf(d.entries, grp(b), `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`).totalExpenses.LOC, 0),
   }));
 
   // what is left to do

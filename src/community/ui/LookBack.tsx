@@ -4,7 +4,8 @@
 // A mirror, not a control: no alarms, no "budget exceeded".
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../ui/kit';
-import { monthSheet, monthsOfYear, periodMonths, quarterOf, sheet, usdValue, yearOf, type Cur } from '../domain';
+import { accountBooks, monthSheetOf, monthsOfYear, periodMonths, quarterOf, sheetOf, usdValue, yearOf, type Cur } from '../domain';
+import { iconOf } from './icons';
 import { useCty, Card, bookLabel } from './CtyApp';
 import { headingOf, usedCurs } from './Month';
 import { Columns, Ring } from './charts';
@@ -28,7 +29,8 @@ export function LookBack() {
   const title = mode === 'month' ? monthName(ym) : mode === 'quarter' ? `T${quarterOf(from)} · ${monthName(months[0], true)} – ${monthName(months[2])}` : yearName(yearOf(from));
   const step = (k: number) => setYm(shift(ym, k * (mode === 'month' ? 1 : mode === 'quarter' ? 3 : 12)));
 
-  const sh = useMemo(() => sheet(d.entries, book, from, to), [d.entries, book, from, to]);
+  const group = useMemo(() => accountBooks(d.books, book), [d.books, book]);
+  const sh = useMemo(() => sheetOf(d.entries, group, from, to), [d.entries, group, from, to]);
   const groups = useMemo(() => {
     const out = new Map<number, { total: number; lines: Map<number, number> }>();
     for (const [id, v] of sh.expenses) {
@@ -41,18 +43,18 @@ export function LookBack() {
     }
     return out;
   }, [sh, d.accounts, cur]);
-  const parts = [...groups.entries()].map(([id, g]) => ({ key: id, label: accName(d.accounts.find((a) => a.id === id)), value: g.total }));
+  const parts = [...groups.entries()].map(([id, g]) => ({ key: id, label: `${iconOf(d.accounts.find((a) => a.id === id)?.code)} ${accName(d.accounts.find((a) => a.id === id))}`, value: g.total }));
   const spent = -sh.totalExpenses[cur];
-  const lastYear = -sheet(d.entries, book, shiftDate(from, -12), shiftDate(to, -12)).totalExpenses[cur];
+  const lastYear = -sheetOf(d.entries, group, shiftDate(from, -12), shiftDate(to, -12)).totalExpenses[cur];
   const cols = months.map((m) => ({
     label: monthName(m, true).slice(0, 3), title: monthName(m),
-    now: -monthSheet(d.entries, book, m).totalExpenses[cur],
-    before: -monthSheet(d.entries, book, shift(m, -12)).totalExpenses[cur],
+    now: -monthSheetOf(d.entries, group, m).totalExpenses[cur],
+    before: -monthSheetOf(d.entries, group, shift(m, -12)).totalExpenses[cur],
   }));
   // all currencies together, about, in dollars (at the rate of each day)
   const aboutUsd = useMemo(() => {
     let x = 0;
-    for (const e of d.entries) if (e.type === 'Exp' && e.book_id === book.id && e.date >= from && e.date <= to) x += usdValue(d.entries, e.cur, e.amount, e.date, d.limits.startRate) ?? 0;
+    for (const e of d.entries) if (e.type === 'Exp' && group.some((b) => b.id === e.book_id) && e.date >= from && e.date <= to) x += usdValue(d.entries, e.cur, e.amount, e.date, d.limits.startRate) ?? 0;
     return x;
   }, [d, book.id, from, to]);
   const opened = open != null ? groups.get(open) : undefined;
@@ -94,9 +96,9 @@ export function LookBack() {
         )}
         {opened && (
           <div className="cty-lines">
-            <div className="cty-label">{accName(d.accounts.find((a) => a.id === open))}</div>
+            <div className="cty-label">{iconOf(d.accounts.find((a) => a.id === open)?.code)} {accName(d.accounts.find((a) => a.id === open))}</div>
             {[...opened.lines.entries()].sort((a, b) => b[1] - a[1]).map(([lid, x]) => (
-              <div key={lid} className="cty-subline"><span>{accName(d.accounts.find((a) => a.id === lid))}</span><span>{money(x, cur)} · {Math.round((x / opened.total) * 100)}%</span></div>
+              <div key={lid} className="cty-subline"><span>{iconOf(d.accounts.find((a) => a.id === lid)?.code)} {accName(d.accounts.find((a) => a.id === lid))}</span><span>{money(x, cur)} · {Math.round((x / opened.total) * 100)}%</span></div>
             ))}
           </div>
         )}

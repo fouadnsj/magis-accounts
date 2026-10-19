@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { todayIso, toast, errText, promptBox, parseAmount } from '../../../ui/kit';
 import { CURS, balance, effect, yearOf, type CtyEntry, type Cur, type EntryType } from '../../domain';
 import { useCty, bookName } from '../CtyApp';
+import { iconOf } from '../icons';
 import { accName, curName, money, monthName, t3, yearName } from '../text';
 import { exportExcel } from './excel';
 
@@ -62,7 +63,7 @@ export function Register({ initialBook, initialYm }: { initialBook: number | nul
   const label = (e: CtyEntry) => {
     if (e.type === 'Income' || e.type === 'Exp') {
       const a = d.accounts.find((x) => x.id === e.account_id);
-      return `${a?.code ?? ''} ${accName(a)}`;
+      return `${iconOf(a?.code)} ${a?.code ?? ''} ${accName(a)}`;
     }
     if (e.type === 'Transfer') return `${bookName(d.books.find((b) => b.id === e.book_id))} → ${bookName(d.books.find((b) => b.id === e.to_book_id))}`;
     return t3('صرافة', 'Exchange', 'Change');

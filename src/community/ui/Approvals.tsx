@@ -6,6 +6,7 @@ import { errText, promptBox, toast } from '../../ui/kit';
 import type { ApprovalItem } from '../ops';
 import { useCty, Card } from './CtyApp';
 import { Thread } from './Notes';
+import { iconOf } from './icons';
 import { accName, dayName, money, moneyCur, t3 } from './text';
 
 export function Approvals() {
@@ -54,7 +55,7 @@ export function Approvals() {
               {it.entry.approval_usd != null ? `≈ $${money(it.entry.approval_usd, 'USD')} · ` : `${t3('لا سعر بعد', 'no rate yet', 'pas encore de taux')} · `}
               {t3('الحد', 'limit', 'limite')} ${it.limit}
             </div>
-            <div className="cty-approval-line">{it.account?.code} · {accName(it.account)}</div>
+            <div className="cty-approval-line">{iconOf(it.account?.code)} {it.account?.code} · {accName(it.account)}</div>
             {it.entry.note ? <blockquote className="cty-quote">“{it.entry.note}”</blockquote> : <p className="muted small">{t3('لم يكتب ملاحظة.', 'No note written.', 'Aucune note écrite.')}</p>}
             {it.entry.claim && <div className="small">↺ {t3('يطالب بها الإقليم', 'to be claimed from the Province', 'à réclamer à la Province')}</div>}
             {it.documents > 0 && <div className="small">📎 {it.documents}</div>}

@@ -92,7 +92,8 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   }, [d]);
   // on the phone: his own book, his bank (if he has one), the house (the minister). The econome's
   // cash, bank and économat are on the computer (Fouad: "useful but confusing" on the phone).
-  const phoneBooks = myBooks.filter((b) => ['personal', 'personal_bank', 'house'].includes(b.cty_kind ?? ''));
+  // (his pocket and bank are ONE account; the house and its envelopes are ONE account)
+  const phoneBooks = myBooks.filter((b) => ['personal', 'house'].includes(b.cty_kind ?? ''));
   const book = myBooks.find((b) => b.id === bookId) ?? phoneBooks[0] ?? myBooks[0];
   const [giving, setGiving] = useState(false);
   const can = useCallback((p: Perm) => has(session.profile, p), [session]);
@@ -198,6 +199,7 @@ const approvalsWaiting = (d: CtyData) => d.entries.filter((e) => e.approval_need
 export function bookLabel(b: CtyBook): string {
   if (b.cty_kind === 'personal') return t3('دفتري', 'My book', 'Mon compte') + (b.keeper_name ? '' : ` · ${b.name}`);
   if (b.cty_kind === 'personal_bank') return t3('حسابي في المصرف', 'My bank', 'Ma banque');
+  if (b.cty_kind === 'envelope') return `✉️ ${b.name}`;
   if (b.cty_kind === 'house') return t3('البيت', 'House', 'Maison');
   if (b.cty_kind === 'cash') return t3('الصندوق', 'Cash', 'Caisse');
   if (b.cty_kind === 'bank') return t3('المصرف', 'Bank', 'Banque');
@@ -205,11 +207,21 @@ export function bookLabel(b: CtyBook): string {
   return b.name;
 }
 
+/** The name of a part of an account: his pocket, his bank, the house, an envelope. */
+export function partLabel(b: CtyBook): string {
+  if (b.cty_kind === 'personal') return t3('جيبي', 'Pocket', 'Poche');
+  if (b.cty_kind === 'personal_bank') return t3('المصرف', 'Bank', 'Banque');
+  if (b.cty_kind === 'house') return t3('البيت', 'House', 'Maison');
+  if (b.cty_kind === 'envelope') return b.name;
+  return bookLabel(b);
+}
+
 /** The name of any book of the community, for "from / to". */
 export function bookName(b: CtyBook | undefined): string {
   if (!b) return '—';
   if (b.cty_kind === 'personal') return b.keeper_name ?? b.name;
   if (b.cty_kind === 'personal_bank') return `${b.keeper_name ?? b.name} · ${t3('مصرف', 'bank', 'banque')}`;
+  if (b.cty_kind === 'envelope') return `${t3('ظرف', 'Envelope', 'Enveloppe')} · ${b.name}`;
   if (b.cty_kind === 'house') return `${t3('البيت', 'House', 'Maison')} (${t3('المدبّر', 'minister', 'ministre')})`;
   return bookLabel(b);
 }

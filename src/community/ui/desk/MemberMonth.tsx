@@ -4,7 +4,7 @@
 // "seen ✓" and a private question.
 import { useMemo, useState } from 'react';
 import { errText, promptBox, toast, todayIso } from '../../../ui/kit';
-import { CURS, monthSheet, prevMonth, rollUp, type CtyAccount, type Money } from '../../domain';
+import { CURS, accountBooks, monthSheetOf, prevMonth, rollUp, type CtyAccount, type Money } from '../../domain';
 import { useCty, bookLabel, bookName } from '../CtyApp';
 import { Thread } from '../Notes';
 import { accName, curName, money, monthName, t3 } from '../text';
@@ -13,11 +13,11 @@ import { exportExcel } from './excel';
 export function MemberMonth({ initialBook, initialYm }: { initialBook: number | null; initialYm?: string }) {
   const { d, s, reload, can } = useCty();
   const today = todayIso();
-  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house'));
+  const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
   const [bookId, setBookId] = useState<number>(initialBook ?? people[0]?.id);
   const [ym, setYm] = useState(initialYm ?? today.slice(0, 7));
   const book = d.books.find((b) => b.id === bookId) ?? people[0];
-  const sheet = useMemo(() => (book ? monthSheet(d.entries, book, ym) : null), [d.entries, book, ym]);
+  const sheet = useMemo(() => (book ? monthSheetOf(d.entries, accountBooks(d.books, book), ym) : null), [d.entries, book, ym]);
   const closed = d.months.find((x) => x.book_id === book?.id && x.ym === ym);
   const notes = d.notes.filter((n) => n.book_id === book?.id && !n.parent_id && (n.ym === ym || d.entries.find((e) => e.id === n.entry_id)?.date.slice(0, 7) === ym));
   if (!book || !sheet) return <p className="muted">{t3('لا أعضاء.', 'No members.', 'Aucun membre.')}</p>;

@@ -67,6 +67,8 @@ async function main() {
   // Jes-H2 has a bank account of his own (the community has none: closing by quarter, the default)
   const jh2 = (await homs.query<{ id: number }>("SELECT id FROM profile WHERE name = 'Jes-H2'"))[0].id;
   await runOp(H['Sup-H'], 'cty.person.save', { id: jh2, name: 'Jes-H2', roles: [], hasBank: true });
+  // the minister's helper: an envelope for the cook
+  await runOp(H['Eco-H'], 'cty.envelope.save', { name: 'Cook' });
 
   // ---- Homs, September 2026
   const hb = await loadBooks(homs);

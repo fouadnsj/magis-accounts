@@ -7,28 +7,23 @@
 // note and the claim are optional. A changed or deleted entry asks a reason.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { confirmBox, errText, parseAmount, promptBox, toast, todayIso } from '../../ui/kit';
-import { CURS, leafAccounts, usdValue, type CtyAccount, type CtyBook, type CtyEntry, type Cur, type EntryType } from '../domain';
+import { CURS, accountBooks, leafAccounts, usdValue, type CtyAccount, type CtyBook, type CtyEntry, type Cur, type EntryType } from '../domain';
 import type { ClaimReason } from '../chart';
-import { useCty, bookName } from './CtyApp';
+import { useCty, bookName, partLabel } from './CtyApp';
 import { accName, curName, money, moneyCur, t3 } from './text';
+import { BOOK_ICON, iconOf } from './icons';
 
 export interface EntryStart {
   kind: EntryType;
   /** an existing entry, to change or delete */
   edit?: CtyEntry;
-  /** a new entry in this book (the econome's desk); otherwise the book on screen */
+  /** a new entry in this book (the econome's desk; an envelope); otherwise the book on screen */
   bookId?: number;
+  /** a transfer to this book (give to an envelope, put back in the house) */
+  toBookId?: number;
 }
 
-const ICONS: [string, string][] = [
-  ['611', '🍞'], ['612', '📚'], ['613', '👕'], ['614', '⚕️'], ['615', '🤲'], ['616', '🕯️'],
-  ['6201', '🚗'], ['6202', '🪑'], ['6203', '🧰'], ['6205', '🚌'], ['6206', '🏠'], ['6207', '👥'], ['6208', '⛪'], ['6209', '📑'], ['6210', '☎️'],
-  ['631', '💡'], ['632', '💧'], ['633', '🔥'], ['634', '📡'], ['635', '🛡️'], ['636', '⚙️'],
-  ['641', '🤝'], ['642', '🧾'], ['643', '🤝'], ['651', '🏗️'], ['652', '✈️'], ['653', '🏗️'], ['659', '•'], ['671', '🏦'],
-  ['711', '🧓'], ['712', '💼'], ['713', '✝️'], ['714', '✍️'], ['716', '⛪'], ['717', '🙏'], ['718', '🛏️'], ['719', '•'],
-  ['721', '🎁'], ['722', '🎁'], ['723', '🛒'], ['724', '•'], ['73', '🏛️'],
-];
-const iconOf = (code: string) => ICONS.find(([p]) => code.startsWith(p))?.[1] ?? '•';
+const KIND_ICON: Record<EntryType, string> = { Exp: '－', Income: '＋', Exchange: '⇄', Transfer: '↔' };
 
 const lastCurKey = (id: number) => `cty-cur-${id}`;
 function lastCur(id: number): Cur {
@@ -45,7 +40,7 @@ function keepCur(id: number, c: Cur) {
 
 /** Which lines a book offers: a personal book the personal lines; the house and the econome's books all. */
 export function offered(accounts: CtyAccount[], book: CtyBook, type: 'Income' | 'Exp') {
-  const ok = (a: CtyAccount) => a.active && a.type === type && (book.cty_kind !== 'personal' || a.scope === 'P');
+  const ok = (a: CtyAccount) => a.active && a.type === type && ((book.cty_kind !== 'personal' && book.cty_kind !== 'personal_bank') || a.scope === 'P');
   const leaves = leafAccounts(accounts).filter(ok);
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const headingOfLeaf = (a: CtyAccount): CtyAccount => {
@@ -66,7 +61,12 @@ export function offered(accounts: CtyAccount[], book: CtyBook, type: 'Income' | 
 export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () => void }) {
   const { d, book: shown, s, reload } = useCty();
   const edit = start.edit;
-  const book = d.books.find((b) => b.id === (edit?.book_id ?? start.bookId)) ?? shown;
+  const main = d.books.find((b) => b.id === (edit?.book_id ?? start.bookId)) ?? shown;
+  // (an envelope on screen is the house account's: its group starts from the house)
+  // one account may be several books (pocket + bank, house + envelopes): we only say from where
+  const group = accountBooks(d.books, main).filter((b) => d.kept.includes(b.id) || b.id === main.id);
+  const [pocketId, setPocketId] = useState<number>(main.id);
+  const book = d.books.find((b) => b.id === pocketId) ?? main;
   const [kind, setKind] = useState<EntryType>(start.kind);
   const [stage, setStage] = useState<'amount' | 'heading' | 'line' | 'save'>(edit ? 'save' : 'amount');
   const [amount, setAmount] = useState(edit ? String(edit.amount) : '');
@@ -75,7 +75,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
   const [cur2, setCur2] = useState<Cur>(edit?.cur2 ?? (cur === 'LOC' ? 'USD' : 'LOC'));
   const [heading, setHeading] = useState<number | null>(null);
   const [accountId, setAccountId] = useState<number | null>(edit?.account_id ?? null);
-  const [toBook, setToBook] = useState<number | null>(edit?.to_book_id ?? null);
+  const [toBook, setToBook] = useState<number | null>(edit?.to_book_id ?? start.toBookId ?? null);
   const [date, setDate] = useState(edit?.date ?? todayIso());
   const [note, setNote] = useState(edit?.note ?? '');
   const [claim, setClaim] = useState<ClaimReason | null>(edit?.claim ?? null);
@@ -126,20 +126,21 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
   };
 
   // will the Superior be asked?
-  const limit = book.cty_kind === 'house' ? d.limits.house : book.cty_kind === 'personal' ? d.limits.personal : 0;
+  const limit = book.cty_kind === 'house' || book.cty_kind === 'envelope' ? d.limits.house : book.cty_kind === 'personal' || book.cty_kind === 'personal_bank' ? d.limits.personal : 0;
   const usd = kind === 'Exp' && n > 0 ? usdValue(d.entries, cur, n, date, d.limits.startRate) : null;
   const asksSuperior = kind === 'Exp' && limit > 0 && n > 0 && (usd == null || usd >= limit) && !s.profile.perms.includes('cty.month_seen');
 
-  // where money can be given: the econome's cash first, then the others
-  // giving back: to the econome's cash (chosen already); his own bank; anyone else only if asked
+  // where money goes: the other books of the same account first (bank, envelopes), then the
+  // econome's cash (giving back), then anyone else only if asked
   const cashBook = d.books.find((b) => b.active && b.cty_kind === 'cash');
-  const ownBank = d.books.find((b) => b.active && b.cty_kind === 'personal_bank' && d.kept.includes(b.id) && b.id !== book.id);
-  const ownCash = book.cty_kind === 'personal_bank' ? d.books.find((b) => b.active && b.cty_kind === 'personal' && d.kept.includes(b.id)) : undefined;
+  const siblings = group.filter((b) => b.id !== book.id);
   const [others, setOthers] = useState(false);
-  const targets = d.books.filter((b) => b.active && b.id !== book.id && !['personal_bank'].includes(b.cty_kind ?? '')).sort((a, b) => (a.cty_kind === 'cash' ? -1 : b.cty_kind === 'cash' ? 1 : 0));
+  const targets = d.books.filter((b) => b.active && b.id !== book.id && !siblings.some((x) => x.id === b.id) && b.cty_kind !== 'personal_bank' && b.cty_kind !== 'envelope');
+  const cashToo = cashBook && cashBook.id !== book.id && !siblings.some((x) => x.id === cashBook.id);
   useEffect(() => {
-    if (kind === 'Transfer' && !edit && toBook == null) setToBook(ownCash?.id ?? cashBook?.id ?? null);
-  }, [kind, edit, toBook, cashBook, ownCash]);
+    // giving back is the usual move of a Jesuit: the econome's cash is chosen already
+    if (kind === 'Transfer' && !edit && toBook == null && cashToo && !d.kept.includes(cashBook!.id) && book.cty_kind === 'personal') setToBook(cashBook!.id);
+  }, [kind, edit, toBook, cashToo, cashBook, d.kept, book.cty_kind]);
 
   const save = async () => {
     setErr(null);
@@ -152,7 +153,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
     try {
       await s.api.call('cty.entry.save', {
         entry: {
-          id: edit?.id, book_id: edit?.book_id ?? book.id, date, type: kind, cur, amount: n,
+          id: edit?.id, book_id: book.id, date, type: kind, cur, amount: n,
           account_id: isLine ? accountId : null,
           to_book_id: kind === 'Transfer' ? toBook : null,
           cur2: kind === 'Exchange' ? cur2 : null, amount2: kind === 'Exchange' ? n2 : null,
@@ -198,7 +199,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
     { k: 'Exp', label: t3('صرفتُ', 'I spent', "J'ai dépensé") },
     { k: 'Income', label: t3('قبضتُ', 'I received', "J'ai reçu") },
     { k: 'Exchange', label: t3('صرافة', 'Exchange', 'Change') },
-    { k: 'Transfer', label: book.cty_kind === 'cash' || book.cty_kind === 'bank' || book.cty_kind === 'economat' ? t3('أعطيتُ', 'I gave', "J'ai donné") : t3('أعدتُ إلى القيّم', 'Give back', "Rendre à l'économe") },
+    { k: 'Transfer', label: t3('تحويل', 'Transfer', 'Transfert') },
   ];
   const readOnly = edit && !(d.kept.includes(edit.book_id) || s.profile.perms.includes('cty.write_all'));
 
@@ -209,7 +210,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
         {edit ? <b>{t3('القيد', 'The entry', "L'écriture")}</b> : (
           <div className="cty-kinds">
             {kinds.map((x) => (
-              <button key={x.k} className={kind === x.k ? 'on' : ''} onClick={() => { setKind(x.k); setStage('amount'); setAccountId(null); setHeading(null); }}>{x.label}</button>
+              <button key={x.k} className={kind === x.k ? 'on' : ''} onClick={() => { setKind(x.k); setStage('amount'); setAccountId(null); setHeading(null); }}>{KIND_ICON[x.k]} {x.label}</button>
             ))}
           </div>
         )}
@@ -220,6 +221,14 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
         {/* 1 · the amount (and, for an exchange, what came back; for a gift, to whom) */}
         {(stage === 'amount' || edit) && (
           <>
+            {group.length > 1 && !edit && (
+              <>
+                <div className="cty-label">{kind === 'Income' ? t3('قُبض في', 'Received in', 'Reçu dans') : kind === 'Transfer' ? t3('من', 'From', 'De') : t3('دُفع من', 'Paid from', 'Payé depuis')}</div>
+                <div className="cty-tiles small">
+                  {group.map((b) => <button key={b.id} className={pocketId === b.id ? 'on' : ''} onClick={() => { setPocketId(b.id); setToBook(null); setAccountId(null); }}>{BOOK_ICON[b.cty_kind ?? ''] ?? ''} {partLabel(b)}</button>)}
+                </div>
+              </>
+            )}
             <AmountInput refEl={amountRef} label={kind === 'Exchange' ? t3('أعطيتُ', 'I gave', "J'ai donné") : t3('المبلغ', 'Amount', 'Montant')} value={amount} onChange={setAmount} cur={cur} onCur={setCur} local={d.local} onEnter={() => isLine && n > 0 && !edit && setStage('heading')} />
             {kind === 'Exchange' && (
               <AmountInput label={t3('استلمتُ', 'I received', "J'ai reçu")} value={amount2} onChange={setAmount2} cur={cur2} onCur={setCur2} local={d.local} />
@@ -231,16 +240,14 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
               <>
                 <div className="cty-label">{t3('إلى', 'To', 'À')}</div>
                 <div className="cty-tiles small">
-                  {ownCash && <button className={toBook === ownCash.id ? 'on' : ''} onClick={() => setToBook(ownCash.id)}>{t3('جيبي (من المصرف)', 'My pocket (from the bank)', 'Ma poche (de la banque)')}</button>}
-                  {cashBook && cashBook.id !== book.id && <button className={toBook === cashBook.id ? 'on' : ''} onClick={() => setToBook(cashBook.id)}>💰 {t3('صندوق القيّم', "The econome's cash", "La caisse de l'économe")}</button>}
-                  {ownBank && <button className={toBook === ownBank.id ? 'on' : ''} onClick={() => setToBook(ownBank.id)}>🏦 {t3('حسابي في المصرف', 'My bank', 'Ma banque')}</button>}
-                  {(others || (!cashBook && !ownBank && !ownCash) || (toBook != null && toBook !== cashBook?.id && toBook !== ownBank?.id && toBook !== ownCash?.id)) &&
-                    targets.filter((b) => b.id !== cashBook?.id).map((b) => (
-                      <button key={b.id} className={toBook === b.id ? 'on' : ''} onClick={() => setToBook(b.id)}>{bookName(b)}</button>
-                    ))}
+                  {siblings.map((b) => <button key={b.id} className={toBook === b.id ? 'on' : ''} onClick={() => setToBook(b.id)}>{BOOK_ICON[b.cty_kind ?? ''] ?? ''} {partLabel(b)}</button>)}
+                  {cashToo && <button className={toBook === cashBook!.id ? 'on' : ''} onClick={() => setToBook(cashBook!.id)}>💰 {t3('صندوق القيّم', "The econome's cash", "La caisse de l'économe")}</button>}
+                  {(others || (!siblings.length && !cashToo)) && targets.filter((b) => b.id !== cashBook?.id).map((b) => (
+                    <button key={b.id} className={toBook === b.id ? 'on' : ''} onClick={() => setToBook(b.id)}>{bookName(b)}</button>
+                  ))}
                 </div>
-                {!others && targets.length > 1 && <button className="cty-link" onClick={() => setOthers(true)}>{t3('إلى شخص آخر…', 'To someone else…', 'À quelqu’un d’autre…')}</button>}
-                <p className="muted small">{t3('من يستلم يؤكّد أنه استلم.', 'The one who receives confirms he received it.', 'Celui qui reçoit confirme qu’il a reçu.')}</p>
+                {!others && targets.length > 0 && <button className="cty-link" onClick={() => setOthers(true)}>{t3('إلى شخص آخر…', 'To someone else…', 'À quelqu’un d’autre…')}</button>}
+                <p className="muted small">{siblings.some((b) => b.id === toBook) ? t3('بين دفاترك: لا حاجة إلى تأكيد.', 'Between your own books: no confirmation needed.', 'Entre vos propres comptes : pas de confirmation.') : t3('من يستلم يؤكّد أنه استلم.', 'The one who receives confirms he received it.', 'Celui qui reçoit confirme qu’il a reçu.')}</p>
               </>
             )}
             {!edit && isLine && recent.length > 0 && n === 0 && (
@@ -281,7 +288,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
             <button className="cty-back" onClick={() => setStage('heading')}>‹ {accName(d.accounts.find((a) => a.id === heading))}</button>
             <div className="cty-tiles">
               {order.find((g) => g.heading.id === heading)!.lines.map((l) => (
-                <button key={l.id} onClick={() => chooseLine(l)}><span>{accName(l)}</span><small className="muted">{l.code}</small></button>
+                <button key={l.id} onClick={() => chooseLine(l)}><span className="cty-tile-icon">{iconOf(l.code)}</span><span>{accName(l)}</span></button>
               ))}
             </div>
           </>

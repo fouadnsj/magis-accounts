@@ -8,7 +8,7 @@ import { serverCreateDb } from '../net';
 import { Field, errText, t } from './kit';
 
 /** The page around every welcome, login and setup screen. */
-export function BrandFrame({ children, brand, wide, jesuit }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean }) {
+export function BrandFrame({ children, brand, wide, jesuit, title }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string }) {
   const st = brand ? brandStyle(brand) : null;
   // the Jesuit communities: only the Jesuit logo, no centres (Fouad, 18 October 2026)
   if (jesuit)
@@ -19,7 +19,7 @@ export function BrandFrame({ children, brand, wide, jesuit }: { children: ReactN
           <img src="/brand/jesuits.png" alt="" className="brand-jesuits" />
           <div className="brand-title">
             <div className="brand-eyebrow">{tx(m('الرهبنة اليسوعية', 'Society of Jesus', 'Compagnie de Jésus'))}</div>
-            <h1>{tx(m('حسابات الجماعات', "Communities' accounts", 'Comptes des communautés'))}</h1>
+            <h1>{title ?? tx(m('حسابات الجماعات', "Communities' accounts", 'Comptes des communautés'))}</h1>
           </div>
         </header>
         <main className={`brand-main ${wide ? 'wide' : ''}`}>{children}</main>
@@ -77,8 +77,32 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
 }) {
   const [creating, setCreating] = useState(dbs.length === 0 && canCreate);
   const [howTo, setHowTo] = useState(false);
+  // one program: first "centres" or "communities", when the server holds both
+  const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
+  const both = dbs.some(isCty) && dbs.some((x) => !isCty(x));
+  const [area, setArea] = useState<'centres' | 'cty' | null>(null);
+  const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
+  const choosing = both && area === null && !signedIn && !creating;
+  if (choosing)
+    return (
+      <BrandFrame wide jesuit title={tx(m('حسابات اليسوعيين', 'Jesuit accounts', 'Comptes jésuites'))}>
+        <h2 className="brand-h2">{tx(m('ماذا تريد أن تفتح؟', 'What do you want to open?', 'Que voulez-vous ouvrir ?'))}</h2>
+        <div className="area-grid">
+          <button className="area-card" onClick={() => setArea('centres')}>
+            <img src="/brand/magis-sun.png" alt="" />
+            <b>{tx(m('مراكز ماجيس', 'MAGIS centres', 'Centres MAGIS'))}</b>
+            <span>{tx(m('جرمانا · حلب · حمص', 'Jaramana · Aleppo · Homs', 'Jaramana · Alep · Homs'))}</span>
+          </button>
+          <button className="area-card" onClick={() => setArea('cty')}>
+            <img src="/brand/jesuits.png" alt="" />
+            <b>{tx(m('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites'))}</b>
+            <span>{tx(m('اليسوعيون وبيتهم، والقيّم', 'The Jesuits, their house, the econome', "Les jésuites, leur maison, l'économe"))}</span>
+          </button>
+        </div>
+      </BrandFrame>
+    );
   return (
-    <BrandFrame wide jesuit={dbs.length > 0 && dbs.every((x) => x.kind === 'community' || x.kind === 'country')}>
+    <BrandFrame wide jesuit={shown.length > 0 && shown.every(isCty)}>
       {address && (
         <div className="row muted small" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
           <span>{t('متصل بخادم المركز', "Connected to the centre's server")} · <span className="ltr">{address}</span></span>
@@ -93,9 +117,10 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
               {onBackIn && <button className="btn small" onClick={onBackIn}>{t('رجوع إلى', 'Back to')} {signedIn.db}</button>}
             </div>
           )}
+          {both && area && <button className="cty-back" onClick={() => setArea(null)}>‹ {tx(m('رجوع', 'Back', 'Retour'))}</button>}
           <h2 className="brand-h2">{t('اختر قاعدة البيانات', 'Choose a database')}</h2>
           <div className="db-grid">
-            {dbs.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
+            {shown.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
             <button className="db-card db-new" onClick={() => (canCreate ? setCreating(true) : setHowTo((x) => !x))}>
               <div className="db-card-mark"><span>＋</span></div>
               <div className="db-card-text"><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></div>

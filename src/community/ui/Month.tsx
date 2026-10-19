@@ -3,8 +3,9 @@
 // the entries, and the closing of the period (the quarter, or the month).
 import { useMemo, useState } from 'react';
 import { promptBox, toast, errText, todayIso } from '../../ui/kit';
-import { CURS, balance, lastDay, monthSheet, periodMonths, prevMonth, quarterOf, type CtyAccount, type CtyEntry, type Cur, type Money } from '../domain';
-import { useCty, Card, bookLabel, bookName } from './CtyApp';
+import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, periodMonths, prevMonth, quarterOf, type CtyBook, type CtyAccount, type CtyEntry, type Cur, type Money } from '../domain';
+import { useCty, Card, bookLabel, bookName, partLabel } from './CtyApp';
+import { BOOK_ICON, iconOf } from './icons';
 import { Ring } from './charts';
 import { accName, curName, dayName, money, moneyCur, monthName, t3 } from './text';
 import { CloseMonth } from './Close';
@@ -30,9 +31,13 @@ export function MonthScreen() {
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
   const [closing, setClosing] = useState<string | null>(null);
-  const mine = (e: CtyEntry) => e.book_id === book.id || e.to_book_id === book.id;
-  const sheet = useMemo(() => monthSheet(d.entries, book, ym), [d, book, ym]);
-  const pocket = balance(d.entries, book, ym === today.slice(0, 7) ? today : lastDay(ym));
+  // one account: his pocket + his bank, or the house + its envelopes
+  const group = useMemo(() => accountBooks(d.books, book), [d.books, book]);
+  const ids = useMemo(() => new Set(group.map((b) => b.id)), [group]);
+  const mine = (e: CtyEntry) => ids.has(e.book_id) || (e.to_book_id != null && ids.has(e.to_book_id));
+  const sheet = useMemo(() => monthSheetOf(d.entries, group, ym), [d, group, ym]);
+  const until = ym === today.slice(0, 7) ? today : lastDay(ym);
+  const pocket = balanceOf(d.entries, group, until);
   const curs = usedCurs(d.entries, book.id, { LOC: book.opening_syp, USD: book.opening_usd, EUR: book.opening_eur });
   const quarterly = d.settings.closePeriod === 'quarter';
   const period = periodMonths(ym, d.settings.closePeriod);
@@ -41,12 +46,12 @@ export function MonthScreen() {
   const inMonth = d.entries.filter((e) => mine(e) && e.date.slice(0, 7) === ym).sort((a, b) => (b.date + (b.n ?? 0)).localeCompare(a.date + (a.n ?? 0)));
 
   // what waits for me: money given to me, to confirm; money I gave, not yet confirmed
-  const toConfirm = d.entries.filter((e) => e.type === 'Transfer' && e.to_book_id === book.id && !e.received_at && !e.disputed_at);
+  const toConfirm = d.entries.filter((e) => e.type === 'Transfer' && e.to_book_id != null && ids.has(e.to_book_id) && !e.received_at && !e.disputed_at);
   // (the econome also sees what he gave from the cash or the bank)
-  const giver = new Set([book.id, ...(can('cty.write_all') ? d.books.filter((b) => b.cty_kind === 'cash' || b.cty_kind === 'bank').map((b) => b.id) : [])]);
+  const giver = new Set([...ids, ...(can('cty.write_all') ? d.books.filter((b) => b.cty_kind === 'cash' || b.cty_kind === 'bank').map((b) => b.id) : [])]);
   const iGave = d.entries.filter((e) => e.type === 'Transfer' && giver.has(e.book_id) && !e.received_at && !e.disputed_at);
-  const waitingApproval = d.entries.filter((e) => e.book_id === book.id && e.approval_needed && !e.approved_at);
-  const unread = d.notes.filter((n) => n.book_id === book.id && !n.read_at && n.author_id !== s.profile.id);
+  const waitingApproval = d.entries.filter((e) => ids.has(e.book_id) && e.approval_needed && !e.approved_at);
+  const unread = d.notes.filter((n) => ids.has(n.book_id) && !n.read_at && n.author_id !== s.profile.id);
   // the last period that ended and is not closed (reminder after the 5th of the next month)
   const lastPeriod = periodMonths(prevMonth(periodMonths(today.slice(0, 7), d.settings.closePeriod)[0]), d.settings.closePeriod);
   const lastEnd = lastPeriod[lastPeriod.length - 1];
@@ -62,7 +67,7 @@ export function MonthScreen() {
       const h = headingOf(d.accounts, id);
       if (h) out.set(h.id, (out.get(h.id) ?? 0) - v[cur0]);
     }
-    return [...out.entries()].map(([id, value]) => ({ key: id, label: accName(d.accounts.find((a) => a.id === id)), value }));
+    return [...out.entries()].map(([id, value]) => ({ key: id, label: `${iconOf(d.accounts.find((a) => a.id === id)?.code)} ${accName(d.accounts.find((a) => a.id === id))}`, value }));
   }, [sheet, d.accounts, cur0]);
 
   const answer = async (e: CtyEntry, ok: boolean) => {
@@ -117,12 +122,24 @@ export function MonthScreen() {
             <div key={c} className="cty-pocket-cur"><b>{money(pocket[c], c)}</b><span>{curName(c, d.local)}</span></div>
           ))}
         </div>
+        {group.length > 1 && (
+          <div className="cty-parts">
+            {group.map((b) => {
+              const bal = balance(d.entries, b, until);
+              return <span key={b.id}>{BOOK_ICON[b.cty_kind ?? ''] ?? ''} {partLabel(b)} <b>{curs.filter((c) => bal[c] || c === 'LOC').map((c) => money(bal[c], c)).join(' / ')}</b></span>;
+            })}
+          </div>
+        )}
       </Card>
 
-      <div className="cty-two">
-        <button className="cty-big out" onClick={() => write({ kind: 'Exp' })}>－ {t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
-        <button className="cty-big in" onClick={() => write({ kind: 'Income' })}>＋ {t3('قبضتُ', 'I received', "J'ai reçu")}</button>
+      {/* the four things a person does, as in MAGIS Accounts */}
+      <div className="cty-four">
+        <button className="out" onClick={() => write({ kind: 'Exp' })}><i>－</i>{t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
+        <button className="in" onClick={() => write({ kind: 'Income' })}><i>＋</i>{t3('قبضتُ', 'I received', "J'ai reçu")}</button>
+        <button className="exc" onClick={() => write({ kind: 'Exchange' })}><i>⇄</i>{t3('صرافة', 'Exchange', 'Change')}</button>
+        <button className="trf" onClick={() => write({ kind: 'Transfer' })}><i>↔</i>{t3('تحويل', 'Transfer', 'Transfert')}</button>
       </div>
+      {book.cty_kind === 'house' && <Envelopes group={group} until={until} curs={curs} />}
       {can('cty.write_all') && <button className="cty-give" onClick={give}>💰 {t3('إعطاء مال لأحد الإخوة أو للبيت', 'Give money to a Jesuit or to the house', "Donner de l'argent à un jésuite ou à la maison")}</button>}
 
       {(iGave.length > 0 || unread.length > 0 || waitingApproval.length > 0) && (
@@ -191,17 +208,22 @@ function UnreadLink({ n }: { n: number }) {
 /** One entry of the month, as a line; a tap opens it to change or delete. */
 export function EntryRow({ e }: { e: CtyEntry }) {
   const { d, book, write } = useCty();
+  const ids = new Set(accountBooks(d.books, book).map((b) => b.id));
   const acc = d.accounts.find((a) => a.id === e.account_id);
-  const other = d.books.find((b) => b.id === (e.book_id === book.id ? e.to_book_id : e.book_id));
+  const mine = ids.has(e.book_id);
+  const inner = e.type === 'Transfer' && mine && e.to_book_id != null && ids.has(e.to_book_id);
+  const fromBook = d.books.find((b) => b.id === e.book_id);
+  const toBook = d.books.find((b) => b.id === e.to_book_id);
+  const other = mine ? toBook : fromBook;
+  const part = ids.size > 1 && fromBook && (e.type === 'Exp' || e.type === 'Income' || e.type === 'Exchange') ? ` · ${BOOK_ICON[fromBook.cty_kind ?? ''] ?? ''}${partLabel(fromBook)}` : '';
   let label: string;
   let sign: string;
-  if (e.type === 'Exp') { label = accName(acc); sign = '−'; }
-  else if (e.type === 'Income') { label = accName(acc); sign = '+'; }
+  if (e.type === 'Exp') { label = `${iconOf(acc?.code)} ${accName(acc)}${part}`; sign = '−'; }
+  else if (e.type === 'Income') { label = `${iconOf(acc?.code)} ${accName(acc)}${part}`; sign = '+'; }
   else if (e.type === 'Transfer') {
-    const out = e.book_id === book.id;
-    label = out ? t3(`إلى ${bookName(other)}`, `To ${bookName(other)}`, `À ${bookName(other)}`) : t3(`من ${bookName(other)}`, `From ${bookName(other)}`, `De ${bookName(other)}`);
-    sign = out ? '−' : '+';
-  } else { label = t3('صرافة', 'Exchange', 'Change'); sign = ''; }
+    if (inner) { label = `↔ ${partLabel(fromBook!)} → ${partLabel(toBook!)}`; sign = ''; }
+    else { label = mine ? t3(`إلى ${bookName(other)}`, `To ${bookName(other)}`, `À ${bookName(other)}`) : t3(`من ${bookName(other)}`, `From ${bookName(other)}`, `De ${bookName(other)}`); sign = mine ? '−' : '+'; }
+  } else { label = `⇄ ${t3('صرافة', 'Exchange', 'Change')}${part}`; sign = ''; }
   return (
     <button className="cty-entry" onClick={() => write({ kind: e.type, edit: e })}>
       <span className="cty-entry-day">{Number(e.date.slice(8, 10))}</span>
@@ -219,5 +241,46 @@ export function EntryRow({ e }: { e: CtyEntry }) {
         {e.type === 'Exchange' ? `${moneyCur(e.amount, e.cur, d.local)} → ${moneyCur(e.amount2 ?? 0, e.cur2!, d.local)}` : `${sign}${moneyCur(e.amount, e.cur, d.local)}`}
       </span>
     </button>
+  );
+}
+
+/** The minister's envelopes (cook, steward, cleaner…): what each holds, give to one, put back, a new one. */
+function Envelopes({ group, until, curs }: { group: CtyBook[]; until: string; curs: Cur[] }) {
+  const { d, s, reload, write } = useCty();
+  const envs = group.filter((b) => b.cty_kind === 'envelope');
+  const house = group[0];
+  const add = async () => {
+    const name = await promptBox(t3('اسم الظرف (مثلاً: الطباخ، البوّاب، عاملة التنظيف)', 'Name of the envelope (e.g. Cook, Steward, Cleaner)', 'Nom de l’enveloppe (p. ex. Cuisinier, Intendant, Femme de ménage)'));
+    if (!name) return;
+    try {
+      await s.api.call('cty.envelope.save', { name });
+      await reload();
+    } catch (e) { toast(errText(e), true); }
+  };
+  const rename = async (b: CtyBook, active = 1) => {
+    const name = active ? await promptBox(t3('الاسم', 'Name', 'Nom'), b.name) : b.name;
+    if (!name) return;
+    try { await s.api.call('cty.envelope.save', { id: b.id, name, active }); await reload(); } catch (e) { toast(errText(e), true); }
+  };
+  return (
+    <Card>
+      <div className="cty-label">✉️ {t3('أظرفة البيت', 'Envelopes of the house', 'Enveloppes de la maison')}</div>
+      {envs.length === 0 && <p className="muted small">{t3('أظرفة لمن تعطيهم مالاً: الطباخ، البوّاب، عاملة التنظيف… تعطي الظرف مالاً، وتسجّل ما صُرف منه، وتُعيد الباقي.', 'Envelopes for those you give money to: the cook, the steward, the cleaner… You give an envelope some money, record what is spent from it, and put back what is left.', 'Des enveloppes pour ceux à qui vous donnez de l’argent : le cuisinier, l’intendant, la femme de ménage… Vous donnez de l’argent à l’enveloppe, notez ce qui en est dépensé, et remettez le reste.')}</p>}
+      {envs.map((b) => {
+        const bal = balance(d.entries, b, until);
+        return (
+          <div key={b.id} className="cty-env">
+            <div><b>✉️ {b.name}</b><div className="muted small">{curs.filter((c) => bal[c] || c === 'LOC').map((c) => `${money(bal[c], c)} ${curName(c, d.local)}`).join(' · ')}</div></div>
+            <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+              <button className="btn" onClick={() => write({ kind: 'Transfer', bookId: house.id, toBookId: b.id })}>＋ {t3('أعطِ', 'Give', 'Donner')}</button>
+              <button className="btn" onClick={() => write({ kind: 'Exp', bookId: b.id })}>－ {t3('صُرف', 'Spent', 'Dépensé')}</button>
+              <button className="btn ghost" onClick={() => write({ kind: 'Transfer', bookId: b.id, toBookId: house.id })}>↩</button>
+              <button className="cty-link" onClick={() => rename(b)} aria-label="rename">✎</button>
+            </div>
+          </div>
+        );
+      })}
+      <button className="btn cty-wide" onClick={add}>＋ {t3('ظرف جديد', 'A new envelope', 'Une nouvelle enveloppe')}</button>
+    </Card>
   );
 }

@@ -333,3 +333,51 @@ describe('closing by quarter (the default)', () => {
     expect((await q.query<{ ym: string }>('SELECT ym FROM closed_month ORDER BY ym')).map((r) => r.ym)).toEqual(['2025-10', '2025-11', '2025-12']);
   });
 });
+
+describe('one account from several books: pocket + bank, house + envelopes', () => {
+  it('money between a Jesuit\'s own books needs no confirmation; the account adds both', async () => {
+    const q = nodeDb();
+    await createCommunity(q, { community: 'G', country: 'Syria', localCurrency: 'SYP', people: [
+      { name: 'S', password: 'test-pass-1', roles: ['superior', 'econome', 'minister'] }, { name: 'J', password: 'test-pass-2', roles: [] },
+    ] });
+    const P: Record<string, OpCtx> = {};
+    const refresh = async () => { for (const p of await q.query<{ id: number; name: string }>('SELECT id, name FROM profile')) P[p.name] = { db: q, profile: (await loadProfile(q, p.id))!, who: p.name, install: 'office', files }; };
+    await refresh();
+    await runOp(P.S, 'cty.person.save', { id: P.J.profile.id, name: 'J', roles: [], hasBank: true });
+    await refresh();
+    const { accountBooks, balanceOf } = await import('../src/community/domain');
+    const bs = await loadBooks(q);
+    const pocket = bs.find((b) => b.cty_kind === 'personal' && b.name === 'J')!;
+    const bank = bs.find((b) => b.cty_kind === 'personal_bank')!;
+    expect(accountBooks(bs, bank).map((b) => b.id)).toEqual([pocket.id, bank.id]);
+    await runOp(P.S, 'cty.book.opening', { bookId: bank.id, opening: { LOC: 1000, USD: 0, EUR: 0 }, reason: 'start' });
+    await runOp(P.J, 'cty.book.opening', { bookId: pocket.id, opening: { LOC: 500, USD: 0, EUR: 0 }, reason: 'start' }).catch(() => undefined);
+    const t = (await runOp(P.J, 'cty.entry.save', { entry: { book_id: bank.id, to_book_id: pocket.id, date: '2025-10-02', type: 'Transfer', cur: 'LOC', amount: 200 } })) as string;
+    expect((await loadEntries(q)).find((e) => e.id === t)!.received_at).not.toBeNull(); // no confirmation
+    const bs2 = await loadBooks(q);
+    expect(balanceOf(await loadEntries(q), accountBooks(bs2, pocket), '2025-10-31').LOC).toBe(bs2.find((b) => b.id === pocket.id)!.opening_syp + 1000);
+  });
+  it('the minister gives money to an envelope (cook), spends from it, puts back what is left; one count for the house', async () => {
+    const q = nodeDb();
+    await createCommunity(q, { community: 'E', country: 'Syria', localCurrency: 'SYP', people: [
+      { name: 'S', password: 'test-pass-1', roles: ['superior', 'econome', 'minister'] }, { name: 'J', password: 'test-pass-2', roles: [] },
+    ] });
+    const P: Record<string, OpCtx> = {};
+    for (const p of await q.query<{ id: number; name: string }>('SELECT id, name FROM profile')) P[p.name] = { db: q, profile: (await loadProfile(q, p.id))!, who: p.name, install: 'office', files };
+    await expect(runOp(P.J, 'cty.envelope.save', { name: 'Cook' })).rejects.toThrow(/Not allowed/);
+    const env = (await runOp(P.S, 'cty.envelope.save', { name: 'Cook' })) as number;
+    P.S = { ...P.S, profile: (await loadProfile(q, P.S.profile.id))! };
+    const house = (await loadBooks(q)).find((b) => b.cty_kind === 'house')!;
+    expect(P.S.profile.books).toContain(env);
+    await runOp(P.S, 'cty.book.opening', { bookId: house.id, opening: { LOC: 10000, USD: 0, EUR: 0 }, reason: 'start' });
+    await runOp(P.S, 'cty.entry.save', { entry: { book_id: house.id, to_book_id: env, date: '2025-10-03', type: 'Transfer', cur: 'LOC', amount: 3000 } });
+    await runOp(P.S, 'cty.entry.save', { entry: { book_id: env, date: '2025-10-04', type: 'Exp', account_id: (await loadAccounts(q)).find((a) => a.code === '61101')!.id, cur: 'LOC', amount: 2500, note: 'vegetables' } });
+    const { balanceOf, accountBooks } = await import('../src/community/domain');
+    const bs = await loadBooks(q);
+    const es = await loadEntries(q);
+    expect(balanceOf(es, accountBooks(bs, bs.find((b) => b.id === house.id)!), '2025-10-31').LOC).toBe(7500); // 10000 − 2500 spent; the 3000 only moved
+    await expect(runOp(P.S, 'cty.envelope.save', { id: env, name: 'Cook', active: 0 })).rejects.toThrow(/money in it/);
+    await runOp(P.S, 'cty.month.close', { bookId: house.id, bookIds: [env], ym: '2025-10', counted: { LOC: 7500, USD: 0, EUR: 0 } });
+    expect((await q.query('SELECT book_id FROM cty_month ORDER BY book_id')).length).toBeGreaterThanOrEqual(6); // house + envelope × the quarter's months
+  });
+});

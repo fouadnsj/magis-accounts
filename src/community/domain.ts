@@ -8,7 +8,7 @@ import type { CtyType, Scope, ClaimReason } from './chart';
 export type Cur = 'LOC' | 'USD' | 'EUR';
 export const CURS: readonly Cur[] = ['LOC', 'USD', 'EUR'];
 export type EntryType = 'Income' | 'Exp' | 'Transfer' | 'Exchange';
-export type BookKind = 'personal' | 'personal_bank' | 'house' | 'cash' | 'bank' | 'economat';
+export type BookKind = 'personal' | 'personal_bank' | 'house' | 'envelope' | 'cash' | 'bank' | 'economat';
 
 export interface CtyAccount {
   id: number;
@@ -281,3 +281,54 @@ export function rateFromExchanges(entries: CtyEntry[], from: Cur, to: Cur, until
   // the exchange gave `amount` of cur and received `amount2` of cur2
   return best.cur === from ? best.amount2! / best.amount : best.amount / best.amount2!;
 }
+
+
+// ---------------------------------------------------------------- one account made of several books
+
+/**
+ * The books that act as ONE account for the person (Fouad, 19 October 2026: "bank and cash:
+ * the book must add the two amounts; we only say from where"):
+ *  - a Jesuit: his pocket and his bank account (if he has one);
+ *  - the minister: the house and its envelopes (cook, steward, cleaner…).
+ * The first one is the main book. Money moved between them is not income or expense.
+ */
+export function accountBooks(books: CtyBook[], book: CtyBook): CtyBook[] {
+  const live = books.filter((b) => b.active);
+  if (book.cty_kind === 'personal' || book.cty_kind === 'personal_bank') {
+    const pocket = book.cty_kind === 'personal' ? book : live.find((b) => b.cty_kind === 'personal' && b.keeper_name === book.keeper_name) ?? book;
+    return [pocket, ...live.filter((b) => b.cty_kind === 'personal_bank' && b.keeper_name === pocket.keeper_name)];
+  }
+  if (book.cty_kind === 'house' || book.cty_kind === 'envelope') {
+    const house = book.cty_kind === 'house' ? book : live.find((b) => b.cty_kind === 'house') ?? book;
+    return [house, ...live.filter((b) => b.cty_kind === 'envelope')];
+  }
+  return [book];
+}
+
+const addMoney = (a: Money, b: Money) => { for (const c of CURS) a[c] = r2(a[c] + b[c]); };
+
+/** What the books hold together at the end of `until`. */
+export function balanceOf(entries: CtyEntry[], bs: CtyBook[], until: string): Money {
+  const m = zero();
+  for (const b of bs) addMoney(m, balance(entries, b, until));
+  return m;
+}
+
+/** The sheet of several books together: money moved between them cancels out. */
+export function sheetOf(entries: CtyEntry[], bs: CtyBook[], from: string, to: string): Sheet {
+  if (bs.length === 1) return sheet(entries, bs[0], from, to);
+  const ids = new Set(bs.map((b) => b.id));
+  const outside = entries.filter((e) => !(e.type === 'Transfer' && ids.has(e.book_id) && e.to_book_id != null && ids.has(e.to_book_id)));
+  const total = sheet(outside, bs[0], from, to);
+  for (const b of bs.slice(1)) {
+    const s = sheet(outside, b, from, to);
+    for (const k of ['carried', 'received', 'inByExchange', 'totalIncome', 'totalExpenses', 'givenBack', 'outByExchange', 'kept'] as const) addMoney(total[k], s[k]);
+    for (const key of ['income', 'expenses'] as const) for (const [id, v] of s[key]) {
+      const t = total[key].get(id) ?? zero();
+      addMoney(t, v);
+      total[key].set(id, t);
+    }
+  }
+  return total;
+}
+export const monthSheetOf = (entries: CtyEntry[], bs: CtyBook[], ym: string) => sheetOf(entries, bs, `${ym}-01`, lastDay(ym));

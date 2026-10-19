@@ -3,7 +3,7 @@
 // or the whole year (October → September). Exported to Excel, one sheet per currency.
 import { useMemo, useState } from 'react';
 import { errText, toast, todayIso } from '../../../ui/kit';
-import { CURS, rollUp, sheet, yearOf, type Cur, type Money } from '../../domain';
+import { CURS, accountBooks, rollUp, sheetOf, type Sheet, yearOf, type Cur, type Money } from '../../domain';
 import { useCty, bookLabel, bookName } from '../CtyApp';
 import { accName, curName, money, t3, yearName } from '../text';
 import { exportExcel } from './excel';
@@ -15,11 +15,11 @@ export function Quarter() {
   const [year, setYear] = useState(yearOf(todayIso()));
   const [q, setQ] = useState<number>(1);
   const [cur, setCur] = useState<Cur>('LOC');
-  const books = d.books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house');
+  const books = d.books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'house');
   const [from, to] = q ? [`${q === 1 ? year : year + 1}-${QUARTERS[q][0]}`, `${q === 1 ? year : year + 1}-${QUARTERS[q][1]}`] : [`${year}-10-01`, `${year + 1}-09-30`];
 
   const cols = useMemo(() => books.map((b) => {
-    const s = sheet(d.entries, b, from, to);
+    const s = sheetOf(d.entries, accountBooks(d.books, b), from, to);
     const byAcc = new Map<number, Money>([...s.income, ...s.expenses]);
     return { b, s, up: rollUp(d.accounts, byAcc) };
   }), [books, d, from, to]);
@@ -27,7 +27,7 @@ export function Quarter() {
   const depth = (id: number | null): number => { let n = 0; for (let p = d.accounts.find((a) => a.id === id)?.parent_id; p != null; p = d.accounts.find((a) => a.id === p)?.parent_id) n++; return n; };
   const v = (up: Map<number, Money>, id: number, c: Cur) => up.get(id)?.[c] ?? 0;
   const total = (id: number, c: Cur) => cols.reduce((n, x) => n + v(x.up, id, c), 0);
-  const fixed: { key: keyof ReturnType<typeof sheet>; label: string }[] = [
+  const fixed: { key: keyof Sheet; label: string }[] = [
     { key: 'carried', label: t3('رصيد سابق', 'Carried over', 'Report') },
     { key: 'received', label: t3('من القيّم', 'From the econome', "Reçu de l'économe") },
     { key: 'totalIncome', label: t3('مجموع الدخل', 'Total income', 'Total revenus') },

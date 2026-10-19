@@ -75,11 +75,11 @@ export async function syncBooksStmts(db: Db): Promise<Stmt[]> {
   for (const p of people) {
     const want = new Set<number>();
     for (const b of books) {
-      if (b.cty_kind === 'house' && p.roles.includes('minister')) want.add(b.id);
+      if ((b.cty_kind === 'house' || b.cty_kind === 'envelope') && p.roles.includes('minister')) want.add(b.id);
       if (['cash', 'economat'].includes(b.cty_kind) && p.roles.includes('econome')) want.add(b.id);
       if (b.cty_kind === 'bank' && settings.hasBank && p.roles.includes('econome')) want.add(b.id);
     }
-    const shared = books.filter((b) => ['house', 'cash', 'bank', 'economat'].includes(b.cty_kind)).map((b) => b.id);
+    const shared = books.filter((b) => ['house', 'envelope', 'cash', 'bank', 'economat'].includes(b.cty_kind)).map((b) => b.id);
     for (const id of shared) {
       stmts.push({ sql: 'DELETE FROM user_book WHERE profile_id = ? AND book_id = ?', params: [p.id, id] });
       if (want.has(id) && p.active) stmts.push({ sql: 'INSERT OR IGNORE INTO user_book (profile_id, book_id) VALUES (?, ?)', params: [p.id, id] });

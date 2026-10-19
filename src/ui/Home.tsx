@@ -162,7 +162,7 @@ export function Home() {
               );
             })}
           </div>
-          {!fileHolder && myBooks.filter((id) => { const b = d.lists.books.find((x) => x.id === id); return b && !b.is_main && b.parent_id == null; }).map((id) => (
+          {!fileHolder && myBooks.filter((id) => { const b = d.lists.books.find((x) => x.id === id); return b && !b.is_main && !b.private && b.parent_id == null; }).map((id) => (
             <Envelopes key={`env${id}`} bookId={id} onEntry={nav.entry} />
           ))}
         </>

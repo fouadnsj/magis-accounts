@@ -70,6 +70,9 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
   const mainId = L.books.find((b) => b.is_main)?.id ?? null;
   /** Without "write in every book", a person writes only in the books he keeps. */
   const restricted = !can('register.edit');
+  // the person's own private book (the Superior's), not the Respo book: his expenses start there,
+  // so they are not put in Main by mistake, where the Accountant sees every line (Fouad, 19 October 2026)
+  const ownPrivate = L.books.find((b) => b.private && b.active && app.myBooks.includes(b.id) && b.id !== d.grantsBookId && b.parent_id == null)?.id ?? null;
 
   // The other row of a keeper-to-keeper transfer, and the transfer as a whole.
   const partner = editing?.transfer_group ? d.rows.find((r) => r.transfer_group === editing.transfer_group && r.id !== editing.id) ?? null : null;
@@ -141,7 +144,7 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
     }
     const pre = isPreset(start) ? start : null;
     const type = pre ? pre.type : (start as TrxType);
-    const bookId = pre?.bookId ?? (restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId);
+    const bookId = pre?.bookId ?? ownPrivate ?? (restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId);
     const book = L.books.find((b) => b.id === bookId);
     const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
     return {
@@ -410,6 +413,15 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
                 const b = L.books.find((x) => x.id === v);
                 setF((x) => ({ ...x, bookId: v, accountId: b?.account_id ?? x.accountId, cityId: b?.city_id ?? x.cityId }));
               }} />
+              {ownPrivate != null && f.bookId === mainId && (
+                <div className="small" style={{ color: '#8a5a10', marginTop: 4 }}>
+                  ⚠ {t('الدفتر الرئيسي يراه المحاسب سطراً سطراً؛ دفترك الخاص سرّي.', 'Main is seen by the Accountant, line by line; your own book is private.')}
+                  {' '}<button type="button" className="btn small ghost" onClick={() => {
+                    const b = L.books.find((x) => x.id === ownPrivate);
+                    setF((x) => ({ ...x, bookId: ownPrivate, accountId: b?.account_id ?? x.accountId, cityId: b?.city_id ?? x.cityId }));
+                  }}>{t('دفتري', 'My book')}</button>
+                </div>
+              )}
             </Field>
           ) : (
             <>

@@ -528,7 +528,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // ---- a new database (a centre, a test, a new year…)
     if (url === '/api/dbs/create' && method === 'POST') {
       if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
-      const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null };
+      const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null };
       const organisation = (body.organisation ?? '').trim();
       if (!organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات', en: 'Write the name of the database' });
       const centre = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? (body.centre as CentreKey) : guessCentre(organisation);
@@ -540,6 +540,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       await c.handle.db.batch([
         setMetaStmt('organisation', organisation), setMetaStmt('centre', centre), setMetaStmt('install', 'office'),
         setMetaStmt('brand_color', color), setMetaStmt('brand_logo', logo),
+        // made from the communities' side: it is a community (or a country) from the start, so it is
+        // listed there and its setup goes straight to the community (or country) form
+        ...(body.kind === 'community' || body.kind === 'country' ? [setMetaStmt('kind', body.kind)] : []),
       ]);
       log(`new database ${slug} (${organisation}, ${centre})`);
       return send(res, 200, { slug });

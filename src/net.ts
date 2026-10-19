@@ -131,8 +131,9 @@ export const serverProfiles = (db: string) => get<LoginPerson[]>(`/api/profiles?
 export const serverLogin = (db: string, profileId: number, password: string) =>
   post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { db, profileId, password });
 
-export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null) =>
-  post<{ slug: string }>('/api/dbs/create', { organisation, centre, color, logo });
+/** kind: a Jesuit community or a country database (made from the communities' side); otherwise a centre */
+export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null, kind: 'community' | 'country' | null = null) =>
+  post<{ slug: string }>('/api/dbs/create', { organisation, centre, color, logo, kind });
 export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community' | 'country', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
 
 export const serverLogout = () => post('/api/logout', {}).catch(() => undefined);

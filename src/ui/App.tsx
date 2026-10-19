@@ -226,6 +226,7 @@ export function App() {
         dbs={server.dbs}
         canCreate={server.canCreate}
         signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
+        startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : null}
         address={remoteBase}
         onLeave={remoteBase ? leaveServer : undefined}
         onBackIn={session ? () => setBrowsing(false) : undefined}

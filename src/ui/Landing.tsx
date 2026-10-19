@@ -67,7 +67,7 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, onLeave, onBackIn }: {
+export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea }: {
   dbs: DbInfo[];
   canCreate: boolean;
   onOpen: (db: DbInfo) => void;
@@ -78,6 +78,8 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
   address?: string | null;
   onLeave?: () => void;
   onBackIn?: () => void;
+  /** signed in from a community (or a centre): the list opens on that side */
+  startArea?: 'centres' | 'cty' | null;
 }) {
   const [creating, setCreating] = useState(dbs.length === 0 && canCreate);
   const [howTo, setHowTo] = useState(false);
@@ -85,7 +87,7 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   // (also when only one kind exists but the person may create: he can start the other kind)
   const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || (canCreate && dbs.length > 0);
-  const [area, setArea] = useState<'centres' | 'cty' | null>(null);
+  const [area, setArea] = useState<'centres' | 'cty' | null>(startArea ?? null);
   const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
   const choosing = both && area === null && !signedIn && !creating;
   if (choosing)
@@ -107,7 +109,7 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
       </BrandFrame>
     );
   return (
-    <BrandFrame wide jesuit={shown.length > 0 && shown.every(isCty)}>
+    <BrandFrame wide jesuit={area === 'cty' || (shown.length > 0 && shown.every(isCty))}>
       {address && (
         <div className="row muted small" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
           <span>{t('متصل بخادم المركز', "Connected to the centre's server")} · <span className="ltr">{address}</span></span>
@@ -128,7 +130,9 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
             {shown.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
             <button className="db-card db-new" onClick={() => (canCreate ? setCreating(true) : setHowTo((x) => !x))}>
               <div className="db-card-mark"><span>＋</span></div>
-              <div className="db-card-text"><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></div>
+              <div className="db-card-text">{area === 'cty'
+                ? <><b>{tx(m('جماعة أو بلد جديد', 'A new community or country', 'Une nouvelle communauté ou un pays'))}</b><span>{tx(m('الاسم، العنوان، الألوان، الأشخاص', 'name, address, colours, people', 'nom, adresse, couleurs, personnes'))}</span></>
+                : <><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></>}</div>
             </button>
           </div>
           {howTo && !canCreate && (
@@ -182,12 +186,13 @@ function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; o
   const [logo, setLogo] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ctyKind, setCtyKind] = useState<'community' | 'country'>('community');
   const chosen = centre ?? (name ? guessCentre(name) : null);
   const go = async () => {
     setErr(null);
     setBusy(true);
     try {
-      const r = community ? await serverCreateDb(name, 'other') : chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
+      const r = community ? await serverCreateDb(name, 'other', null, null, ctyKind) : chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
       onCreated(r.slug);
     } catch (e) {
       setErr(errText(e));
@@ -197,8 +202,20 @@ function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; o
   };
   return (
     <div className="panel" style={{ maxWidth: 720, margin: '0 auto' }}>
-      <h2>{t('قاعدة بيانات جديدة', 'New database')}</h2>
-      <Field label={t('الاسم (مثلاً: ماجيس حمص، حمص 2027، تجربة)', 'Name (e.g. MAGIS Homs, Homs 2027, Test)')}>
+      <h2>{community ? tx(m('جماعة أو بلد جديد', 'A new community or country', 'Une nouvelle communauté ou un pays')) : t('قاعدة بيانات جديدة', 'New database')}</h2>
+      {community && (
+        <div className="choice" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))', marginBottom: 12 }}>
+          <button type="button" className={ctyKind === 'community' ? 'on' : ''} onClick={() => setCtyKind('community')}>
+            <b>{tx(m('جماعة جديدة', 'A new community', 'Une nouvelle communauté'))}</b>
+            <span className="muted small">{tx(m('اليسوعيون وبيتهم، والقيم.', 'The Jesuits, their house, the econome.', "Les jésuites, leur maison, l'économe."))}</span>
+          </button>
+          <button type="button" className={ctyKind === 'country' ? 'on' : ''} onClick={() => setCtyKind('country')}>
+            <b>{tx(m('بلد جديد (قيم البلد)', 'A new country (country econome)', 'Un nouveau pays (économe du pays)'))}</b>
+            <span className="muted small">{tx(m('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.'))}</span>
+          </button>
+        </div>
+      )}
+      <Field label={community ? (ctyKind === 'country' ? tx(m('اسم البلد', 'Name of the country', 'Nom du pays')) : tx(m('اسم الجماعة', 'Name of the community', 'Nom de la communauté'))) : t('الاسم (مثلاً: ماجيس حمص، حمص 2027، تجربة)', 'Name (e.g. MAGIS Homs, Homs 2027, Test)')}>
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
       {!community && <><h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
@@ -219,7 +236,7 @@ function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; o
       </div>
       {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}</>}
       <p className="muted small">{community
-        ? tx(m('بعدها: جماعة أو بلد، مع العنوان والألوان والأشخاص.', 'Next: a community or a country, with its address, colours and people.', 'Ensuite : une communauté ou un pays, avec adresse, couleurs et personnes.'))
+        ? tx(m('بعدها: العنوان والألوان والأشخاص.', 'Next: its address, colours and people.', 'Ensuite : adresse, couleurs et personnes.'))
         : t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">

@@ -11,7 +11,9 @@ import { CommunityForm, CountryForm } from '../community/ui/NewCommunity';
 import { t3 } from '../community/ui/text';
 
 export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => void; onBack: () => void }) {
-  const [mode, setMode] = useState<'choose' | 'upload' | 'new' | 'community' | 'country'>('choose');
+  // (a database made from the communities' side already says what it is: straight to its form)
+  const fixed = db.kind === 'community' || db.kind === 'country' ? db.kind : null;
+  const [mode, setMode] = useState<'choose' | 'upload' | 'new' | 'community' | 'country'>(fixed ?? 'choose');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
@@ -50,9 +52,9 @@ export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => 
 
   return (
     <BrandFrame brand={db} jesuit={mode === 'community' || mode === 'country'}>
-      <div className="panel">
-        <h2>{t('إعداد', 'Setting up')} · {db.organisation}</h2>
-        <p className="muted">{t('مرة واحدة فقط. بعدها يفتح الجميع البرنامج من المتصفح.', 'Only once. Afterwards everyone opens the program from a browser.')}</p>
+      <div className={fixed ? '' : 'panel'}>
+        <h2 style={fixed ? { display: 'none' } : undefined}>{t('إعداد', 'Setting up')} · {db.organisation}</h2>
+        <p className="muted" style={fixed ? { display: 'none' } : undefined}>{t('مرة واحدة فقط. بعدها يفتح الجميع البرنامج من المتصفح.', 'Only once. Afterwards everyone opens the program from a browser.')}</p>
         {err && <div className="alert err">{err}</div>}
         {report ? (
           <>
@@ -70,21 +72,21 @@ export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => 
                 <b>{t('قاعدة جديدة', 'A new database')}</b>
                 <span className="muted small">{t('من ملف Excel، أو فارغة.', 'From the Excel workbook, or empty.')}</span>
               </button>
-              <button onClick={() => setMode('community')}>
+              {db.kind !== 'centre' && <><button onClick={() => setMode('community')}>
                 <b>{t3('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')}</b>
                 <span className="muted small">{t3('حسابات اليسوعيين وبيتهم.', 'The accounts of the Jesuits and their house.', 'Les comptes des jésuites et de leur maison.')}</span>
               </button>
               <button onClick={() => setMode('country')}>
                 <b>{t3('قيم البلد', 'Country econome', "Économe du pays")}</b>
                 <span className="muted small">{t3('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.')}</span>
-              </button>
+              </button></>}
             </div>
             <div className="modal-foot"><button className="btn" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button></div>
           </>
         ) : mode === 'community' ? (
-          <CommunityForm initialName={db.organisation} onBack={() => setMode('choose')} onSubmit={async (s) => { await serverSetup('community', { db: db.slug, ...s }); onDone(); }} />
+          <CommunityForm initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('community', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'country' ? (
-          <CountryForm initialName={db.organisation} onBack={() => setMode('choose')} onSubmit={async (s) => { await serverSetup('country', { db: db.slug, ...s }); onDone(); }} />
+          <CountryForm initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('country', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'upload' ? (
           <>
             <ol>

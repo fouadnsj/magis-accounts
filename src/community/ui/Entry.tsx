@@ -10,7 +10,7 @@ import { confirmBox, errText, parseAmount, promptBox, toast, todayIso } from '..
 import { CURS, accountBooks, leafAccounts, usdValue, type CtyAccount, type CtyBook, type CtyEntry, type Cur, type EntryType } from '../domain';
 import type { ClaimReason } from '../chart';
 import { useCty, bookName, partLabel } from './CtyApp';
-import { accName, curCode, curLong, curName, money, moneyCur, t3 } from './text';
+import { accName, curCode, curLong, curName, money, moneyCur, t3, triName } from './text';
 import { BOOK_ICON, iconOf, tintOf } from './icons';
 
 export interface EntryStart {
@@ -215,7 +215,9 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
           </div>
         )}
       </div>
-      <div className="cty-sheet-title">{BOOK_ICON[main.cty_kind ?? ''] ?? ''} {main.cty_kind === 'personal' || main.cty_kind === 'personal_bank' ? t3('دفترك', 'Your account', 'Votre compte') : bookName(main)}</div>
+      <div className="cty-sheet-title">
+        <b>{s.profile.name}</b> · {triName(s.profile.access_name)} — {BOOK_ICON[main.cty_kind ?? ''] ?? ''} {main.cty_kind === 'personal' || main.cty_kind === 'personal_bank' ? t3('دفترك', 'his own account', 'son compte') : bookName(main)}
+      </div>
       <div className="cty-sheet-body">
         {err && <div className="alert err">{err}</div>}
         {!edit && isLine && <div className="cty-step">{stage === 'amount' ? t3('1 · كم؟', '1 · How much?', '1 · Combien ?') : stage === 'heading' ? t3('2 · أي نوع؟', '2 · Which category?', '2 · Quelle catégorie ?') : stage === 'line' ? t3('3 · بالتفصيل', '3 · Which one exactly?', '3 · Laquelle exactement ?') : t3('4 · احفظ', '4 · Save', '4 · Enregistrer')}</div>}

@@ -1,6 +1,6 @@
 /* The community screens: phone first, calm, large targets.
    On a computer the page stays the width of a phone, centred. */
-.cty {
+:root, .cty {
   --c-gold: #B8891B;
   --c-deep: #3d2f0c;
   --c-in: #2A6FB0;
@@ -8,6 +8,8 @@
   --c-bg: #FDFCF9;
   --c-card: #ffffff;
   --c-line: #ece6d8;
+}
+.cty {
   background: var(--c-bg);
   min-height: 100vh;
   padding-bottom: 150px;
@@ -89,8 +91,8 @@
 .cty-plus { position: fixed; bottom: 74px; inset-inline-end: max(16px, calc(50vw - 264px)); width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--c-gold); color: #fff; font-size: 30px; box-shadow: 0 6px 16px rgba(120, 90, 20, 0.35); cursor: pointer; z-index: 21; }
 
 /* the entry sheet */
-.cty-sheet { position: fixed; inset: 0; background: var(--c-bg); z-index: 40; overflow-y: auto; }
-.cty-sheet-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; max-width: 560px; margin: 0 auto; position: sticky; top: 0; background: var(--c-bg); }
+.cty-sheet { position: fixed; inset: 0; background: #FDFCF9; z-index: 60; overflow-y: auto; color: #1d2733; }
+.cty-sheet-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; max-width: 560px; margin: 0 auto; position: sticky; top: 0; background: #FDFCF9; z-index: 1; }
 .cty-kinds { display: flex; gap: 4px; overflow-x: auto; }
 .cty-kinds button, .cty-seg button { border: 1px solid var(--c-line); background: #fff; border-radius: 16px; padding: 6px 12px; white-space: nowrap; cursor: pointer; }
 .cty-kinds button.on, .cty-seg button.on { background: var(--c-deep); color: #fff; border-color: var(--c-deep); }
@@ -245,3 +247,12 @@
 .cty-filters { display: grid; gap: 6px; }
 .cty-filters select, .cty-filters input { padding: 8px; border: 1px solid var(--c-line); border-radius: 10px; background: #fff; font: inherit; min-width: 0; width: 100%; }
 .cty-entry-day small { display: block; font-size: 10px; color: var(--muted); }
+
+/* who is working: his name, and his role under it */
+.cty-who { display: flex; flex-direction: column; line-height: 1.25; }
+.cty-who b { font-size: 13px; font-weight: 650; }
+.cty-who i { font-style: normal; font-size: 12px; color: #8a6a1a; }
+.cty-who.light i { color: #f0d58a; }
+.cty-org .cty-who i { background: #f3efe5; border-radius: 8px; padding: 0 8px; align-self: flex-start; margin-top: 2px; }
+.cty-sheet-title { padding: 2px 16px 4px; }
+.cty-sheet-title b { color: #3d2f0c; }

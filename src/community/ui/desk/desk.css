@@ -48,8 +48,12 @@
 
 /* on the desk, the entry sheet opens as a panel on the right */
 @media (min-width: 1000px) {
-  .cty-sheet { inset: 0 0 0 auto; width: 520px; box-shadow: -8px 0 30px rgba(0, 0, 0, 0.18); border-inline-start: 1px solid #ece6d8; }
-  [dir='rtl'] .cty-sheet { inset: 0 auto 0 0; }
+  /* on a computer: a solid window in the middle, the rest of the page dimmed behind it */
+  .cty-sheet { inset: 6vh auto auto 50%; transform: translateX(-50%); width: min(600px, 92vw); max-height: 88vh; border-radius: 18px; border: 1px solid #d8cfb6;
+    box-shadow: 0 0 0 100vmax rgba(35, 28, 10, 0.55), 0 24px 60px rgba(0, 0, 0, 0.35); overflow-y: auto; }
+  .cty-sheet-head { border-radius: 18px 18px 0 0; border-bottom: 1px solid #f0ead9; max-width: none; }
+  .cty-sheet-body, .cty-sheet-title { max-width: none; }
+  .cty-sheet-body { padding: 8px 22px 28px; }
 }
 
 @media print {
@@ -74,3 +78,12 @@
 .desk-qpick button.on { background: var(--c-gold); border-color: var(--c-gold); color: #fff; }
 .desk-table th.qsel, .desk-table td.qsel { background: #fffaf0; }
 .desk-table tr.picked td { background: #fff3cf; }
+
+/* My books: one card per account, with its role and its meaning */
+.desk-mybooks { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 10px 0 16px; }
+.desk-mybook { display: flex; flex-direction: column; gap: 4px; text-align: start; padding: 14px; background: #fff; border: 2px solid var(--c-line); border-radius: 14px; cursor: pointer; font: inherit; }
+.desk-mybook.on { border-color: #B8891B; background: #fffaf0; box-shadow: 0 4px 14px rgba(138, 106, 26, 0.18); }
+.desk-mybook-role { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #8a6a1a; }
+.desk-mybook b { font-size: 17px; color: #3d2f0c; }
+.desk-mybook-bal { font-size: 18px; font-variant-numeric: tabular-nums; color: #3d2f0c; }
+.desk-mybook small.muted { line-height: 1.35; }

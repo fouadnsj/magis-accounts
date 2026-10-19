@@ -2,7 +2,10 @@
 // see every book (the econome, the Superior). A menu on the side, wide tables, and
 // the same entry sheet as on the phone, opened as a panel on the right.
 import { useState } from 'react';
-import { useCty, bookLabel } from '../CtyApp';
+import { accountBooks, balanceOf } from '../../domain';
+import { BOOK_ICON } from '../icons';
+import { curName, money } from '../text';
+import { useCty, bookHelp, bookLabel, bookRole, WhoIs } from '../CtyApp';
 import { PageGuard } from '../Guard';
 import { t3 } from '../text';
 import { MonthScreen } from '../Month';
@@ -63,7 +66,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   return (
     <div className="cty desk">
       <aside className="desk-side">
-        <div className="desk-org"><b>{s.organisation}</b><span>{s.profile.name}</span></div>
+        <div className="desk-org"><b>{s.organisation}</b><WhoIs profile={s.profile} light /></div>
         {groups.map((g) => (
           <div key={g.title} className="desk-group">
             <div className="desk-group-title">{g.title}</div>
@@ -100,18 +103,33 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   );
 }
 
-/** His own books, as on the phone (his personal book, the house, the cash…). */
+/**
+ * "My books": one card per account he keeps, each saying in which role he keeps it and what it
+ * is (Fouad: "when I open my books it's confusing; explain what every book means").
+ */
 function MyBooks() {
-  const { myBooks, book, setBook } = useCty();
+  const { d, myBooks, book, setBook } = useCty();
+  const today = new Date().toISOString().slice(0, 10);
+  const mains = myBooks.filter((b) => !['personal_bank', 'envelope', 'bank'].includes(b.cty_kind ?? ''));
   return (
     <>
-      <p className="muted small">{t3('كل دفتر من دفاترك. اضغط للانتقال بينها؛ تحت كل واحد شرح ما هو.', 'Each of your books. Tap to move between them; under each one, what it is.', 'Chacun de vos comptes. Touchez pour passer de l’un à l’autre ; sous chacun, ce que c’est.')}</p>
-      {myBooks.length > 1 && (
-        <nav className="cty-books" style={{ padding: 0 }}>
-          {myBooks.filter((b) => !['personal_bank', 'envelope', 'bank'].includes(b.cty_kind ?? '')).map((b) => <button key={b.id} className={b.id === book.id ? 'on' : ''} onClick={() => setBook(b.id)}>{bookLabel(b)}</button>)}
-        </nav>
-      )}
-      <MonthScreen />
+      <h1>{t3('دفاتري', 'My books', 'Mes comptes')}</h1>
+      <p className="muted small">{t3('كل حساب تمسكه، وبأي صفة، وما هو. اضغط على بطاقة لتفتحه.', 'Every account you keep, in which role, and what it is. Tap a card to open it.', 'Chaque compte que vous tenez, dans quel rôle, et ce que c’est. Touchez une carte pour l’ouvrir.')}</p>
+      <div className="desk-mybooks">
+        {mains.map((b) => {
+          const group = accountBooks(d.books, b);
+          const bal = balanceOf(d.entries, group, today);
+          return (
+            <button key={b.id} className={`desk-mybook ${b.id === book.id ? 'on' : ''}`} onClick={() => setBook(b.id)}>
+              <span className="desk-mybook-role">{BOOK_ICON[b.cty_kind ?? ''] ?? ''} {bookRole(b.cty_kind)}</span>
+              <b>{bookLabel(b)}</b>
+              <span className="desk-mybook-bal">{money(bal.LOC, 'LOC')} <small>{curName('LOC', d.local)}</small>{bal.USD ? <> · {money(bal.USD, 'USD')} $</> : null}{bal.EUR ? <> · {money(bal.EUR, 'EUR')} €</> : null}</span>
+              <small className="muted">{bookHelp(b.cty_kind)}</small>
+            </button>
+          );
+        })}
+      </div>
+      <MonthScreen key={book.id} />
     </>
   );
 }

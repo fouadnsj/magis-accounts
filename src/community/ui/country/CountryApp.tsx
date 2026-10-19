@@ -17,6 +17,7 @@ import { claimName } from '../desk/Claims';
 import { kindName } from '../desk/Statement';
 import { exportExcel } from '../desk/excel';
 import { ChartTable } from '../desk/Chart';
+import { WhoIs } from '../CtyApp';
 import { PageGuard, ServerTooOld } from '../Guard';
 import { Ring } from '../charts';
 import '../cty.css';
@@ -64,7 +65,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
   return (
     <div className="cty desk">
       <aside className="desk-side">
-        <div className="desk-org"><b>{session.organisation}</b><span>{session.profile.name} · {t3('قيم البلد', 'country econome', 'économe du pays')}</span></div>
+        <div className="desk-org"><b>{session.organisation}</b><WhoIs profile={session.profile} light /></div>
         {items.map((x) => (
           <button key={x.p} className={page === x.p ? 'on' : ''} onClick={() => setPage(x.p)}><span>{x.label}</span>{x.badge ? <i className="cty-badge static">{x.badge}</i> : null}</button>
         ))}

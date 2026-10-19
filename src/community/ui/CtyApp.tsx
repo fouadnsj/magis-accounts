@@ -8,7 +8,7 @@ import type { Perm } from '../../perms';
 import type { CtyData } from '../ops';
 import type { CtyBook } from '../domain';
 import { errText } from '../../ui/kit';
-import { t3 } from './text';
+import { t3, triName } from './text';
 import { MonthScreen } from './Month';
 import { EntrySheet, GiveSheet, type EntryStart } from './Entry';
 import { LookBack } from './LookBack';
@@ -141,7 +141,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
         <header className="cty-top">
           <div className="cty-org">
             <b>{session.organisation}</b>
-            <span>{session.profile.name}</span>
+            <WhoIs profile={session.profile} />
           </div>
           <button className="cty-icon" onClick={() => setView('settings')} aria-label={t3('الإعدادات', 'Settings', 'Réglages')}>⚙︎</button>
         </header>
@@ -200,13 +200,13 @@ function useWide() {
 const approvalsWaiting = (d: CtyData) => d.entries.filter((e) => e.approval_needed && !e.approved_at).length;
 
 export function bookLabel(b: CtyBook): string {
-  if (b.cty_kind === 'personal') return t3('دفتري', 'My book', 'Mon compte') + (b.keeper_name ? '' : ` · ${b.name}`);
+  if (b.cty_kind === 'personal') return t3('حسابي', 'My account', 'Mon compte') + (b.keeper_name ? '' : ` · ${b.name}`);
   if (b.cty_kind === 'personal_bank') return t3('حسابي في المصرف', 'My bank', 'Ma banque');
   if (b.cty_kind === 'envelope') return `✉️ ${b.name}`;
-  if (b.cty_kind === 'house') return t3('البيت', 'House', 'Maison');
-  if (b.cty_kind === 'cash') return t3('الصندوق', 'Cash', 'Caisse');
+  if (b.cty_kind === 'house') return t3('البيت (المدبر)', 'The house (minister)', 'La maison (ministre)');
+  if (b.cty_kind === 'cash') return t3('مال الجماعة', 'Community cash', 'Caisse de la communauté');
   if (b.cty_kind === 'bank') return t3('المصرف', 'Bank', 'Banque');
-  if (b.cty_kind === 'economat') return t3('الإيكونوماتو', 'Économat', 'Économat');
+  if (b.cty_kind === 'economat') return t3('خزينة الإقليم', 'Province treasury', 'Trésorerie de la Province');
   return b.name;
 }
 
@@ -217,10 +217,27 @@ export function bookHelp(kind: string | null | undefined): string {
     case 'house': return t3('حساب البيت، يمسكه المدبر: طعام الجماعة، الموظفون، الفواتير… مع أظرفة لمن يساعدون في البيت.', 'The house account, kept by the minister: the community’s food, employees, bills… with envelopes for those who help in the house.', "Le compte de la maison, tenu par le ministre : nourriture de la communauté, employés, factures… avec des enveloppes pour ceux qui aident à la maison.");
     case 'cash': return t3('صندوق الجماعة، يمسكه القيم: منه يعطي الإخوة والبيت، وإليه يعيدون ما بقي.', 'The community’s cash box, kept by the econome: from it he gives money to the brothers and the house, and they give back what is left.', "La caisse de la communauté, tenue par l'économe : il y prend pour donner aux frères et à la maison, et ils y rendent ce qui reste.");
     case 'bank': return t3('حساب الجماعة في المصرف.', 'The community’s bank account.', 'Le compte en banque de la communauté.');
-    case 'economat': return t3('حساب الجماعة عند خزينة الإقليم (الإيكونوماتو): ما أودعته عندها أو ما تدين به لها. يدوّنه القيم هنا؛ وما يرسله قيم البلد في «الحساب عند الإيكونوماتو».', 'The community’s account with the Province treasury (the économat): what it has deposited there or owes it. The econome writes it here; what the country econome sends back is on “Account at the économat”.', "Le compte de la communauté auprès de la trésorerie de la Province (l'économat) : ce qu'elle y a déposé ou lui doit. L'économe le tient ici ; ce que l'économe du pays renvoie est dans « Compte à l'économat ».");
+    case 'economat': return t3('«الإيكونوماتو» هو مكتب خزينة الإقليم (عند قيم الإقليم). وهذا حساب جماعتكم عنده: ما أودعتموه أو ما تدينون به. القيم يدوّنه هنا؛ وما يرسله قيم البلد في «الحساب عند الإيكونوماتو».', 'The “économat” is the Province treasury office (the Province econome’s). This is YOUR community’s account with it: what you have deposited there or owe it. The econome writes it here; what the country econome sends back is on “Account at the économat”.', "L'« économat » est le bureau de la trésorerie de la Province (celui de l'économe provincial). C'est le compte de VOTRE communauté chez lui : ce que vous y avez déposé ou lui devez. L'économe le tient ici ; ce que l'économe du pays renvoie est dans « Compte à l'économat ».");
     case 'envelope': return t3('ظرف لمن يساعد في البيت (الطباخ، البواب…): تعطيه مالاً وتسجل ما يُصرف منه.', 'An envelope for a helper of the house (the cook, the steward…): you give it money and record what is spent from it.', "Une enveloppe pour un aide de la maison (cuisinier, intendant…) : vous lui donnez de l'argent et notez ce qui en est dépensé.");
     default: return '';
   }
+}
+
+/** In which role a book is kept: as a Jesuit, as minister, as econome. */
+export function bookRole(kind: string | null | undefined): string {
+  if (kind === 'house' || kind === 'envelope') return t3('بصفتك مدبراً', 'as minister', 'comme ministre');
+  if (kind === 'cash' || kind === 'bank' || kind === 'economat') return t3('بصفتك قيماً', 'as econome', 'comme économe');
+  return t3('بصفتك يسوعياً', 'as a Jesuit', 'comme jésuite');
+}
+
+/** Who is working: his name and, under it, his role (Econome, Minister, Superior, Jesuit…). */
+export function WhoIs({ profile, light }: { profile: { name: string; access_name: string }; light?: boolean }) {
+  return (
+    <span className={`cty-who ${light ? 'light' : ''}`}>
+      <b>{profile.name}</b>
+      <i>{triName(profile.access_name)}</i>
+    </span>
+  );
 }
 
 /** The name of a part of an account: his pocket, his bank, the house, an envelope. */

@@ -8,6 +8,8 @@ import { CURS, type Cur } from '../domain';
 import { useCty, Card } from './CtyApp';
 import { PeopleScreen } from './People';
 import { curName, t3 } from './text';
+import type { Palette, StyleInput } from '../style';
+import { DEFAULT_STYLE, StylePicker } from './StylePicker';
 
 const LANGS: { l: LangMode; label: string }[] = [
   { l: 'en', label: 'English' },
@@ -37,6 +39,7 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDes
           <button className="btn cty-wide" onClick={() => setPeople(true)}>👥 {t3('الأشخاص والأدوار', 'People and roles', 'Personnes et rôles')}</button>
         </Card>
       )}
+      {can('users.manage') && <LookCard key={JSON.stringify(d.style)} />}
       {(can('cty.limits') || can('users.manage')) && <ControlPanel key={JSON.stringify(d.settings) + JSON.stringify(d.limits)} />}
       {!inDesk && (
         <Card>
@@ -49,6 +52,38 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDes
       )}
     </>
   );
+
+  /** The community's colours, address and city (the Administrator). */
+  function LookCard() {
+    const st = d.style ?? { color: null, palette: null, address: null, city: null, country: null };
+    const [style, setStyle] = useState<StyleInput>(() => {
+      let palette: Palette | null = null;
+      try { palette = st.palette ? JSON.parse(st.palette) as Palette : null; } catch { /* old value */ }
+      return { color: st.color ?? DEFAULT_STYLE.color, palette };
+    });
+    const [address, setAddress] = useState(st.address ?? '');
+    const [city, setCity] = useState(st.city ?? '');
+    const [busy, setBusy] = useState(false);
+    const save = async () => {
+      setBusy(true);
+      try {
+        await s.api.call('cty.style.save', { ...style, address, city });
+        toast(t3('حُفظ', 'Saved', 'Enregistré'));
+        await reload();
+      } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+    };
+    return (
+      <Card>
+        <div className="cty-label">{t3('الجماعة: العنوان والألوان', 'The community: address and colours', 'La communauté : adresse et couleurs')}</div>
+        <div className="grid2" style={{ marginBottom: 10 }}>
+          <label className="field span2"><span>{t3('العنوان', 'Address', 'Adresse')}</span><input value={address} onChange={(e) => setAddress(e.target.value)} /></label>
+          <label className="field"><span>{t3('المدينة', 'City', 'Ville')}</span><input value={city} onChange={(e) => setCity(e.target.value)} /></label>
+        </div>
+        <StylePicker value={style} onChange={setStyle} name={s.organisation} sub={[city, st.country].filter(Boolean).join(' · ')} />
+        <button className="btn primary cty-wide" disabled={busy} onClick={save}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
+      </Card>
+    );
+  }
 
   /** The econome's control panel. */
   function ControlPanel() {

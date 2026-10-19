@@ -351,6 +351,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     centre: ((await getMeta(c.handle.db, 'centre')) ?? 'other') as CentreKey,
     color: await getMeta(c.handle.db, 'brand_color'),
     logo: await getMeta(c.handle.db, 'brand_logo'),
+    /** a community's set of colours (JSON), if it chose one */
+    palette: await getMeta(c.handle.db, 'brand_palette'),
+    city: await getMeta(c.handle.db, 'city'),
     setupNeeded: await setupNeeded(c),
     /** community = a Jesuit community's accounts; otherwise a MAGIS centre */
     kind: (await getMeta(c.handle.db, 'kind')) ?? 'centre',
@@ -563,14 +566,14 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
       if (url === '/api/setup/community') {
         const s = body as unknown as CommunitySetup;
-        await createCommunity(c.handle.db, { community: s.community || ((await getMeta(c.handle.db, 'organisation')) ?? ''), country: s.country ?? '', localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [], offices: s.offices, hasBank: s.hasBank, mustChange: s.mustChange });
+        await createCommunity(c.handle.db, { community: s.community || ((await getMeta(c.handle.db, 'organisation')) ?? ''), country: s.country ?? '', localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [], offices: s.offices, hasBank: s.hasBank, mustChange: s.mustChange, style: s.style });
         c.version++;
         log(`setup: ${c.slug} (community)`);
         return send(res, 200, { ok: true });
       }
       if (url === '/api/setup/country') {
         const s = body as unknown as CountrySetup;
-        await createCountry(c.handle.db, { country: s.country || ((await getMeta(c.handle.db, 'organisation')) ?? ''), localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [] });
+        await createCountry(c.handle.db, { country: s.country || ((await getMeta(c.handle.db, 'organisation')) ?? ''), localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [], style: s.style });
         c.version++;
         log(`setup: ${c.slug} (country)`);
         return send(res, 200, { ok: true });

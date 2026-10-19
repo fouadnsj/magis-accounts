@@ -1,18 +1,18 @@
 /* The econome's desk (computer layout): a menu on the side, wide tables. */
 .cty.desk { display: grid; grid-template-columns: 220px 1fr; padding-bottom: 0; }
-.desk-side { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: #3d2f0c; color: #fff; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
+.desk-side { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--c-deep); color: #fff; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
 .desk-org { display: flex; flex-direction: column; padding: 4px 10px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.15); margin-bottom: 8px; }
 .desk-org span { font-size: 12px; opacity: 0.75; }
 .desk-side button { background: none; border: 0; color: #fff; text-align: start; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font: inherit; }
 .desk-side button:hover { background: rgba(255, 255, 255, 0.1); }
-.desk-side button.on { background: #B8891B; font-weight: 650; }
+.desk-side button.on { background: var(--c-gold); font-weight: 650; }
 .desk-spacer { flex: 1; }
 .desk-group { display: flex; flex-direction: column; gap: 1px; margin-bottom: 8px; }
 .desk-group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; padding: 6px 10px 2px; }
 .cty-badge.static { position: static; }
 .desk-main { padding: 18px 26px 60px; min-width: 0; }
 .desk-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-.desk-head h1 { font-size: 22px; color: #3d2f0c; margin: 0; }
+.desk-head h1 { font-size: 22px; color: var(--c-deep); margin: 0; }
 .desk-head input { padding: 7px 10px; border: 1px solid #ece6d8; border-radius: 8px; }
 .desk-narrow { max-width: 600px; }
 .desk-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
@@ -20,8 +20,8 @@
 .desk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 4px; }
 .desk-card { margin: 0; text-align: start; font: inherit; }
 .desk-card.click { cursor: pointer; }
-.desk-card.click:hover { border-color: #B8891B; }
-.desk-bal b { font-size: 20px; color: #3d2f0c; font-variant-numeric: tabular-nums; }
+.desk-card.click:hover { border-color: var(--c-gold); }
+.desk-bal b { font-size: 20px; color: var(--c-deep); font-variant-numeric: tabular-nums; }
 .desk-todo ul { margin: 0; padding-inline-start: 20px; }
 .desk-todo li { margin: 3px 0; }
 .desk-alert { color: var(--err); }
@@ -31,17 +31,17 @@
 
 .desk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .desk-table th { text-align: start; font-weight: 600; color: var(--muted); border-bottom: 2px solid #ece6d8; padding: 6px 8px; white-space: nowrap; }
-.desk-table td { border-bottom: 1px solid #f3efe5; padding: 6px 8px; vertical-align: top; }
+.desk-table td { border-bottom: 1px solid var(--c-soft2); padding: 6px 8px; vertical-align: top; }
 .desk-table .num { text-align: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .desk-table td.out { color: #B5521A; }
 .desk-table td.in { color: #2A6FB0; }
 .desk-table tr.click { cursor: pointer; }
-.desk-table tr.click:hover td { background: #fffaf0; }
+.desk-table tr.click:hover td { background: var(--c-soft); }
 .desk-table tfoot td { font-weight: 650; border-top: 2px solid #ece6d8; border-bottom: 0; }
 .desk-table tr.off td { color: #b0a890; text-decoration: line-through; }
 .desk-note { max-width: 260px; color: var(--muted); }
 .desk-table .ok { color: var(--ok); }
-.fdc .fdc-part td, .desk-table .fdc-part td { background: #f7f2e4; font-weight: 650; color: #3d2f0c; }
+.fdc .fdc-part td, .desk-table .fdc-part td { background: #f7f2e4; font-weight: 650; color: var(--c-deep); }
 .desk-table .fdc-total td { font-weight: 650; }
 .desk-table .fdc-head td { font-weight: 600; background: #fcfaf4; }
 .desk-table .fdc-line td:nth-child(2) { padding-inline-start: 22px; color: #444; }
@@ -70,7 +70,7 @@
 .desk-four button i { font-style: normal; font-size: 26px; }
 .desk-four button b { font-size: 17px; }
 .desk-four button small { opacity: 0.9; font-size: 12px; line-height: 1.3; }
-.desk-four .give { background: linear-gradient(135deg, #B8891B, #8a6a1a); box-shadow: 0 6px 16px rgba(138, 106, 26, 0.35); }
+.desk-four .give { background: linear-gradient(135deg, var(--c-gold), var(--c-deep)); box-shadow: 0 6px 16px rgba(138, 106, 26, 0.35); }
 .desk-four .out { background: var(--c-out); }
 .desk-four .in { background: var(--c-in); }
 .desk-four .exc { background: #5b6b8a; }
@@ -78,16 +78,16 @@
 .desk-qpick { display: inline-flex; gap: 4px; margin-inline-start: 6px; }
 .desk-qpick button { border: 1px solid var(--c-line); background: #fff; border-radius: 12px; padding: 1px 9px; cursor: pointer; font: inherit; font-size: 12px; }
 .desk-qpick button.on { background: var(--c-gold); border-color: var(--c-gold); color: #fff; }
-.desk-table th.qsel, .desk-table td.qsel { background: #fffaf0; }
+.desk-table th.qsel, .desk-table td.qsel { background: var(--c-soft); }
 .desk-table tr.picked td { background: #fff3cf; }
 
 /* My books: one card per account, with its role and its meaning */
 .desk-mybooks { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; margin: 10px 0 16px; }
 .desk-mybook { display: flex; flex-direction: column; gap: 4px; text-align: start; padding: 14px; background: #fff; border: 2px solid var(--c-line); border-radius: 14px; cursor: pointer; font: inherit; }
-.desk-mybook.on { border-color: #B8891B; background: #fffaf0; box-shadow: 0 4px 14px rgba(138, 106, 26, 0.18); }
-.desk-mybook-role { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #8a6a1a; }
-.desk-mybook b { font-size: 17px; color: #3d2f0c; }
-.desk-mybook-bal { font-size: 18px; font-variant-numeric: tabular-nums; color: #3d2f0c; }
+.desk-mybook.on { border-color: var(--c-gold); background: var(--c-soft); box-shadow: 0 4px 14px rgba(138, 106, 26, 0.18); }
+.desk-mybook-role { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-deep); }
+.desk-mybook b { font-size: 17px; color: var(--c-deep); }
+.desk-mybook-bal { font-size: 18px; font-variant-numeric: tabular-nums; color: var(--c-deep); }
 .desk-mybook small.muted { line-height: 1.35; }
 
 /* a narrow screen (the Superior or the Administrator on a phone): the menu goes on top */
@@ -114,7 +114,7 @@
 
 /* the country econome's home: steps of the month */
 .desk-step { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
-.desk-step-n { flex: none; width: 36px; height: 36px; border-radius: 50%; background: #B8891B; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 17px; }
+.desk-step-n { flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--c-gold); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 17px; }
 .desk-step.done .desk-step-n { background: #2f7d4f; }
 .desk-step-body { flex: 1; min-width: 0; }
 .desk-step-body b { font-size: 16px; }

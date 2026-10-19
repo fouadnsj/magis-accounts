@@ -4,6 +4,7 @@
 // an existing entry asks a reason, and a deletion keeps the whole entry in the audit.
 
 import type { Db, Stmt } from '../db/db';
+import { loadStyle, type CtyStyle } from './style';
 import { nowIso, one, uuid } from '../db/db';
 import { auditStmt, getMeta, UserError } from '../db/repo';
 import { has } from '../auth';
@@ -49,6 +50,8 @@ export interface CtyMonth {
 
 export interface CtyData {
   kind: string | null;
+  /** its colours, address and city (style.ts) */
+  style: CtyStyle;
   /** the local currency (SYP in Syria) */
   local: string;
   accounts: CtyAccount[];
@@ -784,6 +787,7 @@ async function data(c: OpCtx): Promise<CtyData> {
     province: can(c, 'cty.view_all') ? await c.db.query<ProvinceLine>('SELECT id, date, kind, cur, amount, note, status FROM cty_province ORDER BY date, id') : [],
     known: await c.db.query<{ uid: string; name: string }>('SELECT * FROM cty_known ORDER BY name'),
     settings: await loadSettings(c.db),
+    style: await loadStyle(c.db),
   };
 }
 

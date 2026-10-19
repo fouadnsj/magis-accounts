@@ -8,9 +8,9 @@ import { tauriDb } from '../db/tauriDb';
 import { createHolder, createOffice } from '../setup';
 import { applySeed, readWorkbook, type ImportReport } from '../io/importWorkbook';
 import { parseListsPackage, type ListsPackage } from '../io/keeperFiles';
-import { baseName, getConfig, setConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath } from '../platform';
+import { baseName, getConfig, setConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath, type KnownDb } from '../platform';
 import { Field, errText, t } from './kit';
-import { BrandFrame } from './Landing';
+import { BrandFrame, DbCard } from './Landing';
 import { CommunityForm, CountryForm } from '../community/ui/NewCommunity';
 import { createCountry } from '../community/country';
 import { createCommunity } from '../community/setup';
@@ -29,16 +29,21 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
   /** the first choice: the MAGIS centres, or the Jesuit communities */
   const [area, setArea] = useState<'centres' | 'cty' | null>(null);
   const [err, setErr] = useState<string | null>(bootErr);
-  // the databases opened recently on this computer
+  // the databases opened recently on this computer (and what each one is, when known)
   const [recent, setRecent] = useState<string[]>([]);
+  const [known, setKnown] = useState<Record<string, KnownDb>>({});
   useEffect(() => {
     if (!isDesktop()) return;
     getConfig().then(async (c) => {
       const all = c.recent ?? [];
       const exist = await Promise.all(all.map((p) => invoke<boolean>('file_exists', { path: p }).catch(() => false)));
       setRecent(all.filter((_, i) => exist[i]));
+      setKnown(c.known ?? {});
     });
   }, []);
+  const isCty = (p: string) => ['community', 'country'].includes(known[p]?.kind ?? '');
+  // a file opened before this version (kind unknown) is shown in both places
+  const recentHere = recent.filter((p) => !known[p] || (area === 'cty') === isCty(p));
   const open = async (p: string) => {
     try {
       await onOpenPath(p);
@@ -59,19 +64,6 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
   return (
     <BrandFrame wide jesuit={mode === 'community' || mode === 'country' || (mode === 'choose' && area !== 'centres')} title={mode === 'choose' && area === null ? t3('حسابات اليسوعيين', 'Jesuit accounts', 'Comptes jésuites') : undefined}>
         {err && <div className="alert err">{err}</div>}
-        {mode === 'choose' && recent.length > 0 && (
-          <>
-            <h2 className="brand-h2">{t('قواعد البيانات على هذا الحاسوب', 'Databases on this computer')}</h2>
-            <div className="db-grid" style={{ marginBottom: 22 }}>
-              {recent.map((p) => (
-                <button key={p} className="db-card" style={{ '--centre': '#B8891B' } as React.CSSProperties} onClick={() => open(p)}>
-                  <div className="db-card-mark"><img src="/brand/magis-sun.png" alt="" /></div>
-                  <div className="db-card-text"><b>{baseName(p).replace(/\.db$/i, '')}</b><span className="ltr" style={{ textAlign: 'start' }}>{p}</span></div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
         {mode === 'choose' && area === null && (
           <>
             <h2 className="brand-h2">{t3('ماذا تريد أن تفتح؟', 'What do you want to open?', 'Que voulez-vous ouvrir ?')}</h2>
@@ -87,38 +79,50 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
                 <span>{t3('اليسوعيون وبيتهم، والقيم', 'The Jesuits, their house, the econome', "Les jésuites, leur maison, l'économe")}</span>
               </button>
             </div>
-            <div className="choice" style={{ marginTop: 16 }}>
-              {onConnect && isDesktop() && (
+            {onConnect && isDesktop() && (
+              <div className="choice" style={{ marginTop: 16 }}>
                 <button onClick={() => setMode('server')}>
-                  <b>{t('خادم المركز', "The centre's server")}</b>
-                  <span className="muted small">{t('الاتصال بقاعدة البيانات المشتركة على الشبكة.', 'Connect to the shared database on the network.')}</span>
+                  <b>{t3('خادم المركز', "The centre's server", 'Le serveur du centre')}</b>
+                  <span className="muted small">{t3('الاتصال بقاعدة البيانات المشتركة على الشبكة.', 'Connect to the shared database on the network.', 'Se connecter à la base partagée sur le réseau.')}</span>
                 </button>
-              )}
-              <button onClick={openExisting} disabled={!isDesktop()}>
-                <b>{t('فتح ملف موجود', 'Open an existing file')}</b>
-                <span className="muted small">{t('ملف ‎.db أنشئ سابقاً', 'A .db file created before')}</span>
-              </button>
-            </div>
+              </div>
+            )}
           </>
         )}
         {mode === 'choose' && area !== null && (
           <>
             <button className="cty-back" onClick={() => setArea(null)}>‹ {t3('رجوع', 'Back', 'Retour')}</button>
+            <h2 className="brand-h2">{area === 'centres' ? t3('فتح مركز', 'Open a centre', 'Ouvrir un centre') : t3('فتح جماعة أو بلد', 'Open a community or a country', 'Ouvrir une communauté ou un pays')}</h2>
+            <div className="db-grid" style={{ marginBottom: 22 }}>
+              {recentHere.map((p) => (
+                <DbCard
+                  key={p}
+                  db={known[p] ? { slug: p, setupNeeded: false, ...known[p] } : { slug: p, organisation: baseName(p).replace(/\.db$/i, ''), centre: 'other', setupNeeded: false, kind: area === 'cty' ? 'community' : 'centre' }}
+                  path={p}
+                  onOpen={() => open(p)}
+                />
+              ))}
+              <button className="db-card db-new" onClick={openExisting} disabled={!isDesktop()}>
+                <div className="db-card-mark"><span>📂</span></div>
+                <div className="db-card-text"><b>{t3('فتح ملف آخر…', 'Open another file…', 'Ouvrir un autre fichier…')}</b><span>{t3('ملف ‎.db أنشئ سابقاً', 'A .db file created before', 'Un fichier .db créé avant')}</span></div>
+              </button>
+            </div>
+            <h2 className="brand-h2">{t3('إنشاء', 'Create', 'Créer')}</h2>
             <div className="choice">
               {area === 'centres' && (
                 <button onClick={() => setMode('office')}>
-                  <b>{t('قاعدة المكتب', 'Office database')}</b>
-                  <span className="muted small">{t('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.')}</span>
+                  <b>{t3('مركز جديد', 'A new centre', 'Un nouveau centre')}</b>
+                  <span className="muted small">{t3('للرئيس والمحاسب. تبدأ من ملف Excel الحالي.', 'For the Superior and the Accountant. Starts from your current Excel workbook.', 'Pour le Supérieur et le comptable. Part de votre classeur Excel actuel.')}</span>
                 </button>
               )}
               {area === 'cty' && (
                 <>
                   <button onClick={() => setMode('community')}>
-                    <b>{t3('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')}</b>
-                    <span className="muted small">{t3('حسابات اليسوعيين وبيتهم، بثلاث عملات.', 'The accounts of the Jesuits and their house, in three currencies.', 'Les comptes des jésuites et de leur maison, en trois monnaies.')}</span>
+                    <b>{t3('جماعة جديدة', 'A new community', 'Une nouvelle communauté')}</b>
+                    <span className="muted small">{t3('الاسم والعنوان، الألوان، ثم الأشخاص والمناصب.', 'Name and address, colours, then the people and offices.', 'Nom et adresse, couleurs, puis les personnes et les fonctions.')}</span>
                   </button>
                   <button onClick={() => setMode('country')}>
-                    <b>{t3('قيم البلد', 'Country econome', "Économe du pays")}</b>
+                    <b>{t3('بلد جديد (قيم البلد)', 'A new country (country econome)', 'Un nouveau pays (économe du pays)')}</b>
                     <span className="muted small">{t3('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.')}</span>
                   </button>
                 </>

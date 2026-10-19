@@ -11,6 +11,9 @@ export interface DbInfo {
   centre: string;
   color?: string | null;
   logo?: string | null;
+  /** a community's set of colours (JSON) and its city */
+  palette?: string | null;
+  city?: string | null;
   setupNeeded: boolean;
   /** 'community' for a Jesuit community's accounts */
   kind?: string;

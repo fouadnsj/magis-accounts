@@ -7,6 +7,8 @@ import { type Db, type Stmt, migrate, nowIso, one, uuid } from '../db/db';
 import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { has, profileStmt } from '../auth';
 import { chartSeedStmts } from './setup';
+import { sameCountry } from './places';
+import { loadStyle, styleStmts, type CtyStyle, type StyleInput } from './style';
 import { chartRows, loadAccounts, saveAccountRow, type AccountInput } from './ops';
 import type { CtyAccount } from './domain';
 import { m } from '../i18n';
@@ -20,6 +22,8 @@ export interface CountrySetup {
   localCurrency: string;
   people: { name: string; password: string }[];
   mustChange?: boolean;
+  /** its colour or set of colours (default: gold) */
+  style?: StyleInput;
 }
 
 export const COUNTRY_PERMS = ['country.manage', 'users.manage', 'data.backup', 'data.restore', 'data.export', 'data.import', 'audit.view'];
@@ -40,6 +44,7 @@ export async function createCountry(db: Db, s: CountrySetup): Promise<void> {
     setMetaStmt('country', s.country.trim()),
     setMetaStmt('local_currency', s.localCurrency.trim().toUpperCase() || 'SYP'),
     setMetaStmt('created_at', nowIso()),
+    ...(s.style ? styleStmts(s.style) : []),
     // the chart of codes is kept here for now (later the Province) and sent to the communities
     ...chartSeedStmts(),
   ]);
@@ -58,6 +63,8 @@ export interface CountryProposal { id: string; host_id: number; date: string; ch
 export interface CountryMonth { cty_id: number; ym: string; hash: string; received_at: string; received_by: string | null; file: MonthFile }
 export interface CountryData {
   kind: string | null;
+  /** its colours (style.ts) */
+  style: CtyStyle;
   local: string;
   ctys: CountryCty[];
   months: CountryMonth[];
@@ -90,6 +97,7 @@ export async function countryData(db: Db): Promise<CountryData> {
     proposals: await db.query<CountryProposal>('SELECT * FROM country_proposal ORDER BY date, id'),
     accounts: await loadAccounts(db),
     rates: { startRate: Number(await getMeta(db, 'rate_usd')) || 130, eurUsd: Number(await getMeta(db, 'rate_eur_usd')) || null },
+    style: await loadStyle(db),
   };
 }
 
@@ -101,7 +109,7 @@ export interface ImportResult { community: string; ym: string; status: 'new' | '
 export async function importMonthFile(db: Db, f: MonthFile, who: string): Promise<ImportResult> {
   if (!f || f.kind !== MONTH_FILE || !f.community?.uid || !/^\d{4}-\d{2}$/.test(f.ym ?? '')) throw new UserError(m('ليس ملفاً شهرياً من جماعة', 'Not a monthly file from a community', "Ce n'est pas un fichier mensuel d'une communauté"));
   const country = await getMeta(db, 'country');
-  if (f.community.country && country && f.community.country.toLowerCase() !== country.toLowerCase())
+  if (f.community.country && country && !sameCountry(f.community.country, country))
     throw new UserError(m(`هذه الجماعة من بلد آخر (${f.community.country})`, `This community belongs to another country (${f.community.country})`, `Cette communauté est d'un autre pays (${f.community.country})`));
   const stmts: Stmt[] = [];
   let cty = await one<CountryCty>(db, 'SELECT * FROM country_cty WHERE uid = ?', [f.community.uid]);

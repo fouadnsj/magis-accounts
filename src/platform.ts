@@ -79,9 +79,20 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
+export interface KnownDb {
+  organisation: string;
+  centre: string;
+  kind: string;
+  color: string | null;
+  palette: string | null;
+  city: string | null;
+}
+
 export interface LocalConfig {
   dbPath?: string;
   recent?: string[];
+  /** what each recent file is (kind, name, colours), for its card on the first page */
+  known?: Record<string, KnownDb>;
   /** the centre's server this app opens on (desktop app used on the network) */
   server?: { address: string; fingerprint: string } | null;
 }

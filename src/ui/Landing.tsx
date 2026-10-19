@@ -5,6 +5,7 @@ import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type C
 import { m, tx } from '../i18n';
 import type { DbInfo } from '../net';
 import { serverCreateDb } from '../net';
+import { paletteOf } from '../community/style';
 import { Field, errText, t } from './kit';
 
 /** The page around every welcome, login and setup screen. */
@@ -48,14 +49,17 @@ export function BrandFrame({ children, brand, wide, jesuit, title }: { children:
   );
 }
 
-export function DbCard({ db, onOpen }: { db: DbInfo; onOpen: () => void }) {
-  const st = brandStyle(db);
+export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /** desktop: the file */ path?: string }) {
+  const cty = db.kind === 'community' || db.kind === 'country';
+  const pal = cty ? paletteOf(db.color, db.palette) : null;
+  const st = pal ? { ...brandStyle(db), color: pal.main, deep: pal.deep } : brandStyle(db);
   return (
     <button className="db-card" onClick={onOpen} style={{ '--centre': st.color, '--centre-deep': st.deep } as React.CSSProperties}>
       <div className="db-card-mark">{db.kind === 'community' || db.kind === 'country' ? <img src="/brand/jesuits.png" alt="" /> : st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}</div>
       <div className="db-card-text">
         <b>{db.organisation}</b>
-        <span>{db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : db.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
+        <span>{db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) + (db.city ? ` · ${db.city}` : '') : db.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
+        {path && <span className="ltr" style={{ textAlign: 'start', fontSize: 11 }}>{path}</span>}
         {db.setupNeeded && <span className="pill" style={{ background: '#fff6e0', color: '#6d4b00' }}>{t('لم تُعدّ بعد', 'not set up yet')}</span>}
       </div>
     </button>
@@ -79,7 +83,8 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
   const [howTo, setHowTo] = useState(false);
   // one program: first "centres" or "communities", when the server holds both
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
-  const both = dbs.some(isCty) && dbs.some((x) => !isCty(x));
+  // (also when only one kind exists but the person may create: he can start the other kind)
+  const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || (canCreate && dbs.length > 0);
   const [area, setArea] = useState<'centres' | 'cty' | null>(null);
   const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
   const choosing = both && area === null && !signedIn && !creating;
@@ -136,7 +141,7 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
           )}
         </>
       ) : (
-        <CreateDb onCancel={() => setCreating(false)} onCreated={onCreated} />
+        <CreateDb onCancel={() => setCreating(false)} onCreated={onCreated} community={area === 'cty' || (!both && dbs.length > 0 && dbs.every(isCty))} />
       )}
     </BrandFrame>
   );
@@ -170,7 +175,7 @@ export function OwnBrand({ color, setColor, logo, setLogo }: { color: string; se
   );
 }
 
-function CreateDb({ onCancel, onCreated }: { onCancel?: () => void; onCreated: (slug: string) => void }) {
+function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; onCreated: (slug: string) => void; /** a community or country: no centre colours (they are chosen at setup) */ community?: boolean }) {
   const [name, setName] = useState('');
   const [centre, setCentre] = useState<CentreKey | 'own' | null>(null);
   const [color, setColor] = useState('#2E7D32');
@@ -182,7 +187,7 @@ function CreateDb({ onCancel, onCreated }: { onCancel?: () => void; onCreated: (
     setErr(null);
     setBusy(true);
     try {
-      const r = chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
+      const r = community ? await serverCreateDb(name, 'other') : chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
       onCreated(r.slug);
     } catch (e) {
       setErr(errText(e));
@@ -196,7 +201,7 @@ function CreateDb({ onCancel, onCreated }: { onCancel?: () => void; onCreated: (
       <Field label={t('الاسم (مثلاً: ماجيس حمص، حمص 2027، تجربة)', 'Name (e.g. MAGIS Homs, Homs 2027, Test)')}>
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
+      {!community && <><h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
       <div className="centre-pick">
         {(Object.keys(CENTRES) as CentreKey[]).map((k) => {
           const st = CENTRES[k];
@@ -212,8 +217,10 @@ function CreateDb({ onCancel, onCreated }: { onCancel?: () => void; onCreated: (
           <span>{t('شعار ولون خاصّان', 'Own logo & colour')}</span>
         </button>
       </div>
-      {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}
-      <p className="muted small">{t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>
+      {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}</>}
+      <p className="muted small">{community
+        ? tx(m('بعدها: جماعة أو بلد، مع العنوان والألوان والأشخاص.', 'Next: a community or a country, with its address, colours and people.', 'Ensuite : une communauté ou un pays, avec adresse, couleurs et personnes.'))
+        : t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">
         {onCancel && <button className="btn" onClick={onCancel}>{t('رجوع', 'Back')}</button>}

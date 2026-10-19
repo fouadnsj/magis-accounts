@@ -34,6 +34,7 @@ import { m, type Msg } from './i18n';
 import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
 import { COUNTRY_OPS, COUNTRY_READ_ONLY } from './community/country';
 import { PEOPLE_OPS, PEOPLE_READ_ONLY } from './community/people';
+import { STYLE_OPS } from './community/style';
 
 export type Install = 'office' | 'holder';
 
@@ -1067,6 +1068,8 @@ export const OPS = {
   // the country econome's database: src/community/country.ts
   ...COUNTRY_OPS,
   ...PEOPLE_OPS,
+  // the look of a community or country database: src/community/style.ts
+  ...STYLE_OPS,
   // ---------------------------------------------------------------- reading
   data: { check: anyone, run: (c: OpCtx) => loadData(c) },
   'cash.counts': {

@@ -77,7 +77,11 @@ export function App() {
     const organisation = (await getMeta(tauriDb, 'organisation')) ?? '';
     const centre = (await getMeta(tauriDb, 'centre')) ?? guessCentre(organisation);
     const cfg = await getConfig();
-    await setConfig({ ...cfg, dbPath, recent: [dbPath, ...(cfg.recent ?? []).filter((p) => p !== dbPath)].slice(0, 8) });
+    const recent = [dbPath, ...(cfg.recent ?? []).filter((p) => p !== dbPath)].slice(0, 8);
+    // what the file is, for its card on the first page (centre or community, its colours)
+    const info = { organisation, centre, kind: (await getMeta(tauriDb, 'kind')) ?? 'centre', color: await getMeta(tauriDb, 'brand_color'), palette: await getMeta(tauriDb, 'brand_palette'), city: await getMeta(tauriDb, 'city') };
+    const known = Object.fromEntries(Object.entries({ ...(cfg.known ?? {}), [dbPath]: info }).filter(([p]) => recent.includes(p)));
+    await setConfig({ ...cfg, dbPath, recent, known });
     setOpened({ db: tauriDb, dbPath, install, organisation, centre, brandColor: await getMeta(tauriDb, 'brand_color'), brandLogo: await getMeta(tauriDb, 'brand_logo'), kind: (await getMeta(tauriDb, 'kind')) ?? 'centre' });
   }, []);
 

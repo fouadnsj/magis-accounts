@@ -2,6 +2,7 @@
 // One frame: the book on top (a minister switches between his book and the house's),
 // the screens in the middle, a bar at the bottom, and the big "＋" to write an entry.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { usePalette } from './usePalette';
 import type { Session } from '../../state';
 import { has } from '../../auth';
 import type { Perm } from '../../perms';
@@ -73,6 +74,8 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   useEffect(() => {
     void reload();
   }, [reload]);
+  // the community's own colours (chosen at its creation)
+  usePalette(d?.style);
   // On the network: reload when someone else changed something (every 15 s).
   useEffect(() => {
     if (!session.version) return;

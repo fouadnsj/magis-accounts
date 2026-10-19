@@ -16,6 +16,7 @@ import type { Perm } from '../perms';
 import { CHART } from './chart';
 import { DEFAULT_LIMITS } from './domain';
 import { saveLimitsStmts } from './repo';
+import { styleStmts, type StyleInput } from './style';
 import { OFFICES, OFFICE_SHORT, officeBooksStmts, type Office } from './people';
 
 /** What each kind of account may do, as permission ticks. The administrator edits them on the roles page. */
@@ -59,6 +60,8 @@ export interface CommunitySetup {
   mustChange?: boolean;
   /** the community has a bank account (default no: in Syria there is usually none) */
   hasBank?: boolean;
+  /** its colour or set of colours, its address and city (Fouad, 19 October 2026) */
+  style?: StyleInput;
 }
 
 /** The chart of codes as it starts (compt1 with Fouad's corrections), in the order of the sheet. */
@@ -97,6 +100,7 @@ export async function createCommunity(db: Db, s: CommunitySetup): Promise<void> 
     // the community's identity in its files to the country econome
     setMetaStmt('cty_uid', crypto.randomUUID()),
     setMetaStmt('created_at', nowIso()),
+    ...(s.style ? styleStmts(s.style) : []),
     // the limits Fouad gave (18 October 2026); the econome changes them
     ...saveLimitsStmts(DEFAULT_LIMITS),
     { sql: "INSERT INTO setting (key, value) VALUES ('cty_has_bank', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params: [s.hasBank ? '1' : '0'] },

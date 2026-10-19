@@ -3,6 +3,7 @@
 // the économat, the year-end reconciliation, the totals by code, the return files.
 // He never sees a Jesuit's detail: only what the communities' files hold.
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePalette } from '../usePalette';
 import type { Session } from '../../../state';
 import { getLang, setLang, type LangMode } from '../../../i18n';
 import { errText, parseAmount, promptBox, toast, todayIso } from '../../../ui/kit';
@@ -47,6 +48,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
     } catch (e) { setErr(errText(e)); }
   }, [session]);
   useEffect(() => { void reload(); }, [reload]);
+  usePalette(d?.style);
   if (!d) return <div className="cty"><div className="cty-page">{err ? <div className="alert err">{err}</div> : '…'}</div></div>;
   if (!d.accounts || !d.proposals) return <ServerTooOld onLogout={onLogout} />;
   const waiting = d.claims.filter((c) => c.status === 'waiting').length;

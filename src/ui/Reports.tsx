@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useApp, useNames, useIcons } from '../state';
 import { exchangeLog, funding, monthly, summary, inPeriod, type Period } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
-import { getLang } from '../i18n';
+import { monthWord } from '../i18n';
 import type { Perm } from '../perms';
 import { Seg, Tabs, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t } from './kit';
 import { BarList, EXPENSE, INCOME, MonthColumns, type Bar } from './Charts';
@@ -15,7 +15,7 @@ type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'fundin
 
 const monthName = (ym: string) => {
   const m = Number(ym.slice(5, 7)) - 1;
-  return getLang() === 'en' ? `${MONTHS_EN[m]} ${ym.slice(0, 4)}` : `${MONTHS_AR[m]} · ${MONTHS_EN[m]} ${ym.slice(0, 4)}`;
+  return `${monthWord(m, MONTHS_AR, MONTHS_EN)} ${ym.slice(0, 4)}`;
 };
 
 export function Reports() {

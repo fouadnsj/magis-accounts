@@ -20,7 +20,7 @@ import {
   type AllocStatus, type Budget, type BudgetAlloc, type BudgetBook, type BudgetItem, type BudgetRow, type Pace, type SheetRead,
 } from '../domain/budget';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
-import { getLang } from '../i18n';
+import { monthWord } from '../i18n';
 import { pickFile, saveFile } from '../platform';
 import { donorReportXlsx } from '../io/donorReport';
 import { workbookGrids, type Grid } from '../io/budgetSheet';
@@ -32,7 +32,7 @@ const fmtEur = (n: number) => `€${Math.round(n).toLocaleString('en-US')}`;
 /** dollars with the sign, 0 shown as $0 (not a dash) */
 const usd = (n: number) => (Math.abs(n) < 0.005 ? '$0' : n < 0 ? `-$${fmtUsd(-n)}` : `$${fmtUsd(n)}`);
 const num = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
-const monthName = (m: number) => (getLang() === 'en' ? MONTHS_EN[m - 1] : `${MONTHS_AR[m - 1]} · ${MONTHS_EN[m - 1]}`);
+const monthName = (m: number) => monthWord(m - 1, MONTHS_AR, MONTHS_EN);
 /** 'YYYY-MM' → "July 2026" */
 const ymName = (ym: string) => `${monthName(Number(ym.slice(5, 7)))} ${ym.slice(0, 4)}`;
 const periodName = (b: Pick<Budget, 'start_ym' | 'months'>) => `${ymName(b.start_ym)} → ${ymName(periodEnd(b))} · ${b.months} ${t('شهراً', 'months')}`;

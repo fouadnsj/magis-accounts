@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useApp } from '../state';
 import type { Trx, TrxType } from '../domain/types';
-import { getLang } from '../i18n';
+import { LangPick } from './LangPick';
 import type { Perm } from '../perms';
 import { t } from './kit';
 import { brandStyle } from '../brand';
@@ -120,7 +120,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
           {narrow && <button onClick={() => choosePc(false)}>📱 {t('عرض الهاتف', 'Phone view')}</button>}
-          <button onClick={onToggleLang}>{getLang() === 'en' ? 'عربي · English' : 'English only'}</button>
+          <LangPick onChange={onToggleLang} />
           {onDatabases && <button onClick={onDatabases}>{can('users.manage') ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
           <button onClick={logout}>{t('خروج', 'Log out')}</button>
           {s.mode !== 'server' && <button onClick={onCloseDb} className="small">{t('إغلاق الملف', 'Close file')}</button>}

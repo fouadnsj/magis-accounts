@@ -17,7 +17,7 @@ import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { m, tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
 import { AppProvider, type Install, type Session } from '../state';
-import { getLang, setLang } from '../i18n';
+import { getLang } from '../i18n';
 import type { Role } from '../domain/types';
 import { ConfirmHost, PromptHost, ToastHost, biName, errText, t } from './kit';
 import { Welcome } from './Welcome';
@@ -203,10 +203,8 @@ export function App() {
     setIdleOut(true);
   }, [server]);
 
-  const toggleLang = () => {
-    setLang(getLang() === 'en' ? 'both' : 'en');
-    force((x) => x + 1);
-  };
+  /** the language was chosen (Shell, phone): draw everything again */
+  const toggleLang = () => force((x) => x + 1);
 
   const localLogin = (o: Opened) => async (profileId: number, secret: string) => {
     const { profile, given } = await login(o.db, profileId, secret);

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, type Data } from '../state';
 import { holders, holdersMonth, monthsOf, type HolderLine, type HolderMonthLine } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
-import { getLang } from '../i18n';
+import { monthWord } from '../i18n';
 import { Field, Modal, Seg, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 
 const NOTES = { SYP: [10000, 5000, 2000, 1000, 500, 200, 100, 50], USD: [100, 50, 20, 10, 5, 2, 1] };
@@ -164,7 +164,7 @@ function CashViewPicker({ view, setView, ym, setYm, months, book, setBook, books
 
 const monthLabel = (ym: string) => {
   const m = Number(ym.slice(5, 7)) - 1;
-  return getLang() === 'en' ? `${MONTHS_EN[m]} ${ym.slice(0, 4)}` : `${MONTHS_AR[m]} · ${MONTHS_EN[m]} ${ym.slice(0, 4)}`;
+  return `${monthWord(m, MONTHS_AR, MONTHS_EN)} ${ym.slice(0, 4)}`;
 };
 
 /** One frame per currency, so pounds and dollars are never mixed. */

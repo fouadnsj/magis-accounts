@@ -13,6 +13,7 @@ import { brandStyle } from '../brand';
 import { errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
 import { holderBalance } from './Cash';
 import { TYPE_ICON } from './Home';
+import { LangPick } from './LangPick';
 import '../community/ui/cty.css';
 
 type View = 'month' | 'records';
@@ -65,7 +66,7 @@ export function PhoneShell({ onComputer, onToggleLang, onCloseDb, onDatabases, o
           </span>
         </div>
         <span className="cty-topbtns">
-          <button className="cty-icon" onClick={onToggleLang} aria-label="language">🌐</button>
+          <LangPick onChange={onToggleLang} compact />
           <button className="cty-signout" onClick={logout}>⏻ {t('خروج', 'Sign out')}</button>
         </span>
       </header>

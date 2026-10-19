@@ -3,6 +3,13 @@
 برنامج مكتبي بلا إنترنت لصندوق المركز النقدي بالليرة والدولار.
 An offline desktop program for the centre's cash, in SYP and USD.
 
+> **0.7.0 — one program, two kinds of database · برنامج واحد لنوعين · un seul programme pour deux sortes de bases**
+> - **MAGIS centres · مراكز ماجيس · Centres MAGIS** (Jaramana, Aleppo, Homs): the centre's accounts, as below.
+> - **Jesuit communities · جماعات اليسوعيين · Communautés jésuites**: each Jesuit's account, the house, the econome, the Superior, the country econome.
+> - The first page asks which one. What each person does, in plain words: **USER-GUIDE.md** (EN · FR · AR).
+> - What to install where: **server/INSTALL-README.md**.
+> - The parts below describe the first versions of the centres' program (files between holders and office); with the server (0.2.0 and after), everyone works on one database from a browser.
+
 ---
 
 ## العربية

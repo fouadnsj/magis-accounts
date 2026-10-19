@@ -4,6 +4,14 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  "Duplicate (same date)": "Dupliquer (même date)",
+  "Copy": "Copie",
+  "COPY": "COPIE",
+  "of entry": "de l'écriture",
+  "not saved yet.": "pas encore enregistrée.",
+  "Change at least one thing (amount, date, line, book or explanation), then Save.": "Changez au moins une chose (montant, date, ligne, caisse ou explication), puis enregistrez.",
+  "Check it, then Save.": "Vérifiez, puis enregistrez.",
+  "Duplicating a transfer sends money again, and the receiver must confirm the copy. Continue?": "Dupliquer un transfert envoie de l'argent une deuxième fois, et le destinataire doit confirmer la copie. Continuer ?",
   "Duplicate": "Dupliquer",
   "Duplicate for today": "Dupliquer pour aujourd'hui",
   "A copy with the same date, opened to change": "Une copie à la même date, ouverte pour la modifier",
@@ -859,6 +867,7 @@ export const FR: Record<string, string> = {
 };
 
 export const FR_PATTERNS: [string, string][] = [
+  ["Possible duplicate of row {0} (same date, amount, party, book)", "Doublon possible de la ligne {0} (même date, montant, tiers, caisse)"],
   ["\"{0}\" already exists", "« {0} » existe déjà"],
   ["\"{0}\" already exists under this heading", "« {0} » existe déjà sous cette rubrique"],
   ["\"{0}\" has grants or budget allocations: it cannot be deleted. Deactivate it instead? (it stays in the history and leaves the lists)", "« {0} » a des subventions ou des parts de budget : on ne peut pas le supprimer. Le désactiver plutôt ? (il reste dans l'historique et quitte les listes)"],

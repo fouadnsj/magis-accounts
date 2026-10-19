@@ -12,7 +12,8 @@ import { validateTrx } from '../domain/validate';
 import { rateOn } from '../domain/compute';
 import type { Trx, TrxType } from '../domain/types';
 import { TYPE_LABEL, tx, type Msg } from '../i18n';
-import { Combo, Field, Modal, Msgs, Seg, Select, promptBox, errText, fmtDate, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
+import { CopyMenu } from './CopyMenu';
+import { Combo, Field, Modal, Msgs, Seg, Select, confirmBox, promptBox, errText, fmtDate, fmtRate, fmtUsd, parseAmount, t, toast, todayIso, type Option } from './kit';
 
 type Cur = 'SYP' | 'USD';
 
@@ -151,6 +152,8 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
         // the copy: today (or the date asked), no bill number (each bill has its own), no grant link; he changes what differs
         base.date = (start as NewEntry).date ?? copyOf.date ?? todayIso();
         base.receipt = '';
+        // the explanation starts empty (the old one is the grey hint): every line explains itself
+        base.explanation = '';
         // a person writes in his own books only
         if (restricted) {
           if (base.type === 'Transfer') { if (base.fromBook == null || !myBooks.includes(base.fromBook)) base.fromBook = myBooks[0] ?? null; }
@@ -179,6 +182,10 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
   useEffect(() => {
     keepDraft(key, start, f);
   }, [key, start, f]);
+  // a copy cannot be saved until something differs from the record it copies (amount, date, line, book, explanation…)
+  const sigOf = (x: FormState) => JSON.stringify([x.type, x.date, x.bookId, x.accountId, x.headingId, x.lineId, x.partyId, x.currency, x.amount, x.usd, x.syp, x.fromBook, x.toBook, x.explanation.trim() || (copyOf?.explanation ?? '').trim()]);
+  const [baseSig] = useState<string | null>(() => (copyOf ? sigOf({ ...initial(), date: copyOf.date ?? '', explanation: (copyOf.explanation ?? '').trim() }) : null));
+  const unchangedCopy = baseSig != null && sigOf(f) === baseSig;
   const [errors, setErrors] = useState<Msg[]>([]);
   const [warnings, setWarnings] = useState<Msg[]>([]);
   const [warnAccepted, setWarnAccepted] = useState(false);
@@ -285,6 +292,14 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     return { rate, implied: null };
   }, [d.rows, f.date, f.bookId, f.type, f.usd, f.syp, L.settings.usd_rate, editing?.id]);
 
+  /** open a copy of this record; a transfer sends money again, so ask first */
+  const copy = async (date: string | undefined) => {
+    if (!editing || !onCopy) return;
+    if (editing.type === 'Transfer' && !(await confirmBox(t('نسخ تحويل يرسل المال مرة أخرى، ويجب أن يؤكّد المستلم النسخة. متابعة؟', 'Duplicating a transfer sends money again, and the receiver must confirm the copy. Continue?')))) return;
+    dropDraft();
+    onCopy({ preset: true, type: editing.type ?? 'Exp', copyOf: editing, ...(date ? { date } : {}) });
+  };
+
   const save = async (andNew: boolean) => {
     const { rows, deletes, formErrors } = build();
     const others = d.rows.filter((r) => !rows.some((x) => x.id === r.id) && !deletes.includes(r.id));
@@ -303,6 +318,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
       setWarnAccepted(true);
       return;
     }
+    // (a copy that looks like an entry already there is caught by the program's own "possible duplicate" check above)
     // a row already saved that changes (or a leg that goes): say why, for the audit log
     const FIELDS = ['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd'] as const;
     const changesOld = deletes.some((id) => d.rows.some((x) => x.id === id)) || rows.some((r) => {
@@ -383,12 +399,22 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     <Modal
       title={
         <>
-          {editing ? t('تعديل', 'Edit') : t('قيد جديد', 'New entry')}
+          {editing ? t('تعديل', 'Edit') : copyOf ? t('نسخة', 'Copy') : t('قيد جديد', 'New entry')}
           {editing?.n != null && <span className="muted small"> · N {String(editing.n).padStart(4, '0')}</span>}
+          {editing && onCopy && (
+            <CopyMenu label={t('نسخ', 'Duplicate')} same={t('نسخ بالتاريخ نفسه', 'Duplicate (same date)')} today={t('نسخ لليوم', 'Duplicate for today')}
+              onSame={() => copy(undefined)} onToday={() => copy(todayIso())} />
+          )}
         </>
       }
       onClose={onClose}
     >
+      {copyOf && (
+        <div className={`copy-banner ${unchangedCopy ? '' : 'ok'}`}>
+          <b>⧉ {t('نسخة', 'COPY')}</b> {t('من القيد', 'of entry')} {copyOf.n != null ? `N ${String(copyOf.n).padStart(4, '0')}` : ''} · {fmtDate(copyOf.date)} — {t('لم تُحفظ بعد.', 'not saved yet.')}{' '}
+          {unchangedCopy ? t('غيّر شيئاً واحداً على الأقل (المبلغ أو التاريخ أو الخط أو الدفتر أو الشرح) ثم احفظ.', 'Change at least one thing (amount, date, line, book or explanation), then Save.') : t('راجعها ثم احفظ.', 'Check it, then Save.')}
+        </div>
+      )}
       {editing?.review && (
         <div className="alert warn">
           <b>{t('للمراجعة', 'To review')}:</b> <span className="ltr">{editing.review}</span>
@@ -526,7 +552,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
           )}
 
           <Field label={`${t('الشرح', 'Explanation')}${f.type === 'Exchange' ? '' : ' *'}`} className="span2">
-            <input value={f.explanation} onChange={(e) => set('explanation', e.target.value)} />
+            <input value={f.explanation} onChange={(e) => set('explanation', e.target.value)} placeholder={copyOf?.explanation ?? undefined} />
           </Field>
           <Field label={t('الجهة', 'Party')}>
             <Combo value={f.partyId} options={opts(L.parties, f.partyId)} onChange={(v) => set('partyId', v)} onAdd={addParty} />
@@ -557,19 +583,13 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
           </button>
         )}
         <button className="btn" onClick={onClose}>{t('إغلاق', 'Close')}</button>
-        {editing && onCopy && (
-          <>
-            <button className="btn" title={t('نسخة بالتاريخ نفسه، وتفتح للتعديل', 'A copy with the same date, opened to change')} onClick={() => { dropDraft(); onCopy({ preset: true, type: editing.type ?? 'Exp', copyOf: editing }); }}>⧉ {t('نسخ', 'Duplicate')}</button>
-            <button className="btn" title={t('نسخة بتاريخ اليوم، وتفتح للتعديل', 'A copy dated today, opened to change')} onClick={() => { dropDraft(); onCopy({ preset: true, type: editing.type ?? 'Exp', copyOf: editing, date: todayIso() }); }}>⧉ {t('نسخ لليوم', 'Duplicate for today')}</button>
-          </>
-        )}
         {!readOnly && !editing && (
-          <button className="btn" disabled={busy} onClick={() => save(true)} title="Ctrl/⌘ + Enter">
+          <button className="btn" disabled={busy || unchangedCopy} onClick={() => save(true)} title="Ctrl/⌘ + Enter">
             {warnAccepted && warnings.length ? t('احفظ رغم ذلك وجديد', 'Save anyway & new') : t('احفظ وجديد', 'Save & new')}
           </button>
         )}
         {!readOnly && (
-          <button className="btn primary" disabled={busy} onClick={() => save(false)}>
+          <button className="btn primary" disabled={busy || unchangedCopy} onClick={() => save(false)}>
             {warnAccepted && warnings.length ? t('احفظ رغم ذلك', 'Save anyway') : t('احفظ', 'Save')}
           </button>
         )}

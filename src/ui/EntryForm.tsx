@@ -73,6 +73,9 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
   // the person's own private book (the Superior's), not the Respo book: his expenses start there,
   // so they are not put in Main by mistake, where the Accountant sees every line (Fouad, 19 October 2026)
   const ownPrivate = L.books.find((b) => b.private && b.active && app.myBooks.includes(b.id) && b.id !== d.grantsBookId && b.parent_id == null)?.id ?? null;
+  // every form starts on the person's OWN book: his private book first, else the first book he keeps
+  // (never the last book used, which may be someone else's)
+  const ownBook = ownPrivate ?? L.books.find((b) => b.active && app.myBooks.includes(b.id) && b.id !== d.grantsBookId && b.parent_id == null)?.id ?? null;
 
   // The other row of a keeper-to-keeper transfer, and the transfer as a whole.
   const partner = editing?.transfer_group ? d.rows.find((r) => r.transfer_group === editing.transfer_group && r.id !== editing.id) ?? null : null;
@@ -144,7 +147,7 @@ export function EntryForm({ start, onClose: close }: { start: EntryStart; onClos
     }
     const pre = isPreset(start) ? start : null;
     const type = pre ? pre.type : (start as TrxType);
-    const bookId = pre?.bookId ?? ownPrivate ?? (restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId);
+    const bookId = pre?.bookId ?? ownBook ?? (restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId);
     const book = L.books.find((b) => b.id === bookId);
     const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
     return {

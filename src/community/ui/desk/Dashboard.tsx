@@ -3,15 +3,17 @@
 // and what is left to do. A click on a member opens his month.
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
-import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, monthsOfYear, prevMonth, rateFromExchanges, yearOf, type CtyBook, type Cur } from '../../domain';
+import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, monthsOfYear, sheetOf, prevMonth, rateFromExchanges, totalUsd, yearOf, type CtyBook, type Cur, type Money } from '../../domain';
+import { AllUsd, useRates } from '../usd';
 import { Columns, Ring } from '../charts';
 import { headingOf } from '../Month';
 import { useCty, bookHelp, bookLabel, bookName } from '../CtyApp';
-import { accName, curName, money, monthName, t3 } from '../text';
+import { accName, curName, dayName, money, monthName, t3 } from '../text';
 import type { DeskNav } from './Desk';
 
 export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
   const { d, give, write } = useCty();
+  const rates = useRates();
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
   const end = ym === today.slice(0, 7) ? today : lastDay(ym);
@@ -28,7 +30,11 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
     const disputed = d.entries.filter((e) => e.type === 'Transfer' && (e.to_book_id === b.id || e.book_id === b.id) && e.disputed_at).length;
     const approvals = d.entries.filter((e) => e.book_id === b.id && e.approval_needed && !e.approved_at).length;
     const used = d.entries.some((e) => (e.book_id === b.id || e.to_book_id === b.id) && e.date.slice(0, 7) === ym);
-    return { b, m, s, pocket: balanceOf(d.entries, grp(b), end), unconfirmed, disputed, approvals, used };
+    const ids = new Set(grp(b).map((x) => x.id));
+    const lastEntry = d.entries.filter((e) => ids.has(e.book_id) || (e.to_book_id != null && ids.has(e.to_book_id))).reduce((mx, e) => (e.date > mx ? e.date : mx), '');
+    const yr = yearOf(`${ym}-01`);
+    const ySpent = sheetOf(d.entries, grp(b), `${yr}-10-01`, end).totalExpenses;
+    return { b, m, s, pocket: balanceOf(d.entries, grp(b), end), unconfirmed, disputed, approvals, used, lastEntry, ySpent };
   }), [d, ym, end, people]);
 
   // where the community's money went (members and house together) and month by month
@@ -46,6 +52,8 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
     before: people.reduce((n, b) => n - monthSheetOf(d.entries, grp(b), `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`).totalExpenses.LOC, 0),
   }));
 
+  const neg = (m: Money): Money => ({ LOC: -m.LOC, USD: -m.USD, EUR: -m.EUR });
+  const sum = (f: (r: (typeof rows)[number]) => Money): Money => rows.reduce((t, r) => ({ LOC: t.LOC + f(r).LOC, USD: t.USD + f(r).USD, EUR: t.EUR + f(r).EUR }), { LOC: 0, USD: 0, EUR: 0 });
   // what is left to do
   const last = prevMonth(today.slice(0, 7));
   const lateClosing = Number(today.slice(8, 10)) > 5 ? people.filter((b) => !d.months.some((x) => x.book_id === b.id && x.ym === last) && d.entries.some((e) => (e.book_id === b.id || e.to_book_id === b.id) && e.date.slice(0, 7) <= last)) : [];
@@ -65,7 +73,7 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
       </div>
 
       {/* the four things the econome does, "Give money" first: it is what he uses most */}
-      {cash && (
+      {cash && d.kept.includes(cash.id) && (
         <div className="desk-four">
           <button className="give" onClick={give}><i>💰</i><b>{t3('إعطاء مال', 'Give money', 'Donner de l’argent')}</b><small>{t3('لأحد الإخوة أو للبيت', 'to a brother or to the house', 'à un frère ou à la maison')}</small></button>
           <button className="out" onClick={() => write({ kind: 'Exp', bookId: cash.id })}><i>－</i><b>{t3('صرفتُ', 'Spent', 'Dépensé')}</b><small>{t3('نفقة من صندوق الجماعة', 'an expense from the community money', 'une dépense sur l’argent de la communauté')}</small></button>
@@ -117,8 +125,11 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
               <th>{t3('الدفتر', 'Book', 'Compte')}</th>
               <th>{t3('الشهر', 'Month', 'Mois')}</th>
               <th>{t3('الرئيس', 'Superior', 'Supérieur')}</th>
-              <th className="num">{t3('صُرف', 'Spent', 'Dépensé')} ({curName('LOC', d.local)})</th>
+              <th className="num">{t3('صُرف ≈ $', 'Spent ≈ $', 'Dépensé ≈ $')}</th>
               {CURS.map((c) => <th key={c} className="num">{t3('في الجيب', 'In pocket', 'En poche')} {curName(c, d.local)}</th>)}
+              <th className="num">{t3('في الجيب ≈ $', 'In pocket ≈ $', 'En poche ≈ $')}</th>
+              <th className="num">{t3('صُرف منذ أول السنة ≈ $', 'Spent this year ≈ $', 'Dépensé cette année ≈ $')}</th>
+              <th>{t3('آخر قيد', 'Last entry', 'Dernière écriture')}</th>
               <th />
             </tr>
           </thead>
@@ -129,13 +140,26 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
                 <td>{r.m ? <span className="ok">✓ {t3('مغلق', 'closed', 'clôturé')}</span> : r.used ? <span className="muted">{t3('مفتوح', 'open', 'ouvert')}</span> : <span className="muted">—</span>}
                   {r.m && r.m.counted_loc != null && r.m.book_loc != null && r.m.counted_loc !== r.m.book_loc && <span className="desk-alert small"> · {t3('فرق', 'difference', 'écart')}</span>}</td>
                 <td>{r.m?.seen_at ? '✓' : r.m ? <span className="muted">…</span> : ''}</td>
-                <td className="num">{money(-r.s.totalExpenses.LOC, 'LOC')}</td>
+                <td className="num">{totalUsd(neg(r.s.totalExpenses), rates).usd ? money(totalUsd(neg(r.s.totalExpenses), rates).usd, 'USD') : <span className="muted">-</span>}</td>
                 {CURS.map((c) => <td key={c} className="num">{r.pocket[c] ? money(r.pocket[c], c) : <span className="muted">-</span>}</td>)}
+                <td className="num"><b>{totalUsd(r.pocket, rates).usd ? money(totalUsd(r.pocket, rates).usd, 'USD') : <span className="muted">-</span>}</b></td>
+                <td className="num">{totalUsd(neg(r.ySpent), rates).usd ? money(totalUsd(neg(r.ySpent), rates).usd, 'USD') : <span className="muted">-</span>}</td>
+                <td className="small muted">{r.lastEntry ? dayName(r.lastEntry) : '—'}</td>
                 <td className="small">{[r.unconfirmed ? '…' : '', r.disputed ? '⚠' : '', r.approvals ? '⏳' : ''].join(' ')}</td>
               </tr>
             ))}
+            <tr className="fdc-total">
+              <td colSpan={3}>{t3('مجموع الجماعة بالدولار', 'The whole community, in dollars', 'Toute la communauté, en dollars')}</td>
+              <td className="num">{money(totalUsd(sum((r) => neg(r.s.totalExpenses)), rates).usd, 'USD')}</td>
+              {CURS.map((c) => <td key={c} className="num">{money(rows.reduce((n, r) => n + r.pocket[c], 0), c)}</td>)}
+              <td className="num">{money(totalUsd(sum((r) => r.pocket), rates).usd, 'USD')}</td>
+              <td className="num">{money(totalUsd(sum((r) => neg(r.ySpent)), rates).usd, 'USD')}</td>
+              <td />
+              <td />
+            </tr>
           </tbody>
         </table>
+        <p className="muted small">{t3('كل العملات محوّلة إلى دولار بسعر آخر صرافة.', 'All currencies are converted to dollars at the rate of the last exchange.', 'Toutes les monnaies sont converties en dollars au taux du dernier change.')}{totalUsd(sum((r) => r.pocket), rates).missing ? ` ${t3('(اليورو دون سعر لا يُحسب)', '(euros with no rate are left out)', '(les euros sans taux sont exclus)')}` : ''}</p>
       </div>
     </>
   );
@@ -150,6 +174,7 @@ function BookCard({ b, end, onOpen }: { b: CtyBook; end: string; onOpen: () => v
     <button className="cty-card desk-card click" onClick={onOpen} title={bookHelp(b.cty_kind)}>
       <div className="cty-label">{b.cty_kind === 'cash' ? (group.length > 1 ? t3('مال الجماعة (صندوق + مصرف)', "The community's money (cash + bank)", "L'argent de la communauté (caisse + banque)") : t3('صندوق الجماعة', "The community's cash", 'La caisse de la communauté')) : bookLabel(b)}</div>
       {curs.map((c) => <div key={c} className="desk-bal"><b>{money(bal[c], c)}</b> <span className="muted">{curName(c, d.local)}</span></div>)}
+      {curs.length > 1 && <AllUsd m={bal} />}
       {group.length > 1 && <div className="small muted">{group.map((x) => `${x.cty_kind === 'bank' ? '🏦' : '💰'} ${money(balance(d.entries, x, end).LOC, 'LOC')}`).join(' · ')}</div>}
       <div className="small muted" style={{ marginTop: 4 }}>{b.cty_kind === 'cash' ? t3('ما يعطيه القيم للإخوة والبيت', 'what the econome gives to the brothers and the house', "ce que l'économe donne aux frères et à la maison") : b.cty_kind === 'economat' ? t3('عند خزينة الإقليم', 'with the Province treasury', 'auprès de la trésorerie de la Province') : ''}</div>
     </button>

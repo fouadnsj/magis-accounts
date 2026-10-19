@@ -13,7 +13,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import { CURS, r2, type Cur } from './domain';
 import { MONTH_BUNDLE, MONTH_FILE, RETURN_FILE, fingerprint, type MonthBundle, type MonthFile, type ReturnFile } from './files';
-import { ledgerOf, signedMove, type CountryCharge, type CountryClaim, type CountryCty, type CountryMove, type MoveKind } from './ledger';
+import { ledgerOf, signedMove, type CountryCharge, type CountryClaim, type CountryCty, type CountryMove, type MoveKind, type MoveStatus } from './ledger';
 
 export interface CountrySetup {
   country: string;
@@ -66,6 +66,8 @@ export interface CountryData {
   moves: CountryMove[];
   proposals: CountryProposal[];
   accounts: CtyAccount[];
+  /** for the one total in dollars: local currency for $1, and dollars for €1 (null until given) */
+  rates: { startRate: number; eurUsd: number | null };
 }
 
 async function requireCountry(db: Db) {
@@ -87,6 +89,7 @@ export async function countryData(db: Db): Promise<CountryData> {
     moves: await db.query<CountryMove>('SELECT * FROM country_move ORDER BY date, id'),
     proposals: await db.query<CountryProposal>('SELECT * FROM country_proposal ORDER BY date, id'),
     accounts: await loadAccounts(db),
+    rates: { startRate: Number(await getMeta(db, 'rate_usd')) || 130, eurUsd: Number(await getMeta(db, 'rate_eur_usd')) || null },
   };
 }
 
@@ -233,9 +236,9 @@ async function saveMove(c: OpCtx, a: { move: Partial<CountryMove>; reason?: stri
   if (!note) throw new UserError(m('اكتب الشرح', 'Write what it is', 'Écrivez ce que c’est'));
   const reason = (a.reason ?? '').trim();
   if (old && !reason) throw new UserError(m('اكتب سبب التعديل', 'Write the reason for this change', 'Écrivez la raison de cette modification'));
-  const row = { id: old?.id ?? uuid(), cty_id: x.cty_id, date: x.date, kind: x.kind as MoveKind, cur: x.cur as Cur, amount: r2(signedMove(x.kind as MoveKind, Number(x.amount))), note, created_at: old?.created_at ?? nowIso(), created_by: old?.created_by ?? c.who };
+  const row = { id: old?.id ?? uuid(), cty_id: x.cty_id, date: x.date, kind: x.kind as MoveKind, cur: x.cur as Cur, amount: r2(signedMove(x.kind as MoveKind, Number(x.amount))), note, status: (['promised', 'on_the_way', 'received'].includes(x.status ?? '') ? x.status : old?.status ?? 'received') as MoveStatus, created_at: old?.created_at ?? nowIso(), created_by: old?.created_by ?? c.who };
   await c.db.batch([
-    { sql: 'INSERT OR REPLACE INTO country_move (id, cty_id, date, kind, cur, amount, note, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [row.id, row.cty_id, row.date, row.kind, row.cur, row.amount, row.note, row.created_at, row.created_by] },
+    { sql: 'INSERT OR REPLACE INTO country_move (id, cty_id, date, kind, cur, amount, note, status, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [row.id, row.cty_id, row.date, row.kind, row.cur, row.amount, row.note, row.status, row.created_at, row.created_by] },
     auditStmt(c.who, old ? 'edit' : 'add', 'country_move', row.id, old ?? null, old ? { ...row, reason } : row),
   ]);
   return row.id;
@@ -278,6 +281,20 @@ export const COUNTRY_OPS = {
   'country.charge.save': { check: need, run: (c: OpCtx, a: { charge: Partial<CountryCharge>; reason?: string | null }) => saveCharge(c, a) },
   'country.move.save': { check: need, run: (c: OpCtx, a: { move: Partial<CountryMove>; reason?: string | null }) => saveMove(c, a) },
   'country.delete': { check: need, run: (c: OpCtx, a: { table: 'country_charge' | 'country_move'; id: string; reason: string }) => deleteRow(c, a) },
+  'country.rates.save': { check: need, run: async (c: OpCtx, a: { startRate: number; eurUsd: number | null }) => {
+    await requireCountry(c.db);
+    const rate = Number(a.startRate);
+    const eur = a.eurUsd == null || a.eurUsd === ('' as never) ? null : Number(a.eurUsd);
+    if (!(rate > 0) || (eur != null && !(eur > 0))) throw new UserError(m('سعر غير صالح', 'Invalid rate', 'Taux invalide'));
+    await c.db.batch([setMetaStmt('rate_usd', String(rate)), setMetaStmt('rate_eur_usd', eur == null ? '' : String(eur)), auditStmt(c.who, 'edit', 'meta', 'rates', null, { rate, eur })]);
+  } },
+  'country.move.status': { check: need, run: async (c: OpCtx, a: { id: string; status: MoveStatus }) => {
+    await requireCountry(c.db);
+    if (!['promised', 'on_the_way', 'received'].includes(a.status)) throw new UserError(m('حالة غير صالحة', 'Invalid state', 'État invalide'));
+    const old = await one<CountryMove>(c.db, 'SELECT * FROM country_move WHERE id = ?', [a.id]);
+    if (!old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+    await c.db.batch([{ sql: 'UPDATE country_move SET status = ? WHERE id = ?', params: [a.status, a.id] }, auditStmt(c.who, 'edit', 'country_move', a.id, { status: old.status }, { status: a.status })]);
+  } },
   'country.cty.save': { check: need, run: (c: OpCtx, a: { id: number; name: string; active?: number }) => renameCty(c, a) },
   'country.return.build': { check: need, run: async (c: OpCtx, a: { ctyId: number }) => { await requireCountry(c.db); return buildReturnFile(c.db, a.ctyId, c.who); } },
 };

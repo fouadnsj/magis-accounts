@@ -16,7 +16,7 @@ import {
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
 import { loadSettings, type CtySettings } from './people';
-import { MONTH_FILE, RETURN_FILE, type ChartRow, type FileCharge, type FileClaim, type MonthFile, type ReturnFile } from './files';
+import { MONTH_FILE, RETURN_FILE, type ChartRow, type FileCharge, type FileClaim, type MonthFile, type ProvinceLine, type ReturnFile } from './files';
 import { loadAccounts, loadBooks, loadEntries, loadLimits, loadMonths, loadNotes, saveLimitsStmts, writeEntryStmts } from './repo';
 
 export { loadAccounts, loadBooks, loadEntries, loadMonths, writeEntryStmts };
@@ -62,11 +62,13 @@ export interface CtyData {
   notes: CtyNote[];
   limits: Limits;
   /** the account at the économat, as the country econome sent it back (econome and Superior only) */
-  statement: { id: string; date: string; kind: string; note: string | null; cur: Cur; amount: number }[];
+  statement: { id: string; date: string; kind: string; note: string | null; cur: Cur; amount: number; status?: 'promised' | 'on_the_way' | 'received' }[];
   lastReturnAt: string | null;
   settings: CtySettings;
   /** what this community charges others, and the other communities known */
   charges: CtyCharge[];
+  /** the community's own side of the money with the Province (econome and Superior only) */
+  province: ProvinceLine[];
   known: { uid: string; name: string }[];
 }
 
@@ -84,6 +86,11 @@ function need(c: OpCtx, ...perms: Perm[]) {
 }
 /** May write in this book: his own one, or any book with "writes for any member" (the econome). */
 const writes = (c: OpCtx, bookId: number) => (keeps(c, bookId) && can(c, 'book.own')) || can(c, 'cty.write_all');
+/** The charges between communities are the work of the one who keeps the community's cash (the econome). */
+async function requireCashKeeper(c: OpCtx) {
+  const cash = (await loadBooks(c.db)).find((b) => b.cty_kind === 'cash');
+  if (!cash || !(keeps(c, cash.id) || can(c, 'cty.write_all'))) throw refuse();
+}
 /** May read this book. A Jesuit's detail is seen by himself, his Superior and the community econome only. */
 const reads = (c: OpCtx, bookId: number | null) => keeps(c, bookId) || can(c, 'cty.view_all');
 
@@ -188,6 +195,9 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
     approval_usd: null,
     approved_at: null,
     approved_by: null,
+    refused_at: null,
+    refused_by: null,
+    refused_note: null,
     created_at: old?.created_at ?? at,
     created_by: old?.created_by ?? c.who,
     updated_at: old ? at : null,
@@ -387,7 +397,25 @@ async function approveEntries(c: OpCtx, a: { ids: string[] }) {
     const e = await one<CtyEntry>(c.db, 'SELECT * FROM cty_entry WHERE id = ?', [id]);
     if (!e || !e.approval_needed) throw new UserError(m('هذه النفقة لا تحتاج موافقة', 'This expense needs no approval', "Cette dépense n'a pas besoin d'accord"));
     if (e.approved_at) continue;
-    stmts.push({ sql: 'UPDATE cty_entry SET approved_at = ?, approved_by = ? WHERE id = ?', params: [nowIso(), c.who, id] }, auditStmt(c.who, 'approve', 'cty_entry', id, null, null));
+    stmts.push({ sql: 'UPDATE cty_entry SET approved_at = ?, approved_by = ?, refused_at = NULL, refused_by = NULL, refused_note = NULL WHERE id = ?', params: [nowIso(), c.who, id] }, auditStmt(c.who, 'approve', 'cty_entry', id, null, null));
+  }
+  if (stmts.length) await c.db.batch(stmts);
+}
+
+/**
+ * The Superior refuses an expense: it stays recorded, flagged with his reason (Fouad,
+ * 19 October 2026). The Jesuit sees the reason and answers (a note) or corrects the entry; a
+ * correction asks for the approval again. The month cannot close while it is not approved.
+ */
+async function refuseEntries(c: OpCtx, a: { ids: string[]; reason: string }) {
+  await requireCommunity(c.db);
+  const reason = (a.reason ?? '').trim();
+  if (!reason) throw new UserError(m('اكتب سبب الرفض', 'Write the reason for refusing', 'Écrivez la raison du refus'));
+  const stmts: Stmt[] = [];
+  for (const id of a.ids) {
+    const e = await one<CtyEntry>(c.db, 'SELECT * FROM cty_entry WHERE id = ?', [id]);
+    if (!e || !e.approval_needed) throw new UserError(m('هذه النفقة لا تحتاج موافقة', 'This expense needs no approval', "Cette dépense n'a pas besoin d'accord"));
+    stmts.push({ sql: 'UPDATE cty_entry SET refused_at = ?, refused_by = ?, refused_note = ?, approved_at = NULL, approved_by = NULL WHERE id = ?', params: [nowIso(), c.who, reason, id] }, auditStmt(c.who, 'refuse', 'cty_entry', id, null, { reason }));
   }
   if (stmts.length) await c.db.batch(stmts);
 }
@@ -411,7 +439,7 @@ export interface ApprovalItem {
 async function approvals(c: OpCtx): Promise<ApprovalItem[]> {
   await requireCommunity(c.db);
   const [books, accounts, limits, notes] = [await loadBooks(c.db), await loadAccounts(c.db), await loadLimits(c.db), await loadNotes(c.db)];
-  const waiting = await c.db.query<CtyEntry>("SELECT * FROM cty_entry WHERE type = 'Exp' AND approval_needed = 1 AND approved_at IS NULL ORDER BY date, n");
+  const waiting = await c.db.query<CtyEntry>("SELECT * FROM cty_entry WHERE type = 'Exp' AND approval_needed = 1 AND approved_at IS NULL AND refused_at IS NULL ORDER BY date, n");
   const out: ApprovalItem[] = [];
   for (const e of waiting) {
     const b = books.find((x) => x.id === e.book_id);
@@ -477,6 +505,7 @@ async function readNotes(c: OpCtx, a: { ids: string[] }) {
 /** What a book held before its first entry (the cash, the bank… when the program starts). */
 async function setOpening(c: OpCtx, a: { bookId: number; opening: Money; reason: string }) {
   await requireCommunity(c.db);
+  if (!writes(c, a.bookId)) throw refuse();
   const book = (await loadBooks(c.db)).find((b) => b.id === a.bookId);
   if (!book) throw new UserError(m('الدفتر غير موجود', 'Unknown book', 'Compte inconnu'));
   const reason = (a.reason ?? '').trim();
@@ -574,7 +603,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
   }
   const at = (kind: string) => { const b = books.find((x) => x.cty_kind === kind); return b ? balance(entries, b, lastDay(a.ym)) : z(); };
   // the minister who keeps the house book (for a claim on the house)
-  const houseKeeper = (await one<{ name: string }>(c.db, "SELECT p.name FROM user_book ub JOIN profile p ON p.id = ub.profile_id JOIN book b ON b.id = ub.book_id WHERE b.cty_kind = 'house' AND p.active = 1 LIMIT 1"))?.name ?? null;
+  const houseKeeper = (await one<{ name: string }>(c.db, "SELECT held_by AS name FROM profile WHERE cty_office = 'minister' AND active = 1"))?.name ?? null;
   const claims: FileClaim[] = entries
     .filter((e) => e.type === 'Exp' && e.claim && e.date.slice(0, 7) === a.ym)
     .map((e) => {
@@ -592,6 +621,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
     claims,
     charges: (await c.db.query<FileCharge & { status: string }>("SELECT id, date, to_uid, to_name, person, cur, amount, note, status FROM cty_charge WHERE substr(date, 1, 7) = ? ORDER BY date, id", [a.ym]))
       .map(({ status: _s, ...x }) => x),
+    province: await c.db.query<ProvinceLine>('SELECT id, date, kind, cur, amount, note, status FROM cty_province ORDER BY date, id'),
   };
 }
 
@@ -617,7 +647,7 @@ async function importReturn(c: OpCtx, a: { file: ReturnFile }): Promise<{ decisi
   }
   if (f.chart?.length) stmts.push(...applyChartStmts(await loadAccounts(c.db), f.chart));
   stmts.push({ sql: 'DELETE FROM cty_statement' });
-  for (const l of f.statement ?? []) stmts.push({ sql: 'INSERT INTO cty_statement (id, date, kind, note, cur, amount) VALUES (?, ?, ?, ?, ?, ?)', params: [l.id, l.date, l.kind, l.note, l.cur, l.amount] });
+  for (const l of f.statement ?? []) stmts.push({ sql: 'INSERT INTO cty_statement (id, date, kind, note, cur, amount, status) VALUES (?, ?, ?, ?, ?, ?, ?)', params: [l.id, l.date, l.kind, l.note, l.cur, l.amount, l.status ?? 'received'] });
   stmts.push({ sql: "INSERT INTO meta (key, value) VALUES ('last_return_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params: [f.made_at] });
   stmts.push(auditStmt(c.who, 'import', 'cty_statement', null, null, { from: f.made_by, at: f.made_at, decisions, lines: (f.statement ?? []).length }));
   await c.db.batch(stmts);
@@ -631,6 +661,7 @@ export interface CtyCharge { id: string; date: string; to_uid: string | null; to
 /** The host community marks what it charges another community; the country econome approves (Fouad, 18 October 2026). */
 async function saveCharge(c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: string | null }) {
   await requireCommunity(c.db);
+  await requireCashKeeper(c);
   const x = a.charge;
   const old = x.id ? await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [x.id]) : undefined;
   if (x.id && !old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
@@ -656,6 +687,7 @@ async function saveCharge(c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: st
 
 async function deleteCharge(c: OpCtx, a: { id: string; reason: string }) {
   await requireCommunity(c.db);
+  await requireCashKeeper(c);
   const old = await one<CtyCharge>(c.db, 'SELECT * FROM cty_charge WHERE id = ?', [a.id]);
   if (!old) return;
   if (old.status !== 'waiting') throw new UserError(m('قرّر فيها قيم البلد: لا تُحذف', 'The country econome has decided on it: it cannot be deleted', "L'économe du pays a décidé : elle ne peut être supprimée"));
@@ -663,6 +695,38 @@ async function deleteCharge(c: OpCtx, a: { id: string; reason: string }) {
   const reason = (a.reason ?? '').trim();
   if (!reason) throw new UserError(m('اكتب سبب الحذف', 'Write the reason for this deletion', 'Écrivez la raison de cette suppression'));
   await c.db.batch([{ sql: 'DELETE FROM cty_charge WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'cty_charge', a.id, old, { reason })]);
+}
+
+// ---------------------------------------------------------------- the community's own side of the money with the Province
+
+async function saveProvince(c: OpCtx, a: { line: Partial<ProvinceLine> }) {
+  await requireCommunity(c.db);
+  await requireCashKeeper(c);
+  const x = a.line;
+  const old = x.id ? await one<ProvinceLine>(c.db, 'SELECT * FROM cty_province WHERE id = ?', [x.id]) : undefined;
+  if (x.id && !old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+  if (!x.date || !validDate(x.date)) throw new UserError(m('التاريخ مطلوب', 'The date is required', 'La date est requise'));
+  if (!['paid_by_cty', 'paid_to_cty', 'cotisation', 'other'].includes(x.kind ?? '')) throw new UserError(m('النوع؟', 'Which kind?', 'Quel type ?'));
+  if (!(CURS as readonly string[]).includes(x.cur ?? '') || !(Number(x.amount) > 0) || !cents(Number(x.amount))) throw new UserError(m('المبلغ والعملة', 'The amount and the currency', 'Le montant et la monnaie'));
+  const note = (x.note ?? '').trim();
+  if (!note) throw new UserError(m('اكتب الشرح', 'Write what it is', 'Écrivez ce que c’est'));
+  const status = (['promised', 'on_the_way', 'received'].includes(x.status ?? '') ? x.status : 'received') as ProvinceLine['status'];
+  const row = { id: old?.id ?? uuid(), date: x.date, kind: x.kind as ProvinceLine['kind'], cur: x.cur as Cur, amount: r2(Number(x.amount)), note, status, created_at: (old as { created_at?: string } | undefined)?.created_at ?? nowIso(), created_by: c.who };
+  await c.db.batch([
+    { sql: 'INSERT OR REPLACE INTO cty_province (id, date, kind, cur, amount, note, status, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [row.id, row.date, row.kind, row.cur, row.amount, row.note, row.status, row.created_at, row.created_by] },
+    auditStmt(c.who, old ? 'edit' : 'add', 'cty_province', row.id, old ?? null, row),
+  ]);
+  return row.id;
+}
+
+async function deleteProvince(c: OpCtx, a: { id: string; reason: string }) {
+  await requireCommunity(c.db);
+  await requireCashKeeper(c);
+  const old = await one<ProvinceLine>(c.db, 'SELECT * FROM cty_province WHERE id = ?', [a.id]);
+  if (!old) return;
+  const reason = (a.reason ?? '').trim();
+  if (!reason) throw new UserError(m('اكتب سبب الحذف', 'Write the reason for this deletion', 'Écrivez la raison de cette suppression'));
+  await c.db.batch([{ sql: 'DELETE FROM cty_province WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'cty_province', a.id, old, { reason })]);
 }
 
 // ---------------------------------------------------------------- envelopes (the minister's helpers)
@@ -717,6 +781,7 @@ async function data(c: OpCtx): Promise<CtyData> {
     statement: can(c, 'cty.view_all') ? await c.db.query('SELECT * FROM cty_statement ORDER BY date, id') : [],
     lastReturnAt: await getMeta(c.db, 'last_return_at'),
     charges: can(c, 'cty.view_all') ? await c.db.query<CtyCharge>('SELECT * FROM cty_charge ORDER BY date DESC, id') : [],
+    province: can(c, 'cty.view_all') ? await c.db.query<ProvinceLine>('SELECT id, date, kind, cur, amount, note, status FROM cty_province ORDER BY date, id') : [],
     known: await c.db.query<{ uid: string; name: string }>('SELECT * FROM cty_known ORDER BY name'),
     settings: await loadSettings(c.db),
   };
@@ -740,14 +805,17 @@ export const CTY_OPS = {
   'cty.month.reopen': { check: (c: OpCtx) => need(c, 'month.reopen'), run: (c: OpCtx, a: { bookId: number; ym: string; reason: string }) => reopenMonth(c, a) },
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
   'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },
-  'cty.book.opening': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; opening: Money; reason: string }) => setOpening(c, a) },
+  'cty.book.opening': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; opening: Money; reason: string }) => setOpening(c, a) },
   'cty.community.close': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => closeCommunityMonth(c, a) },
   'cty.month.file': { check: (c: OpCtx) => need(c, 'month.close'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, { ym: a.ym }) },
   'cty.month.consolidated': { check: (c: OpCtx) => need(c, 'cty.view_all'), run: (c: OpCtx, a: { ym: string }) => monthFile(c, { ym: a.ym, preview: true }) },
   'cty.return.import': { check: (c: OpCtx) => need(c, 'month.close', 'data.import'), run: (c: OpCtx, a: { file: ReturnFile }) => importReturn(c, a) },
-  'cty.charge.save': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: string | null }) => saveCharge(c, a) },
-  'cty.charge.delete': { check: (c: OpCtx) => need(c, 'cty.write_all'), run: (c: OpCtx, a: { id: string; reason: string }) => deleteCharge(c, a) },
+  'cty.charge.save': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { charge: Partial<CtyCharge>; reason?: string | null }) => saveCharge(c, a) },
+  'cty.province.save': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { line: Partial<ProvinceLine> }) => saveProvince(c, a) },
+  'cty.province.delete': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { id: string; reason: string }) => deleteProvince(c, a) },
+  'cty.charge.delete': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { id: string; reason: string }) => deleteCharge(c, a) },
   'cty.envelope.save': { check: anyone, run: (c: OpCtx, a: { id?: number | null; name: string; active?: number }) => saveEnvelope(c, a) },
+  'cty.entry.refuse': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[]; reason: string }) => refuseEntries(c, a) },
   'cty.entry.approve': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { ids: string[] }) => approveEntries(c, a) },
   'cty.limits.save': { check: (c: OpCtx) => need(c, 'cty.limits'), run: (c: OpCtx, a: { limits: Limits }) => saveLimits(c, a) },
   'cty.note.add': { check: anyone, run: (c: OpCtx, a: { bookId: number; ym?: string | null; entryId?: string | null; parentId?: string | null; body: string }) => addNote(c, a) },

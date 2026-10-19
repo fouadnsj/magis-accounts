@@ -563,7 +563,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
       if (url === '/api/setup/community') {
         const s = body as unknown as CommunitySetup;
-        await createCommunity(c.handle.db, { community: s.community || ((await getMeta(c.handle.db, 'organisation')) ?? ''), country: s.country ?? '', localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [] });
+        await createCommunity(c.handle.db, { community: s.community || ((await getMeta(c.handle.db, 'organisation')) ?? ''), country: s.country ?? '', localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [], offices: s.offices, hasBank: s.hasBank, mustChange: s.mustChange });
         c.version++;
         log(`setup: ${c.slug} (community)`);
         return send(res, 200, { ok: true });
@@ -585,7 +585,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (url === '/api/profiles' && method === 'GET') {
       const c = centreOf(query.get('db'));
       const ps = await listProfiles(c.handle.db);
-      return send(res, 200, ps.map((p) => ({ id: p.id, name: p.name, role: p.role, access_id: p.access_id ?? null, access_name: p.access_name, books: p.books ?? null })));
+      return send(res, 200, ps.map((p) => ({ id: p.id, name: p.name, role: p.role, access_id: p.access_id ?? null, access_name: p.access_name, books: p.books ?? null, office: p.office ?? null, held_by: p.held_by ?? null })));
     }
 
     if (url === '/api/login' && method === 'POST') {

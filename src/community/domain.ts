@@ -63,6 +63,10 @@ export interface CtyEntry {
   approval_usd: number | null;
   approved_at: string | null;
   approved_by: string | null;
+  /** the Superior refused it (it stays recorded, flagged, with his reason) */
+  refused_at: string | null;
+  refused_by: string | null;
+  refused_note: string | null;
   /** the country econome's decision on a claim (from the return file) */
   claim_status?: string | null;
   claim_accepted?: number | null;
@@ -139,6 +143,29 @@ export function usdValue(entries: CtyEntry[], cur: Cur, amount: number, date: st
   if (cur === 'LOC') return locToUsd != null ? r2(amount * locToUsd) : null;
   const eurToLoc = rateFromExchanges(entries, 'EUR', 'LOC', date);
   return eurToLoc != null && locToUsd != null ? r2(amount * eurToLoc * locToUsd) : null;
+}
+
+/** What one unit of each currency is worth in dollars (null: nothing tells it). */
+export interface Rates { loc: number | null; eur: number | null }
+
+/** The rates of a day from the community's exchanges (the starting rate until the first exchange). */
+export function ratesAt(entries: CtyEntry[], date: string, startRate: number): Rates {
+  return { loc: usdValue(entries, 'LOC', 1, date, startRate), eur: usdValue(entries, 'EUR', 1, date, startRate) };
+}
+
+/**
+ * Everything in dollars, to have ONE total (Fouad, 19 October 2026: "one total with all the
+ * currencies converted to USD"). A currency with no rate is left out and `missing` says so.
+ */
+export function totalUsd(m: Money, r: Rates): { usd: number; missing: boolean } {
+  let usd = m.USD;
+  let missing = false;
+  for (const [cur, rate] of [['LOC', r.loc], ['EUR', r.eur]] as const) {
+    if (!m[cur]) continue;
+    if (rate == null) missing = true;
+    else usd += m[cur] * rate;
+  }
+  return { usd: Math.round(usd * 100) / 100, missing };
 }
 
 /**

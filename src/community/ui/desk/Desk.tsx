@@ -19,11 +19,12 @@ import { Quarter } from './Quarter';
 import { ImportFdc } from './ImportFdc';
 import { Chart } from './Chart';
 import { PeopleScreen } from '../People';
+import { RolesScreen } from '../Roles';
 import { SendMonth } from './SendMonth';
 import { Statement } from './Statement';
 import { HostCharges } from './HostCharges';
 
-export type DeskPage = 'people' | 'dash' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'import' | 'chart' | 'mine' | 'settings';
+export type DeskPage = 'people' | 'dash' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'import' | 'chart' | 'mine' | 'settings' | 'roles';
 
 export interface DeskNav {
   page: DeskPage;
@@ -35,20 +36,22 @@ export interface DeskNav {
 export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   onPhone: () => void; onLang: () => void; onLogout: () => void; onCloseDb?: () => void; onDatabases?: () => void;
 }) {
-  const { s, d, can } = useCty();
-  const [nav, setNav] = useState<DeskNav>({ page: 'dash' });
+  const { s, d, can, myBooks } = useCty();
+  // the Administrator sees no record: his window starts on the accounts
+  const sees = can('cty.view_all');
+  const [nav, setNav] = useState<DeskNav>({ page: sees ? 'dash' : 'people' });
   const go = (n: DeskNav) => setNav(n);
-  const waiting = d.entries.filter((e) => e.approval_needed && !e.approved_at).length;
+  const waiting = d.entries.filter((e) => e.approval_needed && !e.approved_at && !e.refused_at).length;
   // three short groups: every day, end of the period, settings
   const groups: { title: string; items: { page: DeskPage; label: string; badge?: number; hidden?: boolean }[] }[] = [
-    { title: t3('كل يوم', 'Every day', 'Chaque jour'), items: [
+    { title: t3('كل يوم', 'Every day', 'Chaque jour'), items: !sees && !myBooks.length ? [] : [
       { page: 'dash', label: t3('اللوحة', 'Dashboard', 'Tableau de bord') },
       { page: 'register', label: t3('كل القيود', 'All entries', 'Toutes les écritures') },
       { page: 'member', label: t3('حساب كل واحد', "Each one's account", 'Le compte de chacun') },
       { page: 'approvals', label: t3('موافقات', 'Approvals', 'Accords'), badge: waiting, hidden: !can('cty.month_seen') },
-      { page: 'mine', label: t3('دفاتري', 'My books', 'Mes comptes') },
+      { page: 'mine', label: t3('دفاتري', 'My books', 'Mes comptes'), hidden: !myBooks.length },
     ] },
-    { title: t3('آخر الفترة', 'End of the period', 'Fin de période'), items: [
+    { title: t3('آخر الفترة', 'End of the period', 'Fin de période'), items: !sees ? [] : [
       { page: 'send', label: t3('الموحّد ← البلد', 'Consolidated → country', 'Consolidé → pays') },
       { page: 'claims', label: t3('المطالبات', 'Claims', 'Réclamations') },
       { page: 'host', label: t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés') },
@@ -56,10 +59,11 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
       { page: 'quarter', label: t3('الفصول والبنود', 'Quarters & categories', 'Trimestres et catégories') },
     ] },
     { title: t3('الإعدادات', 'Settings', 'Réglages'), items: [
-      { page: 'people', label: t3('الأشخاص والأدوار', 'People and roles', 'Personnes et rôles') },
+      { page: 'people', label: t3('الحسابات', 'Accounts', 'Comptes'), hidden: !can('users.manage') && !can('cty.passwords') },
+      { page: 'roles', label: t3('الصلاحيات', 'Roles and permissions', 'Rôles et permissions'), hidden: !can('users.manage') },
       { page: 'settings', label: t3('اللغة واللوحة', 'Language & control panel', 'Langue et tableau de bord') },
-      { page: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes') },
-      { page: 'import', label: t3('استيراد FDC', 'Import an FDC', 'Importer une FDC'), hidden: !can('data.import') && !can('cty.write_all') },
+      { page: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes'), hidden: !sees && !can('cty.chart') },
+      { page: 'import', label: t3('استيراد FDC', 'Import an FDC', 'Importer une FDC'), hidden: !can('data.import') },
     ] },
   ];
 
@@ -67,7 +71,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
     <div className="cty desk">
       <aside className="desk-side">
         <div className="desk-org"><b>{s.organisation}</b><WhoIs profile={s.profile} light /></div>
-        {groups.map((g) => (
+        {groups.filter((g) => g.items.some((x) => !x.hidden)).map((g) => (
           <div key={g.title} className="desk-group">
             <div className="desk-group-title">{g.title}</div>
             {g.items.filter((x) => !x.hidden).map((x) => (
@@ -78,7 +82,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
           </div>
         ))}
         <div className="desk-spacer" />
-        <button onClick={onPhone}>📱 {t3('عرض الهاتف', 'Phone view', 'Vue téléphone')}</button>
+        {myBooks.length > 0 && <button onClick={onPhone}>📱 {t3('عرض الهاتف', 'Phone view', 'Vue téléphone')}</button>}
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">
@@ -97,6 +101,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         {nav.page === 'mine' && <div className="desk-narrow"><MyBooks /></div>}
         {nav.page === 'settings' && <div className="desk-narrow"><SettingsScreen inDesk onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} /></div>}
         {nav.page === 'people' && <div className="desk-narrow"><PeopleScreen /></div>}
+        {nav.page === 'roles' && <div className="desk-narrow" style={{ maxWidth: 900 }}><RolesScreen /></div>}
         </PageGuard>
       </main>
     </div>

@@ -37,7 +37,8 @@ if (!dataDir) throw new Error('--data=<folder> is required');
 
 async function ctxs(db: Db) {
   const out: Record<string, OpCtx> = {};
-  for (const p of await db.query<{ id: number; name: string }>('SELECT id, name FROM profile')) out[p.name] = { db, profile: (await loadProfile(db, p.id))!, who: p.name, install: 'office', files };
+  const KEY: Record<string, string> = { superior: 'Superior', econome: 'Econome', minister: 'Minister', admin: 'Admin' };
+  for (const p of await db.query<{ id: number; name: string; cty_office: string | null }>('SELECT id, name, cty_office FROM profile')) out[p.cty_office ? KEY[p.cty_office] : p.name] = { db, profile: (await loadProfile(db, p.id))!, who: p.name, install: 'office', files };
   return out;
 }
 const make = (slug: string) => {
@@ -51,36 +52,32 @@ async function main() {
   const homs = make('homs-demo');
   const dam = make('damascus-demo');
   const syria = make('syria-demo');
-  await createCommunity(homs, { community: 'Homs (demo)', country: 'Syria', localCurrency: 'SYP', mustChange: false, people: [
-    { name: 'Sup-H', password: PW, roles: ['superior'] },
-    { name: 'Eco-H', password: PW, roles: ['econome', 'minister'] },
-    { name: 'Jes-H1', password: PW, roles: [] },
-    { name: 'Jes-H2', password: PW, roles: [] },
-  ] });
-  await createCommunity(dam, { community: 'Damascus (demo)', country: 'Syria', localCurrency: 'SYP', mustChange: false, people: [
-    { name: 'Sup-D', password: PW, roles: ['superior', 'econome'] },
-    { name: 'Min-D', password: PW, roles: ['minister'] },
-    { name: 'Jes-D1', password: PW, roles: [] },
-  ] });
+  const offices = (who: Record<'superior' | 'econome' | 'minister' | 'admin', string>) => Object.fromEntries(Object.entries(who).map(([o, heldBy]) => [o, { heldBy, password: PW }])) as never;
+  await createCommunity(homs, { community: 'Homs (demo)', country: 'Syria', localCurrency: 'SYP', mustChange: false,
+    people: ['Sup-H', 'Eco-H', 'Jes-H1', 'Jes-H2'].map((name) => ({ name, password: PW })),
+    offices: offices({ superior: 'Sup-H', econome: 'Eco-H', minister: 'Eco-H', admin: 'Sup-H' }) });
+  await createCommunity(dam, { community: 'Damascus (demo)', country: 'Syria', localCurrency: 'SYP', mustChange: false,
+    people: ['Sup-D', 'Min-D', 'Jes-D1'].map((name) => ({ name, password: PW })),
+    offices: offices({ superior: 'Sup-D', econome: 'Sup-D', minister: 'Min-D', admin: 'Sup-D' }) });
   await createCountry(syria, { country: 'Syria', localCurrency: 'SYP', mustChange: false, people: [{ name: 'Eco-Syria', password: PW }] });
   const H = await ctxs(homs), D = await ctxs(dam), S = await ctxs(syria);
   // Jes-H2 has a bank account of his own (the community has none: closing by quarter, the default)
   const jh2 = (await homs.query<{ id: number }>("SELECT id FROM profile WHERE name = 'Jes-H2'"))[0].id;
-  await runOp(H['Sup-H'], 'cty.person.save', { id: jh2, name: 'Jes-H2', roles: [], hasBank: true });
+  await runOp(H.Admin, 'cty.person.save', { id: jh2, name: 'Jes-H2', hasBank: true });
   // the minister's helper: an envelope for the cook
-  await runOp(H['Eco-H'], 'cty.envelope.save', { name: 'Cook' });
+  await runOp(H.Minister, 'cty.envelope.save', { name: 'Cook' });
 
   // ---- Homs, September 2026
   const hb = await loadBooks(homs);
   const id = (kind: string, name?: string) => hb.find((b) => b.cty_kind === kind && (!name || b.name === name))!.id;
   const code = async (db: Db, c: string) => (await loadAccounts(db)).find((a) => a.code === c)!.id;
-  await runOp(H['Eco-H'], 'cty.book.opening', { bookId: id('cash'), opening: { LOC: 150000, USD: 600, EUR: 0 }, reason: 'demo start' });
+  await runOp(H.Econome, 'cty.book.opening', { bookId: id('cash'), opening: { LOC: 150000, USD: 600, EUR: 0 }, reason: 'demo start' });
   for (const [who, amount] of [['Jes-H1', 15000], ['Jes-H2', 12000]] as const) {
-    const t = await runOp(H['Eco-H'], 'cty.entry.save', { entry: { book_id: id('cash'), to_book_id: id('personal', who), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount } });
+    const t = await runOp(H.Econome, 'cty.entry.save', { entry: { book_id: id('cash'), to_book_id: id('personal', who), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount } });
     await runOp(H[who], 'cty.transfer.answer', { id: t, ok: true });
   }
-  await runOp(H['Eco-H'], 'cty.entry.save', { entry: { book_id: id('cash'), to_book_id: id('house'), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount: 90000 } });
-  await runOp(H['Eco-H'], 'cty.transfer.answer', { id: (await loadEntries(homs)).find((e) => e.to_book_id === id('house'))!.id, ok: true });
+  await runOp(H.Econome, 'cty.entry.save', { entry: { book_id: id('cash'), to_book_id: id('house'), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount: 90000 } });
+  await runOp(H.Minister, 'cty.transfer.answer', { id: (await loadEntries(homs)).find((e) => e.to_book_id === id('house'))!.id, ok: true });
   const exp = async (who: OpCtx, book: number, date: string, c: string, amount: number, extra: Record<string, unknown> = {}) =>
     runOp(who, 'cty.entry.save', { entry: { book_id: book, date, type: 'Exp', account_id: await code(homs, c), cur: 'LOC', amount, ...extra } });
   await exp(H['Jes-H1'], id('personal', 'Jes-H1'), '2026-09-05', '61101', 1500);
@@ -88,43 +85,43 @@ async function main() {
   await exp(H['Jes-H1'], id('personal', 'Jes-H1'), '2026-09-20', '61402', 2200, { claim: 'health', note: 'medicine for the heart' });
   await exp(H['Jes-H2'], id('personal', 'Jes-H2'), '2026-09-08', '61201', 600, { note: 'two books' });
   await exp(H['Jes-H2'], id('personal', 'Jes-H2'), '2026-09-15', '62104', 450);
-  await exp(H['Eco-H'], id('house'), '2026-09-03', '61101', 7000, { note: 'food for the community' });
-  await exp(H['Eco-H'], id('house'), '2026-09-10', '63100', 3500);
-  await exp(H['Eco-H'], id('house'), '2026-09-18', '62070', 70000, { note: 'cook, September (above $500: the Superior approves)' });
+  await exp(H.Minister, id('house'), '2026-09-03', '61101', 7000, { note: 'food for the community' });
+  await exp(H.Minister, id('house'), '2026-09-10', '63100', 3500);
+  await exp(H.Minister, id('house'), '2026-09-18', '62070', 70000, { note: 'cook, September (above $500: the Superior approves)' });
   // close September: every book, then the community
   let es = await loadEntries(homs);
   for (const b of await loadBooks(homs)) {
     if (!es.some((e) => e.book_id === b.id || e.to_book_id === b.id) && !b.opening_syp) continue;
-    const who = b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' ? H[b.keeper_name ?? b.name] : H['Eco-H'];
+    const who = b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' ? H[b.keeper_name ?? b.name] : b.cty_kind === 'house' || b.cty_kind === 'envelope' ? H.Minister : H.Econome;
     // the cook's pay was above $500: the Superior approves it
-    for (const e of es.filter((x) => x.book_id === b.id && x.approval_needed && !x.approved_at)) await runOp(H['Sup-H'], 'cty.entry.approve', { ids: [e.id] });
+    for (const e of es.filter((x) => x.book_id === b.id && x.approval_needed && !x.approved_at)) await runOp(H.Superior, 'cty.entry.approve', { ids: [e.id] });
     await runOp(who, 'cty.month.close', { bookId: b.id, ym: '2026-09', counted: balance(es, b, '2026-09-30') }).catch((e) => { throw new Error(`${b.name}: ${e.message}`); });
   }
-  await runOp(H['Sup-H'], 'cty.month.seen', { bookId: id('personal', 'Jes-H1'), ym: '2026-09' });
-  await runOp(H['Eco-H'], 'cty.community.close', { ym: '2026-09' });
+  await runOp(H.Superior, 'cty.month.seen', { bookId: id('personal', 'Jes-H1'), ym: '2026-09' });
+  await runOp(H.Econome, 'cty.community.close', { ym: '2026-09' });
 
   // ---- Damascus, September 2026 (it hosted a Jesuit of Homs)
   const db_ = await loadBooks(dam);
   const did = (kind: string, name?: string) => db_.find((b) => b.cty_kind === kind && (!name || b.name === name))!.id;
-  await runOp(D['Sup-D'], 'cty.book.opening', { bookId: did('cash'), opening: { LOC: 50000, USD: 300, EUR: 100 }, reason: 'demo start' });
-  const t = await runOp(D['Sup-D'], 'cty.entry.save', { entry: { book_id: did('cash'), to_book_id: did('house'), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount: 20000 } });
-  await runOp(D['Min-D'], 'cty.transfer.answer', { id: t, ok: true });
-  await runOp(D['Min-D'], 'cty.entry.save', { entry: { book_id: did('house'), date: '2026-09-06', type: 'Exp', account_id: await code(dam, '61101'), cur: 'LOC', amount: 5000 } });
-  await runOp(D['Sup-D'], 'cty.charge.save', { charge: { date: '2026-09-22', to_name: 'Homs (demo)', person: 'Jes-H2', cur: 'LOC', amount: 1200, note: '3 nights, retreat' } });
+  await runOp(D.Econome, 'cty.book.opening', { bookId: did('cash'), opening: { LOC: 50000, USD: 300, EUR: 100 }, reason: 'demo start' });
+  const t = await runOp(D.Econome, 'cty.entry.save', { entry: { book_id: did('cash'), to_book_id: did('house'), date: '2026-09-01', type: 'Transfer', cur: 'LOC', amount: 20000 } });
+  await runOp(D.Minister, 'cty.transfer.answer', { id: t, ok: true });
+  await runOp(D.Minister, 'cty.entry.save', { entry: { book_id: did('house'), date: '2026-09-06', type: 'Exp', account_id: await code(dam, '61101'), cur: 'LOC', amount: 5000 } });
+  await runOp(D.Econome, 'cty.charge.save', { charge: { date: '2026-09-22', to_name: 'Homs (demo)', person: 'Jes-H2', cur: 'LOC', amount: 1200, note: '3 nights, retreat' } });
   es = await loadEntries(dam);
   for (const b of await loadBooks(dam)) {
     if (!es.some((e) => e.book_id === b.id || e.to_book_id === b.id) && !b.opening_syp) continue;
-    await runOp(b.cty_kind === 'house' ? D['Min-D'] : D['Sup-D'], 'cty.month.close', { bookId: b.id, ym: '2026-09', counted: balance(es, b, '2026-09-30') });
+    await runOp(b.cty_kind === 'house' ? D.Minister : D.Econome, 'cty.month.close', { bookId: b.id, ym: '2026-09', counted: balance(es, b, '2026-09-30') });
   }
-  await runOp(D['Sup-D'], 'cty.community.close', { ym: '2026-09' });
+  await runOp(D.Econome, 'cty.community.close', { ym: '2026-09' });
 
   // ---- the country econome receives both files; the return files go back
-  for (const [ctx] of [[H['Eco-H']]] as const) await runOp(S['Eco-Syria'], 'country.import', { file: (await runOp(ctx, 'cty.month.file', { ym: '2026-09' })) as MonthFile });
-  await runOp(S['Eco-Syria'], 'country.import', { file: (await runOp(D['Sup-D'], 'cty.month.file', { ym: '2026-09' })) as MonthFile });
+  for (const [ctx] of [[H.Econome]] as const) await runOp(S['Eco-Syria'], 'country.import', { file: (await runOp(ctx, 'cty.month.file', { ym: '2026-09' })) as MonthFile });
+  await runOp(S['Eco-Syria'], 'country.import', { file: (await runOp(D.Econome, 'cty.month.file', { ym: '2026-09' })) as MonthFile });
   const sd = (await runOp(S['Eco-Syria'], 'country.data', undefined)) as { ctys: { id: number; name: string }[] };
   for (const c of sd.ctys) {
     const ret = (await runOp(S['Eco-Syria'], 'country.return.build', { ctyId: c.id })) as ReturnFile;
-    await runOp(c.name.startsWith('Homs') ? H['Eco-H'] : D['Sup-D'], 'cty.return.import', { file: ret });
+    await runOp(c.name.startsWith('Homs') ? H.Econome : D.Econome, 'cty.return.import', { file: ret });
   }
   console.log('Demo databases made: Homs (demo), Damascus (demo), Syria (demo). Password for everyone: ' + PW);
 }

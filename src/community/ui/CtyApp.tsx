@@ -17,6 +17,7 @@ import { NotesScreen } from './Notes';
 import { Approvals } from './Approvals';
 import { SettingsScreen } from './Settings';
 import { Desk } from './desk/Desk';
+import { officeLabel } from './People';
 import { PageGuard, ServerTooOld } from './Guard';
 import './cty.css';
 import './desk/desk.css';
@@ -95,7 +96,8 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   // cash, bank and économat are on the computer (Fouad: "useful but confusing" on the phone).
   // (his pocket and bank are ONE account; the house and its envelopes are ONE account)
   const phoneBooks = myBooks.filter((b) => ['personal', 'house'].includes(b.cty_kind ?? ''));
-  const book = myBooks.find((b) => b.id === bookId) ?? phoneBooks[0] ?? myBooks[0];
+  // (the Superior and the Administrator keep no book: the desk shows them the community's, read-only)
+  const book = myBooks.find((b) => b.id === bookId) ?? phoneBooks[0] ?? myBooks[0] ?? d?.books.find((b) => b.active);
   const [giving, setGiving] = useState(false);
   const can = useCallback((p: Perm) => has(session.profile, p), [session]);
   // the computer layout: for those who see every book (econome, Superior), on a wide screen,
@@ -103,7 +105,9 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   const wide = useWide();
   const [phoneView, setPhoneView] = useState(() => { try { return localStorage.getItem('cty-phone-view') === '1'; } catch { return false; } });
   const choosePhone = (v: boolean) => { setPhoneView(v); try { localStorage.setItem('cty-phone-view', v ? '1' : '0'); } catch { /* no storage */ } };
-  const desk = wide && !phoneView && has(session.profile, 'cty.view_all');
+  // (those who keep no book of their own have no phone screen: the desk is their only window)
+  const deskOnly = !!d && !myBooks.length;
+  const desk = deskOnly || (wide && !phoneView && has(session.profile, 'cty.view_all'));
 
   if (err && !d) return <div className="cty"><div className="cty-page"><div className="alert err">{err}</div><button className="btn" onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button></div></div>;
   if (!d) return <div className="cty"><div className="cty-page muted">…</div></div>;
@@ -111,7 +115,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   if (!book)
     return (
       <div className="cty"><div className="cty-page">
-        <p>{t3('لا دفتر لك في هذه الجماعة.', 'You keep no book in this community.', 'Vous ne tenez aucun compte dans cette communauté.')}</p>
+        <p>{t3('لا دفاتر في هذه الجماعة بعد.', 'This community has no books yet.', "Cette communauté n'a pas encore de comptes.")}</p>
         <button className="btn" onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </div></div>
     );
@@ -143,7 +147,10 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
             <b>{session.organisation}</b>
             <WhoIs profile={session.profile} />
           </div>
-          <button className="cty-icon" onClick={() => setView('settings')} aria-label={t3('الإعدادات', 'Settings', 'Réglages')}>⚙︎</button>
+          <span className="cty-topbtns">
+            <button className="cty-icon" onClick={() => setView('settings')} aria-label={t3('الإعدادات', 'Settings', 'Réglages')}>⚙︎</button>
+            <button className="cty-signout" onClick={onLogout}>⏻ {t3('خروج', 'Sign out', 'Sortir')}</button>
+          </span>
         </header>
         {phoneBooks.length > 1 && view !== 'settings' && view !== 'approvals' && (
           <nav className="cty-books">
@@ -197,7 +204,7 @@ function useWide() {
 }
 
 /** Expenses waiting for the Superior, as far as this person sees them. */
-const approvalsWaiting = (d: CtyData) => d.entries.filter((e) => e.approval_needed && !e.approved_at).length;
+const approvalsWaiting = (d: CtyData) => d.entries.filter((e) => e.approval_needed && !e.approved_at && !e.refused_at).length;
 
 export function bookLabel(b: CtyBook): string {
   if (b.cty_kind === 'personal') return t3('حسابي', 'My account', 'Mon compte') + (b.keeper_name ? '' : ` · ${b.name}`);
@@ -231,11 +238,12 @@ export function bookRole(kind: string | null | undefined): string {
 }
 
 /** Who is working: his name and, under it, his role (Econome, Minister, Superior, Jesuit…). */
-export function WhoIs({ profile, light }: { profile: { name: string; access_name: string }; light?: boolean }) {
+export function WhoIs({ profile, light }: { profile: { name: string; access_name: string; office?: string | null; held_by?: string | null }; light?: boolean }) {
+  // an office: its name big, "held by" under it; a Jesuit: his name and "Jesuit"
   return (
-    <span className={`cty-who ${light ? 'light' : ''}`}>
-      <b>{profile.name}</b>
-      <i>{triName(profile.access_name)}</i>
+    <span className={`cty-who ${light ? 'light' : ''} ${profile.office ? `office-${profile.office}` : ''}`}>
+      <b>{profile.office ? officeLabel(profile.office) : profile.name}</b>
+      <i>{profile.office ? `${t3('بيد', 'held by', 'tenu par')} ${profile.held_by ?? ''}` : triName(profile.access_name)}</i>
     </span>
   );
 }

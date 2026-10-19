@@ -71,7 +71,7 @@ export async function importFdc(db: Db, a: { bookId: number; year: number; bytes
     id: uuid(), n: null, book_id: a.bookId, date: lastDate(ym), type: 'Exp', account_id: null, cur: 'LOC', amount: 0,
     cur2: null, amount2: null, to_book_id: null, note: null, claim: null, claim_note: null,
     received_at: null, received_by: null, disputed_at: null, dispute_note: null,
-    source: `fdc:b${a.bookId}:y${a.year}:${src}`, approval_needed: 0, approval_usd: null, approved_at: null, approved_by: null, created_at: at, created_by: a.who, updated_at: null,
+    source: `fdc:b${a.bookId}:y${a.year}:${src}`, approval_needed: 0, approval_usd: null, approved_at: null, approved_by: null, refused_at: null, refused_by: null, refused_note: null, created_at: at, created_by: a.who, updated_at: null,
   });
 
   const missing = FDC_MONTHS.filter((t) => !wb.getWorksheet(t));

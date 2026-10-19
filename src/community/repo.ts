@@ -25,7 +25,7 @@ export const saveLimitsStmts = (l: Limits): Stmt[] =>
   }));
 
 const COLS = ['id', 'n', 'book_id', 'date', 'type', 'account_id', 'cur', 'amount', 'cur2', 'amount2', 'to_book_id', 'note', 'claim', 'claim_note',
-  'received_at', 'received_by', 'disputed_at', 'dispute_note', 'source', 'approval_needed', 'approval_usd', 'approved_at', 'approved_by', 'created_at', 'created_by', 'updated_at'] as const;
+  'received_at', 'received_by', 'disputed_at', 'dispute_note', 'source', 'approval_needed', 'approval_usd', 'approved_at', 'approved_by', 'refused_at', 'refused_by', 'refused_note', 'created_at', 'created_by', 'updated_at'] as const;
 
 /** Insert (a new number, the next one) or replace an entry. */
 export function writeEntryStmts(row: CtyEntry, isNew: boolean, opts: { orIgnore?: boolean } = {}): Stmt[] {

@@ -19,15 +19,19 @@ export interface Profile {
   access_name: string;
   perms: Perm[];
   books: number[];
+  /** a community office this account is: superior | econome | minister | admin (null = a person) */
+  office?: string | null;
+  /** the person who holds the office now */
+  held_by?: string | null;
 }
 
 export const has = (p: Pick<Profile, 'perms'>, perm: Perm) => p.perms.includes(perm);
 
 /** Reads a person with his permissions and books; null if unknown or deactivated. */
 export async function loadProfile(db: Db, id: number): Promise<Profile | null> {
-  const r = await one<{ id: number; name: string; role: Role; book_id: number | null; active: number; access_id: number | null; access_name: string | null; perms: string | null }>(
+  const r = await one<{ id: number; name: string; role: Role; book_id: number | null; active: number; access_id: number | null; access_name: string | null; perms: string | null; office: string | null; held_by: string | null }>(
     db,
-    `SELECT p.id, p.name, p.role, p.book_id, p.active, p.access_id, a.name AS access_name, a.perms
+    `SELECT p.id, p.name, p.role, p.book_id, p.active, p.access_id, a.name AS access_name, a.perms, p.cty_office AS office, p.held_by
        FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.id = ? AND p.active = 1`,
     [id],
   );
@@ -81,11 +85,11 @@ export async function profileStmt(p: { name: string; role: Role; pin: string; bo
 
 /** Names on the login screen: name and permission profile only. */
 /** The people shown on the sign-in page: name, role, profile, and the books they keep. */
-export interface LoginPerson { id: number; name: string; role: Role; access_id?: number | null; access_name: string; books?: string | null }
+export interface LoginPerson { id: number; name: string; role: Role; access_id?: number | null; access_name: string; books?: string | null; office?: string | null; held_by?: string | null }
 
 export async function listProfiles(db: Db): Promise<LoginPerson[]> {
   return db.query(
-    `SELECT p.id, p.name, p.role, p.access_id, COALESCE(a.name, '') AS access_name,
+    `SELECT p.id, p.name, p.role, p.access_id, COALESCE(a.name, '') AS access_name, p.cty_office AS office, p.held_by,
             (SELECT group_concat(b.name, ' · ') FROM user_book ub JOIN book b ON b.id = ub.book_id WHERE ub.profile_id = p.id) AS books
        FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id
       WHERE p.active = 1 ORDER BY a.sort, p.name`,

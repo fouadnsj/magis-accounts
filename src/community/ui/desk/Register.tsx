@@ -140,7 +140,7 @@ export function Register({ initialBook, initialYm }: { initialBook: number | nul
                   {CURS.map((c) => <td key={c} className={`num ${fx[c] < 0 ? 'out' : fx[c] > 0 ? 'in' : ''}`}>{fx[c] ? money(fx[c], c) : ''}</td>)}
                   {running && CURS.map((c) => <td key={'b' + c} className="num muted">{money(running.out.get(e.id)![c], c)}</td>)}
                   <td className="small">
-                    {e.approval_needed && !e.approved_at ? '⏳' : ''}{e.claim ? '↺' : ''}
+                    {e.refused_at ? '⛔' : e.approval_needed && !e.approved_at ? '⏳' : ''}{e.claim ? '↺' : ''}
                     {e.type === 'Transfer' && !e.received_at && !e.disputed_at ? '…' : ''}{e.disputed_at ? '⚠' : ''}
                   </td>
                 </tr>

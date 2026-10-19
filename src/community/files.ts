@@ -50,6 +50,8 @@ export interface MonthFile {
   claims: FileClaim[];
   /** what this community charges others (it hosted one of their Jesuits…) */
   charges?: FileCharge[];
+  /** the community's own side of the money with the Province (all its lines) */
+  province?: ProvinceLine[];
 }
 
 export interface FileCharge {
@@ -64,6 +66,19 @@ export interface FileCharge {
   note: string;
 }
 
+/** What the community records of the money between it and the Province (its own side). */
+export interface ProvinceLine {
+  id: string;
+  date: string;
+  /** paid_by_cty (we paid the Province) | paid_to_cty (the Province paid us) | cotisation | other */
+  kind: 'paid_by_cty' | 'paid_to_cty' | 'cotisation' | 'other';
+  cur: 'LOC' | 'USD' | 'EUR';
+  /** always > 0 */
+  amount: number;
+  note: string;
+  status: 'promised' | 'on_the_way' | 'received';
+}
+
 export interface StatementLine {
   id: string;
   date: string;
@@ -73,6 +88,8 @@ export interface StatementLine {
   cur: 'LOC' | 'USD' | 'EUR';
   /** > 0 in the community's favour, < 0 the community owes */
   amount: number;
+  /** promised | on_the_way | received (only what is received counts); absent = received */
+  status?: 'promised' | 'on_the_way' | 'received';
 }
 
 export interface ReturnFile {

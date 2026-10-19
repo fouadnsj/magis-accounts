@@ -28,7 +28,8 @@ import { IdleGuard } from './Idle';
 import { dropDraft } from './draft';
 import { CtyApp } from '../community/ui/CtyApp';
 import { CountryApp } from '../community/ui/country/CountryApp';
-import { triName } from '../community/ui/text';
+import { triName, t3 } from '../community/ui/text';
+import { officeLabel } from '../community/ui/People';
 
 interface Opened {
   db: Db;
@@ -406,10 +407,10 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
   const chosen = profiles.find((p) => p.id === pick);
   const roleLabel = (p: LoginPerson) => (p.access_name ? (community ? triName(p.access_name) : biName(p.access_name)) : roleName(p.role));
   const ctyTile = (p: LoginPerson) => (
-    <button key={p.id} type="button" className={`person ${pick === p.id ? 'on' : ''}`} onClick={() => choose(p.id)} aria-pressed={pick === p.id}>
+    <button key={p.id} type="button" className={`person ${p.office ? `office-${p.office}` : ''} ${pick === p.id ? 'on' : ''}`} onClick={() => choose(p.id)} aria-pressed={pick === p.id}>
       <PersonIcon kind="person" />
-      <span className="person-name">{p.name}</span>
-      <span className="person-sub">{roleLabel(p)}</span>
+      <span className="person-name">{p.office ? officeLabel(p.office) : p.name}</span>
+      <span className="person-sub">{p.office ? `${t3('بيد', 'held by', 'tenu par')} ${p.held_by ?? ''}` : roleLabel(p)}</span>
     </button>
   );
 
@@ -427,7 +428,18 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
         <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>
         {notice && <div className="alert info">{t('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.')}</div>}
-        {community && <div className="people">{profiles.map(ctyTile)}</div>}
+        {community && (
+          <>
+            {profiles.some((p) => p.office) && (
+              <>
+                <div className="people-group">{t3('المناصب', 'Offices', 'Fonctions')}</div>
+                <div className="people">{profiles.filter((p) => p.office).map(ctyTile)}</div>
+              </>
+            )}
+            {profiles.some((p) => p.office) && <div className="people-group">{t3('الإخوة', 'Jesuits', 'Jésuites')}</div>}
+            <div className="people">{profiles.filter((p) => !p.office).map(ctyTile)}</div>
+          </>
+        )}
         {office.length > 0 && (
           <>
             <div className="people-group">{t('المكتب', 'Office')}</div>

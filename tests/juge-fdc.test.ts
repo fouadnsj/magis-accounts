@@ -6,12 +6,12 @@ import { describe, expect, it, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import ExcelJS from 'exceljs';
 import type { Db } from '../src/db/db';
-import { createCommunity } from '../src/community/setup';
 import { importFdc } from '../src/community/importFdc';
 import { loadAccounts, loadBooks, loadEntries } from '../src/community/repo';
 import { FDC_MONTHS, FDC_ROWS } from '../src/community/chart';
 import { monthSheet, yearSheet, monthsOfYear, type Cur, type CtyBook, type CtyEntry, type Sheet } from '../src/community/domain';
 import { nodeDb } from './nodeDb';
+import { makeCommunity } from './ctyHelpers';
 
 const FILE = decodeURIComponent(new URL('../../Cty/FN-Comptapro-FDC.xlsx', import.meta.url).pathname);
 const YEAR = 2025; // the sheet's October is October 2025 (Fouad, 18 October 2026)
@@ -44,14 +44,7 @@ function programValue(s: Sheet, row: number, cur: Cur): number | undefined {
 
 beforeAll(async () => {
   db = nodeDb();
-  await createCommunity(db, {
-    community: 'Test community', country: 'Syria', localCurrency: 'SYP',
-    people: [
-      { name: 'Superior', password: 'test-pass-1', roles: ['superior'] },
-      { name: 'Econome', password: 'test-pass-2', roles: ['econome', 'minister'] },
-      { name: 'FN', password: 'test-pass-3', roles: ['jesuit'] },
-    ],
-  });
+  await makeCommunity(db, 'Test community', ['Superior', 'Econome', 'FN'], { superior: 'Superior', econome: 'Econome', minister: 'Econome', admin: 'Superior' });
   book = (await loadBooks(db)).find((b) => b.name === 'FN')!;
   const bytes = new Uint8Array(readFileSync(FILE));
   result = await importFdc(db, { bookId: book.id, year: YEAR, bytes, fileName: 'FN-Comptapro-FDC.xlsx', who: 'test' });

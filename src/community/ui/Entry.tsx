@@ -91,17 +91,26 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
   const isLine = kind === 'Exp' || kind === 'Income';
   const groups = useMemo(() => (isLine ? offered(d.accounts, book, kind as 'Income' | 'Exp') : []), [d.accounts, book, kind, isLine]);
 
-  // the most used headings of this book first (last 12 months)
-  const order = useMemo(() => {
+  // the most used headings and lines first (last 12 months; the house counts with its envelopes)
+  const { order, frequent } = useMemo(() => {
     const since = `${Number(todayIso().slice(0, 4)) - 1}${todayIso().slice(4)}`;
+    const mine = new Set(accountBooks(d.books, book).map((b) => b.id));
     const count = new Map<number, number>();
+    const lineCount = new Map<number, number>();
     for (const e of d.entries) {
-      if (e.book_id !== book.id || e.type !== kind || e.date < since) continue;
+      if (!mine.has(e.book_id) || e.type !== kind || e.date < since || !e.account_id) continue;
+      lineCount.set(e.account_id, (lineCount.get(e.account_id) ?? 0) + 1);
       const g = groups.find((x) => x.heading.id === e.account_id || x.lines.some((l) => l.id === e.account_id));
       if (g) count.set(g.heading.id, (count.get(g.heading.id) ?? 0) + 1);
     }
-    return [...groups].sort((a, b) => (count.get(b.heading.id) ?? 0) - (count.get(a.heading.id) ?? 0) || a.heading.sort - b.heading.sort);
-  }, [groups, d.entries, book.id, kind]);
+    const lc = (a: CtyAccount) => lineCount.get(a.id) ?? 0;
+    const order = [...groups]
+      .map((g) => ({ ...g, lines: [...g.lines].sort((a, b) => lc(b) - lc(a) || a.sort - b.sort) }))
+      .sort((a, b) => (count.get(b.heading.id) ?? 0) - (count.get(a.heading.id) ?? 0) || a.heading.sort - b.heading.sort);
+    const all = groups.flatMap((g) => (g.lines.length ? g.lines : [g.heading]));
+    const frequent = all.filter((a) => lc(a) > 0).sort((a, b) => lc(b) - lc(a)).slice(0, 6);
+    return { order, frequent };
+  }, [groups, d.entries, d.books, book, kind]);
 
   // "same as last time": the last different lines used in this book
   const recent = useMemo(() => {
@@ -201,7 +210,7 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
     { k: 'Exchange', label: t3('صرافة', 'Exchange', 'Change') },
     { k: 'Transfer', label: t3('تحويل', 'Transfer', 'Transfert') },
   ];
-  const readOnly = edit && !(d.kept.includes(edit.book_id) || s.profile.perms.includes('cty.write_all'));
+  const readOnly = edit && !d.kept.includes(edit.book_id);
 
   return (
     <div className="cty-sheet" role="dialog">
@@ -274,6 +283,15 @@ export function EntrySheet({ start, onClose }: { start: EntryStart; onClose: () 
         {!edit && stage === 'heading' && (
           <>
             <Summary />
+            {frequent.length > 0 && (
+              <>
+                <div className="cty-label">{t3('الأكثر استعمالاً', 'Most used', 'Les plus utilisés')}</div>
+                <div className="cty-chips">
+                  {frequent.map((a) => <button key={a.id} onClick={() => chooseLine(a)}>{iconOf(a.code)} {accName(a)}</button>)}
+                </div>
+                <div className="cty-label">{t3('كل البنود', 'All categories', 'Toutes les catégories')}</div>
+              </>
+            )}
             <div className="cty-tiles">
               {order.map(({ heading: h, lines }) => (
                 <button key={h.id} className="cty-tint" style={{ background: tintOf(h.code)[0], borderColor: tintOf(h.code)[1] }} onClick={() => (lines.length ? (setHeading(h.id), setStage('line')) : chooseLine(h))}>
@@ -392,7 +410,7 @@ function AmountInput({ label, value, onChange, cur, onCur, local, onEnter, refEl
  */
 export function GiveSheet({ onClose }: { onClose: () => void }) {
   const { d, s, reload } = useCty();
-  const sources = d.books.filter((b) => b.active && (b.cty_kind === 'cash' || b.cty_kind === 'bank') && (d.kept.includes(b.id) || s.profile.perms.includes('cty.write_all')));
+  const sources = d.books.filter((b) => b.active && (b.cty_kind === 'cash' || b.cty_kind === 'bank') && d.kept.includes(b.id));
   const [from, setFrom] = useState<number | null>(sources[0]?.id ?? null);
   const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
   const [to, setTo] = useState<number | null>(null);

@@ -917,4 +917,50 @@ UPDATE access_profile SET name = replace(replace(replace(name, 'المدبّر �
 UPDATE access_profile SET name = replace(replace(replace(replace(name, 'القيّم', 'القيم'), 'المدبّر', 'المدبر'), 'قيّم البلد', 'قيم البلد'), 'مدبّر البلد', 'قيم البلد');
 `,
   },
+  {
+    n: 21,
+    name: 'community offices: Superior, Econome, Minister and Administrator are accounts of their own; an expense can be refused',
+    sql: `
+-- A person (a Jesuit) and an OFFICE are different accounts (Fouad, 19 October 2026). An office
+-- (superior | econome | minister | admin) has its own password and keeps its own books; it is
+-- held by a person (held_by), changed when the office is handed over.
+ALTER TABLE profile ADD COLUMN cty_office TEXT;
+ALTER TABLE profile ADD COLUMN held_by TEXT;
+-- The Superior may refuse an expense: it stays recorded, flagged with his reason.
+ALTER TABLE cty_entry ADD COLUMN refused_at TEXT;
+ALTER TABLE cty_entry ADD COLUMN refused_by TEXT;
+ALTER TABLE cty_entry ADD COLUMN refused_note TEXT;
+`,
+  },
+  {
+    n: 22,
+    name: 'movements on the account at the économat have a state: promised, on the way, received',
+    sql: `
+-- Money between the Province and a community (a grant, a payment, a cotisation) goes through
+-- states, as the grants of MAGIS do: promised → on the way → received. Only what is received
+-- counts in the balance; the rest is shown as expected. (Fouad, 19 October 2026)
+ALTER TABLE country_move ADD COLUMN status TEXT NOT NULL DEFAULT 'received';
+ALTER TABLE cty_statement ADD COLUMN status TEXT NOT NULL DEFAULT 'received';
+`,
+  },
+  {
+    n: 23,
+    name: "the community's own side of the money with the Province",
+    sql: `
+-- What the community itself records of the money between it and the Province (a grant received,
+-- a payment, a cotisation), with the same states. It goes to the country econome in the monthly
+-- file, who compares it with his side. (Fouad, 19 October 2026: "both sides must enter")
+CREATE TABLE cty_province (
+  id         TEXT PRIMARY KEY,
+  date       TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('paid_by_cty','paid_to_cty','cotisation','other')),
+  cur        TEXT NOT NULL,
+  amount     REAL NOT NULL CHECK (amount > 0),
+  note       TEXT NOT NULL,
+  status     TEXT NOT NULL DEFAULT 'received',
+  created_at TEXT NOT NULL,
+  created_by TEXT
+);
+`,
+  },
 ];

@@ -15,7 +15,8 @@ export interface CountryClaim {
 }
 export interface CountryCharge { id: string; date: string; host_id: number; charged_id: number; cur: Cur; amount: number; note: string; created_at: string; created_by: string | null }
 export type MoveKind = 'paid_by_cty' | 'paid_to_cty' | 'cotisation' | 'other';
-export interface CountryMove { id: string; cty_id: number; date: string; kind: MoveKind; cur: Cur; amount: number; note: string; created_at: string; created_by: string | null }
+export type MoveStatus = 'promised' | 'on_the_way' | 'received';
+export interface CountryMove { id: string; cty_id: number; date: string; kind: MoveKind; cur: Cur; amount: number; note: string; status: MoveStatus; created_at: string; created_by: string | null }
 export interface CountryCty { id: number; uid: string; name: string; active: number }
 
 /** The lines of one community's account, oldest first. */
@@ -29,7 +30,7 @@ export function ledgerOf(ctyId: number, claims: CountryClaim[], charges: Country
     if (ch.host_id === ctyId) out.push({ id: `host:${ch.id}`, date: ch.date, kind: 'host', cur: ch.cur, amount: ch.amount, note: `${ch.note} → ${names.get(ch.charged_id) ?? '?'}` });
     if (ch.charged_id === ctyId) out.push({ id: `charged:${ch.id}`, date: ch.date, kind: 'charged', cur: ch.cur, amount: -ch.amount, note: `${ch.note} ← ${names.get(ch.host_id) ?? '?'}` });
   }
-  for (const m of moves) if (m.cty_id === ctyId) out.push({ id: `move:${m.id}`, date: m.date, kind: m.kind, cur: m.cur, amount: m.amount, note: m.note });
+  for (const m of moves) if (m.cty_id === ctyId) out.push({ id: `move:${m.id}`, date: m.date, kind: m.kind, cur: m.cur, amount: m.amount, note: m.note, status: m.status });
   return out.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 }
 
@@ -58,7 +59,7 @@ export function reconcile(year: number, ctys: CountryCty[], claims: CountryClaim
     const r: Reconciliation = { ctyId: c.id, before: zero(), byKind: {}, end: zero(), waiting: zero() };
     for (const l of ledgerOf(c.id, claims, charges, moves, names)) {
       const y = yearOf(l.date);
-      if (y > year) continue;
+      if (y > year || (l.status && l.status !== 'received')) continue; // only what is received counts
       if (y < year) r.before[l.cur] += l.amount;
       else (r.byKind[l.kind] ??= zero())[l.cur] += l.amount;
       r.end[l.cur] += l.amount;
@@ -68,4 +69,39 @@ export function reconcile(year: number, ctys: CountryCty[], claims: CountryClaim
     for (const v of Object.values(r.byKind)) for (const k of CURS) v[k] = r2(v[k]);
     return r;
   });
+}
+
+// ---------------------------------------------------------------- both sides of the money with the Province
+
+/** One side's line of a movement between the Province and a community (amount always > 0). */
+export interface SideLine { id: string; date: string; kind: MoveKind; cur: Cur; amount: number; note: string; status: MoveStatus }
+export interface Comparison {
+  /** the same movement on both sides; `sameStatus` false when one side says "received" and the other not */
+  matched: { country: SideLine; community: SideLine; sameStatus: boolean }[];
+  onlyCountry: SideLine[];
+  onlyCommunity: SideLine[];
+}
+
+const dayDiff = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) / 86400000;
+
+/**
+ * The same movement is on both sides when kind, currency and amount agree and the dates are
+ * within three months. What is on one side only is what the two must talk about.
+ */
+export function compareSides(country: SideLine[], community: SideLine[]): Comparison {
+  const free = [...community];
+  const out: Comparison = { matched: [], onlyCountry: [], onlyCommunity: [] };
+  for (const c of [...country].sort((a, b) => a.date.localeCompare(b.date))) {
+    let best = -1;
+    let bestDiff = Infinity;
+    free.forEach((x, i) => {
+      if (x.kind !== c.kind || x.cur !== c.cur || Math.abs(x.amount - c.amount) > 0.005) return;
+      const dd = dayDiff(x.date, c.date);
+      if (dd <= 92 && dd < bestDiff) { best = i; bestDiff = dd; }
+    });
+    if (best < 0) out.onlyCountry.push(c);
+    else { const [x] = free.splice(best, 1); out.matched.push({ country: c, community: x, sameStatus: x.status === c.status }); }
+  }
+  out.onlyCommunity = free;
+  return out;
 }

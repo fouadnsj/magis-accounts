@@ -488,3 +488,9 @@ table.t.rep td, table.t.rep td.n { font-size: 11.5px; padding: 3px 5px; }
 .area-card b { font-size: 18px; color: #3d2f0c; }
 .area-card span { color: #6b6b6b; font-size: 13px; }
 .cty-back { background: none; border: 0; color: #3d2f0c; cursor: pointer; padding: 6px 0; font: inherit; }
+
+/* Jesuit communities: one colour per office on the sign-in page */
+.person.office-superior { border-top: 4px solid #6b3fa0; }
+.person.office-econome { border-top: 4px solid #1f7a4d; }
+.person.office-minister { border-top: 4px solid #c47a12; }
+.person.office-admin { border-top: 4px solid #3a6ea5; }

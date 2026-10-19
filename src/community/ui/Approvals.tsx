@@ -25,6 +25,17 @@ export function Approvals() {
       toast(errText(e), true);
     }
   };
+  const refuse = async (it: ApprovalItem) => {
+    const reason = await promptBox(t3('سبب الرفض (يراه صاحب الدفتر ويجيب أو يصحّح)', 'Reason for refusing (the Jesuit sees it and answers or corrects)', 'Raison du refus (le jésuite la voit, répond ou corrige)'));
+    if (!reason) return;
+    try {
+      await s.api.call('cty.entry.refuse', { ids: [it.entry.id], reason });
+      await reload();
+      toast(t3('رُفضت', 'Refused', 'Refusé'));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   const ask = async (it: ApprovalItem) => {
     const body = await promptBox(t3('سؤالك (خاص، لصاحب الدفتر فقط)', 'Your question (private, for the keeper of the book only)', 'Votre question (privée, pour le titulaire du compte seulement)'));
     if (!body) return;
@@ -62,6 +73,7 @@ export function Approvals() {
             {thread.map((r) => <Thread key={r.id} root={r} compact />)}
             <div className="cty-two">
               <button className="btn primary" onClick={() => approve(it)}>✓ {t3('أوافق', 'Approve', 'Approuver')}</button>
+              <button className="btn" onClick={() => refuse(it)}>⛔ {t3('أرفض', 'Refuse', 'Refuser')}</button>
               <button className="btn" onClick={() => ask(it)}>? {t3('سؤال', 'Ask', 'Demander')}</button>
             </div>
           </Card>

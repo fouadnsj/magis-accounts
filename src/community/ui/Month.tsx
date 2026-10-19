@@ -139,15 +139,24 @@ export function MonthScreen() {
         )}
       </Card>
 
-      {/* the four things a person does, as in MAGIS Accounts */}
+      {/* the four things a person does. The econome, who gives money all day, has "Give money" big on top;
+          everyone else spends far more than he transfers: "I spent" is the big one (Fouad, 20 October 2026) */}
       <div className="cty-four">
-        {/* giving money and transferring are the same thing: one big bar on top */}
-        {keepsCash
-          ? <button className="trf wide" onClick={give}><i>💰</i>{t3('إعطاء مال', 'Give money', "Donner de l'argent")}<small>{t3('لأحد الإخوة أو للبيت', 'to a Jesuit or to the house', 'à un jésuite ou à la maison')}</small></button>
-          : <button className="trf wide" onClick={() => write({ kind: 'Transfer' })}><i>↔</i>{t3('إعطاء مال / تحويل', 'Give money / Transfer', "Donner / Transférer")}<small>{t3('إلى دفتر آخر', 'to another account', 'vers un autre compte')}</small></button>}
-        <button className="out" onClick={() => write({ kind: 'Exp' })}><i>－</i>{t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
-        <button className="in" onClick={() => write({ kind: 'Income' })}><i>＋</i>{t3('قبضتُ', 'I received', "J'ai reçu")}</button>
-        <button className="exc" onClick={() => write({ kind: 'Exchange' })}><i>⇄</i>{t3('صرافة', 'Exchange', 'Change')}</button>
+        {keepsCash ? (
+          <>
+            <button className="trf wide" onClick={give}><i>💰</i>{t3('إعطاء مال', 'Give money', "Donner de l'argent")}<small>{t3('لأحد الإخوة أو للبيت', 'to a Jesuit or to the house', 'à un jésuite ou à la maison')}</small></button>
+            <button className="out" onClick={() => write({ kind: 'Exp' })}><i>－</i>{t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
+            <button className="in" onClick={() => write({ kind: 'Income' })}><i>＋</i>{t3('قبضتُ', 'I received', "J'ai reçu")}</button>
+            <button className="exc" onClick={() => write({ kind: 'Exchange' })}><i>⇄</i>{t3('صرافة', 'Exchange', 'Change')}</button>
+          </>
+        ) : (
+          <>
+            <button className="out wide" onClick={() => write({ kind: 'Exp' })}><i>－</i>{t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
+            <button className="in" onClick={() => write({ kind: 'Income' })}><i>＋</i>{t3('قبضتُ', 'I received', "J'ai reçu")}</button>
+            <button className="exc" onClick={() => write({ kind: 'Exchange' })}><i>⇄</i>{t3('صرافة', 'Exchange', 'Change')}</button>
+            <button className="trf" onClick={() => write({ kind: 'Transfer' })}><i>↔</i>{t3('تحويل', 'Transfer', 'Transfert')}</button>
+          </>
+        )}
       </div>
       {book.cty_kind === 'house' && <Envelopes group={group} until={until} curs={curs} ym={ym} />}
 

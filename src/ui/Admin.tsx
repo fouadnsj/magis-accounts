@@ -23,8 +23,8 @@ export function Admin() {
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
     { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
     { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore')) || s.mode === 'preview' },
-    { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : t('كلمة السر', 'Password') },
-    { value: 'access', label: t('ملفات الصلاحيات', 'Permission profiles'), hidden: !can('users.manage') },
+    { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : can('users.passwords') ? t('كلمات السر', 'Passwords') : t('كلمة السر', 'Password') },
+    { value: 'access', label: t('الأدوار والصلاحيات', 'Roles and permissions'), hidden: !can('users.manage') },
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
@@ -533,6 +533,10 @@ export function PinModal({ p, onClose, onDone }: { p: Pick<Profile, 'id' | 'name
 
 // ---------------------------------------------------------------- permission profiles
 
+/** What is only seen (reports, registers) and what changes something, for the tags of the roles matrix. */
+const VIEW_PERMS = new Set<Perm>(['register.view', 'reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.cash', 'reports.funding', 'budget.view', 'data.export', 'audit.view']);
+
+/** The roles page (as in the communities): one column per permission profile, one row per thing it may do. */
 function AccessProfiles() {
   const { s, reload } = useApp();
   const [list, setList] = useState<AccessRow[]>([]);
@@ -550,24 +554,50 @@ function AccessProfiles() {
       toast(errText(e), true);
     }
   };
+  const toggle = async (a: AccessRow, p: Perm) => {
+    const perms = a.perms.includes(p) ? a.perms.filter((x) => x !== p) : [...a.perms, p];
+    try {
+      await s.api.call('access.save', { id: a.id, name: a.name, perms });
+      await refresh();
+      await reload();
+      toast(t('حُفظ ✓', 'Saved ✓'));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   return (
-    <div className="panel" style={{ maxWidth: 900 }}>
-      <p className="muted small">{t('ملف الصلاحيات مجموعة علامات. كل مستخدم يأخذ ملفاً واحداً. تغيير الملف يغيّر صلاحيات كل من يحمله.', 'A permission profile is a set of ticks. Each user has one profile. Changing a profile changes the rights of everybody who has it.')}</p>
-      <table className="t">
-        <thead><tr><th>{t('الملف', 'Profile')}</th><th className="n">{t('مستخدمون', 'Users')}</th><th>{t('الصلاحيات', 'Permissions')}</th><th /></tr></thead>
-        <tbody>
-          {list.map((a) => (
-            <tr key={a.id}>
-              <td><b>{a.name}</b></td><td className="n">{a.users}</td>
-              <td className="small muted">{a.perms.length} / {PERM_GROUPS.reduce((n, g) => n + g.perms.length, 0)}</td>
-              <td className="right nowrap">
-                <button className="btn small" onClick={() => setEdit(a)}>✎</button>{' '}
-                {a.users === 0 && <button className="btn small ghost" onClick={() => remove(a)}>✕</button>}
-              </td>
+    <div className="panel">
+      <p className="muted small">{t('ماذا يستطيع كل ملف صلاحيات: «اطّلاع» يعرض فقط، و«تعديل» يغيّر شيئاً. كل مستخدم يأخذ ملفاً واحداً؛ تغيير علامة يغيّر صلاحيات كل من يحمل الملف، عند دخوله التالي.', 'What each permission profile may do. "View" only shows; "modify" changes something. Each user has one profile; a tick changes the rights of everybody who has it, at their next sign-in.')}</p>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="t roles-matrix">
+          <thead>
+            <tr>
+              <th />
+              {list.map((a) => (
+                <th key={a.id} className="c">
+                  {biName(a.name)}
+                  <div className="muted small">{a.users} {t('مستخدم', 'users')}</div>
+                  <div className="nowrap">
+                    <button className="btn small ghost" onClick={() => setEdit(a)} title={t('الاسم وكل العلامات', 'Name and all ticks')}>✎</button>
+                    {a.users === 0 && <button className="btn small ghost" onClick={() => remove(a)}>✕</button>}
+                  </div>
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {PERM_GROUPS.map((g) => [
+              <tr key={g.key} className="group"><td colSpan={list.length + 1}><b>{tx(g.label)}</b></td></tr>,
+              ...g.perms.map((p) => (
+                <tr key={p.key}>
+                  <td><span className={`role-pill ${VIEW_PERMS.has(p.key) ? 'view' : 'modify'}`}>{VIEW_PERMS.has(p.key) ? t('اطّلاع', 'View') : t('تعديل', 'Modify')}</span> {tx(p.label)}</td>
+                  {list.map((a) => <td key={a.id} className="c"><input type="checkbox" checked={a.perms.includes(p.key)} onChange={() => toggle(a, p.key)} /></td>)}
+                </tr>
+              )),
+            ])}
+          </tbody>
+        </table>
+      </div>
       <div className="modal-foot"><button className="btn primary" onClick={() => setEdit({ name: '', perms: [] })}>＋ {t('ملف صلاحيات', 'Permission profile')}</button></div>
       {edit && <AccessModal a={edit} onClose={() => setEdit(null)} onDone={async () => { await refresh(); await reload(); }} />}
     </div>

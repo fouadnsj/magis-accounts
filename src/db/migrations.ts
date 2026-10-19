@@ -963,4 +963,15 @@ CREATE TABLE cty_province (
 );
 `,
   },
+  {
+    n: 24,
+    name: 'MAGIS centres: the Accountant may reset passwords (not of those who manage users)',
+    sql: `
+-- Fouad, 19 October 2026: as in the communities, the Accountant resets a forgotten password;
+-- only who manages users (the Superior) resets the password of another who manages users.
+-- Only the default Accountant profile of a centre; a hand-made profile is left alone.
+UPDATE access_profile SET perms = replace(perms, ']', ',"users.passwords"]')
+ WHERE name = 'المحاسب · Accountant' AND perms LIKE '[%"%]' AND perms NOT LIKE '%users.passwords%';
+`,
+  },
 ];

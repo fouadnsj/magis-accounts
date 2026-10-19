@@ -943,7 +943,8 @@ async function usersList(c: OpCtx): Promise<UserRow[]> {
   );
   const ub = await c.db.query<{ profile_id: number; book_id: number }>('SELECT * FROM user_book');
   const users = rows.map((r) => ({ ...r, books: ub.filter((x) => x.profile_id === r.id).map((x) => x.book_id) }));
-  return can(c, 'users.manage') ? users : users.filter((u) => u.id === c.profile.id);
+  // (who may reset passwords sees the list of names, to choose whose password)
+  return can(c, 'users.manage') || can(c, 'users.passwords') ? users : users.filter((u) => u.id === c.profile.id);
 }
 
 /** At least one active person must keep the right to manage users, or nobody could ever fix anything. */
@@ -1345,8 +1346,15 @@ export const OPS = {
   },
   'profile.setPin': {
     check: anyone,
-    run: (c: OpCtx, a: { id: number; pin: string }) => {
-      if (a.id !== c.profile.id) need(c, 'users.manage');
+    run: async (c: OpCtx, a: { id: number; pin: string }) => {
+      // someone else's password: who manages users, or who may reset passwords — but only
+      // who manages users resets the password of another who manages users (Fouad, 19 October 2026)
+      if (a.id !== c.profile.id && !can(c, 'users.manage')) {
+        need(c, 'users.passwords');
+        const target = await one<{ perms: string | null }>(c.db, 'SELECT a.perms FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.id = ?', [a.id]);
+        if (!target || cleanPerms(JSON.parse(target.perms ?? '[]')).includes('users.manage'))
+          throw new UserError(m('كلمة سر من يدير المستخدمين يغيّرها فقط من يدير المستخدمين', 'Only someone who manages users resets the password of someone who manages users', "Seul celui qui gère les utilisateurs réinitialise le mot de passe d'un autre gestionnaire"));
+      }
       return changePin(c.db, a.id, a.pin, c.who, a.id !== c.profile.id);
     },
   },

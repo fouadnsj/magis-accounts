@@ -1,4 +1,4 @@
-# MAGIS Accounts 0.7.0 — short guide · Guide court · دليل قصير
+# MAGIS Accounts 0.7.1 — short guide · Guide court · دليل قصير
 
 One page per person. Each part says only what that person does.
 
@@ -7,7 +7,7 @@ One page per person. Each part says only what that person does.
 ## English
 
 ### First page
-Choose **MAGIS centres** or **Jesuit communities**. Then open a database you already have, or create a new one.
+Choose **MAGIS centres** or **Jesuit communities**. Then open a database you already have, or create a new one. The communities' side asks its own password first (chosen with the first community; the Administrator changes it in Settings).
 
 ### Jesuit communities
 
@@ -49,6 +49,8 @@ Choose **MAGIS centres** or **Jesuit communities**. Then open a database you alr
 
 **Book holder** — On a phone the program opens a light window: what is in your book now (SYP, $, and ≈ $ in all), the four buttons **Expense · Income · Transfer · Exchange**, money to confirm, this month's entries, **Records**. On a computer, nothing changed.
 
+**Envelopes** — money a holder hands to a helper (a facilitator, the cleaner…). Under your book: **＋ An envelope for a helper**, then **Give** (from your book), **Spent** (what the helper paid), **Put back** (what is left). No confirmation is needed; the envelope closes its month with your book; the office sees it.
+
 **Accountant** — Writes in Main, confirms what Main receives, closes the office's month. Can **reset a forgotten password** (not the Superior's). **Reports → Quarters & categories**: each heading by quarter, beside the year before; choose SYP, $ or **All ≈ $**.
 
 **Superior** — Everything, including the Respo book, grants and donors. **Admin → Roles and permissions**: a column per profile, a tick per right ("View" only shows, "Modify" changes something).
@@ -60,7 +62,7 @@ Choose **MAGIS centres** or **Jesuit communities**. Then open a database you alr
 ## Français
 
 ### Première page
-Choisissez **Centres MAGIS** ou **Communautés jésuites**. Puis ouvrez une base que vous avez déjà, ou créez-en une.
+Choisissez **Centres MAGIS** ou **Communautés jésuites**. Puis ouvrez une base que vous avez déjà, ou créez-en une. Le côté des communautés demande d'abord son mot de passe (choisi avec la première communauté ; l'Administrateur le change dans les Réglages).
 
 ### Communautés jésuites
 
@@ -91,6 +93,8 @@ Choisissez **Centres MAGIS** ou **Communautés jésuites**. Puis ouvrez une base
 
 **Responsable de caisse** — Sur un téléphone, le programme ouvre une fenêtre légère : ce qu'il y a dans votre caisse (SYP, $, et ≈ $ en tout), les quatre boutons **Dépense · Recette · Transfert · Change**, l'argent à confirmer, les écritures du mois, **Écritures**. Sur un ordinateur, rien n'a changé.
 
+**Enveloppes** — l'argent qu'un responsable remet à une aide (un animateur, l'agent d'entretien…). Sous votre caisse : **＋ Une enveloppe pour une aide**, puis **Donner**, **Dépensé**, **Rendu**. Pas de confirmation ; l'enveloppe se clôture avec votre caisse ; le bureau la voit.
+
 **Comptable** — Écrit dans Main, confirme ce que Main reçoit, clôture le mois du bureau. Peut **réinitialiser un mot de passe oublié** (pas celui du Supérieur). **Rapports → Trimestres et rubriques** : chaque rubrique par trimestre, à côté de l'année précédente ; en SYP, en $ ou **Tout ≈ $**.
 
 **Supérieur** — Tout, y compris la caisse Respo, les subventions et les donateurs. **Administration → Rôles et permissions** : une colonne par profil, une case par droit (« Voir » montre seulement, « Modifier » change quelque chose).
@@ -102,7 +106,7 @@ Choisissez **Centres MAGIS** ou **Communautés jésuites**. Puis ouvrez une base
 ## العربية
 
 ### الصفحة الأولى
-اختر **مراكز ماجيس** أو **جماعات اليسوعيين**، ثم افتح قاعدة بيانات موجودة أو أنشئ واحدة جديدة.
+اختر **مراكز ماجيس** أو **جماعات اليسوعيين**، ثم افتح قاعدة بيانات موجودة أو أنشئ واحدة جديدة. جانب الجماعات يطلب أولاً كلمة سره (تُختار مع أول جماعة، ويغيّرها المشرف في الإعدادات).
 
 ### جماعات اليسوعيين
 
@@ -132,6 +136,8 @@ Choisissez **Centres MAGIS** ou **Communautés jésuites**. Puis ouvrez une base
 ### مراكز ماجيس
 
 **أمين الصندوق** — على الهاتف يفتح البرنامج نافذة خفيفة: ما في دفترك الآن (ل.س، $، و≈ $ للكل)، الأزرار الأربعة **نفقة · إيراد · تحويل · تصريف**، المال الذي ينتظر تأكيدك، قيود الشهر، **كل القيود**. على الحاسوب لم يتغيّر شيء.
+
+**الأظرف** — مال يعطيه الأمين لمساعد (منشّط، عامل تنظيف…). تحت دفترك: **＋ ظرف لمساعد**، ثم **أعطِ** و**صُرف** و**أعاد**. لا حاجة إلى تأكيد؛ يُغلق الظرف شهره مع دفترك؛ ويراه المكتب.
 
 **المحاسب** — يكتب في الدفتر الرئيسي، يؤكد ما يصله، يغلق شهر المكتب. يستطيع **إعادة كلمة سر منسية** (ما عدا كلمة سر الرئيس). **التقارير ← الفصول والبنود**: كل بند حسب الفصل بجانب السنة السابقة؛ بالليرة أو بالدولار أو **الكل ≈ $**.
 

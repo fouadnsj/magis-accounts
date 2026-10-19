@@ -1,7 +1,7 @@
 // The register: filters, search, totals. Only the visible rows are drawn,
 // so 50,000 rows scroll without lag. Click a row to edit it.
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { useApp, useNames } from '../state';
+import { useApp, useNames, useIcons } from '../state';
 import { TYPE_LABEL, tx } from '../i18n';
 import { TYPES, type Trx } from '../domain/types';
 import { useNav } from './Shell';
@@ -16,6 +16,7 @@ export function Register() {
   const holder = limited && myBooks.length <= 1; // one book only: no Book column
   const nav = useNav();
   const names = useNames();
+  const icons = useIcons();
   const [month, setMonth] = useState('');
   const [book, setBook] = useState<number | null>(nav.bookOnly);
   const [account, setAccount] = useState<number | null>(null);
@@ -125,8 +126,8 @@ export function Register() {
     ...(holder ? [] : [{ key: 'book', label: t('الدفتر', 'Book'), td: (r: Trx) => names.book(r.book_id) }]),
     { key: 'account', label: t('الحساب', 'Account'), td: (r) => names.account(r.account_id) },
     { key: 'type', label: t('النوع', 'Type'), td: (r) => <>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</> },
-    { key: 'heading', label: t('البند', 'Heading'), td: (r) => names.heading(r.heading_id) },
-    { key: 'line', label: t('الخط', 'Line'), td: (r) => names.line(r.line_id) },
+    { key: 'heading', label: t('البند', 'Heading'), td: (r) => r.heading_id == null ? '' : `${icons.heading(r.heading_id)} ${names.heading(r.heading_id)}` },
+    { key: 'line', label: t('الخط', 'Line'), td: (r) => r.line_id == null ? '' : `${icons.line(r.line_id)} ${names.line(r.line_id)}` },
     { key: 'explanation', label: t('الشرح', 'Explanation'), td: (r) => r.explanation },
     { key: 'party', label: t('الجهة', 'Party'), td: (r) => names.party(r.party_id) },
     { key: 'receipt', label: t('الوصل', 'Receipt'), td: (r) => r.receipt },

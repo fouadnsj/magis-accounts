@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useApp, useNames } from '../state';
+import { useApp, useIcons, useNames } from '../state';
 import { holders } from '../domain/reports';
 import type { TransferInfo } from '../domain/transfers';
 import { TYPE_LABEL, tx } from '../i18n';
@@ -10,13 +10,17 @@ import { holderBalance } from './Cash';
 import { needsApproval } from '../ops';
 import { PersonIcon } from './icons';
 
+/** The sign of each kind of movement on its button. */
+export const TYPE_ICON: Record<TrxType, string> = { Exp: '−', Income: '+', Transfer: '⇄', Exchange: '💱' };
+
 export function Home() {
   const { s, d, can, myBooks, limited, fileHolder, reload } = useApp();
   const nav = useNav();
   const names = useNames();
   const mainId = d.lists.books.find((b) => b.is_main)?.id ?? null;
   const writes = can('register.edit') || can('register.main') || (can('book.own') && myBooks.length > 0);
-  const types: TrxType[] = writes ? ['Income', 'Exp', 'Transfer', 'Exchange'] : [];
+  // four equal buttons, as on the communities' home (Fouad, 19 October 2026)
+  const types: TrxType[] = writes ? ['Exp', 'Income', 'Transfer', 'Exchange'] : [];
   if (fileHolder) types.splice(types.indexOf('Transfer'), 1);
   const hint: Record<TrxType, string> = {
     Income: t('مال يدخل', 'money in'),
@@ -86,6 +90,7 @@ export function Home() {
         <div className="big-actions" style={types.length === 3 ? { gridTemplateColumns: 'repeat(3, minmax(0,1fr))' } : undefined}>
           {types.map((ty) => (
             <button key={ty} className={ty} onClick={() => nav.entry(ty)}>
+              <span className="big-icon" aria-hidden="true">{TYPE_ICON[ty]}</span>
               {tx(TYPE_LABEL[ty])}
               <small>{hint[ty]}</small>
             </button>
@@ -177,6 +182,7 @@ export function Home() {
 function ApproveList({ rows }: { rows: import('../domain/types').Trx[] }) {
   const { s, d, reload } = useApp();
   const names = useNames();
+  const icons = useIcons();
   const [busy, setBusy] = useState(false);
   const approve = async (ids: string[]) => {
     setBusy(true);
@@ -202,7 +208,7 @@ function ApproveList({ rows }: { rows: import('../domain/types').Trx[] }) {
             <tr key={r.id}>
               <td className="nowrap">{fmtDate(r.date)}</td>
               <td>{names.book(r.book_id)}</td>
-              <td>{names.line(r.line_id)}<div className="muted small">{r.explanation}</div></td>
+              <td>{icons.line(r.line_id)} {names.line(r.line_id)}<div className="muted small">{r.explanation}</div></td>
               <td className="n nowrap"><b>{r.exp_usd ? `${fmtUsd(r.exp_usd)} USD` : `${fmtSyp(r.exp_syp)} SYP`}</b><div className="muted small">≈ ${fmtUsd(d.comp.get(r.id)?.expUsdTot ?? 0)}</div></td>
               <td className="small muted">{d.attachments.some((a) => a.trx_id === r.id) ? '📎' : t('بلا مستند', 'no document')}</td>
               <td className="right"><button className="btn small primary" disabled={busy} onClick={() => approve([r.id])}>✓ {t('موافقة', 'Approve')}</button></td>

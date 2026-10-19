@@ -137,6 +137,11 @@ table.t tr.click:hover td { background: #f2f7fc; }
 .big-actions .Transfer { background: var(--trf); }
 .big-actions .Exchange { background: var(--exc); }
 .big-actions button:hover { filter: brightness(0.96); }
+.big-actions button { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.big-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, 0.7); font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.big-actions .Exp .big-icon { color: #b23b3b; }
+.big-actions .Income .big-icon { color: #3b7a2a; }
+.big-actions .Transfer .big-icon { color: #6a4a92; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
 .card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .card .k { font-size: 12px; color: var(--muted); }

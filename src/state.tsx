@@ -3,6 +3,7 @@
 // After any write, call reload(). On the network, other people's changes are
 // picked up automatically (the server says when its data changed).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { catIcon } from './ui/catIcons';
 import { computeAll } from './domain/compute';
 import type { GrantCard, GrantPart } from './domain/grants';
 import type { Computed, Lists, Trx } from './domain/types';
@@ -168,6 +169,20 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
 }
 
 /** Names for ids, from the lists. */
+/** The icon of each budget heading and line (catIcons.ts), by id. */
+export function useIcons() {
+  const { d } = useApp();
+  return useMemo(() => {
+    const hName = new Map(d.lists.headings.map((h) => [h.id, h.name]));
+    const heading = new Map(d.lists.headings.map((h) => [h.id, catIcon(h.name)]));
+    const line = new Map(d.lists.lines.map((l) => [l.id, catIcon(l.name, hName.get(l.heading_id))]));
+    return {
+      heading: (id: number | null | undefined) => (id == null ? '' : heading.get(id) ?? ''),
+      line: (id: number | null | undefined) => (id == null ? '' : line.get(id) ?? ''),
+    };
+  }, [d.lists]);
+}
+
 export function useNames() {
   const { d } = useApp();
   return useMemo(() => {

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { useApp } from '../state';
 import type { Trx, TrxType } from '../domain/types';
 import { getLang } from '../i18n';
@@ -16,6 +16,20 @@ import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
 import { draftFor, draftKey } from './draft';
+import { PhoneShell } from './Phone';
+
+/** A phone-sized screen (the phone window opens by itself there). */
+function useNarrow() {
+  const q = '(max-width: 700px)';
+  const [n, setN] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const on = () => setN(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return n;
+}
 
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
@@ -63,6 +77,20 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
   const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
   const theme = { '--brand': st.deep, '--brand-2': st.deep, '--centre': st.color } as React.CSSProperties;
 
+  // the light phone window on a phone (Fouad, 19 October 2026); the computer window stays as it was
+  const narrow = useNarrow();
+  const [pcOnPhone, setPcOnPhone] = useState(() => { try { return localStorage.getItem('magis-pc-view') === '1'; } catch { return false; } });
+  const choosePc = (v: boolean) => { setPcOnPhone(v); try { localStorage.setItem('magis-pc-view', v ? '1' : '0'); } catch { /* no storage */ } };
+  if (narrow && !pcOnPhone)
+    return (
+      <NavCtx.Provider value={nav}>
+        <div style={theme}>
+          <PhoneShell onComputer={() => choosePc(true)} onToggleLang={onToggleLang} onCloseDb={onCloseDb} onDatabases={onDatabases} onEntry={setEditing} />
+          {editing && <EntryForm start={editing} onClose={() => setEditing(null)} />}
+        </div>
+      </NavCtx.Provider>
+    );
+
   return (
     <NavCtx.Provider value={nav}>
       <div style={theme}>
@@ -91,6 +119,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
+          {narrow && <button onClick={() => choosePc(false)}>📱 {t('عرض الهاتف', 'Phone view')}</button>}
           <button onClick={onToggleLang}>{getLang() === 'en' ? 'عربي · English' : 'English only'}</button>
           {onDatabases && <button onClick={onDatabases}>{can('users.manage') ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
           <button onClick={logout}>{t('خروج', 'Log out')}</button>

@@ -317,3 +317,8 @@
 .sty-steps span { padding: 4px 12px; border-radius: 14px; background: #f1ede3; color: #6b6355; font-size: 13px; }
 .sty-steps span.on { background: #26292E; color: #fff; font-weight: 600; }
 .sty-steps span.done { background: #e6efe0; color: #3b5a2a; }
+
+/* the MAGIS centres' phone window (src/ui/Phone.tsx): four equal buttons */
+.cty-four.four-eq { grid-template-columns: 1fr 1fr; }
+.cty-four.four-eq button { flex-direction: column; justify-content: center; gap: 4px; padding: 16px 6px; font-size: 16px; text-align: center; }
+.magis-phone { --c-soft: #fffaf0; }

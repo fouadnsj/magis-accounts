@@ -11,7 +11,8 @@
 //  - Donors: who covers which part (a % or an amount of an account, a heading
 //    or a line), and what is still to find.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useApp, useNames } from '../state';
+import { catIcon } from './catIcons';
+import { useApp, useNames, useIcons } from '../state';
 import type { BudgetPayload } from '../ops';
 import {
   WHOLE, addMonths, allocWorth, assignExpenses, cellKey, cellsOf, contingencyOf, cover, defaultBudgetName, effectivePct, followUp, guessLine, inPeriod, itemTotal,
@@ -294,6 +295,7 @@ function PaceTag({ pace }: { pace: Pace }) {
 function FollowUp({ b }: { b: BudgetPayload }) {
   const { d } = useApp();
   const names = useNames();
+  const icons = useIcons();
   const B = b.budget!;
   const months = periodMonths(B);
   const nowYm = new Date().toISOString().slice(0, 7);
@@ -414,7 +416,7 @@ function FollowUp({ b }: { b: BudgetPayload }) {
               const sh = sumOf(xs);
               return [
                 <tr key={`h${h.id}`} className="group">
-                  <td colSpan={account == null ? 2 : 1}><b>{h.name}</b></td>
+                  <td colSpan={account == null ? 2 : 1}><b>{catIcon(h.name)} {h.name}</b></td>
                   {revised && <td className="n">{fmtUsd(sh.original)}</td>}
                   <td className="n"><b>{fmtUsd(sh.budget)}</b></td>
                   <td className="n"><b>{fmtUsd(sh.spent)}</b></td>
@@ -425,7 +427,7 @@ function FollowUp({ b }: { b: BudgetPayload }) {
                 </tr>,
                 ...xs.map((r) => (
                   <tr key={cellKey(r.account_id, r.line_id)}>
-                    <td style={{ paddingInlineStart: 22 }}>{lineName(r.line_id)}</td>
+                    <td style={{ paddingInlineStart: 22 }}>{r.line_id === WHOLE ? '' : `${icons.line(r.line_id)} `}{lineName(r.line_id)}</td>
                     {account == null && <td className="small">{names.account(r.account_id)}</td>}
                     {revised && <td className="n muted">{fmtUsd(r.original ?? 0)}</td>}
                     <td className="n">{fmtUsd(r.budget)}</td>
@@ -628,7 +630,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
               const hs = lines.reduce((sum, l) => sum + valueOf(cellKey(account, l.id)), 0);
               return [
                 <tr key={`h${h.id}`} className="group">
-                  <td><b>{h.name}</b></td>
+                  <td><b>{catIcon(h.name)} {h.name}</b></td>
                   {orig && <td className="n muted">{fmtUsd(lines.reduce((sum, l) => sum + (orig.get(cellKey(account, l.id)) ?? 0), 0))}</td>}
                   <td className="n"><b>{fmtUsd(hs)}</b></td>
                   <td className="n">{fmtSyp(hs * rSyp)}</td>
@@ -642,7 +644,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
                   return [
                     <tr key={k} className={l.active ? '' : 'inactive'}>
                       <td style={{ paddingInlineStart: 22 }}>
-                        {l.name}
+                        {catIcon(l.name, h.name)} {l.name}
                         {(may || its.length > 0) && (
                           <button className="btn small ghost" style={{ marginInlineStart: 8 }} onClick={() => setOpen(open === l.id ? null : l.id)}>
                             {open === l.id ? '▾' : '▸'} {its.length ? t(`${its.length} عناصر`, `${its.length} items`) : t('عناصر', 'items')}

@@ -6,6 +6,7 @@ import { draftFor, draftKey, dropDraft, keepDraft } from './draft';
 import { useEffect, useMemo, useState } from 'react';
 import { DocsPanel, uploadPending, type PendingDoc } from './Docs';
 import { useApp } from '../state';
+import { catIcon } from './catIcons';
 import { blankTrx } from '../db/repo';
 import { validateTrx } from '../domain/validate';
 import { rateOn } from '../domain/compute';
@@ -169,11 +170,11 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
     () =>
       L.headings
         .filter((h) => L.headingTypes.some((x) => x.heading_id === h.id && x.type === f.type) && (h.active || h.id === f.headingId))
-        .map((h) => ({ value: h.id, label: `${h.name}`, off: !h.active })),
+        .map((h) => ({ value: h.id, label: `${catIcon(h.name)} ${h.name}`, off: !h.active })),
     [L, f.type, f.headingId],
   );
   const lineOpts = useMemo(
-    () => L.lines.filter((l) => l.heading_id === f.headingId && (l.active || l.id === f.lineId)).map((l) => ({ value: l.id, label: l.name, off: !l.active })),
+    () => L.lines.filter((l) => l.heading_id === f.headingId && (l.active || l.id === f.lineId)).map((l) => ({ value: l.id, label: `${catIcon(l.name, L.headings.find((h) => h.id === l.heading_id)?.name)} ${l.name}`, off: !l.active })),
     [L, f.headingId, f.lineId],
   );
   const bookOpts = opts(L.books, f.bookId);

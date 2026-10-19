@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useApp, useNames } from '../state';
+import { useApp, useNames, useIcons } from '../state';
 import { exchangeLog, funding, monthly, summary, inPeriod, type Period } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { getLang } from '../i18n';
@@ -107,6 +107,7 @@ const shortMonth = (ym: string, many: boolean) => `${MONTHS_EN[Number(ym.slice(5
 function ExploreTab({ p }: { p: Period }) {
   const { d } = useApp();
   const names = useNames();
+  const icons = useIcons();
   const nav = useNav();
   const [kind, setKind] = useState<'Exp' | 'Income'>('Exp');
   const [heading, setHeading] = useState<number | null>(null);
@@ -180,12 +181,12 @@ function ExploreTab({ p }: { p: Period }) {
             {heading == null ? (
               <>
                 <h3>{t('حسب البند', 'By heading')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
-                <BarList bars={group((r) => r.heading_id, names.heading)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setHeading(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
+                <BarList bars={group((r) => r.heading_id, (k) => `${icons.heading(k)} ${names.heading(k)}`)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setHeading(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
               </>
             ) : (
               <>
                 <h3>{t('حسب الخط', 'By line')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
-                <BarList bars={group((r) => r.line_id, names.line)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setLine(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
+                <BarList bars={group((r) => r.line_id, (k) => `${icons.line(k)} ${names.line(k)}`)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setLine(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
               </>
             )}
           </div>
@@ -220,7 +221,7 @@ function ExploreTab({ p }: { p: Period }) {
               {[...rows].sort((a, b) => ((a.date ?? '') < (b.date ?? '') ? 1 : -1)).map((r) => (
                 <tr key={r.id} className="click" onClick={() => nav.entry(r)}>
                   <td className="code">{d.attachments.some((x) => x.trx_id === r.id) ? '📎' : ''}{r.n == null ? '' : String(r.n).padStart(4, '0')}</td>
-                  <td className="nowrap">{fmtDate(r.date)}</td><td>{names.book(r.book_id)}</td><td>{names.line(r.line_id)}</td>
+                  <td className="nowrap">{fmtDate(r.date)}</td><td>{names.book(r.book_id)}</td><td>{icons.line(r.line_id)} {names.line(r.line_id)}</td>
                   <td>{r.explanation}</td><td>{names.party(r.party_id)}</td><td className="n">{fmtM(val(r))}</td>
                 </tr>
               ))}
@@ -239,6 +240,7 @@ function ExploreTab({ p }: { p: Period }) {
 function SummaryTab({ p }: { p: Period }) {
   const { d } = useApp();
   const names = useNames();
+  const icons = useIcons();
   const s = summary(d.centreRows, d.comp, d.lists, p);
   const undated = d.centreRows.filter((r) => !r.date).length;
   const [measure, setMeasure] = useState<Measure>('eq');
@@ -260,9 +262,9 @@ function SummaryTab({ p }: { p: Period }) {
     }
     return [...m.entries()].map(([k, v]) => ({ key: k, label: label(k), value: v }));
   };
-  const byHeading = sumBy((r) => r.type === 'Exp', (r) => r.heading_id, exp, (k) => names.heading(k));
-  const linesOf = heading == null ? [] : sumBy((r) => r.type === 'Exp' && r.heading_id === heading, (r) => r.line_id, exp, (k) => names.line(k));
-  const byIncomeLine = sumBy((r) => r.type === 'Income', (r) => r.line_id, inc, (k) => names.line(k));
+  const byHeading = sumBy((r) => r.type === 'Exp', (r) => r.heading_id, exp, (k) => `${icons.heading(k)} ${names.heading(k)}`);
+  const linesOf = heading == null ? [] : sumBy((r) => r.type === 'Exp' && r.heading_id === heading, (r) => r.line_id, exp, (k) => `${icons.line(k)} ${names.line(k)}`);
+  const byIncomeLine = sumBy((r) => r.type === 'Income', (r) => r.line_id, inc, (k) => `${icons.line(k)} ${names.line(k)}`);
 
   const monthsInPeriod = useMemo(() => {
     const out: string[] = [];
@@ -341,7 +343,7 @@ function SummaryTab({ p }: { p: Period }) {
           ) : (
             <>
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <h3 style={{ margin: 0 }}>{names.heading(heading)} <span className="muted small">· {fmtM(headingTotal)} {unit} · {linesOf.length} {t('خطوط', 'lines')}</span></h3>
+                <h3 style={{ margin: 0 }}>{icons.heading(heading)} {names.heading(heading)} <span className="muted small">· {fmtM(headingTotal)} {unit} · {linesOf.length} {t('خطوط', 'lines')}</span></h3>
                 <button className="btn small" onClick={() => setHeading(null)}>← {t('كل البنود', 'All headings')}</button>
               </div>
               <div style={{ marginTop: 10 }}>

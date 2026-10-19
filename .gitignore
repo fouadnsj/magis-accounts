@@ -7,3 +7,5 @@ src-tauri/gen
 # Stays on this Mac: it describes the register's real data
 REPRISE.md
 server-dist
+# Stays on this Mac: names of real people (handover for a new conversation)
+START-NEW-CONVERSATION.md

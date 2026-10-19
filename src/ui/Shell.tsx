@@ -78,13 +78,15 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
 
   // the light phone window on a phone (Fouad, 19 October 2026); the computer window stays as it was
   const narrow = useNarrow();
-  const [pcOnPhone, setPcOnPhone] = useState(() => { try { return localStorage.getItem('magis-pc-view') === '1'; } catch { return false; } });
-  const choosePc = (v: boolean) => { setPcOnPhone(v); try { localStorage.setItem('magis-pc-view', v ? '1' : '0'); } catch { /* no storage */ } };
-  if (narrow && !pcOnPhone)
+  // the person's choice, kept on this device: 'phone', 'pc', or none (a phone-sized screen opens the phone window by itself)
+  const [pref, setPref] = useState<'phone' | 'pc' | null>(() => { try { const v = localStorage.getItem('magis-view'); return v === 'phone' || v === 'pc' ? v : localStorage.getItem('magis-pc-view') === '1' ? 'pc' : null; } catch { return null; } });
+  const choose = (v: 'phone' | 'pc') => { setPref(v); try { localStorage.setItem('magis-view', v); } catch { /* no storage */ } };
+  const phone = pref === 'phone' || (narrow && pref !== 'pc');
+  if (phone)
     return (
       <NavCtx.Provider value={nav}>
         <div style={theme}>
-          <PhoneShell onComputer={() => choosePc(true)} onToggleLang={onToggleLang} onCloseDb={onCloseDb} onDatabases={onDatabases} onEntry={setEditing} />
+          <PhoneShell onComputer={() => choose('pc')} onToggleLang={onToggleLang} onCloseDb={onCloseDb} onDatabases={onDatabases} onEntry={setEditing} />
           {editing && <EntryForm start={editing} onClose={() => setEditing(null)} />}
         </div>
       </NavCtx.Provider>
@@ -118,7 +120,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
-          {narrow && <button onClick={() => choosePc(false)}>📱 {t('عرض الهاتف', 'Phone view')}</button>}
+          <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
           <LangPick onChange={onToggleLang} />
           {onDatabases && <button onClick={onDatabases}>{can('users.manage') ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
           <button onClick={logout}>{t('خروج', 'Log out')}</button>

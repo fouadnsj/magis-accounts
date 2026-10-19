@@ -1,4 +1,4 @@
-# MAGIS Accounts 0.7.1 — short guide · Guide court · دليل قصير
+# MAGIS Accounts 0.7.2 — short guide · Guide court · دليل قصير
 
 One page per person. Each part says only what that person does.
 
@@ -57,6 +57,10 @@ Choose **MAGIS centres** or **Jesuit communities**. Then open a database you alr
 
 **Language** — at the bottom of the menu (or 🌐 on the phone): Arabic · English, English, Français, العربية. Kept on that device.
 
+**Duplicate a record** (both kinds of database) — in an open record, at the top next to "Edit": **⧉ Duplicate ▾** → *same date* or *for today*. The copy opens as a new entry with a **COPY** banner; the explanation starts empty; **Save stays off until something changes**; duplicating a transfer asks first. Nothing exists until you press Save; closing the window creates nothing.
+
+**Your entries start on your own book** (your private book first, else the first book you keep).
+
 ---
 
 ## Français
@@ -101,6 +105,10 @@ Choisissez **Centres MAGIS** ou **Communautés jésuites**. Puis ouvrez une base
 
 **Langue** — en bas du menu (ou 🌐 sur le téléphone) : عربي · English, English, Français, العربية. Gardée sur cet appareil.
 
+**Dupliquer une écriture** (les deux sortes de base) — dans une écriture ouverte, en haut à côté de « Modifier » : **⧉ Dupliquer ▾** → *même date* ou *pour aujourd'hui*. La copie s'ouvre comme une nouvelle écriture avec un bandeau **COPIE** ; l'explication commence vide ; **on ne peut enregistrer qu'après un changement** ; dupliquer un transfert demande d'abord. Rien n'existe avant « Enregistrer ».
+
+**Vos écritures commencent sur votre propre caisse** (votre caisse privée d'abord, sinon la première que vous tenez).
+
 ---
 
 ## العربية
@@ -144,3 +152,5 @@ Choisissez **Centres MAGIS** ou **Communautés jésuites**. Puis ouvrez une base
 **الرئيس** — كل شيء، ومعه دفتر المسؤول (Respo) والمنح والمانحون. **الإدارة ← الأدوار والصلاحيات**: عمود لكل ملف، علامة لكل صلاحية («اطّلاع» يعرض فقط، «تعديل» يغيّر شيئاً).
 
 **اللغة** — أسفل القائمة (أو 🌐 على الهاتف): عربي · English، English، Français، العربية. تُحفظ على ذلك الجهاز.
+
+**نسخ قيد** (في النوعين) — في القيد المفتوح، في الأعلى بجانب «تعديل»: **⧉ نسخ ▾** ← *بالتاريخ نفسه* أو *لليوم*. تُفتح النسخة كقيد جديد بشريط **نسخة**؛ الشرح يبدأ فارغاً؛ **لا يمكن الحفظ حتى يتغيّر شيء**؛ ونسخ التحويل يسأل أولاً. لا يوجد شيء قبل الضغط على «احفظ».

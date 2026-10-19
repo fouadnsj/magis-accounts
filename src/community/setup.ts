@@ -62,6 +62,8 @@ export interface CommunitySetup {
   hasBank?: boolean;
   /** its colour or set of colours, its address and city (Fouad, 19 October 2026) */
   style?: StyleInput;
+  /** the communities' password, chosen with the first community (kept by the server or this computer, not here) */
+  gate?: string;
 }
 
 /** The chart of codes as it starts (compt1 with Fouad's corrections), in the order of the sheet. */

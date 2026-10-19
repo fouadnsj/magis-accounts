@@ -12,6 +12,7 @@ import { getLang } from '../../i18n';
 import { COUNTRIES, currencyOf } from '../places';
 import type { StyleInput } from '../style';
 import { DEFAULT_STYLE, StylePicker } from './StylePicker';
+import { GateFields, gateProblem } from './CtyGate';
 
 const OFFICE_LIST: { o: Office; label: () => string; help: () => string }[] = [
   { o: 'superior', label: () => t3('الرئيس', 'Superior', 'Supérieur'), help: () => t3('يرى كل شيء، يوافق أو يرفض، يعلّق. لا يغيّر شيئاً.', 'Sees everything, approves or refuses, comments. Changes nothing.', 'Voit tout, approuve ou refuse, commente. Ne change rien.') },
@@ -58,8 +59,10 @@ function Steps({ step, titles }: { step: number; titles: string[] }) {
   return <div className="sty-steps">{titles.map((x, i) => <span key={x} className={i === step ? 'on' : i < step ? 'done' : ''}>{i < step ? '✓' : i + 1} · {x}</span>)}</div>;
 }
 
-export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
+export function CommunityForm({ initialName = '', onSubmit, onBack, demo, askGate }: {
   initialName?: string;
+  /** the first community here: choose the communities' password too */
+  askGate?: boolean;
   onSubmit: (s: CommunitySetup) => Promise<void>;
   onBack: () => void;
   /** the browser preview: offers a demo community with invented names */
@@ -79,6 +82,8 @@ export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
   });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [gateA, setGateA] = useState('');
+  const [gateB, setGateB] = useState('');
 
   const set = (i: number, p: Partial<CtyPerson>) => setPeople(people.map((x, j) => (j === i ? { ...x, ...p } : x)));
   const names = people.map((p) => p.name.trim()).filter(Boolean);
@@ -96,7 +101,11 @@ export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
     }
   };
   const fullStyle: StyleInput = { ...style, address, city };
-  const go = () => submit({ community: name, country, localCurrency: local, hasBank, people: people.filter((p) => p.name.trim()), offices, style: fullStyle });
+  const go = () => {
+    const p = askGate ? gateProblem(gateA, gateB) : null;
+    if (p) return setErr(p);
+    return submit({ community: name, country, localCurrency: local, hasBank, people: people.filter((p) => p.name.trim()), offices, style: fullStyle, ...(askGate ? { gate: gateA } : {}) });
+  };
   const next = () => {
     setErr(null);
     if (step === 0 && !name.trim()) return setErr(t3('اكتب اسم الجماعة', 'Write the name of the community', 'Écrivez le nom de la communauté'));
@@ -151,6 +160,13 @@ export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
             </div>
           ))}
           <p className="muted small">{t3('كل حساب يغيّر كلمة سره عند أول دخول.', 'Every account changes its password at the first sign-in.', 'Chaque compte change son mot de passe à la première connexion.')}</p>
+          {askGate && (
+            <>
+              <h3 style={{ marginTop: 14 }}>🔒 {t3('كلمة سر الجماعات', "The communities' password", 'Le mot de passe des communautés')}</h3>
+              <p className="muted small">{t3('أول جماعة هنا: اختر كلمة سر تُطلب قبل أن يرى أحد الجماعات. أعطها فقط لمن يعمل في الجماعات. يغيّرها المشرف في الإعدادات.', 'The first community here: choose a password asked before anyone sees the communities. Give it only to those who work in the communities. The Administrator changes it in Settings.', 'Première communauté ici : choisissez un mot de passe demandé avant que quiconque voie les communautés. Ne le donnez qu’à ceux qui y travaillent. L’Administrateur le change dans les Réglages.')}</p>
+              <GateFields a={gateA} b={gateB} setA={setGateA} setB={setGateB} />
+            </>
+          )}
         </>
       )}
 
@@ -176,8 +192,9 @@ export function CommunityForm({ initialName = '', onSubmit, onBack, demo }: {
 }
 
 /** Creating the country econome's database (e.g. "Syria"): the country, its currency, and who keeps it. */
-export function CountryForm({ initialName = '', onSubmit, onBack, demo }: {
+export function CountryForm({ initialName = '', onSubmit, onBack, demo, askGate }: {
   initialName?: string;
+  askGate?: boolean;
   onSubmit: (s: CountrySetup) => Promise<void>;
   onBack: () => void;
   demo?: boolean;
@@ -185,6 +202,8 @@ export function CountryForm({ initialName = '', onSubmit, onBack, demo }: {
   const [country, setCountry] = useState(initialName || countryName(COUNTRIES[0]));
   const [local, setLocal] = useState('SYP');
   const [style, setStyle] = useState<StyleInput>(DEFAULT_STYLE);
+  const [gateA, setGateA] = useState('');
+  const [gateB, setGateB] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -206,10 +225,17 @@ export function CountryForm({ initialName = '', onSubmit, onBack, demo }: {
       </div>
       <h3 style={{ marginTop: 16 }}>{t3('الألوان', 'Colours', 'Couleurs')}</h3>
       <StylePicker value={style} onChange={setStyle} name={country} sub={t3('قيم البلد', 'Country econome', "Économe du pays")} />
+      {askGate && (
+        <>
+          <h3 style={{ marginTop: 14 }}>🔒 {t3('كلمة سر الجماعات', "The communities' password", 'Le mot de passe des communautés')}</h3>
+          <p className="muted small">{t3('تُطلب قبل أن يرى أحد الجماعات.', 'Asked before anyone sees the communities.', 'Demandé avant que quiconque voie les communautés.')}</p>
+          <GateFields a={gateA} b={gateB} setA={setGateA} setB={setGateB} />
+        </>
+      )}
       <div className="modal-foot">
         <button className="btn" onClick={onBack}>{t3('رجوع', 'Back', 'Retour')}</button>
         {demo && <button className="btn" disabled={busy} onClick={() => submit({ country: 'Syria', localCurrency: 'SYP', people: [{ name: 'Country econome', password: 'demo-pass' }], mustChange: false, style })}>{t3('بلد تجريبي', 'Demo country', 'Pays de démonstration')}</button>}
-        <button className="btn primary" disabled={busy || !country.trim() || !name.trim()} onClick={() => submit({ country, localCurrency: local, people: [{ name, password }], style })}>{busy ? '…' : t3('إنشاء', 'Create', 'Créer')}</button>
+        <button className="btn primary" disabled={busy || !country.trim() || !name.trim()} onClick={() => { const p = askGate ? gateProblem(gateA, gateB) : null; if (p) { setErr(p); return; } void submit({ country, localCurrency: local, people: [{ name, password }], style, ...(askGate ? { gate: gateA } : {}) }); }}>{busy ? '…' : t3('إنشاء', 'Create', 'Créer')}</button>
       </div>
     </div>
   );

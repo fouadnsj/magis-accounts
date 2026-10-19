@@ -10,7 +10,7 @@ import { BrandFrame } from './Landing';
 import { CommunityForm, CountryForm } from '../community/ui/NewCommunity';
 import { t3 } from '../community/ui/text';
 
-export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => void; onBack: () => void }) {
+export function ServerSetup({ db, onDone, onBack, askGate }: { db: DbInfo; onDone: () => void; onBack: () => void; /** no communities' password on this server yet */ askGate?: boolean }) {
   // (a database made from the communities' side already says what it is: straight to its form)
   const fixed = db.kind === 'community' || db.kind === 'country' ? db.kind : null;
   const [mode, setMode] = useState<'choose' | 'upload' | 'new' | 'community' | 'country'>(fixed ?? 'choose');
@@ -84,9 +84,9 @@ export function ServerSetup({ db, onDone, onBack }: { db: DbInfo; onDone: () => 
             <div className="modal-foot"><button className="btn" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button></div>
           </>
         ) : mode === 'community' ? (
-          <CommunityForm initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('community', { db: db.slug, ...s }); onDone(); }} />
+          <CommunityForm askGate={askGate} initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('community', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'country' ? (
-          <CountryForm initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('country', { db: db.slug, ...s }); onDone(); }} />
+          <CountryForm askGate={askGate} initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('country', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'upload' ? (
           <>
             <ol>

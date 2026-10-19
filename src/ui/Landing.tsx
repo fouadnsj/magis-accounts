@@ -6,6 +6,7 @@ import { m, tx } from '../i18n';
 import type { DbInfo } from '../net';
 import { serverCreateDb } from '../net';
 import { paletteOf } from '../community/style';
+import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
 import { Field, errText, t } from './kit';
 
 /** The page around every welcome, login and setup screen. */
@@ -67,7 +68,7 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea }: {
+export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
   dbs: DbInfo[];
   canCreate: boolean;
   onOpen: (db: DbInfo) => void;
@@ -80,16 +81,26 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
   onBackIn?: () => void;
   /** signed in from a community (or a centre): the list opens on that side */
   startArea?: 'centres' | 'cty' | null;
+  /** the communities' side has a password not given yet in this browser */
+  ctyLocked?: boolean;
+  onCtyUnlocked?: () => Promise<void>;
 }) {
   const [creating, setCreating] = useState(dbs.length === 0 && canCreate);
   const [howTo, setHowTo] = useState(false);
   // one program: first "centres" or "communities", when the server holds both
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   // (also when only one kind exists but the person may create: he can start the other kind)
-  const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || (canCreate && dbs.length > 0);
+  const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || (canCreate && dbs.length > 0) || !!ctyLocked;
   const [area, setArea] = useState<'centres' | 'cty' | null>(startArea ?? null);
   const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
   const choosing = both && area === null && !signedIn && !creating;
+  // the communities are hidden behind their password (the server does not even name them)
+  if (area === 'cty' && ctyLocked)
+    return (
+      <BrandFrame wide jesuit>
+        <CtyUnlock check={serverGateCheck} onBack={() => setArea(null)} onOpen={() => { void onCtyUnlocked?.(); }} />
+      </BrandFrame>
+    );
   if (choosing)
     return (
       <BrandFrame wide jesuit title={tx(m('حسابات اليسوعيين', 'Jesuit accounts', 'Comptes jésuites'))}>

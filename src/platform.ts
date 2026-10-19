@@ -93,6 +93,8 @@ export interface LocalConfig {
   recent?: string[];
   /** what each recent file is (kind, name, colours), for its card on the first page */
   known?: Record<string, KnownDb>;
+  /** the password of the Jesuit communities' side on this computer (its hash) */
+  ctyGate?: { salt: string; hash: string } | null;
   /** the centre's server this app opens on (desktop app used on the network) */
   server?: { address: string; fingerprint: string } | null;
 }

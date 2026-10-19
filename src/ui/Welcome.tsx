@@ -15,6 +15,7 @@ import { CommunityForm, CountryForm } from '../community/ui/NewCommunity';
 import { createCountry } from '../community/country';
 import { createCommunity } from '../community/setup';
 import { t3 } from '../community/ui/text';
+import { CtyUnlock, localGateCheck, localGateOpen, localGateSave, localGateSet } from '../community/ui/CtyGate';
 
 type Mode = 'choose' | 'office' | 'holder' | 'server' | 'community' | 'country';
 
@@ -29,6 +30,9 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
   /** the first choice: the MAGIS centres, or the Jesuit communities */
   const [area, setArea] = useState<'centres' | 'cty' | null>(null);
   const [err, setErr] = useState<string | null>(bootErr);
+  // this computer's communities' password: asked before its communities are shown
+  const [gate, setGate] = useState<{ set: boolean; open: boolean }>({ set: false, open: true });
+  useEffect(() => { void localGateSet().then((set) => setGate({ set, open: !set || localGateOpen() })); }, []);
   // the databases opened recently on this computer (and what each one is, when known)
   const [recent, setRecent] = useState<string[]>([]);
   const [known, setKnown] = useState<Record<string, KnownDb>>({});
@@ -89,7 +93,10 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
             )}
           </>
         )}
-        {mode === 'choose' && area !== null && (
+        {mode === 'choose' && area === 'cty' && !gate.open && (
+          <CtyUnlock check={localGateCheck} onBack={() => setArea(null)} onOpen={() => setGate({ set: true, open: true })} />
+        )}
+        {mode === 'choose' && area !== null && (area === 'centres' || gate.open) && (
           <>
             <button className="cty-back" onClick={() => setArea(null)}>‹ {t3('رجوع', 'Back', 'Retour')}</button>
             <h2 className="brand-h2">{area === 'centres' ? t3('فتح مركز', 'Open a centre', 'Ouvrir un centre') : t3('فتح جماعة أو بلد', 'Open a community or a country', 'Ouvrir une communauté ou un pays')}</h2>
@@ -135,11 +142,13 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
         {mode === 'community' && (
           <CommunityForm
             demo={!isDesktop()}
+            askGate={isDesktop() && !gate.set}
             onBack={() => setMode('choose')}
             onSubmit={async (s) => {
               const target = await newDb(newWebDb, `${s.community.replace(/[^\w؀-ۿ -]/g, '').trim() || 'community'}.db`);
               if (!target) return;
               await createCommunity(target.db, { ...s, mustChange: isDesktop() });
+              if (s.gate) await localGateSave(s.gate);
               await onCreated(target.db, target.path);
             }}
           />
@@ -147,11 +156,13 @@ export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }:
         {mode === 'country' && (
           <CountryForm
             demo={!isDesktop()}
+            askGate={isDesktop() && !gate.set}
             onBack={() => setMode('choose')}
             onSubmit={async (s) => {
               const target = await newDb(newWebDb, `${s.country.replace(/[^\w؀-ۿ -]/g, '').trim() || 'country'}.db`);
               if (!target) return;
               await createCountry(target.db, { ...s, mustChange: s.mustChange ?? isDesktop() });
+              if (s.gate) await localGateSave(s.gate);
               await onCreated(target.db, target.path);
             }}
           />

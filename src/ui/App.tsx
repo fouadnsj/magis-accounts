@@ -129,7 +129,8 @@ export function App() {
             // the app is used as a window on the centre's server
             await connectRemote(cfg.server.address, cfg.server.fingerprint);
           } else {
-            if (cfg.dbPath && (await invoke<boolean>('file_exists', { path: cfg.dbPath }))) await openPath(cfg.dbPath);
+            const lastIsCty = ['community', 'country'].includes(cfg.known?.[cfg.dbPath ?? '']?.kind ?? '');
+            if (cfg.dbPath && !(lastIsCty && cfg.ctyGate) && (await invoke<boolean>('file_exists', { path: cfg.dbPath }))) await openPath(cfg.dbPath);
             return;
           }
         }
@@ -227,6 +228,8 @@ export function App() {
         canCreate={server.canCreate}
         signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
         startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : null}
+        ctyLocked={!!server.ctyGate && !server.ctyOpen}
+        onCtyUnlocked={async () => { await refreshServer(); }}
         address={remoteBase}
         onLeave={remoteBase ? leaveServer : undefined}
         onBackIn={session ? () => setBrowsing(false) : undefined}
@@ -252,6 +255,7 @@ export function App() {
   else if (server && session && settingUp && serverDb)
     body = (
       <ServerSetup
+        askGate={!server?.ctyGate}
         db={serverDb}
         onDone={async () => {
           // the new database is ready: sign in there
@@ -270,6 +274,7 @@ export function App() {
   else if (server && !session && serverDb && (settingUp || serverDb.setupNeeded))
     body = server.canCreate ? (
       <ServerSetup
+        askGate={!server?.ctyGate}
         db={serverDb}
         onDone={async () => {
           setSettingUp(false);

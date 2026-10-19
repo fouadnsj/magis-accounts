@@ -24,6 +24,8 @@ export interface CountrySetup {
   mustChange?: boolean;
   /** its colour or set of colours (default: gold) */
   style?: StyleInput;
+  /** the communities' password, chosen with the first country/community (kept by the server or this computer) */
+  gate?: string;
 }
 
 export const COUNTRY_PERMS = ['country.manage', 'users.manage', 'data.backup', 'data.restore', 'data.export', 'data.import', 'audit.view'];

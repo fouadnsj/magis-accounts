@@ -4,6 +4,8 @@
 // He never sees a Jesuit's detail: only what the communities' files hold.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePalette } from '../usePalette';
+import { GateCard } from '../CtyGate';
+import { has } from '../../../auth';
 import type { Session } from '../../../state';
 import { getLang, setLang, type LangMode } from '../../../i18n';
 import { errText, parseAmount, promptBox, toast, todayIso } from '../../../ui/kit';
@@ -783,6 +785,7 @@ function Settings({ onLang, onLogout, s, d, reload }: { onLang: () => void; onLo
           <button className="btn primary" onClick={saveRates}>{t3('احفظ', 'Save', 'Enregistrer')}</button>
         </div>
       </div>
+      {s.mode !== 'preview' && has(s.profile, 'users.manage') && <GateCard server={s.mode === 'server'} />}
       <button className="btn" onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
     </div>
   );

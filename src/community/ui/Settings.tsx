@@ -10,6 +10,7 @@ import { PeopleScreen } from './People';
 import { curName, t3 } from './text';
 import type { Palette, StyleInput } from '../style';
 import { DEFAULT_STYLE, StylePicker } from './StylePicker';
+import { GateCard } from './CtyGate';
 
 const LANGS: { l: LangMode; label: string }[] = [
   { l: 'en', label: 'English' },
@@ -40,6 +41,7 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDes
         </Card>
       )}
       {can('users.manage') && <LookCard key={JSON.stringify(d.style)} />}
+      {can('users.manage') && s.mode !== 'preview' && <GateCard server={s.mode === 'server'} />}
       {(can('cty.limits') || can('users.manage')) && <ControlPanel key={JSON.stringify(d.settings) + JSON.stringify(d.limits)} />}
       {!inDesk && (
         <Card>

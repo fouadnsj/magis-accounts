@@ -10,6 +10,7 @@ import { holderBalance } from './Cash';
 import { needsApproval } from '../ops';
 import { PersonIcon } from './icons';
 import { rateOn } from '../domain/compute';
+import { Envelopes } from './Envelopes';
 
 /** The sign of each kind of movement on its button. */
 export const TYPE_ICON: Record<TrxType, string> = { Exp: '−', Income: '+', Transfer: '⇄', Exchange: '💱' };
@@ -153,7 +154,7 @@ export function Home() {
         <>
           <h2>{t('حالة دفتري', 'My book status')}</h2>
           <div className="cards" style={{ marginBottom: 18 }}>
-            {myBooks.map((id) => {
+            {myBooks.filter((id) => d.lists.books.find((x) => x.id === id)?.parent_id == null).map((id) => {
               const b = holderBalance(d, id, fileHolder);
               const main = !!d.lists.books.find((x) => x.id === id)?.is_main;
               return (
@@ -161,6 +162,9 @@ export function Home() {
               );
             })}
           </div>
+          {!fileHolder && myBooks.filter((id) => { const b = d.lists.books.find((x) => x.id === id); return b && !b.is_main && b.parent_id == null; }).map((id) => (
+            <Envelopes key={`env${id}`} bookId={id} onEntry={nav.entry} />
+          ))}
         </>
       )}
 

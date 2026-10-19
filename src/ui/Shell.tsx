@@ -1,12 +1,11 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useApp } from '../state';
-import type { Trx, TrxType } from '../domain/types';
 import { LangPick } from './LangPick';
 import type { Perm } from '../perms';
 import { t } from './kit';
 import { brandStyle } from '../brand';
 import { Home } from './Home';
-import { EntryForm } from './EntryForm';
+import { EntryForm, type EntryStart } from './EntryForm';
 import { Register } from './Register';
 import { Cash } from './Cash';
 import { Reports } from './Reports';
@@ -39,7 +38,7 @@ export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants
 interface Nav {
   go: (p: Page, opts?: { review?: boolean; book?: number }) => void;
   /** Open the entry form: a type for a new row, or a row to edit. */
-  entry: (x: TrxType | Trx) => void;
+  entry: (x: EntryStart) => void;
   reviewOnly: boolean;
   /** the register opens on this book (from a Home card) */
   bookOnly: number | null;
@@ -53,7 +52,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
   const [reviewOnly, setReviewOnly] = useState(false);
   const [bookOnly, setBookOnly] = useState<number | null>(null);
   // an entry left half-typed at a sign-out for inactivity comes back
-  const [editing, setEditing] = useState<TrxType | Trx | null>(() => (draftFor(draftKey(s))?.start as TrxType | Trx | undefined) ?? null);
+  const [editing, setEditing] = useState<EntryStart | null>(() => (draftFor(draftKey(s))?.start as EntryStart | undefined) ?? null);
   const [menuOpen, setMenuOpen] = useState(false);
   const nav: Nav = {
     go: (p, o) => {

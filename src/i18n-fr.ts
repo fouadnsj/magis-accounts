@@ -4,6 +4,15 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  "The helper's name (e.g. the facilitator, the cleaner)": "Le nom de l'aide (par ex. l'animateur, l'agent d'entretien)",
+  "Envelope made": "Enveloppe créée",
+  "The helper's name": "Le nom de l'aide",
+  "Envelopes": "Enveloppes",
+  "Money you hand to a helper (a facilitator, the cleaner…): it stays in your book and the office sees it.": "L'argent que vous remettez à une aide (un animateur, l'agent d'entretien…) : il reste dans votre caisse et le bureau le voit.",
+  "Give": "Donner",
+  "Put back": "Rendu",
+  "Switch the envelope off": "Arrêter l'enveloppe",
+  "An envelope for a helper": "Une enveloppe pour une aide",
   "\"Main\" is the main fund. Every other book is the cash one keeper holds.": "« Main » est la caisse principale. Chaque autre caisse est l'argent qu'un responsable garde.",
   "(cancelled if the amount changes)": "(annulé si le montant change)",
   "1 — Each holder closes his book's month after counting his cash. 2 — Then the office closes the whole month. Only the Superior can reopen.": "1 — Chaque responsable clôt le mois de sa caisse après avoir compté son argent. 2 — Puis le bureau clôt tout le mois. Seul le Supérieur peut rouvrir.",

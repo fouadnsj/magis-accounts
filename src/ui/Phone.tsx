@@ -14,6 +14,8 @@ import { errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
 import { holderBalance } from './Cash';
 import { TYPE_ICON } from './Home';
 import { LangPick } from './LangPick';
+import type { EntryStart } from './EntryForm';
+import { Envelopes } from './Envelopes';
 import '../community/ui/cty.css';
 
 type View = 'month' | 'records';
@@ -42,12 +44,12 @@ export function PhoneShell({ onComputer, onToggleLang, onCloseDb, onDatabases, o
   onToggleLang: () => void;
   onCloseDb: () => void;
   onDatabases?: () => void;
-  onEntry: (x: TrxType | Trx) => void;
+  onEntry: (x: EntryStart) => void;
 }) {
   const { s, d, can, writeBooks, myBooks, fileHolder, logout } = useApp();
   const names = useNames();
   // the books shown: those he writes in (his own; Main for the accountant), else those he keeps
-  const books = (writeBooks.length ? writeBooks : myBooks).filter((id) => d.lists.books.some((b) => b.id === id));
+  const books = (writeBooks.length ? writeBooks : myBooks).filter((id) => d.lists.books.some((b) => b.id === id && b.parent_id == null));
   const [bookId, setBookId] = useState<number | null>(books[0] ?? null);
   const [view, setView] = useState<View>('month');
   const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
@@ -105,7 +107,7 @@ export function PhoneShell({ onComputer, onToggleLang, onCloseDb, onDatabases, o
   );
 }
 
-function MonthCard({ bookId, types, onEntry }: { bookId: number; types: TrxType[]; onEntry: (x: TrxType | Trx) => void }) {
+function MonthCard({ bookId, types, onEntry }: { bookId: number; types: TrxType[]; onEntry: (x: EntryStart) => void }) {
   const { d, can, myBooks, fileHolder, reload } = useApp();
   const names = useNames();
   const icons = useIcons();
@@ -150,6 +152,8 @@ function MonthCard({ bookId, types, onEntry }: { bookId: number; types: TrxType[
           ))}
         </div>
       )}
+
+      {!book.is_main && <Envelopes bookId={bookId} onEntry={onEntry} compact />}
 
       <div className="cty-card">
         <div className="cty-label">{t('هذا الشهر', 'This month')}</div>
@@ -223,7 +227,7 @@ function Confirm({ x, onDone }: { x: TransferInfo; onDone: () => Promise<void> }
 }
 
 /** Every record of the book: by month or all, by kind, by a word. */
-function Records({ bookId, onEntry }: { bookId: number; onEntry: (x: TrxType | Trx) => void }) {
+function Records({ bookId, onEntry }: { bookId: number; onEntry: (x: EntryStart) => void }) {
   const { d } = useApp();
   const names = useNames();
   const icons = useIcons();

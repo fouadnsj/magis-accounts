@@ -75,6 +75,8 @@ export interface Book extends Named {
   opening_usd: number;
   /** only its keepers see it (the Superior's book); others see only the transfers it makes */
   private?: number;
+  /** an envelope: the holder's book it belongs to (money handed to a helper) */
+  parent_id?: number | null;
 }
 
 export interface Heading extends Named {

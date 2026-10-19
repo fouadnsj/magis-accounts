@@ -53,7 +53,12 @@ const recall = (k: string) => {
   }
 };
 
-export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onClose: () => void }) {
+/** A new entry with some choices already made (an envelope's Give / Spent / Put back). */
+export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null }
+export type EntryStart = TrxType | Trx | NewEntry;
+const isPreset = (x: EntryStart): x is NewEntry => typeof x === 'object' && 'preset' in x;
+
+export function EntryForm({ start, onClose: close }: { start: EntryStart; onClose: () => void }) {
   const app = useApp();
   const onClose = () => {
     dropDraft();
@@ -61,7 +66,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
   };
   const { d, s, reload, can, writeBooks: myBooks, fileHolder } = app;
   const L = d.lists;
-  const editing = typeof start === 'object' ? start : null;
+  const editing = typeof start === 'object' && !isPreset(start) ? start : null;
   const mainId = L.books.find((b) => b.is_main)?.id ?? null;
   /** Without "write in every book", a person writes only in the books he keeps. */
   const restricted = !can('register.edit');
@@ -134,8 +139,9 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       }
       return base;
     }
-    const type = start as TrxType;
-    const bookId = restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId;
+    const pre = isPreset(start) ? start : null;
+    const type = pre ? pre.type : (start as TrxType);
+    const bookId = pre?.bookId ?? (restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId);
     const book = L.books.find((b) => b.id === bookId);
     const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
     return {
@@ -143,7 +149,7 @@ export function EntryForm({ start, onClose: close }: { start: TrxType | Trx; onC
       accountId: Number(recall('lastAccount')) || book?.account_id || L.settings.def_account_id,
       cityId: book?.city_id ?? L.settings.def_city_id,
       headingId: h, lineId: l, partyId: null, explanation: '', receipt: '', currency: null, amount: '',
-      fromBook: restricted ? myBooks[0] ?? null : mainId, toBook: null, usd: '', syp: '',
+      fromBook: pre?.fromBook ?? (restricted ? myBooks[0] ?? null : mainId), toBook: pre?.toBook ?? null, usd: '', syp: '',
     };
   };
 

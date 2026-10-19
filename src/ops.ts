@@ -391,12 +391,51 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
       approved_by: old && SAME(old, r) ? old.approved_by ?? null : null,
     };
   });
+  // Money between a book and one of its envelopes (the same keeper) needs no confirmation.
+  const parentOf = new Map(lists.books.map((b) => [b.id, b.parent_id ?? null]));
+  const family = (x: number | null, y: number | null) => x != null && y != null && (parentOf.get(x) === y || parentOf.get(y) === x);
+  for (const t of buildTransfers(clean.filter((r) => r.type === 'Transfer'), lists.books)) {
+    if (family(t.from, t.to))
+      for (const x of clean) if (t.rowIds.includes(x.id) && !x.received_at) Object.assign(x, { received_at: nowIso(), received_by: c.who, disputed_at: null, dispute_note: null });
+  }
   // If one leg of a two-row transfer changed, the other leg loses its confirmation too.
   for (const r of clean) {
     if (r.type === 'Transfer' && r.transfer_group && !r.received_at)
       for (const x of clean) if (x.transfer_group === r.transfer_group) Object.assign(x, { received_at: null, received_by: null, disputed_at: null, dispute_note: null });
   }
   await saveTrxRows(c.db, clean, c.who, c.install === 'office', deletes, reason);
+}
+
+/**
+ * An envelope (Fouad, 19 October 2026): a holder hands part of his cash to a helper. It is a small
+ * book inside his (parent_id), kept by the same people; the office sees it like his book.
+ * Made or renamed by its holder (or whoever writes in every book); switched off, never deleted.
+ */
+async function saveEnvelope(c: OpCtx, a: { id?: number | null; parentId: number; helper: string; active?: number }) {
+  const mainId = await mainOf(c.db);
+  if (!can(c, 'register.edit') && !writes(c, a.parentId, mainId)) throw refuse();
+  const parent = await one<{ id: number; name: string; parent_id: number | null; city_id: number | null; account_id: number | null }>(c.db, 'SELECT id, name, parent_id, city_id, account_id FROM book WHERE id = ?', [a.parentId]);
+  if (!parent || parent.parent_id != null) throw new UserError(m('الدفتر غير موجود', 'Book not found', 'Caisse introuvable'));
+  const helper = a.helper.trim();
+  if (!helper) throw new UserError(m('اكتب اسم المساعد', "Write the helper's name", "Écrivez le nom de l'aide"));
+  const name = `✉ ${helper} · ${parent.name}`;
+  if (await one(c.db, 'SELECT 1 FROM book WHERE name = ? AND id <> ?', [name, a.id ?? -1])) throw new UserError(m(`«${helper}» موجود`, `"${helper}" already exists`));
+  if (a.id) {
+    const env = await one<{ id: number; parent_id: number | null }>(c.db, 'SELECT id, parent_id FROM book WHERE id = ?', [a.id]);
+    if (!env || env.parent_id !== a.parentId) throw new UserError(m('الظرف غير موجود', 'Envelope not found', 'Enveloppe introuvable'));
+    await c.db.batch([
+      { sql: 'UPDATE book SET name = ?, keeper_name = ?, active = ? WHERE id = ?', params: [name, helper, a.active ?? 1, a.id] },
+      auditStmt(c.who, 'edit', 'book', String(a.id), null, { envelope: name, active: a.active ?? 1 }),
+    ]);
+    return a.id;
+  }
+  await c.db.batch([
+    { sql: 'INSERT INTO book (name, keeper_name, city_id, account_id, is_main, parent_id, sort) VALUES (?, ?, ?, ?, 0, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM book))', params: [name, helper, parent.city_id, parent.account_id, parent.id] },
+    // kept by whoever keeps the holder's book
+    { sql: 'INSERT OR IGNORE INTO user_book (profile_id, book_id) SELECT profile_id, (SELECT MAX(id) FROM book WHERE parent_id = ?) FROM user_book WHERE book_id = ?', params: [parent.id, parent.id] },
+    auditStmt(c.who, 'add', 'book', name, null, { envelope: name, of: parent.name }),
+  ]);
+  return (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM book WHERE parent_id = ?', [parent.id]))!.id;
 }
 
 const reopenMonth = (c: OpCtx, a: { ym: string }) =>
@@ -1250,6 +1289,12 @@ export const OPS = {
     },
   },
 
+  // ---------------------------------------------------------------- envelopes (money a holder hands to a helper)
+  'envelope.save': {
+    check: anyone,
+    run: (c: OpCtx, a: { id?: number | null; parentId: number; helper: string; active?: number }) => saveEnvelope(c, a),
+  },
+
   // ---------------------------------------------------------------- months: step 1 (book), step 2 (office)
   'bookMonth.close': {
     check: anyone,
@@ -1262,7 +1307,19 @@ export const OPS = {
       const ok = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
       if (!ok(a.counted_syp) || !ok(a.counted_usd)) throw new UserError(m('عُدّ النقد أولاً: الليرة والدولار', 'Count the cash first: pounds and dollars'));
       const lists = await loadLists(c.db);
-      const bal = balanceAt(await loadTrx(c.db), lists.books, a.bookId, a.ym);
+      const rowsAll = await loadTrx(c.db);
+      const bal = balanceAt(rowsAll, lists.books, a.bookId, a.ym);
+      // its envelopes close with it: what each should still hold is noted (the helper keeps that cash)
+      const done = await bookMonths(c.db);
+      const envelopes = lists.books.filter((b) => b.parent_id === a.bookId && !done.some((x) => x.book_id === b.id && x.ym === a.ym));
+      for (const e of envelopes) throwIf(await closingProblems(c, a.ym, e.id));
+      const envStmts = envelopes.map((e) => {
+        const eb = balanceAt(rowsAll, lists.books, e.id, a.ym);
+        return {
+          sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          params: [e.id, a.ym, nowIso(), c.who, eb.syp, eb.usd, eb.syp, eb.usd, 'envelope · with the helper'],
+        };
+      });
       const note = (a.note ?? '').trim() || null;
       const differs = Math.abs(a.counted_syp! - bal.syp) >= 0.5 || Math.abs(a.counted_usd! - bal.usd) >= 0.005;
       if (differs && !note) throw new UserError(m('النقد المعدود يختلف عن الدفتر: اكتب السبب', 'The cash counted differs from the book: write why'));
@@ -1271,6 +1328,7 @@ export const OPS = {
           sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           params: [a.bookId, a.ym, nowIso(), c.who, bal.syp, bal.usd, a.counted_syp!, a.counted_usd!, note],
         },
+        ...envStmts,
         auditStmt(c.who, 'close', 'book_month', `${a.bookId}|${a.ym}`, null, { book: bal, counted: { syp: a.counted_syp, usd: a.counted_usd }, note }),
       ]);
     },
@@ -1290,6 +1348,8 @@ export const OPS = {
       if ((await closedMonths(c.db)).has(a.ym)) throw new UserError(m('أعد فتح شهر المكتب أولاً', "Reopen the office's month first"));
       await c.db.batch([
         { sql: 'DELETE FROM book_month WHERE book_id = ? AND ym = ?', params: [a.bookId, a.ym] },
+        // its envelopes are reopened with it
+        { sql: 'DELETE FROM book_month WHERE ym = ? AND book_id IN (SELECT id FROM book WHERE parent_id = ?)', params: [a.ym, a.bookId] },
         auditStmt(c.who, 'reopen', 'book_month', `${a.bookId}|${a.ym}`, null, null),
       ]);
     },

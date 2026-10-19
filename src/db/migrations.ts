@@ -974,4 +974,15 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"users.passwords"]')
  WHERE name = 'المحاسب · Accountant' AND perms LIKE '[%"%]' AND perms NOT LIKE '%users.passwords%';
 `,
   },
+  {
+    n: 25,
+    name: "MAGIS centres: envelopes — money a book holder hands to a helper",
+    sql: `
+-- Fouad, 19 October 2026 ("apply the envelope to the book holder"): as the communities'
+-- minister does, a holder gives part of his cash to a helper (a facilitator, the cleaner…) in an
+-- envelope: a small book of its own, inside his book (parent_id), kept by the same people.
+-- Money between the book and its envelopes needs no confirmation; they close their month together.
+ALTER TABLE book ADD COLUMN parent_id INTEGER REFERENCES book(id);
+`,
+  },
 ];

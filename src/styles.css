@@ -515,3 +515,9 @@ table.t.rep td, table.t.rep td.n { font-size: 11.5px; padding: 3px 5px; }
 .side .lang-pick option { color: #26292E; }
 .lang-pick.compact { border-color: var(--c-line, #ddd); color: var(--c-deep, #333); margin: 0; padding: 4px 6px; max-width: 130px; }
 .choice button.on { border-color: var(--brand-2, #26292E); box-shadow: 0 0 0 2px var(--brand-2, #26292E); }
+
+/* a holder's envelopes (Envelopes.tsx) */
+.env-row { padding: 8px 0; border-bottom: 1px dashed #e3ddcf; }
+.env-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.env-left { font-variant-numeric: tabular-nums; }
+.env-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }

@@ -211,6 +211,7 @@ function MonthTable({ lines, cur }: { lines: HolderMonthLine[]; cur: 'SYP' | 'US
 /** One book, month by month: each month starts where the previous one ended. */
 export function BookMonths({ bookId }: { bookId: number }) {
   const { d } = useApp();
+  const [shown, setShown] = useState<Data['bookMonths'][number] | null>(null);
   const book = d.lists.books.find((b) => b.id === bookId);
   const months = monthsOf(d.rows.filter((r) => r.book_id === bookId || (book?.is_main && r.type === 'Transfer')));
   if (!book) return null;
@@ -226,6 +227,7 @@ export function BookMonths({ bookId }: { bookId: number }) {
               <th>{t('الشهر', 'Month')}</th><th className="n">{t('في أول الشهر', 'At the start')}</th><th className="n">＋ {t('إيرادات', 'Income')}</th>
               <th className="n">− {t('نفقات', 'Expenses')}</th><th className="n">± {t('تحويلات', 'Transfers')}</th><th className="n">± {t('تصريف', 'Exchange')}</th>
               <th className="n">= {t('في آخر الشهر', 'At the end')}</th>
+              <th className="n">🧮 {t('المعدود', 'Counted')}</th><th className="n">{t('الفرق', 'Difference')}</th>
             </tr></thead>
             <tbody>
               {[...ls].reverse().map((l) => (
@@ -233,6 +235,20 @@ export function BookMonths({ bookId }: { bookId: number }) {
                   <td className="nowrap">{monthLabel(l.ym)}{d.bookClosed.has(`${bookId}|${l.ym}`) ? ' 🔒' : ''}</td>
                   <td className="n">{f(l.start)}</td><td className="n">{f(l.income)}</td><td className="n">{f(l.expenses)}</td>
                   <td className="n">{f(l.transfers)}</td><td className="n">{f(l.exchange)}</td><td className="n"><b>{f(l.end)}</b></td>
+                  {(() => {
+                    // the count made when this month was closed: what was counted, how it differs, and why
+                    const bm = d.bookMonths.find((x) => x.book_id === bookId && x.ym === l.ym);
+                    const counted = bm ? (cur === 'SYP' ? bm.counted_syp : bm.counted_usd) : null;
+                    if (!bm || counted == null) return <><td className="n muted">—</td><td className="n muted">—</td></>;
+                    const diff = counted - ((cur === 'SYP' ? bm.book_syp : bm.book_usd) ?? l.end);
+                    const differs = cur === 'SYP' ? Math.abs(diff) >= 0.5 : Math.abs(diff) >= 0.005;
+                    return (
+                      <>
+                        <td className="n nowrap">{f(counted)} <button className="btn small ghost" title={t('عدّ الأوراق', 'The notes counted')} onClick={() => setShown(bm)}>🧮</button></td>
+                        <td className={`n ${differs ? 'bad' : 'ok'}`} title={bm.count_note ?? ''}>{differs ? f(diff) : '✓'}{differs && bm.count_note ? <div className="muted small" style={{ fontWeight: 400 }}>{bm.count_note}</div> : null}</td>
+                      </>
+                    );
+                  })()}
                 </tr>
               ))}
             </tbody>
@@ -241,7 +257,48 @@ export function BookMonths({ bookId }: { bookId: number }) {
       </CurrencyFrame>
     );
   };
-  return <>{block('SYP')}{block('USD')}</>;
+  return (
+    <>
+      {block('SYP')}{block('USD')}
+      {shown && <CountDetail bm={shown} name={book.name} onClose={() => setShown(null)} />}
+    </>
+  );
+}
+
+/** The notes counted when a month was closed, with the book, the difference and the reason. */
+function CountDetail({ bm, name, onClose }: { bm: Data['bookMonths'][number]; name: string; onClose: () => void }) {
+  let list: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] = [];
+  try { list = bm.count_detail ? JSON.parse(bm.count_detail) : []; } catch { /* an older closing: totals only */ }
+  return (
+    <Modal title={<>{t('عدّ النقد', 'The cash count')} · {name} · {monthLabel(bm.ym)}</>} onClose={onClose}>
+      <p className="muted small">{t('أُغلق', 'Closed')} {fmtDate((bm.closed_at ?? '').slice(0, 10))} · {bm.closed_by}</p>
+      {list.length ? (
+        <div className="notes-grid">
+          {(['SYP', 'USD'] as const).map((cur) => (
+            <table className="t" key={cur}>
+              <thead><tr><th className="n">{cur === 'SYP' ? t('الفئة ل.س', 'SYP note') : t('الفئة $', 'USD note')}</th><th className="n">{t('العدد', 'How many')}</th><th className="n">{t('المجموع', 'Total')}</th></tr></thead>
+              <tbody>
+                {list.filter((x) => x.currency === cur).map((x) => (
+                  <tr key={x.denomination}><td className="n">{x.denomination.toLocaleString('en-US')}</td><td className="n">{x.qty}</td><td className="n">{(cur === 'SYP' ? fmtSyp : fmtUsd)(x.denomination * x.qty)}</td></tr>
+                ))}
+                <tr className="total"><td>{t('المجموع', 'Total')}</td><td /><td className="n"><b>{(cur === 'SYP' ? fmtSyp : fmtUsd)(cur === 'SYP' ? bm.counted_syp ?? 0 : bm.counted_usd ?? 0)}</b></td></tr>
+              </tbody>
+            </table>
+          ))}
+        </div>
+      ) : (
+        <p>{t('النقد المعدود', 'Cash counted')}: <b>{fmtSyp(bm.counted_syp ?? 0)}</b> SYP · <b>{fmtUsd(bm.counted_usd ?? 0)}</b> USD <span className="muted small">({t('الأوراق غير محفوظة لهذا الشهر', 'the notes were not kept for this month')})</span></p>
+      )}
+      <table className="t" style={{ marginTop: 10 }}>
+        <tbody>
+          <tr><td>{t('الدفتر', 'The book')}</td><td className="n">{fmtSyp(bm.book_syp ?? 0)}</td><td className="n">{fmtUsd(bm.book_usd ?? 0)}</td></tr>
+          <tr><td>{t('المعدود', 'Counted')}</td><td className="n">{fmtSyp(bm.counted_syp ?? 0)}</td><td className="n">{fmtUsd(bm.counted_usd ?? 0)}</td></tr>
+        </tbody>
+      </table>
+      {bm.count_note && <div className="alert warn" style={{ marginTop: 10 }}><b>{t('السبب', 'Reason')}:</b> {bm.count_note}</div>}
+      <div className="modal-foot"><button className="btn primary" onClick={onClose}>{t('إغلاق', 'Close')}</button></div>
+    </Modal>
+  );
 }
 
 function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; counts: Counts; onClose: () => void; onSaved: () => Promise<void> }) {

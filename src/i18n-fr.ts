@@ -4,6 +4,15 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  "The notes counted": "Les billets comptés",
+  "The cash count": "Le comptage de l'argent",
+  "Reason": "Raison",
+  "Save the count": "Enregistrer le comptage",
+  "Keeps the count without closing the month": "Garde le comptage sans clôturer le mois",
+  "the notes were not kept for this month": "les billets n'ont pas été gardés pour ce mois",
+  "The book": "La caisse",
+  "Count the cash note by note here": "Comptez l'argent billet par billet ici",
+  "Write how many of each note; the total fills in by itself, and the count is kept with this month.": "Écrivez combien de billets de chaque sorte ; le total se remplit tout seul, et le comptage est gardé avec ce mois.",
   "Duplicate (same date)": "Dupliquer (même date)",
   "Copy": "Copie",
   "COPY": "COPIE",

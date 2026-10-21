@@ -209,6 +209,17 @@ function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string
   const dSyp = bal && ready ? cs - bal.syp : 0;
   const dUsd = bal && ready ? cu - bal.usd : 0;
   const differs = Math.abs(dSyp) >= 0.5 || Math.abs(dUsd) >= 0.005;
+  const noteList = () => (['SYP', 'USD'] as const).flatMap((currency) => NOTES[currency].map((denomination) => ({ currency, denomination, qty: noteQty(currency, denomination) })));
+  /** keep the count without closing (to finish later, or to look at it on the Cash page) */
+  const saveOnly = async () => {
+    try {
+      await s.api.call('cash.saveCount', { bookId, counts: noteList() });
+      setFromCount(new Date().toISOString().slice(0, 10));
+      toast(t('حُفظ العدّ', 'Count saved'));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   const go = async () => {
     try {
       const counts = byNotes
@@ -265,6 +276,7 @@ function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string
       )}
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        {byNotes && <button className="btn" onClick={saveOnly} title={t('يحفظ العدّ دون إغلاق الشهر', 'Keeps the count without closing the month')}>💾 {t('احفظ العدّ', 'Save the count')}</button>}
         <button className="btn primary" disabled={!bal || !ready || (differs && !note.trim())} onClick={go}>🔒 {t('إغلاق الشهر لهذا الدفتر', 'Close the month for this book')}</button>
       </div>
     </Modal>

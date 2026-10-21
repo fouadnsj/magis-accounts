@@ -326,3 +326,9 @@
 /* duplicate an entry: two buttons side by side */
 .cty-copy { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .cty-copy .cty-wide { margin-top: 8px; }
+
+/* the history of the counts (CountHistory.tsx) */
+.cty-count-row { border-top: 1px solid var(--c-soft2); padding: 6px 0; }
+.cty-count-row > summary { cursor: pointer; line-height: 1.5; font-size: 14px; }
+.cty-count-body { padding: 6px 0 2px 14px; font-size: 14px; }
+.cty-count-cur { white-space: nowrap; }

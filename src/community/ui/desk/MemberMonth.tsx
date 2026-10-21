@@ -7,6 +7,7 @@ import { errText, promptBox, toast, todayIso } from '../../../ui/kit';
 import { CURS, accountBooks, monthSheetOf, prevMonth, rollUp, type CtyAccount, type Money } from '../../domain';
 import { useCty, bookLabel, bookName } from '../CtyApp';
 import { Thread } from '../Notes';
+import { CountHistory } from '../CountHistory';
 import { accName, curName, money, monthName, t3 } from '../text';
 import { exportExcel } from './excel';
 
@@ -144,6 +145,7 @@ export function MemberMonth({ initialBook, initialYm }: { initialBook: number | 
               </>
             ) : <p className="muted">{t3('لم يُغلق بعد.', 'Not closed yet.', 'Pas encore clôturé.')}</p>}
           </div>
+          <CountHistory key={book.id} bookId={book.id} />
           {can('cty.month_seen') && (
             <div className="cty-card">
               <div className="cty-label">🔒 {t3('أسئلة الرئيس (خاصة)', "The Superior's questions (private)", 'Questions du Supérieur (privées)')}</div>

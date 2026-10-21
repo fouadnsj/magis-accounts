@@ -1023,4 +1023,31 @@ INSERT INTO cash_count_log (book_id, at, who, kind, ym, counted_syp, counted_usd
     FROM book_month WHERE counted_syp IS NOT NULL;
 `,
   },
+  {
+    n: 28,
+    name: 'communities: the history of the cash counts of each account',
+    sql: `
+-- Fouad, 21 October 2026 (same as the centres): every count saved stays in the history of the account,
+-- with date and hour, who counted, the banknotes, what the book said at that moment and the difference.
+-- kind: 'count' (saved by hand, after a warning) or 'close' (made at the closing of a period, automatic).
+-- book_id: the main book of the account (pocket, or house); the others of the group are read with it.
+CREATE TABLE cty_count_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id     INTEGER NOT NULL REFERENCES book(id),
+  at          TEXT NOT NULL,
+  who         TEXT,
+  kind        TEXT NOT NULL CHECK (kind IN ('count','close')),
+  ym          TEXT,
+  held_loc    REAL, held_usd REAL, held_eur REAL,
+  counted_loc REAL NOT NULL DEFAULT 0, counted_usd REAL NOT NULL DEFAULT 0, counted_eur REAL NOT NULL DEFAULT 0,
+  note        TEXT,
+  detail      TEXT
+);
+CREATE INDEX cty_count_log_book ON cty_count_log(book_id, at);
+-- the closings already made become the first entries of the history
+INSERT INTO cty_count_log (book_id, at, who, kind, ym, held_loc, held_usd, held_eur, counted_loc, counted_usd, counted_eur, note, detail)
+  SELECT book_id, closed_at, closed_by, 'close', ym, book_loc, book_usd, book_eur, COALESCE(counted_loc, 0), COALESCE(counted_usd, 0), COALESCE(counted_eur, 0), count_note, count_detail
+    FROM cty_month WHERE counted_loc IS NOT NULL OR counted_usd IS NOT NULL OR counted_eur IS NOT NULL;
+`,
+  },
 ];

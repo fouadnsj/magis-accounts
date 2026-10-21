@@ -317,8 +317,50 @@ async function closeMonth(c: OpCtx, a: { bookId: number; bookIds?: number[]; ym:
       params: [b.id, ym, at, c.who, ...CURS.map((k) => (keep ? held[k] : null)), ...CURS.map((k) => (keep ? counted[k] : null)), keep ? note : null, keep && a.detail ? JSON.stringify(a.detail) : null],
     });
   }
+  // the count of the closing goes into the account's history, automatically (it is the reconciliation)
+  stmts.push(countLogStmt(c.who, a.bookId, 'close', last, held, counted, note, a.detail ?? null, at));
   stmts.push(auditStmt(c.who, 'close', 'cty_month', `${ids.join('+')}:${months.join(',')}`, null, { held, counted, note }));
   await c.db.batch(stmts);
+}
+
+const countLogStmt = (who: string, bookId: number, kind: 'count' | 'close', ym: string | null, held: Money, counted: Money, note: string | null, detail: Record<string, Record<string, number>> | null, at: string): Stmt => ({
+  sql: 'INSERT INTO cty_count_log (book_id, at, who, kind, ym, held_loc, held_usd, held_eur, counted_loc, counted_usd, counted_eur, note, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  params: [bookId, at, who, kind, ym, held.LOC, held.USD, held.EUR, counted.LOC, counted.USD, counted.EUR, note, detail ? JSON.stringify(detail) : null],
+});
+
+/** A count saved by hand, any day, without closing: kept in the history of the account. */
+async function saveCount(c: OpCtx, a: { bookId: number; bookIds?: number[]; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) {
+  await requireCommunity(c.db);
+  const ids = [...new Set([a.bookId, ...(a.bookIds ?? [])])];
+  for (const id of ids) if (!(keeps(c, id) && can(c, 'book.own')) && !can(c, 'cty.write_all')) throw refuse();
+  const all = await loadBooks(c.db);
+  const bs = ids.map((id) => all.find((b) => b.id === id)).filter((b): b is CtyBook => !!b);
+  if (bs.length !== ids.length) throw new UserError(m('الدفتر غير موجود', 'Unknown book', 'Compte inconnu'));
+  const today = nowIso().slice(0, 10);
+  const held = balanceOf(await loadEntries(c.db), bs, today);
+  const counted = Object.fromEntries(CURS.map((k) => [k, r2(Number(a.counted?.[k] ?? 0))])) as Money;
+  await c.db.batch([
+    countLogStmt(c.who, a.bookId, 'count', null, held, counted, (a.note ?? '').trim() || null, a.detail ?? null, nowIso()),
+    auditStmt(c.who, 'count', 'cty_count_log', String(a.bookId), null, { held, counted }),
+  ]);
+}
+
+export interface CtyCountLog {
+  id: number; book_id: number; at: string; who: string | null; kind: 'count' | 'close'; ym: string | null;
+  held_loc: number | null; held_usd: number | null; held_eur: number | null;
+  counted_loc: number; counted_usd: number; counted_eur: number;
+  note: string | null; detail: string | null;
+}
+
+/** The history of the counts of an account (pocket + bank, house + envelopes): newest first. */
+async function countHistory(c: OpCtx, a: { bookId: number }) {
+  await requireCommunity(c.db);
+  const all = await loadBooks(c.db);
+  const main = all.find((b) => b.id === a.bookId);
+  if (!main) throw new UserError(m('الدفتر غير موجود', 'Unknown book', 'Compte inconnu'));
+  const ids = accountBooks(all, main).map((b) => b.id);
+  if (!ids.some((id) => keeps(c, id)) && !can(c, 'cty.view_all')) throw refuse();
+  return c.db.query<CtyCountLog>(`SELECT * FROM cty_count_log WHERE book_id IN (${ids.map(() => '?').join(',')}) ORDER BY at DESC, id DESC`, ids);
 }
 
 async function reopenMonth(c: OpCtx, a: { bookId: number; ym: string; reason: string }) {
@@ -806,6 +848,8 @@ export const CTY_OPS = {
     },
   },
   'cty.month.close': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; bookIds?: number[]; ym: string; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) => closeMonth(c, a) },
+  'cty.count.save': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { bookId: number; bookIds?: number[]; counted: Money; note?: string | null; detail?: Record<string, Record<string, number>> | null }) => saveCount(c, a) },
+  'cty.count.history': { check: anyone, run: (c: OpCtx, a: { bookId: number }) => countHistory(c, a) },
   'cty.month.reopen': { check: (c: OpCtx) => need(c, 'month.reopen'), run: (c: OpCtx, a: { bookId: number; ym: string; reason: string }) => reopenMonth(c, a) },
   'cty.month.seen': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx, a: { bookId: number; ym: string }) => monthSeen(c, a) },
   'cty.approvals': { check: (c: OpCtx) => need(c, 'cty.month_seen'), run: (c: OpCtx) => approvals(c) },
@@ -835,5 +879,5 @@ export const CTY_OPS = {
   },
 };
 
-export const CTY_READ_ONLY = ['cty.data', 'cty.month.problems', 'cty.approvals', 'cty.month.consolidated'];
+export const CTY_READ_ONLY = ['cty.data', 'cty.count.history', 'cty.month.problems', 'cty.approvals', 'cty.month.consolidated'];
 export type { Cur };

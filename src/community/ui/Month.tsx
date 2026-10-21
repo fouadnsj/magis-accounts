@@ -10,6 +10,7 @@ import { Ring } from './charts';
 import { AllUsd } from './usd';
 import { accName, curName, dayName, money, moneyCur, monthName, t3 } from './text';
 import { CloseMonth } from './Close';
+import { CountHistory } from './CountHistory';
 
 /** The heading of a line: the account just under its family (61402 → 61400). */
 export function headingOf(accounts: CtyAccount[], id: number | null): CtyAccount | undefined {
@@ -200,6 +201,7 @@ export function MonthScreen() {
       </Card>
 
       <button className="cty-give" onClick={() => setCounting(true)}>🧮 {t3('عدّ نقدي الآن (دون إغلاق)', 'Count my cash now (without closing)', "Compter mon argent maintenant (sans clôturer)")}</button>
+      <CountHistory bookId={book.id} />
       <Card>
         {closed ? (
           <div>

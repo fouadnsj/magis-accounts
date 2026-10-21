@@ -130,6 +130,21 @@ describe('money from the econome, exchange, end of the month', () => {
     await run('Superior', 'cty.month.seen', { bookId: b, ym: '2025-10' });
     expect((await one<{ seen_by: string }>(db, 'SELECT seen_by FROM cty_month WHERE book_id = ?', [b]))!.seen_by).toContain('Paul');
   });
+  it('the history of the counts: a count saved by hand and the closing are both kept, with hour and who', async () => {
+    const b = bookOf('Jean');
+    // (the closing above is already in the history, automatically)
+    await run('Jean', 'cty.count.save', { bookId: b, counted: { LOC: 100, USD: 0, EUR: 0 }, note: 'a quick check', detail: { LOC: { '100': 1 } } });
+    await run('Jean', 'cty.count.save', { bookId: b, counted: { LOC: 200, USD: 0, EUR: 0 }, detail: { LOC: { '100': 2 } } });
+    const h = (await run('Jean', 'cty.count.history', { bookId: b })) as { kind: string; who: string; at: string; counted_loc: number; held_loc: number | null; ym: string | null }[];
+    expect(h.map((x) => x.kind)).toEqual(['count', 'count', 'close']); // newest first, nothing replaced
+    expect(h[0]).toMatchObject({ who: 'Jean', counted_loc: 200 });
+    expect(h[0].at).toMatch(/T\d\d:\d\d/);
+    expect(h[2]).toMatchObject({ ym: '2025-10', counted_loc: 2400000 });
+    // the econome and the Superior read it; another Jesuit does not
+    expect(((await run('Econome', 'cty.count.history', { bookId: b })) as unknown[]).length).toBe(3);
+    await expect(run('Marc', 'cty.count.history', { bookId: b })).rejects.toThrow(/Not allowed/);
+    await expect(run('Marc', 'cty.count.save', { bookId: b, counted: { LOC: 1, USD: 0, EUR: 0 } })).rejects.toThrow(/Not allowed/);
+  });
   it('a month with money not yet confirmed cannot close', async () => {
     await run('Econome', 'cty.entry.save', { entry: { book_id: cash(), to_book_id: bookOf('Marc'), date: '2025-10-04', type: 'Transfer', cur: 'LOC', amount: 500000 } });
     await expect(run('Marc', 'cty.month.close', { bookId: bookOf('Marc'), ym: '2025-10', counted: { LOC: 499000, USD: 0, EUR: 0 } })).rejects.toThrow(/not yet confirmed/);

@@ -3,7 +3,7 @@
 // the total is computed and compared with the book. If it matches, the period closes;
 // if not, add what was forgotten or write a note.
 import { useEffect, useState } from 'react';
-import { errText, parseAmount, toast, todayIso } from '../../ui/kit';
+import { confirmBox, errText, parseAmount, toast, todayIso } from '../../ui/kit';
 import { tx, type Msg } from '../../i18n';
 import { CURS, accountBooks, balanceOf, lastDay, periodMonths, quarterOf, r2, type Cur } from '../domain';
 import { useCty, Card, bookLabel } from './CtyApp';
@@ -57,11 +57,32 @@ export function CloseMonth({ ym, onDone, check }: { ym: string; onDone: () => vo
     }
   };
 
+  /** a count saved by hand (any day, nothing closed): it asks first, then stays in the history of the account */
+  const keepCount = async () => {
+    if (!(await confirmBox(t3(`حفظ هذا العدّ في سجل «${bookLabel(book)}»؟ يبقى مسجّلاً بتاريخه وساعته واسمك، ولا يُمحى.`, `Save this count in the history of "${bookLabel(book)}"? It stays recorded with its date, hour and your name, and cannot be erased.`, `Enregistrer ce comptage dans l'historique de « ${bookLabel(book)} » ? Il reste enregistré avec sa date, son heure et votre nom, et ne peut pas être effacé.`)))) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const detail: Record<string, Record<string, number>> = {};
+      for (const c of curs) {
+        detail[c] = Object.fromEntries(d.settings.notes[c].map((v) => [String(v), n(`${c}${v}`)]).filter(([, q]) => q));
+        if (parseAmount(other[c])) detail[c].other = parseAmount(other[c]);
+      }
+      await s.api.call('cty.count.save', { bookId: book.id, bookIds: group.map((b) => b.id), counted: { LOC: counted('LOC'), USD: counted('USD'), EUR: counted('EUR') }, note: note.trim() || null, detail });
+      toast(t3('حُفظ العدّ ✓', 'Count saved ✓', 'Comptage enregistré ✓'));
+      onDone();
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <button className="cty-back" onClick={onDone}>‹ {t3('رجوع', 'Back', 'Retour')}</button>
       <h1>{check ? t3('عدّ النقد', 'Count the cash', "Compter l'argent") : t3('عُدَّ ما معك', 'Count what you have', 'Comptez ce que vous avez')}</h1>
-      {check && <div className="alert info">{t3('للتحقق فقط: لا يُغلق شيء ولا يُحفظ شيء. يمكنك العدّ في أي يوم.', 'Just a check: nothing is closed and nothing is saved. You can count on any day.', "Simple vérification : rien n'est clôturé ni enregistré. Vous pouvez compter n'importe quel jour.")}</div>}
+      {check && <div className="alert info">{t3('لا يُغلق شيء. يمكنك العدّ في أي يوم، وأن تحفظ العدّ في سجل حسابك (يُسأل أولاً).', 'Nothing is closed. You can count on any day, and keep the count in the history of your account (it asks first).', "Rien n'est clôturé. Vous pouvez compter n'importe quel jour et garder le comptage dans l'historique de votre compte (il demande d'abord).")}</div>}
       <p className="muted">{bookLabel(book)} · {title}. {t3('اكتب عدد كل ورقة نقدية؛ البرنامج يجمع ويقارن بدفترك.', 'Write how many of each banknote; the program adds up and compares with your book.', 'Écrivez combien de chaque billet ; le programme additionne et compare avec votre compte.')}</p>
       {!check && problems.length > 0 && <div className="alert warn">{problems.map((p, i) => <div key={i}>{tx(p)}</div>)}</div>}
       {curs.map((c) => (
@@ -97,7 +118,10 @@ export function CloseMonth({ ym, onDone, check }: { ym: string; onDone: () => vo
       )}
       {err && <div className="alert err">{err}</div>}
       {check ? (
-        <button className="btn primary cty-wide" onClick={onDone}>{t3('تم', 'Done', 'Terminé')}</button>
+        <>
+          <button className="btn primary cty-wide" disabled={busy} onClick={keepCount}>💾 {t3('احفظ العدّ في السجل', 'Save this count in the history', "Enregistrer ce comptage dans l'historique")}</button>
+          <button className="btn cty-wide" onClick={onDone}>{t3('تم دون حفظ', 'Done, without saving', 'Terminé, sans enregistrer')}</button>
+        </>
       ) : (
         <button className="btn primary cty-wide" disabled={busy || problems.length > 0 || (diffs.length > 0 && !note.trim())} onClick={close}>
           {busy ? '…' : months.length > 1 ? t3('أغلق الفصل', 'Close the quarter', 'Clôturer le trimestre') : t3('أغلق الشهر', 'Close the month', 'Clôturer le mois')}

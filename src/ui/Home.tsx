@@ -166,9 +166,7 @@ export function Home() {
       )}
 
       {/* envelopes for every book he writes in: his own, Main for those who write there, even a private book */}
-          {!fileHolder && [...new Set([...myBooks, ...writeBooks, ...(can('register.edit') && mainId != null ? [mainId] : [])])].filter((id) => d.lists.books.find((x) => x.id === id)?.parent_id == null).map((id) => (
-            <Envelopes key={`env${id}`} bookId={id} onEntry={nav.entry} />
-          ))}
+          {!fileHolder && <Envelopes bookIds={[...new Set([...myBooks, ...writeBooks, ...(can('register.edit') && mainId != null ? [mainId] : [])])]} onEntry={nav.entry} />}
 
       {showAll && (
         <>

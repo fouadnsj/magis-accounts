@@ -53,7 +53,7 @@ export function Admin() {
 function Months() {
   const { s, d, reload, can, myBooks, limited } = useApp();
   const books = useMemo(
-    () => d.lists.books.filter((b) => !b.is_main && (limited ? myBooks.includes(b.id) : true) && d.rows.some((r) => r.book_id === b.id)),
+    () => d.lists.books.filter((b) => !b.is_main && b.parent_id == null && (limited ? myBooks.includes(b.id) : true) && d.rows.some((r) => r.book_id === b.id)), // (an envelope closes with its book)
     [d, limited, myBooks],
   );
   const months = useMemo(() => {

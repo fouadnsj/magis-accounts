@@ -51,7 +51,6 @@ export function Envelopes({ bookId, onEntry, compact }: { bookId: number; onEntr
   return (
     <div className={compact ? 'cty-card' : 'panel'}>
       <div className={compact ? 'cty-label' : ''} style={compact ? undefined : { fontWeight: 650, marginBottom: 6 }}>✉ {t('الأظرف', 'Envelopes')} · {d.lists.books.find((x) => x.id === bookId)?.name}</div>
-      <p className="muted small" style={{ marginTop: 0 }}>{t('مال تعطيه لمساعد (منشّط، عامل تنظيف…): يبقى في دفترك ويراه المكتب.', 'Money you hand to a helper (a facilitator, the cleaner…): it stays in your book and the office sees it.')}</p>
       {envs.map((e) => {
         const l = left.get(e.id) ?? { syp: 0, usd: 0 };
         const empty = Math.abs(l.syp) < 0.5 && Math.abs(l.usd) < 0.005;

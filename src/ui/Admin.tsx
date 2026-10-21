@@ -212,6 +212,8 @@ function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string
   const noteList = () => (['SYP', 'USD'] as const).flatMap((currency) => NOTES[currency].map((denomination) => ({ currency, denomination, qty: noteQty(currency, denomination) })));
   /** keep the count without closing (to finish later, or to look at it on the Cash page) */
   const saveOnly = async () => {
+    // a count saved by hand goes into the history of the book: ask first (closing itself saves its count without asking)
+    if (!(await confirmBox(t(`حفظ هذا العدّ في سجل دفتر «${name}»؟ يبقى مسجّلاً بتاريخه وساعته واسمك، ولا يُمحى.`, `Save this count in the history of the book "${name}"? It stays recorded with its date, hour and your name, and cannot be erased.`)))) return;
     try {
       await s.api.call('cash.saveCount', { bookId, counts: noteList() });
       setFromCount(new Date().toISOString().slice(0, 10));

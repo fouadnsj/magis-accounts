@@ -994,4 +994,33 @@ ALTER TABLE book ADD COLUMN parent_id INTEGER REFERENCES book(id);
 ALTER TABLE book_month ADD COLUMN count_detail TEXT;
 `,
   },
+  {
+    n: 27,
+    name: 'MAGIS centres: the history of the cash counts of each book',
+    sql: `
+-- Fouad, 21 October 2026: every count that is saved stays in the history of its book, with the
+-- date and hour, who counted, the notes, the book at that moment and the difference — useful when
+-- there is a mistake. kind: 'count' (saved by hand, after a warning) or 'close' (made at month closing,
+-- automatic: it is the reconciliation).
+CREATE TABLE cash_count_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id     INTEGER NOT NULL REFERENCES book(id),
+  at          TEXT NOT NULL,
+  who         TEXT,
+  kind        TEXT NOT NULL CHECK (kind IN ('count','close')),
+  ym          TEXT,
+  counted_syp REAL NOT NULL DEFAULT 0,
+  counted_usd REAL NOT NULL DEFAULT 0,
+  book_syp    REAL,
+  book_usd    REAL,
+  note        TEXT,
+  detail      TEXT
+);
+CREATE INDEX cash_count_log_book ON cash_count_log(book_id, at);
+-- the closings already made become the first entries of the history
+INSERT INTO cash_count_log (book_id, at, who, kind, ym, counted_syp, counted_usd, book_syp, book_usd, note, detail)
+  SELECT book_id, closed_at, closed_by, 'close', ym, counted_syp, counted_usd, book_syp, book_usd, count_note, count_detail
+    FROM book_month WHERE counted_syp IS NOT NULL;
+`,
+  },
 ];

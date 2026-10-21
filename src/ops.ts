@@ -93,6 +93,22 @@ export interface OfficeTransfer {
   n: number | null;
 }
 
+/** One count in a book's history. */
+export interface CashCountLog {
+  id: number;
+  book_id: number;
+  at: string;
+  who: string | null;
+  kind: 'count' | 'close';
+  ym: string | null;
+  counted_syp: number;
+  counted_usd: number;
+  book_syp: number | null;
+  book_usd: number | null;
+  note: string | null;
+  detail: string | null;
+}
+
 export interface BookMonth {
   book_id: number;
   ym: string;
@@ -1254,11 +1270,28 @@ export const OPS = {
     run: async (c: OpCtx, a: { bookId: number; counts: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] }) => {
       if (!writes(c, a.bookId, await mainOf(c.db))) need(c, 'register.edit');
       const at = nowIso();
+      // the book at this moment, and what the notes add up to: kept in the book's history
+      const lists = await loadLists(c.db);
+      const rowsAll = await loadTrx(c.db);
+      const now = (cur: 'SYP' | 'USD') => holders(rowsAll, lists.books, cur).find((l) => l.book?.id === a.bookId)?.shouldHold ?? 0;
+      const sum = (cur: string) => a.counts.filter((x) => x.currency === cur).reduce((n, x) => n + x.denomination * x.qty, 0);
+      const detail = a.counts.filter((x) => x.qty > 0);
       await c.db.batch([
+        { sql: "INSERT INTO cash_count_log (book_id, at, who, kind, counted_syp, counted_usd, book_syp, book_usd, detail) VALUES (?, ?, ?, 'count', ?, ?, ?, ?, ?)", params: [a.bookId, at, c.who, sum('SYP'), sum('USD'), now('SYP'), now('USD'), JSON.stringify(detail)] },
         { sql: 'DELETE FROM cash_count WHERE book_id = ?', params: [a.bookId] },
         ...a.counts.map((x) => ({ sql: 'INSERT INTO cash_count (book_id, currency, denomination, qty, counted_at) VALUES (?,?,?,?,?)', params: [a.bookId, x.currency, x.denomination, x.qty, at] })),
         auditStmt(c.who, 'count', 'cash_count', String(a.bookId), null, a.counts),
       ]);
+    },
+  },
+  /** The history of the counts of a book: every count saved, with date, hour and who (newest first). */
+  'cash.history': {
+    check: anyone,
+    run: async (c: OpCtx, a: { bookId: number }) => {
+      const book = await one<{ private: number }>(c.db, 'SELECT private FROM book WHERE id = ?', [a.bookId]);
+      if (!book) throw new UserError(m('الدفتر غير موجود', 'Book not found'));
+      if (!keeps(c, a.bookId) && (book.private || !(can(c, 'reports.cash') || can(c, 'register.view')))) throw refuse();
+      return c.db.query<CashCountLog>('SELECT * FROM cash_count_log WHERE book_id = ? ORDER BY at DESC, id DESC', [a.bookId]);
     },
   },
   'receipt.add': {
@@ -1344,6 +1377,8 @@ export const OPS = {
           sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note, count_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           params: [a.bookId, a.ym, nowIso(), c.who, bal.syp, bal.usd, a.counted_syp!, a.counted_usd!, note, detail ? JSON.stringify(detail) : null],
         },
+        // the count of the closing goes into the book's history, automatically (it is the reconciliation)
+        { sql: "INSERT INTO cash_count_log (book_id, at, who, kind, ym, counted_syp, counted_usd, book_syp, book_usd, note, detail) VALUES (?, ?, ?, 'close', ?, ?, ?, ?, ?, ?, ?)", params: [a.bookId, nowIso(), c.who, a.ym, a.counted_syp!, a.counted_usd!, bal.syp, bal.usd, note, detail ? JSON.stringify(detail) : null] },
         // the count made in the closing window is also the book's latest count (Cash page)
         ...(detail ? [
           { sql: 'DELETE FROM cash_count WHERE book_id = ?', params: [a.bookId] },
@@ -1641,7 +1676,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

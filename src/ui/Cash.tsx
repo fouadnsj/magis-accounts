@@ -4,6 +4,7 @@ import { useApp, type Data } from '../state';
 import { holders, holdersMonth, monthsOf, type HolderLine, type HolderMonthLine } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { monthWord } from '../i18n';
+import type { CashCountLog } from '../ops';
 import { Field, Modal, Seg, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 
 export const NOTES = { SYP: [10000, 5000, 2000, 1000, 500, 200, 100, 50], USD: [100, 50, 20, 10, 5, 2, 1] };
@@ -123,7 +124,7 @@ export function Cash() {
           <CurrencyFrame cur="USD"><MonthTable lines={holdersMonth(d.rows, d.shownBooks, 'USD', ym)} cur="USD" /></CurrencyFrame>
         </>
       )}
-      {view === 'book' && bookSel != null && <BookMonths bookId={bookSel} />}
+      {view === 'book' && bookSel != null && <BookMonths bookId={bookSel} stamp={counts[bookSel]?.at} />}
       <p className="muted small">
         {t('التحويلات يجب أن يكون مجموعها صفراً: ما خرج من الرئيسي وصل إلى دفتر. التصريف يُحسب للحامل فقط، ليس إيراداً ولا نفقة.',
           "Transfers must total nil: whatever left Main arrived in someone's book. An exchange counts for the holder only — it is neither income nor expense.")}
@@ -209,9 +210,9 @@ function MonthTable({ lines, cur }: { lines: HolderMonthLine[]; cur: 'SYP' | 'US
 }
 
 /** One book, month by month: each month starts where the previous one ended. */
-export function BookMonths({ bookId }: { bookId: number }) {
+export function BookMonths({ bookId, stamp }: { bookId: number; /** changes when a count is saved, to reload the history */ stamp?: string | null }) {
   const { d } = useApp();
-  const [shown, setShown] = useState<Data['bookMonths'][number] | null>(null);
+  const [shown, setShown] = useState<CountInfo | null>(null);
   const book = d.lists.books.find((b) => b.id === bookId);
   const months = monthsOf(d.rows.filter((r) => r.book_id === bookId || (book?.is_main && r.type === 'Transfer')));
   if (!book) return null;
@@ -244,7 +245,7 @@ export function BookMonths({ bookId }: { bookId: number }) {
                     const differs = cur === 'SYP' ? Math.abs(diff) >= 0.5 : Math.abs(diff) >= 0.005;
                     return (
                       <>
-                        <td className="n nowrap">{f(counted)} <button className="btn small ghost" title={t('عدّ الأوراق', 'The notes counted')} onClick={() => setShown(bm)}>🧮</button></td>
+                        <td className="n nowrap">{f(counted)} <button className="btn small ghost" title={t('عدّ الأوراق', 'The notes counted')} onClick={() => setShown(monthInfo(bm, monthLabel(l.ym)))}>🧮</button></td>
                         <td className={`n ${differs ? 'bad' : 'ok'}`} title={bm.count_note ?? ''}>{differs ? f(diff) : '✓'}{differs && bm.count_note ? <div className="muted small" style={{ fontWeight: 400 }}>{bm.count_note}</div> : null}</td>
                       </>
                     );
@@ -260,18 +261,81 @@ export function BookMonths({ bookId }: { bookId: number }) {
   return (
     <>
       {block('SYP')}{block('USD')}
-      {shown && <CountDetail bm={shown} name={book.name} onClose={() => setShown(null)} />}
+      <CountHistory bookId={bookId} stamp={stamp} onShow={setShown} />
+      {shown && <CountDetail info={shown} name={book.name} onClose={() => setShown(null)} />}
     </>
   );
 }
 
-/** The notes counted when a month was closed, with the book, the difference and the reason. */
-function CountDetail({ bm, name, onClose }: { bm: Data['bookMonths'][number]; name: string; onClose: () => void }) {
-  let list: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] = [];
-  try { list = bm.count_detail ? JSON.parse(bm.count_detail) : []; } catch { /* an older closing: totals only */ }
+/** What the detail window shows about one count. */
+interface CountInfo {
+  title: string;
+  at: string;
+  by: string | null;
+  counted_syp: number;
+  counted_usd: number;
+  book_syp: number | null;
+  book_usd: number | null;
+  note: string | null;
+  detail: string | null;
+}
+const monthInfo = (bm: Data['bookMonths'][number], title: string): CountInfo => ({ title, at: bm.closed_at ?? '', by: bm.closed_by, counted_syp: bm.counted_syp ?? 0, counted_usd: bm.counted_usd ?? 0, book_syp: bm.book_syp ?? null, book_usd: bm.book_usd ?? null, note: bm.count_note ?? null, detail: bm.count_detail ?? null });
+/** date and hour, as the person reads them */
+const stampText = (at: string) => {
+  const dt = new Date(at);
+  return Number.isNaN(dt.getTime()) ? at.slice(0, 10) : `${fmtDate(at.slice(0, 10))} ${dt.toTimeString().slice(0, 5)}`;
+};
+
+/** Every count saved for this book, newest first: when (date and hour), who, the notes, the book at that moment, the difference. */
+function CountHistory({ bookId, stamp, onShow }: { bookId: number; stamp?: string | null; onShow: (i: CountInfo) => void }) {
+  const { s } = useApp();
+  const [rows, setRows] = useState<CashCountLog[] | null>(null);
+  useEffect(() => {
+    s.api.call('cash.history', { bookId }).then(setRows).catch(() => setRows([]));
+  }, [s.api, bookId, stamp]);
+  if (!rows) return null;
   return (
-    <Modal title={<>{t('عدّ النقد', 'The cash count')} · {name} · {monthLabel(bm.ym)}</>} onClose={onClose}>
-      <p className="muted small">{t('أُغلق', 'Closed')} {fmtDate((bm.closed_at ?? '').slice(0, 10))} · {bm.closed_by}</p>
+    <div className="panel">
+      <h3 style={{ marginTop: 0 }}>🧮 {t('سجل العدّ', 'History of the counts')}</h3>
+      {rows.length === 0 ? <p className="muted small">{t('لا عدّ محفوظاً بعد. كل عدّ تحفظه يبقى هنا بتاريخه وساعته.', 'No count saved yet. Every count you save stays here with its date and hour.')}</p> : (
+        <div className="tbl-wrap">
+          <table className="t">
+            <thead><tr>
+              <th>{t('متى', 'When')}</th><th>{t('من', 'Who')}</th><th>{t('النوع', 'Kind')}</th>
+              <th className="n">{t('المعدود ل.س', 'Counted SYP')}</th><th className="n">{t('الدفتر ل.س', 'Book SYP')}</th><th className="n">{t('الفرق', 'Difference')}</th>
+              <th className="n">{t('المعدود $', 'Counted USD')}</th><th className="n">{t('الدفتر $', 'Book USD')}</th><th className="n">{t('الفرق', 'Difference')}</th><th />
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => {
+                const dS = r.book_syp == null ? null : r.counted_syp - r.book_syp;
+                const dU = r.book_usd == null ? null : r.counted_usd - r.book_usd;
+                const cell = (x: number | null, f: (n: number) => string, tol: number) => (x == null ? '—' : Math.abs(x) < tol ? <span className="ok">✓</span> : <span className="bad">{f(x)}</span>);
+                return (
+                  <tr key={r.id}>
+                    <td className="nowrap ltr">{stampText(r.at)}</td><td>{r.who ?? ''}</td>
+                    <td>{r.kind === 'close' ? `🔒 ${t('إغلاق', 'Closing')} ${r.ym ? monthLabel(r.ym) : ''}` : t('عدّ', 'Count')}</td>
+                    <td className="n">{fmtSyp(r.counted_syp)}</td><td className="n muted">{r.book_syp == null ? '—' : fmtSyp(r.book_syp)}</td><td className="n">{cell(dS, fmtSyp, 0.5)}</td>
+                    <td className="n">{fmtUsd(r.counted_usd)}</td><td className="n muted">{r.book_usd == null ? '—' : fmtUsd(r.book_usd)}</td><td className="n">{cell(dU, fmtUsd, 0.005)}</td>
+                    <td><button className="btn small ghost" title={t('عدّ الأوراق', 'The notes counted')} onClick={() => onShow({ title: stampText(r.at), at: r.at, by: r.who, counted_syp: r.counted_syp, counted_usd: r.counted_usd, book_syp: r.book_syp, book_usd: r.book_usd, note: r.note, detail: r.detail })}>🧮</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The notes counted when a month was closed, with the book, the difference and the reason. */
+function CountDetail({ info, name, onClose }: { info: CountInfo; name: string; onClose: () => void }) {
+  const bm = { counted_syp: info.counted_syp, counted_usd: info.counted_usd, book_syp: info.book_syp, book_usd: info.book_usd, count_note: info.note };
+  let list: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] = [];
+  try { list = info.detail ? JSON.parse(info.detail) : []; } catch { /* an older closing: totals only */ }
+  return (
+    <Modal title={<>{t('عدّ النقد', 'The cash count')} · {name} · {info.title}</>} onClose={onClose}>
+      <p className="muted small">{stampText(info.at)} · {info.by}</p>
       {list.length ? (
         <div className="notes-grid">
           {(['SYP', 'USD'] as const).map((cur) => (
@@ -317,6 +381,7 @@ function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; coun
     const counts = (['SYP', 'USD'] as const).flatMap((currency) =>
       NOTES[currency].map((denomination) => ({ currency, denomination, qty: parseAmount(q[`${currency}${denomination}`] ?? '') || 0 })),
     );
+    if (!(await confirmBox(t(`حفظ هذا العدّ في سجل دفتر «${book.name}»؟ يبقى مسجّلاً بتاريخه وساعته واسمك، ولا يُمحى.`, `Save this count in the history of the book "${book.name}"? It stays recorded with its date, hour and your name, and cannot be erased.`)))) return;
     try {
       await s.api.call('cash.saveCount', { bookId, counts });
     } catch (e) {
@@ -453,7 +518,7 @@ function HolderCash({ bookId: myBook, switchTo, counted, counts, counting, setCo
       {!fileHolder && (
         <>
           <h2 style={{ marginTop: 8 }}>{t('شهراً بشهر', 'Month by month')}</h2>
-          <BookMonths bookId={myBook} />
+          <BookMonths bookId={myBook} stamp={counts[myBook]?.at} />
         </>
       )}
       {adding && <ReceiptModal onClose={() => setAdding(false)} />}

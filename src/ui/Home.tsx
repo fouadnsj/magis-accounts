@@ -173,10 +173,21 @@ export function Home() {
           <h2>{t('حالة الدفاتر', 'Book status')}</h2>
           <p className="muted small" style={{ marginTop: -6 }}>{t('ما يجب أن يحمله كل صندوق الآن.', 'What each holder should hold now.')}</p>
           <div className="cards">
-            {syp.filter((l) => l.book && (l.book.active || l.shouldHold !== 0)).map((l, i) => (
-              <Balance key={l.book!.id} rate={rateNow} title={l.book!.name} sub={l.book!.keeper_name} syp={l.shouldHold} usd={usd[i].shouldHold}
-                main={!!l.book!.is_main} lastChange={lastChange.get(l.book!.id) ?? null} lastClosed={lastClosed(l.book!.id, !!l.book!.is_main)} onOpen={() => nav.go('register', { book: l.book!.id })} />
-            ))}
+            {/* each book, then its envelopes right after it (an envelope is money with a helper, inside the book) */}
+            {(() => {
+              const shown = syp.map((l, i) => ({ l, u: usd[i] })).filter((x) => x.l.book && (x.l.book.active || x.l.shouldHold !== 0));
+              const ordered = shown.filter((x) => x.l.book!.parent_id == null).flatMap((x) => [x, ...shown.filter((y) => y.l.book!.parent_id === x.l.book!.id)]);
+              // (an envelope whose book he does not see stays at the end)
+              for (const x of shown) if (!ordered.includes(x)) ordered.push(x);
+              return ordered.map(({ l, u }) => {
+                const b = l.book!;
+                const parent = b.parent_id != null ? d.lists.books.find((x) => x.id === b.parent_id) : null;
+                return (
+                  <Balance key={b.id} rate={rateNow} envelope={!!parent} title={parent ? `✉ ${b.keeper_name ?? b.name}` : b.name} sub={parent ? `${t('ظرف', 'Envelope')} · ${parent.name}` : b.keeper_name} syp={l.shouldHold} usd={u.shouldHold}
+                    main={!!b.is_main} lastChange={lastChange.get(b.id) ?? null} lastClosed={lastClosed(b.id, !!b.is_main)} onOpen={() => nav.go('register', { book: b.id })} />
+                );
+              });
+            })()}
           </div>
         </>
       )}
@@ -228,16 +239,18 @@ function ApproveList({ rows }: { rows: import('../domain/types').Trx[] }) {
 }
 
 /** One book: who holds it, pounds and dollars side by side, when it last changed, its last closed month. */
-export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed, onOpen, rate }: {
+export function Balance({ title, sub, syp, usd, main, lastChange, lastClosed, onOpen, rate, envelope }: {
   title: string; sub?: string | null; syp: number; usd: number; main?: boolean; lastChange?: string | null; lastClosed?: string | null;
   /** today's rate (SYP for $1): gives the one total in dollars */
   rate?: number;
+  /** an envelope: money with a helper, shown after its book */
+  envelope?: boolean;
   /** open this book's register */
   onOpen?: () => void;
 }) {
   const when = lastChange ? new Date(lastChange) : null;
   return (
-    <div className={`card balance ${onOpen ? 'clickable' : ''}`} onClick={onOpen} role={onOpen ? 'button' : undefined}
+    <div className={`card balance ${onOpen ? 'clickable' : ''} ${envelope ? 'env-card' : ''}`} onClick={onOpen} role={onOpen ? 'button' : undefined}
       title={onOpen ? t('افتح سجل هذا الدفتر', "Open this book's register") : undefined}>
       <div className="balance-head">
         <PersonIcon kind={main ? 'office' : 'holder'} />

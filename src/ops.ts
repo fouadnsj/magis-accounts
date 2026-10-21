@@ -104,6 +104,8 @@ export interface BookMonth {
   counted_syp?: number | null;
   counted_usd?: number | null;
   count_note?: string | null;
+  /** the note-by-note count (JSON) kept with the closing */
+  count_detail?: string | null;
 }
 
 /** USD of an expense row, all currencies counted (as in the reports). */
@@ -323,7 +325,8 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
   if (th && tl) a = { ...a, rows: a.rows.map((r) => (r.type === 'Transfer' ? { ...r, heading_id: th.id, line_id: tl.id } : r)) };
 
   if (!editAll) {
-    const w = (bookId: number | null) => writes(c, bookId, mainId);
+    // (an envelope of Main is written in by whoever writes in Main)
+    const w = (bookId: number | null) => writes(c, bookId, mainId) || (mainId != null && lists.books.find((b) => b.id === bookId)?.parent_id === mainId && can(c, 'register.main'));
     // What the rows will be (new) and were (old), seen as transfers or as ordinary rows.
     const newTransfers = buildTransfers(a.rows.filter((r) => r.type === 'Transfer'), lists.books);
     for (const t of newTransfers) {
@@ -341,7 +344,11 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
     }
     // Step 1 of month closing: a closed book-month is locked for the holder.
     const bm = await bookMonths(c.db);
-    const closedBook = (bookId: number | null, d: string | null) => bm.some((x) => x.book_id === bookId && x.ym === ym(d));
+    // (an envelope is closed with its book: when the book's month is closed, so is the envelope's)
+    const closedBook = (bookId: number | null, d: string | null) => {
+      const parent = lists.books.find((b) => b.id === bookId)?.parent_id ?? -1;
+      return bm.some((x) => (x.book_id === bookId || x.book_id === parent) && x.ym === ym(d));
+    };
     for (const r of touched) {
       const old = byId.get(r.id);
       if (closedBook(r.book_id, r.date) || (old && closedBook(old.book_id, old.date)))
@@ -430,7 +437,8 @@ async function saveEnvelope(c: OpCtx, a: { id?: number | null; parentId: number;
     return a.id;
   }
   await c.db.batch([
-    { sql: 'INSERT INTO book (name, keeper_name, city_id, account_id, is_main, parent_id, sort) VALUES (?, ?, ?, ?, 0, ?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM book))', params: [name, helper, parent.city_id, parent.account_id, parent.id] },
+    // (an envelope of a private book is private too: its expenses are not shown line by line to the others)
+    { sql: 'INSERT INTO book (name, keeper_name, city_id, account_id, is_main, parent_id, private, sort) VALUES (?, ?, ?, ?, 0, ?, (SELECT private FROM book WHERE id = ?), (SELECT COALESCE(MAX(sort), 0) + 1 FROM book))', params: [name, helper, parent.city_id, parent.account_id, parent.id, parent.id] },
     // kept by whoever keeps the holder's book
     { sql: 'INSERT OR IGNORE INTO user_book (profile_id, book_id) SELECT profile_id, (SELECT MAX(id) FROM book WHERE parent_id = ?) FROM user_book WHERE book_id = ?', params: [parent.id, parent.id] },
     auditStmt(c.who, 'add', 'book', name, null, { envelope: name, of: parent.name }),
@@ -520,7 +528,7 @@ async function closingProblems(c: OpCtx, month: string, bookId: number | null): 
   if (bookId == null) {
     const bm = await bookMonths(c.db);
     const open = lists.books
-      .filter((b) => !b.is_main && all.some((r) => r.book_id === b.id && ym(r.date) === month))
+      .filter((b) => !b.is_main && b.parent_id == null && all.some((r) => r.book_id === b.id && ym(r.date) === month))
       .filter((b) => !bm.some((x) => x.book_id === b.id && x.ym === month));
     if (open.length) out.push(m(`دفاتر لم تُغلق بعد: ${open.map((b) => b.name).join('، ')}`, `Books not closed yet: ${open.map((b) => b.name).join(', ')}`));
   }
@@ -1299,13 +1307,21 @@ export const OPS = {
   'bookMonth.close': {
     check: anyone,
     /** The cash is counted at closing; a difference with the book must be explained. */
-    run: async (c: OpCtx, a: { bookId: number; ym: string; counted_syp?: number | null; counted_usd?: number | null; note?: string | null }) => {
+    run: async (c: OpCtx, a: { bookId: number; ym: string; counted_syp?: number | null; counted_usd?: number | null; note?: string | null; counts?: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] }) => {
       if (!keeps(c, a.bookId)) need(c, 'month.close'); // the office may close a book for its keeper
       if (!keeps(c, a.bookId) && !can(c, 'register.edit') && !can(c, 'register.view')) throw refuse();
       if ((await closedMonths(c.db)).has(a.ym)) throw new UserError(m('الشهر مغلق مسبقاً', 'The month is already closed'));
       throwIf(await closingProblems(c, a.ym, a.bookId));
       const ok = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
       if (!ok(a.counted_syp) || !ok(a.counted_usd)) throw new UserError(m('عُدّ النقد أولاً: الليرة والدولار', 'Count the cash first: pounds and dollars'));
+      // what was counted note by note (kept with the closing); the totals must be what the notes add up to
+      const detail = Array.isArray(a.counts) && a.counts.length
+        ? a.counts.filter((x) => (x.currency === 'SYP' || x.currency === 'USD') && Number.isFinite(x.denomination) && Number.isFinite(x.qty) && x.qty > 0).map((x) => ({ currency: x.currency, denomination: x.denomination, qty: x.qty }))
+        : null;
+      if (detail) {
+        const sum = (cur: string) => detail.filter((x) => x.currency === cur).reduce((n, x) => n + x.denomination * x.qty, 0);
+        if (Math.abs(sum('SYP') - a.counted_syp!) >= 0.5 || Math.abs(sum('USD') - a.counted_usd!) >= 0.005) throw new UserError(m('مجموع الأوراق لا يطابق المبلغ المعدود', 'The notes do not add up to the amount counted'));
+      }
       const lists = await loadLists(c.db);
       const rowsAll = await loadTrx(c.db);
       const bal = balanceAt(rowsAll, lists.books, a.bookId, a.ym);
@@ -1325,9 +1341,14 @@ export const OPS = {
       if (differs && !note) throw new UserError(m('النقد المعدود يختلف عن الدفتر: اكتب السبب', 'The cash counted differs from the book: write why'));
       await c.db.batch([
         {
-          sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          params: [a.bookId, a.ym, nowIso(), c.who, bal.syp, bal.usd, a.counted_syp!, a.counted_usd!, note],
+          sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note, count_detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          params: [a.bookId, a.ym, nowIso(), c.who, bal.syp, bal.usd, a.counted_syp!, a.counted_usd!, note, detail ? JSON.stringify(detail) : null],
         },
+        // the count made in the closing window is also the book's latest count (Cash page)
+        ...(detail ? [
+          { sql: 'DELETE FROM cash_count WHERE book_id = ?', params: [a.bookId] },
+          ...detail.map((x) => ({ sql: 'INSERT INTO cash_count (book_id, currency, denomination, qty, counted_at) VALUES (?,?,?,?,?)', params: [a.bookId, x.currency, x.denomination, x.qty, nowIso()] })),
+        ] : []),
         ...envStmts,
         auditStmt(c.who, 'close', 'book_month', `${a.bookId}|${a.ym}`, null, { book: bal, counted: { syp: a.counted_syp, usd: a.counted_usd }, note }),
       ]);
@@ -1358,7 +1379,17 @@ export const OPS = {
     check: (c: OpCtx) => need(c, 'month.close'),
     run: async (c: OpCtx, a: { ym: string }) => {
       throwIf(await closingProblems(c, a.ym, null));
+      // the envelopes still open (those of Main, which has no book-month of its own) close with the month
+      const lists = await loadLists(c.db);
+      const rowsAll = await loadTrx(c.db);
+      const done = await bookMonths(c.db);
+      const open = lists.books.filter((b) => b.parent_id != null && rowsAll.some((r) => r.book_id === b.id && ym(r.date) === a.ym) && !done.some((x) => x.book_id === b.id && x.ym === a.ym));
+      for (const e of open) throwIf(await closingProblems(c, a.ym, e.id));
       await c.db.batch([
+        ...open.map((e) => {
+          const eb = balanceAt(rowsAll, lists.books, e.id, a.ym);
+          return { sql: 'INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', params: [e.id, a.ym, nowIso(), c.who, eb.syp, eb.usd, eb.syp, eb.usd, 'envelope · with the helper'] };
+        }),
         { sql: 'INSERT OR IGNORE INTO closed_month (ym, closed_at, closed_by) VALUES (?, ?, ?)', params: [a.ym, nowIso(), c.who] },
         auditStmt(c.who, 'close', 'closed_month', a.ym, null, null),
       ]);
@@ -1536,7 +1567,7 @@ export const OPS = {
     check: (c: OpCtx) => need(c, 'users.manage'),
     run: (c: OpCtx, a: { id: number; private: boolean }) =>
       c.db.batch([
-        { sql: 'UPDATE book SET private = ? WHERE id = ? AND is_main = 0', params: [a.private ? 1 : 0, a.id] },
+        { sql: 'UPDATE book SET private = ? WHERE (id = ? OR parent_id = ?) AND is_main = 0', params: [a.private ? 1 : 0, a.id, a.id] },
         auditStmt(c.who, 'edit', 'book', String(a.id), null, { private: a.private }),
       ]),
   },

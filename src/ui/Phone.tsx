@@ -153,7 +153,7 @@ function MonthCard({ bookId, types, onEntry }: { bookId: number; types: TrxType[
         </div>
       )}
 
-      {!book.is_main && !book.private && <Envelopes bookId={bookId} onEntry={onEntry} compact />}
+      <Envelopes bookId={bookId} onEntry={onEntry} compact />
 
       <div className="cty-card">
         <div className="cty-label">{t('هذا الشهر', 'This month')}</div>

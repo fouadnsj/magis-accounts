@@ -985,4 +985,13 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"users.passwords"]')
 ALTER TABLE book ADD COLUMN parent_id INTEGER REFERENCES book(id);
 `,
   },
+  {
+    n: 26,
+    name: 'MAGIS centres: the note-by-note count is kept with the closing of a book-month',
+    sql: `
+-- Fouad, 21 October 2026: the cash is counted in the closing window itself, note by note; what was
+-- counted (JSON: [{currency, denomination, qty}]) stays with the month it closed.
+ALTER TABLE book_month ADD COLUMN count_detail TEXT;
+`,
+  },
 ];

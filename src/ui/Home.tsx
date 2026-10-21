@@ -16,7 +16,7 @@ import { Envelopes } from './Envelopes';
 export const TYPE_ICON: Record<TrxType, string> = { Exp: '−', Income: '+', Transfer: '⇄', Exchange: '💱' };
 
 export function Home() {
-  const { s, d, can, myBooks, limited, fileHolder, reload } = useApp();
+  const { s, d, can, myBooks, writeBooks, limited, fileHolder, reload } = useApp();
   const nav = useNav();
   const names = useNames();
   const mainId = d.lists.books.find((b) => b.is_main)?.id ?? null;
@@ -162,11 +162,13 @@ export function Home() {
               );
             })}
           </div>
-          {!fileHolder && myBooks.filter((id) => { const b = d.lists.books.find((x) => x.id === id); return b && !b.is_main && !b.private && b.parent_id == null; }).map((id) => (
-            <Envelopes key={`env${id}`} bookId={id} onEntry={nav.entry} />
-          ))}
         </>
       )}
+
+      {/* envelopes for every book he writes in: his own, Main for those who write there, even a private book */}
+          {!fileHolder && [...new Set([...myBooks, ...writeBooks, ...(can('register.edit') && mainId != null ? [mainId] : [])])].filter((id) => d.lists.books.find((x) => x.id === id)?.parent_id == null).map((id) => (
+            <Envelopes key={`env${id}`} bookId={id} onEntry={nav.entry} />
+          ))}
 
       {showAll && (
         <>

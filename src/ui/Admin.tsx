@@ -14,6 +14,7 @@ import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
+import { NOTES } from './Cash';
 
 type Tab = 'months' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
 
@@ -185,26 +186,35 @@ function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string
   const [usd, setUsd] = useState('');
   const [note, setNote] = useState('');
   const [fromCount, setFromCount] = useState<string | null>(null);
+  // the cash counted note by note, right here (Fouad, 21 October 2026): the totals below follow it
+  const [q, setQ] = useState<Record<string, string>>({});
+  const noteQty = (cur: 'SYP' | 'USD', den: number) => parseAmount(q[`${cur}${den}`] ?? '') || 0;
+  const noteTot = (cur: 'SYP' | 'USD') => NOTES[cur].reduce((n, den) => n + den * noteQty(cur, den), 0);
+  const byNotes = Object.values(q).some((v) => (parseAmount(v) || 0) > 0);
   useEffect(() => {
     s.api.call('bookMonth.balance', { bookId, ym }).then(setBal).catch((e) => toast(errText(e), true));
     // the last note-by-note count of this book, if any, fills the boxes
     s.api.call('cash.counts').then((rows: CashCountRow[]) => {
       const mine = rows.filter((r) => r.book_id === bookId);
       if (!mine.length) return;
-      const tot = (cur: 'SYP' | 'USD') => mine.filter((r) => r.currency === cur).reduce((x, r) => x + r.denomination * r.qty, 0);
-      setSyp(String(tot('SYP')));
-      setUsd(String(tot('USD')));
+      // the book's last count fills the grid (he checks it, corrects it, or counts again)
+      const o: Record<string, string> = {};
+      for (const r of mine) if (r.qty) o[`${r.currency}${r.denomination}`] = String(r.qty);
+      setQ(o);
       setFromCount(mine[0].counted_at?.slice(0, 10) ?? null);
     }).catch(() => undefined);
   }, [s, bookId, ym]);
-  const cs = parseAmount(syp), cu = parseAmount(usd);
-  const ready = syp.trim() !== '' && usd.trim() !== '';
+  const cs = byNotes ? noteTot('SYP') : parseAmount(syp), cu = byNotes ? noteTot('USD') : parseAmount(usd);
+  const ready = byNotes || (syp.trim() !== '' && usd.trim() !== '');
   const dSyp = bal && ready ? cs - bal.syp : 0;
   const dUsd = bal && ready ? cu - bal.usd : 0;
   const differs = Math.abs(dSyp) >= 0.5 || Math.abs(dUsd) >= 0.005;
   const go = async () => {
     try {
-      await s.api.call('bookMonth.close', { bookId, ym, counted_syp: cs, counted_usd: cu, note: note.trim() || null });
+      const counts = byNotes
+        ? (['SYP', 'USD'] as const).flatMap((currency) => NOTES[currency].map((denomination) => ({ currency, denomination, qty: noteQty(currency, denomination) })).filter((x) => x.qty > 0))
+        : undefined;
+      await s.api.call('bookMonth.close', { bookId, ym, counted_syp: cs, counted_usd: cu, note: note.trim() || null, counts });
       await onDone();
     } catch (e) {
       toast(errText(e), true);
@@ -218,15 +228,36 @@ function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string
         <tbody>
           <tr><td>{t(`الدفتر في نهاية ${ym}`, `The book at the end of ${ym}`)}</td><td className="n">{bal ? fmtSyp(bal.syp) : '…'}</td><td className="n">{bal ? fmtUsd(bal.usd) : '…'}</td></tr>
           <tr>
-            <td>{t('النقد المعدود', 'Cash counted')}{fromCount && <div className="muted small">{t('من عدّك في', 'from your count of')} {fromCount}</div>}</td>
-            <td className="n"><input className="ltr num" inputMode="decimal" value={syp} onChange={(e) => setSyp(e.target.value)} style={{ width: 140 }} /></td>
-            <td className="n"><input className="ltr num" inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} style={{ width: 110 }} /></td>
+            <td>{t('النقد المعدود', 'Cash counted')}{byNotes && fromCount && <div className="muted small">{t('من عدّك في', 'from your count of')} {fromCount}</div>}</td>
+            <td className="n">{byNotes ? <b>{fmtSyp(cs)}</b> : <input className="ltr num" inputMode="decimal" value={syp} onChange={(e) => setSyp(e.target.value)} style={{ width: 140 }} />}</td>
+            <td className="n">{byNotes ? <b>{fmtUsd(cu)}</b> : <input className="ltr num" inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} style={{ width: 110 }} />}</td>
           </tr>
           {ready && bal && (
             <tr><td><b>{t('الفرق', 'Difference')}</b></td><td className={`n ${Math.abs(dSyp) >= 0.5 ? 'bad' : 'ok'}`}><b>{fmtSyp(dSyp)}</b></td><td className={`n ${Math.abs(dUsd) >= 0.005 ? 'bad' : 'ok'}`}><b>{fmtUsd(dUsd)}</b></td></tr>
           )}
         </tbody>
       </table>
+      <details className="count-grid" open={byNotes || undefined}>
+        <summary>🧮 {t('عدّ النقد ورقة ورقة هنا', 'Count the cash note by note here')}</summary>
+        <p className="muted small" style={{ margin: '6px 0' }}>{t('اكتب عدد كل فئة؛ يملأ المجموع تلقائياً، ويُحفظ العدّ مع هذا الشهر.', 'Write how many of each note; the total fills in by itself, and the count is kept with this month.')}</p>
+        <div className="notes-grid">
+          {(['SYP', 'USD'] as const).map((cur) => (
+            <table className="t" key={cur}>
+              <thead><tr><th className="n">{cur === 'SYP' ? t('الفئة ل.س', 'SYP note') : t('الفئة $', 'USD note')}</th><th className="n">{t('العدد', 'How many')}</th><th className="n">{t('المجموع', 'Total')}</th></tr></thead>
+              <tbody>
+                {NOTES[cur].map((den) => (
+                  <tr key={den}>
+                    <td className="n">{den.toLocaleString('en-US')}</td>
+                    <td style={{ width: 90 }}><input className="inp num" inputMode="numeric" value={q[`${cur}${den}`] ?? ''} onChange={(e) => setQ({ ...q, [`${cur}${den}`]: e.target.value })} /></td>
+                    <td className="n">{(cur === 'SYP' ? fmtSyp : fmtUsd)(den * noteQty(cur, den))}</td>
+                  </tr>
+                ))}
+                <tr className="total"><td>{t('المجموع', 'Total')}</td><td /><td className="n"><b>{(cur === 'SYP' ? fmtSyp : fmtUsd)(noteTot(cur))}</b></td></tr>
+              </tbody>
+            </table>
+          ))}
+        </div>
+      </details>
       {ready && differs && (
         <Field label={t('لماذا يختلف؟ (يُحفظ مع الشهر)', 'Why does it differ? (kept with the month)')}>
           <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} />

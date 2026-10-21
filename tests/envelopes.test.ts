@@ -77,4 +77,46 @@ describe('envelopes', () => {
     const envId = (await db.query<{ id: number }>('SELECT id FROM book WHERE parent_id = ?', [roulaId]))[0].id;
     expect(closed.map((x) => x.book_id).sort()).toEqual([roulaId, envId].sort());
   });
+
+  it('the count made in the closing window (note by note) is kept with the month, and is the book\'s latest count', async () => {
+    await db.batch([{ sql: "INSERT INTO book (name, keeper_name, is_main, sort) VALUES ('Counter', 'Counter', 0, 99)" }]);
+    const counter = (await db.query<{ id: number }>("SELECT id FROM book WHERE name = 'Counter'"))[0].id;
+    await runOp(sup, 'user.save', { name: 'Counter', access_id: 3, books: [counter], pin: 'counter-pass-1' });
+    const cnt = await ctxOf('Counter');
+    const inc = L.lines.find((l) => l.name === 'Donation')!;
+    await runOp(cnt, 'trx.save', { rows: [row(counter, { type: 'Income', date: '2026-10-05', heading_id: inc.heading_id, line_id: inc.id, inc_syp: 3000, explanation: 'gift' }), row(counter, { type: 'Income', date: '2026-10-06', heading_id: inc.heading_id, line_id: inc.id, inc_usd: 20, explanation: 'gift in dollars' })] });
+    const counts = [{ currency: 'SYP' as const, denomination: 1000, qty: 3 }, { currency: 'USD' as const, denomination: 10, qty: 2 }];
+    // the notes must add up to what is declared
+    await expect(runOp(cnt, 'bookMonth.close', { bookId: counter, ym: '2026-10', counted_syp: 999, counted_usd: 20, note: 'x', counts })).rejects.toThrow(/add up/);
+    await runOp(cnt, 'bookMonth.close', { bookId: counter, ym: '2026-10', counted_syp: 3000, counted_usd: 20, counts });
+    const bm = (await db.query<{ count_detail: string }>('SELECT count_detail FROM book_month WHERE book_id = ? AND ym = ?', [counter, '2026-10']))[0];
+    expect(JSON.parse(bm.count_detail)).toEqual(counts);
+    const latest = await db.query<{ currency: string; denomination: number; qty: number }>('SELECT currency, denomination, qty FROM cash_count WHERE book_id = ? ORDER BY currency', [counter]);
+    expect(latest.map((x) => `${x.currency}${x.denomination}x${x.qty}`)).toEqual(['SYP1000x3', 'USD10x2']);
+  });
+
+  it('envelopes exist for any book: Main\'s (made by the Accountant) and a private book\'s, which stays private', async () => {
+    const mainId = L.books.find((b) => b.is_main)!.id;
+    const com = await ctxOf('Com');
+    const envMain = (await runOp(com, 'envelope.save', { parentId: mainId, helper: 'Driver' })) as number;
+    expect((await db.query<{ parent_id: number; private: number }>('SELECT parent_id, private FROM book WHERE id = ?', [envMain]))[0]).toMatchObject({ parent_id: mainId, private: 0 });
+    // a private book (the Superior's) and its envelope
+    const fouad = (await db.query<{ id: number }>("SELECT id FROM book WHERE name = 'Fouad'"))[0]?.id ?? roulaId;
+    await db.batch([{ sql: 'UPDATE book SET private = 1 WHERE id = ?', params: [fouad] }]);
+    await runOp(sup, 'user.save', { id: sup.profile.id, name: 'Sup', access_id: 1, books: [fouad] });
+    sup = await ctxOf('Sup');
+    const envPriv = (await runOp(sup, 'envelope.save', { parentId: fouad, helper: 'Helper' })) as number;
+    expect((await db.query<{ private: number }>('SELECT private FROM book WHERE id = ?', [envPriv]))[0].private).toBe(1);
+    // an expense in that envelope is not shown line by line to the Accountant: one total only
+    const exp = L.lines.find((l) => l.name === 'Consumables for workshops')!;
+    await runOp(sup, 'trx.save', { rows: [row(envPriv, { type: 'Exp', heading_id: exp.heading_id, line_id: exp.id, exp_syp: 1234, explanation: 'secret' })] });
+    const seen = (await runOp(com, 'data', {})) as DataPayload;
+    expect(seen.rows.filter((r) => r.book_id === envPriv && r.explanation === 'secret')).toHaveLength(0);
+    expect(seen.rows.some((r) => r.book_id === envPriv && r.private_total && r.exp_syp === 1234)).toBe(true);
+    // the office's month closing takes the open envelopes (Main's) with it
+    await runOp(com, 'trx.save', { rows: [row(envMain, { type: 'Exp', heading_id: exp.heading_id, line_id: exp.id, exp_syp: 100, explanation: 'fuel' })] });
+    await runOp(sup, 'month.close', { ym: '2026-11' });
+    const closedEnv = await db.query<{ book_id: number }>("SELECT book_id FROM book_month WHERE ym = '2026-11'");
+    expect(closedEnv.map((x) => x.book_id)).toContain(envMain);
+  });
 });

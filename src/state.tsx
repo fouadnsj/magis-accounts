@@ -155,7 +155,9 @@ export function AppProvider({ session, onLogout, children }: { session: Session;
       myBooks: p.books,
       writeBooks: (() => {
         const main = d.lists.books.find((b) => b.is_main)?.id;
-        return has(p, 'register.main') && main != null && !p.books.includes(main) ? [main, ...p.books] : p.books;
+        const base = has(p, 'register.main') && main != null && !p.books.includes(main) ? [main, ...p.books] : p.books;
+        // the envelopes of the books he writes in (those of Main come with "writes in Main")
+        return [...base, ...d.lists.books.filter((b) => b.parent_id != null && base.includes(b.parent_id) && !base.includes(b.id)).map((b) => b.id)];
       })(),
       myBook: p.books[0] ?? null,
       limited: !has(p, 'register.view'),

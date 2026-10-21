@@ -260,7 +260,7 @@ function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string
       </details>
       {ready && differs && (
         <Field label={t('لماذا يختلف؟ (يُحفظ مع الشهر)', 'Why does it differ? (kept with the month)')}>
-          <input autoFocus value={note} onChange={(e) => setNote(e.target.value)} />
+          <input value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
       )}
       <div className="modal-foot">

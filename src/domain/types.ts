@@ -126,6 +126,9 @@ export interface Settings {
   def_book_id: number | null;
   fiscal_start: string | null; // YYYY-MM-DD; dates before it are refused
   exchange_tolerance: number; // 0.25 = ±25 %
+  /** the banknotes listed in the cash count, e.g. "10000, 5000, 2000" (null = the usual ones) */
+  count_notes_syp: string | null;
+  count_notes_usd: string | null;
   /** an expense from this amount (USD, all currencies counted) needs its scanned document; 0 = never */
   doc_required_usd: number;
   /** large expenses wait for approval */

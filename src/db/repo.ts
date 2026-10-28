@@ -29,6 +29,8 @@ export const DEFAULT_SETTINGS: Settings = {
   def_book_id: null,
   fiscal_start: null,
   exchange_tolerance: 0.25,
+  count_notes_syp: null,
+  count_notes_usd: null,
   doc_required_usd: 50,
   approval_on: 0,
   approval_usd: 500,
@@ -58,6 +60,8 @@ async function loadSettings(db: Db): Promise<Settings> {
       case 'def_book_id':
         s[key] = Number(value);
         break;
+      case 'count_notes_syp':
+      case 'count_notes_usd':
       case 'fiscal_start':
       case 'doc_since':
       case 'approval_since':

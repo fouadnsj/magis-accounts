@@ -6,6 +6,7 @@ import { useApp } from '../state';
 import type { SimpleList } from '../db/repo';
 import { TYPES, type Book, type TrxType } from '../domain/types';
 import { TYPE_LABEL, tx } from '../i18n';
+import { notesOf } from './Cash';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'donors' | 'settings';
@@ -359,6 +360,13 @@ function SettingsTab() {
   const [rate, setRate] = useState(String(st.usd_rate));
   const [tol, setTol] = useState(String(Math.round(st.exchange_tolerance * 100)));
   const [fs, setFs] = useState(st.fiscal_start ?? '');
+  const notes = notesOf(st);
+  const [nSyp, setNSyp] = useState(notes.SYP.join(', '));
+  const [nUsd, setNUsd] = useState(notes.USD.join(', '));
+  const saveNotes = (key: 'count_notes_syp' | 'count_notes_usd', txt: string) => {
+    const v = notesOf({ count_notes_syp: null, count_notes_usd: null, [key]: txt })[key === 'count_notes_syp' ? 'SYP' : 'USD'].join(', ');
+    if (v !== notes[key === 'count_notes_syp' ? 'SYP' : 'USD'].join(', ')) void act(() => s.api.call('settings.save', { [key]: v }), t('حُفظ', 'Saved'));
+  };
   const opt = (arr: { id: number; name: string; active: number }[]) => arr.filter((x) => x.active).map((x) => ({ value: x.id, label: x.name }));
   return (
     <div className="panel" style={{ maxWidth: 760 }}>
@@ -380,6 +388,12 @@ function SettingsTab() {
         <Field label={t('الدفتر الافتراضي', 'Default book')}><Select value={st.def_book_id} options={opt(d.lists.books)} onChange={(v) => act(() => s.api.call('settings.save', { def_book_id: v }))} /></Field>
         <Field label={t('بداية السنة المالية (لا تواريخ قبلها)', 'Fiscal year start (no dates before it)')}>
           <input type="date" value={fs} onChange={(e) => setFs(e.target.value)} onBlur={() => fs !== (st.fiscal_start ?? '') && act(() => s.api.call('settings.save', { fiscal_start: fs || null }), t('حُفظ', 'Saved'))} />
+        </Field>
+        <Field label={t('فئات الأوراق النقدية للعدّ — ليرة (افصل بفاصلة)', 'Banknotes for counting — SYP (separate with commas)')}>
+          <input className="num ltr" value={nSyp} onChange={(e) => setNSyp(e.target.value)} onBlur={() => saveNotes('count_notes_syp', nSyp)} />
+        </Field>
+        <Field label={t('فئات الأوراق النقدية للعدّ — دولار (افصل بفاصلة)', 'Banknotes for counting — USD (separate with commas)')}>
+          <input className="num ltr" value={nUsd} onChange={(e) => setNUsd(e.target.value)} onBlur={() => saveNotes('count_notes_usd', nUsd)} />
         </Field>
       </div>
     </div>

@@ -14,7 +14,7 @@ import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
-import { NOTES } from './Cash';
+import { notesOf } from './Cash';
 
 type Tab = 'months' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
 
@@ -189,6 +189,7 @@ function CloseBook({ bookId, ym, onClose, onDone }: { bookId: number; ym: string
   // the cash counted note by note, right here (Fouad, 21 October 2026): the totals below follow it
   const [q, setQ] = useState<Record<string, string>>({});
   const noteQty = (cur: 'SYP' | 'USD', den: number) => parseAmount(q[`${cur}${den}`] ?? '') || 0;
+  const NOTES = notesOf(d.lists.settings);
   const noteTot = (cur: 'SYP' | 'USD') => NOTES[cur].reduce((n, den) => n + den * noteQty(cur, den), 0);
   const byNotes = Object.values(q).some((v) => (parseAmount(v) || 0) > 0);
   useEffect(() => {

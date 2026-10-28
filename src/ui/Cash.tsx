@@ -9,6 +9,15 @@ import { Field, Modal, Seg, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseA
 
 export const NOTES = { SYP: [10000, 5000, 2000, 1000, 500, 200, 100, 50], USD: [100, 50, 20, 10, 5, 2, 1] };
 
+/** The notes of the cash count: the centre's own list (Lists → Settings), else the usual ones; biggest first. */
+export function notesOf(st: { count_notes_syp: string | null; count_notes_usd: string | null }): { SYP: number[]; USD: number[] } {
+  const parse = (txt: string | null, usual: number[]) => {
+    const xs = (txt ?? '').split(/[,،\s]+/).map((x) => Number(x.replace(/[^0-9.]/g, ''))).filter((x) => x > 0);
+    return xs.length ? [...new Set(xs)].sort((a, b) => b - a) : usual;
+  };
+  return { SYP: parse(st.count_notes_syp, NOTES.SYP), USD: parse(st.count_notes_usd, NOTES.USD) };
+}
+
 type Counts = Record<number, { SYP: Map<number, number>; USD: Map<number, number>; at: string | null }>;
 
 /** A holder's own balance. On the server the office's transfers are in the register.
@@ -368,6 +377,12 @@ function CountDetail({ info, name, onClose }: { info: CountInfo; name: string; o
 function CountModal({ bookId, counts, onClose, onSaved }: { bookId: number; counts: Counts; onClose: () => void; onSaved: () => Promise<void> }) {
   const { s, d } = useApp();
   const book = d.lists.books.find((b) => b.id === bookId)!;
+  // the centre's notes, and any note an earlier count of this book used that was taken off the list since
+  const base = notesOf(d.lists.settings);
+  const NOTES = {
+    SYP: [...new Set([...base.SYP, ...(counts[bookId]?.SYP.keys() ?? [])])].sort((a, b) => b - a),
+    USD: [...new Set([...base.USD, ...(counts[bookId]?.USD.keys() ?? [])])].sort((a, b) => b - a),
+  };
   const [q, setQ] = useState<Record<string, string>>(() => {
     const o: Record<string, string> = {};
     for (const cur of ['SYP', 'USD'] as const) for (const den of NOTES[cur]) {

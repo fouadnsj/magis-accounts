@@ -43,13 +43,22 @@ export function Register() {
   const withDocs = useMemo(() => new Set(d.attachments.map((x) => x.trx_id)), [d.attachments]);
   const months = useMemo(() => [...new Set(d.rows.map((r) => r.date?.slice(0, 7)).filter(Boolean) as string[])].sort().reverse(), [d.rows]);
 
+  // a transfer between Main and another book is written once, on the other book: Main's side is implicit,
+  // so Main's register shows it too (the money is in Main's balance)
+  const mainId = d.lists.books.find((b) => b.is_main)?.id;
+  const lonely = useMemo(() => {
+    const n = new Map<string, number>();
+    for (const r of d.rows) if (r.type === 'Transfer' && r.transfer_group) n.set(r.transfer_group, (n.get(r.transfer_group) ?? 0) + 1);
+    return n;
+  }, [d.rows]);
+  const mainSide = (r: Trx, book: number) => book === mainId && r.type === 'Transfer' && r.book_id !== mainId && (!r.transfer_group || lonely.get(r.transfer_group) === 1);
+
   const rows = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return d.rows.filter((r) => {
-      if (r.private_book && !r.private_total) return false; // a private book's transfer: shown only to confirm it (Home)
       if (review && !r.review) return false;
       if (month === 'none' ? r.date : month && !r.date?.startsWith(month)) return false;
-      if (book != null && r.book_id !== book) return false;
+      if (book != null && r.book_id !== book && !mainSide(r, book)) return false;
       if (account != null && r.account_id !== account) return false;
       if (type && r.type !== type) return false;
       if (heading != null && r.heading_id !== heading) return false;
@@ -60,7 +69,7 @@ export function Register() {
       }
       return true;
     });
-  }, [d.rows, review, month, book, account, type, heading, q, names]);
+  }, [d.rows, review, month, book, account, type, heading, q, names, mainId, lonely]);
 
   // what each column sorts by
   const sortValue = useMemo((): Record<string, (r: Trx) => string | number> => ({
@@ -128,7 +137,7 @@ export function Register() {
     { key: 'type', label: t('النوع', 'Type'), td: (r) => <>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</> },
     { key: 'heading', label: t('البند', 'Heading'), td: (r) => r.heading_id == null ? '' : `${icons.heading(r.heading_id)} ${names.heading(r.heading_id)}` },
     { key: 'line', label: t('الخط', 'Line'), td: (r) => r.line_id == null ? '' : `${icons.line(r.line_id)} ${names.line(r.line_id)}` },
-    { key: 'explanation', label: t('الشرح', 'Explanation'), td: (r) => r.explanation },
+    { key: 'explanation', label: t('الشرح', 'Explanation'), td: (r) => (r.private_book && !r.private_total && r.type === 'Transfer' ? <i className="muted">{t('تحويل من دفتر خاص', 'Transfer from a private book')}</i> : r.explanation) },
     { key: 'party', label: t('الجهة', 'Party'), td: (r) => names.party(r.party_id) },
     { key: 'receipt', label: t('الوصل', 'Receipt'), td: (r) => r.receipt },
     { key: 'inc_syp', label: 'Inc SYP', n: true, td: (r) => fmtSyp(r.inc_syp), foot: () => fmtSyp(tot.inc_syp) },
@@ -160,7 +169,7 @@ export function Register() {
     save({ ...layout, hidden: layout.hidden.includes(key) ? layout.hidden.filter((k) => k !== key) : [...layout.hidden, key] });
 
   const cell = (r: Trx) => (
-    <tr key={r.id} className={r.type ?? ''} onClick={() => !r.private_total && nav.entry(r)} title={r.private_total ? t('مجموع الشهر فقط', "The month's total only") : r.review ?? undefined}>
+    <tr key={r.id} className={r.type ?? ''} onClick={() => !r.private_book && nav.entry(r)} title={r.private_total ? t('مجموع الشهر فقط', "The month's total only") : r.private_book ? t('دفتر خاص: المبلغ فقط', 'Private book: the amount only') : r.review ?? undefined}>
       {shown.map((c) => (
         <td key={c.key} className={c.n ? 'n' : c.key === 'n' || c.key === 'code' ? 'code' : ''} style={c.key === 'explanation' ? { maxWidth: 280 } : undefined}>{c.td(r)}</td>
       ))}

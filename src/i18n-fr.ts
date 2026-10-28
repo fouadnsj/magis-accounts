@@ -4,6 +4,10 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  "Lines (tick one or more)": "Lignes (cochez-en une ou plusieurs)",
+  "The amount is shared between the lines in proportion to their budget.": "Le montant est partagé entre les lignes selon leur budget.",
+  "One allocation is made for each line, with the same share.": "Une affectation est créée pour chaque ligne, avec la même part.",
+
   "New donor…": "Nouveau donateur…",
   "The new donor's name": "Nom du nouveau donateur",
   "All donors": "Tous les donateurs",

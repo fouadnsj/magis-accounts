@@ -355,7 +355,11 @@ describe('donor report', () => {
     const bytes = await donorReportXlsx({ ...base, donorId: 2 });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(bytes as never);
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['Summary', 'Grants', 'Expenses']);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Summary', 'Grants', 'By category', 'Expenses']);
+    // by category: Furniture › Chairs, the donor's half of the budget (10000) against his share of the spending (2000)
+    const cat = wb.getWorksheet('By category')!;
+    expect(cat.getRow(5).getCell(2).value).toBe('Furniture');
+    expect([cat.getRow(6).getCell(2).value, cat.getRow(6).getCell(3).value, cat.getRow(6).getCell(4).value]).toEqual(['   Chairs', 10000, 2000]);
     expect(wb.getWorksheet('Expenses')!.getRow(2).getCell(13).value).toBe('B-b.pdf');
   });
 });

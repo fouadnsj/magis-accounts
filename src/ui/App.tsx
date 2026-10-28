@@ -226,6 +226,7 @@ export function App() {
       <Landing
         dbs={server.dbs}
         canCreate={server.canCreate}
+        canCreateCty={server.canCreateCty}
         signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
         startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : null}
         ctyLocked={!!server.ctyGate && !server.ctyOpen}
@@ -272,7 +273,7 @@ export function App() {
       />
     );
   else if (server && !session && serverDb && (settingUp || serverDb.setupNeeded))
-    body = server.canCreate ? (
+    body = server.canCreate || (serverDb.kind === 'community' || serverDb.kind === 'country') && server.canCreateCty ? (
       <ServerSetup
         askGate={!server?.ctyGate}
         db={serverDb}

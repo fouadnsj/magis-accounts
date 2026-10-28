@@ -545,6 +545,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (typeof slug === 'string' && ctyKinds.get(slug) && !ctyOpen())
         throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
     };
+    // Once the communities' password is given in this browser, a community (or a country) may also be made from
+    // another computer, not only on the server computer: the password is what protects that side (Fouad, 28 Oct 2026).
+    const mayCreateCty = () => mayCreate(req, found) || (!!config.ctyGate && ctyOpen());
     const checkGate = async (password: string) => {
       const g = config.ctyGate;
       if (!g) return true;
@@ -555,7 +558,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       // the communities are not even named until their password is given
       const dbs = (await Promise.all([...centres.values()].map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
     }
 
     // ---- the communities' password: give it (unlock), or set / change it
@@ -590,8 +593,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     // ---- a new database (a centre, a test, a new year…)
     if (url === '/api/dbs/create' && method === 'POST') {
-      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
       const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null };
+      if (!(isCtyKind(body.kind) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
       if (isCtyKind(body.kind) && !ctyOpen()) throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
       const organisation = (body.organisation ?? '').trim();
       if (!organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات', en: 'Write the name of the database' });
@@ -614,9 +617,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     // ---- setting up a new database: only while it has nobody
     if (url.startsWith('/api/setup/')) {
-      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'الإعداد من حاسوب الخادم نفسه', en: 'Setup only from the server computer itself' });
       const body = (await readBody(req)) as Record<string, string>;
       const c = centreOf(body.db);
+      if (!(ctyKinds.get(c.slug) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'الإعداد من حاسوب الخادم نفسه', en: 'Setup only from the server computer itself' });
       needCtyOpen(c.slug);
       if (!(await setupNeeded(c))) throw new HttpError(409, { ar: 'قاعدة البيانات مُعدّة مسبقاً', en: 'This database is already set up' });
       if (url === '/api/setup/new') {

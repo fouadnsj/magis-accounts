@@ -26,6 +26,8 @@ export interface Hello {
   local: boolean;
   /** may create / set up databases from this browser */
   canCreate: boolean;
+  /** may make a community or country (the communities' password was given, even from another computer) */
+  canCreateCty?: boolean;
   dbs: DbInfo[];
   /** the database of the session already open in this browser, if any */
   current: string | null;

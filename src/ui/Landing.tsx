@@ -68,9 +68,10 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
+export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
   dbs: DbInfo[];
   canCreate: boolean;
+  canCreateCty?: boolean;
   onOpen: (db: DbInfo) => void;
   onCreated: (slug: string) => void;
   /** already signed in (came here from inside the program) */
@@ -90,8 +91,10 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
   // one program: first "centres" or "communities", when the server holds both
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   // (also when only one kind exists but the person may create: he can start the other kind)
-  const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || canCreate || !!ctyLocked;
+  const both = (dbs.some(isCty) && dbs.some((x) => !isCty(x))) || canCreateAll || !!canCreateCty || !!ctyLocked;
   const [area, setArea] = useState<'centres' | 'cty' | null>(startArea ?? null);
+  // on the communities' side, the communities' password is enough to make a new one
+  const canCreate = canCreateAll || (area === 'cty' && !!canCreateCty);
   const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
   const choosing = both && area === null && !signedIn && !creating;
   // the communities are hidden behind their password (the server does not even name them)
@@ -148,7 +151,9 @@ export function Landing({ dbs, canCreate, onOpen, onCreated, signedIn, address, 
           </div>
           {howTo && !canCreate && (
             <div className="alert info" style={{ marginTop: 14 }}>
-              {dbs.length
+              {area === 'cty'
+                ? tx(m('أول جماعة تُنشأ على حاسوب الخادم نفسه: https://localhost:8443 (وهي تضع كلمة سر الجماعات). بعدها يستطيع من يعرف كلمة السر إنشاء جماعة من أي حاسوب.', "The first community is made on the server computer itself (https://localhost:8443): it sets the communities' password. After that, anyone who knows that password can make a community from any computer.", "La première communauté se crée sur l'ordinateur du serveur (https://localhost:8443) : elle fixe le mot de passe des communautés. Ensuite, toute personne qui le connaît peut en créer une depuis n'importe quel ordinateur."))
+                : dbs.length
                 ? t('لإنشاء قاعدة بيانات: ادخل أولاً إلى قاعدة موجودة باسم من يدير المستخدمين (الرئيس)، ثم من القائمة اختر «قواعد البيانات · جديدة». أو افتح الصفحة على حاسوب الخادم نفسه.',
                   'To create a database: first sign in to an existing one as someone who manages users (the Superior), then in the menu choose "Databases · new". Or open this page on the server computer itself.')
                 : t('أول قاعدة بيانات تُنشأ على حاسوب الخادم نفسه: https://localhost:8443', 'The first database is created on the server computer itself: https://localhost:8443')}

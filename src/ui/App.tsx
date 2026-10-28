@@ -227,6 +227,8 @@ export function App() {
         dbs={server.dbs}
         canCreate={server.canCreate}
         canCreateCty={server.canCreateCty}
+        canManage={server.canManage}
+        onManaged={async () => { await refreshServer(); }}
         signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
         startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : null}
         ctyLocked={!!server.ctyGate && !server.ctyOpen}

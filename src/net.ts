@@ -28,6 +28,8 @@ export interface Hello {
   canCreate: boolean;
   /** may make a community or country (the communities' password was given, even from another computer) */
   canCreateCty?: boolean;
+  /** may open the window that manages the databases (server computer, or someone who manages users) */
+  canManage?: boolean;
   dbs: DbInfo[];
   /** the database of the session already open in this browser, if any */
   current: string | null;
@@ -143,6 +145,14 @@ export const serverCreateDb = (organisation: string, centre: string, color: stri
 export const serverCtyUnlock = (password: string) => post<{ ok: true }>('/api/cty/unlock', { password });
 export const serverCtyGate = (password: string) => post<{ ok: true }>('/api/cty/gate', { password });
 export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community' | 'country', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
+
+/** Managing the databases: all of them (also the switched-off ones) and the deleted ones kept in a folder. */
+export interface ManagedDb { slug: string; organisation: string; kind: string; city: string | null; active: boolean; bytes: number; backups: number; lastBackup: string | null }
+export interface DeletedDb { folder: string; organisation: string; bytes: number }
+export const serverManageList = () => get<{ dbs: ManagedDb[]; deleted: DeletedDb[]; folder: string }>('/api/dbs/manage');
+export const serverDbState = (db: string, active: boolean, password: string) => post<{ ok: true }>('/api/dbs/state', { db, active, password });
+export const serverDbDelete = (db: string, name: string, password: string) => post<{ ok: true; folder: string }>('/api/dbs/delete', { db, name, password });
+export const serverDbRestore = (folder: string) => post<{ ok: true; slug: string }>('/api/dbs/restore', { folder });
 
 export const serverLogout = () => post('/api/logout', {}).catch(() => undefined);
 

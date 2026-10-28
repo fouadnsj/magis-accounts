@@ -8,6 +8,7 @@ import { serverCreateDb } from '../net';
 import { paletteOf } from '../community/style';
 import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
 import { Field, errText, t } from './kit';
+import { ManageDbs } from './ManageDbs';
 
 /** The page around every welcome, login and setup screen. */
 export function BrandFrame({ children, brand, wide, jesuit, title }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string }) {
@@ -68,10 +69,13 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
+export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
   dbs: DbInfo[];
   canCreate: boolean;
   canCreateCty?: boolean;
+  /** the "Manage databases" window: switch off / on, delete, restore */
+  canManage?: boolean;
+  onManaged?: () => Promise<void>;
   onOpen: (db: DbInfo) => void;
   onCreated: (slug: string) => void;
   /** already signed in (came here from inside the program) */
@@ -88,6 +92,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, onOpen, on
 }) {
   const [creating, setCreating] = useState(false);
   const [howTo, setHowTo] = useState(false);
+  const [managing, setManaging] = useState(false);
   // one program: first "centres" or "communities", when the server holds both
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   // (also when only one kind exists but the person may create: he can start the other kind)
@@ -149,6 +154,12 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, onOpen, on
                 : <><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></>}</div>
             </button>
           </div>
+          {canManage && (
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <button className="btn small ghost" onClick={() => setManaging(true)}>⚙ {tx(m('إدارة قواعد البيانات', 'Manage databases', 'Gérer les bases de données'))}</button>
+            </div>
+          )}
+          {managing && <ManageDbs onClose={() => setManaging(false)} onChanged={async () => { await onManaged?.(); }} />}
           {howTo && !canCreate && (
             <div className="alert info" style={{ marginTop: 14 }}>
               {area === 'cty'

@@ -51,6 +51,8 @@ export interface ServerConfig {
   /** The password of the Jesuit communities' side (Fouad, 19 October 2026: "to keep the privacy"):
    *  until it is given, the server does not show the communities, their accounts or their sign-in. */
   ctyGate?: { salt: string; hash: string } | null;
+  /** Databases switched off (Fouad, 29 October 2026): kept on the disk, not shown, nobody can sign in. */
+  inactive?: string[];
 }
 
 const DEFAULT_CONFIG: ServerConfig = { httpsPort: 8443, httpPort: 8080, httpMode: 'redirect', backupMirror: null, idleMinutes: 15 };
@@ -363,7 +365,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   });
   const centreOf = (slug: unknown): Centre => {
     const c = typeof slug === 'string' ? centres.get(slug) : undefined;
-    if (!c) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
+    if (!c || (config.inactive ?? []).includes(c.slug)) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
     return c;
   };
 
@@ -548,6 +550,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // Once the communities' password is given in this browser, a community (or a country) may also be made from
     // another computer, not only on the server computer: the password is what protects that side (Fouad, 28 Oct 2026).
     const mayCreateCty = () => mayCreate(req, found) || (!!config.ctyGate && ctyOpen());
+    // Managing the databases (Fouad, 29 October 2026): the window is for the server computer or someone who manages
+    // users; every change also needs the PASSWORD of that database's Superior (a user who manages users there).
+    const mayManage = () => isLocal(req) || (!!found && has(found[1].profile, 'users.manage'));
     const checkGate = async (password: string) => {
       const g = config.ctyGate;
       if (!g) return true;
@@ -556,9 +561,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     if (url === '/api/hello' && method === 'GET') {
       // the communities are not even named until their password is given
-      const dbs = (await Promise.all([...centres.values()].map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
+      const dbs = (await Promise.all([...centres.values()].filter((x) => !(config.inactive ?? []).includes(x.slug)).map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
     }
 
     // ---- the communities' password: give it (unlock), or set / change it
@@ -589,6 +594,113 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       writeConfig(dataDir, config);
       log(`communities' password ${found ? `set by ${found[1].profile.name}` : 'set on the server'}`);
       return send(res, 200, { ok: true }, { 'Set-Cookie': ctyPassCookie(viaHttps) });
+    }
+
+    // ---- managing the databases: list, switch off / on, delete (kept in the "deleted" folder), restore
+    const folderSize = (dir: string): number => {
+      let n = 0;
+      try {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) n += e.isDirectory() ? folderSize(path.join(dir, e.name)) : fs.statSync(path.join(dir, e.name)).size;
+      } catch { /* a folder that vanished */ }
+      return n;
+    };
+    const needManage = () => {
+      if (!mayManage()) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+    };
+    /** the password of a user who manages users in THAT database (its Superior) */
+    const needSuperior = async (c: Centre, password: unknown) => {
+      const f = failures.get(ip);
+      if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
+      for (const p of await listProfiles(c.handle.db)) {
+        try {
+          const r = await login(c.handle.db, p.id, String(password ?? ''));
+          if (has(r.profile, 'users.manage')) {
+            failures.delete(ip);
+            return r.profile.name;
+          }
+        } catch { /* not this one */ }
+      }
+      const n = f && f.until > 0 && f.until <= Date.now() ? 1 : (f?.n ?? 0) + 1;
+      failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
+      throw new HttpError(403, { ar: 'كلمة سر رئيس هذه القاعدة غير صحيحة', en: "The password of this database's Superior is not right" });
+    };
+    const deletedDir = path.join(dataDir, 'deleted');
+    if (url === '/api/dbs/manage' && method === 'GET') {
+      needManage();
+      const off = new Set(config.inactive ?? []);
+      const list = [];
+      for (const c of centres.values()) {
+        const d = await describe(c);
+        if (isCtyKind(d.kind) && !ctyOpen()) continue;
+        const backups = await c.files.list();
+        list.push({ slug: c.slug, organisation: d.organisation, kind: d.kind, city: d.city, active: !off.has(c.slug), bytes: folderSize(c.dir), backups: backups.length, lastBackup: backups[0]?.name ?? null });
+      }
+      const deleted = fs.existsSync(deletedDir)
+        ? fs.readdirSync(deletedDir).filter((f) => fs.existsSync(path.join(deletedDir, f, 'magis.db'))).sort().reverse().map((folder) => {
+            let organisation = folder;
+            try {
+              const tmp = new DatabaseSync(path.join(deletedDir, folder, 'magis.db'), { readOnly: true });
+              organisation = (tmp.prepare("SELECT value FROM meta WHERE key = 'organisation'").get() as { value?: string } | undefined)?.value ?? folder;
+              tmp.close();
+            } catch { /* the name stays the folder's */ }
+            return { folder, organisation, bytes: folderSize(path.join(deletedDir, folder)) };
+          })
+        : [];
+      return send(res, 200, { dbs: list, deleted, folder: deletedDir });
+    }
+    if (url === '/api/dbs/state' && method === 'POST') {
+      needManage();
+      const body = (await readBody(req)) as { db?: string; active?: boolean; password?: string };
+      const c = centres.get(String(body.db));
+      if (!c) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
+      if (isCtyKind(await getMeta(c.handle.db, 'kind')) && !ctyOpen()) throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
+      const who = await needSuperior(c, body.password);
+      const off = new Set(config.inactive ?? []);
+      if (body.active) off.delete(c.slug);
+      else {
+        off.add(c.slug);
+        for (const [sid, x] of sessions) if (x.db === c.slug) sessions.delete(sid);
+      }
+      config = { ...config, inactive: [...off] };
+      writeConfig(dataDir, config);
+      log(`database ${c.slug} switched ${body.active ? 'on' : 'off'} (password of ${who})`);
+      return send(res, 200, { ok: true });
+    }
+    if (url === '/api/dbs/delete' && method === 'POST') {
+      needManage();
+      const body = (await readBody(req)) as { db?: string; name?: string; password?: string };
+      const c = centres.get(String(body.db));
+      if (!c) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
+      const d = await describe(c);
+      if (isCtyKind(d.kind) && !ctyOpen()) throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
+      if (String(body.name ?? '').trim() !== d.organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات كما هو للتأكيد', en: 'Type the name of the database exactly, to confirm' });
+      const who = await needSuperior(c, body.password);
+      // a last copy, then the WHOLE folder (database, backups, documents) moves to "deleted": nothing is erased
+      try { await c.files.backupNow('before-delete'); } catch { /* the folder is kept anyway */ }
+      c.handle.close();
+      centres.delete(c.slug);
+      for (const [sid, x] of sessions) if (x.db === c.slug) sessions.delete(sid);
+      fs.mkdirSync(deletedDir, { recursive: true });
+      const dest = path.join(deletedDir, `${c.slug}_${stamp()}`);
+      fs.renameSync(c.dir, dest);
+      config = { ...config, inactive: (config.inactive ?? []).filter((x) => x !== c.slug) };
+      writeConfig(dataDir, config);
+      log(`database ${c.slug} deleted: folder kept in ${dest} (password of ${who})`);
+      return send(res, 200, { ok: true, folder: dest });
+    }
+    if (url === '/api/dbs/restore' && method === 'POST') {
+      needManage();
+      const body = (await readBody(req)) as { folder?: string };
+      const folder = String(body.folder ?? '');
+      if (!/^[\w.-]+$/.test(folder) || !fs.existsSync(path.join(deletedDir, folder, 'magis.db'))) throw new HttpError(404, { ar: 'لا نسخة محذوفة بهذا الاسم', en: 'No deleted database with this name' });
+      const base = folder.replace(/_\d{4}-\d{2}-\d{2}_\d{6}$/, '') || 'centre';
+      let slug = base;
+      for (let i = 2; centres.has(slug) || fs.existsSync(path.join(dbsDir, slug)); i++) slug = `${base}-${i}`;
+      fs.renameSync(path.join(deletedDir, folder), path.join(dbsDir, slug));
+      const c = await openCentre(slug);
+      if (isCtyKind(await getMeta(c.handle.db, 'kind')) && !ctyOpen()) log(`restored a community database ${slug} while the communities' side is closed`);
+      log(`database restored from deleted/${folder} as ${slug}`);
+      return send(res, 200, { ok: true, slug });
     }
 
     // ---- a new database (a centre, a test, a new year…)

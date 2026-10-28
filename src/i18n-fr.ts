@@ -4,6 +4,13 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  "New donor…": "Nouveau donateur…",
+  "The new donor's name": "Nom du nouveau donateur",
+  "All donors": "Tous les donateurs",
+  "Use the budget": "Prendre le budget",
+  "What each donor covers in the budget is set in Budget → Donors.": "Ce que chaque donateur couvre dans le budget se règle dans Budget → Donateurs.",
+  "In the budget": "Dans le budget",
+
   "The notes counted": "Les billets comptés",
   "The cash count": "Le comptage de l'argent",
   "Reason": "Raison",

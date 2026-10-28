@@ -9,10 +9,9 @@ import { TYPE_LABEL, tx } from '../i18n';
 import { notesOf } from './Cash';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 
-type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'donors' | 'settings';
+type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
 
 export function ListsPage() {
-  const { can } = useApp();
   const [tab, setTab] = useState<Tab>('budget');
   return (
     <>
@@ -22,14 +21,12 @@ export function ListsPage() {
         { value: 'books', label: t('الدفاتر والأمناء', 'Books & keepers') },
         { value: 'party', label: t('الجهات', 'Parties') },
         { value: 'account', label: t('الحسابات', 'Accounts') },
-        { value: 'donors', label: t('المانحون', 'Donors'), hidden: !can('lists.donors') },
         { value: 'city', label: t('المدن', 'Cities') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
       {tab === 'budget' && <BudgetTab />}
       {(tab === 'city' || tab === 'account' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
       {tab === 'books' && <BooksTab />}
-      {tab === 'donors' && can('lists.donors') && <DonorsTab />}
       {tab === 'settings' && <SettingsTab />}
     </>
   );
@@ -302,52 +299,6 @@ function BookModal({ book, onClose }: { book: Partial<Book>; onClose: () => void
   );
 }
 
-// ---------------------------------------------------------------- donors (Sup)
-
-function DonorsTab() {
-  const { s, d, reload } = useApp();
-  const act = useAct();
-  const [name, setName] = useState('');
-  return (
-    <div className="panel" style={{ maxWidth: 760 }}>
-      <div className="alert info small">{t('سرّي — يراه الرئيس فقط.', 'Confidential — only the Superior sees this.')}</div>
-      <div className="row" style={{ marginBottom: 10 }}>
-        <input className="inp" style={{ flex: 1 }} placeholder={t('مانح جديد', 'New donor')} value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => s.api.call('donor.save', { name, default_project_id: null }), t('أضيف', 'Added'))) && setName('')}>＋</button>
-      </div>
-      <table className="t">
-        <thead><tr><th>{t('المانح', 'Donor')}</th><th /></tr></thead>
-        <tbody>
-          {d.lists.donors.map((x) => (
-            <tr key={x.id} className={x.active ? '' : 'off'}>
-              <td>{x.name}</td>
-              <td className="nowrap right">
-                <button className="btn small ghost" onClick={async () => {
-                  const n = await promptBox(t('الاسم الجديد', 'New name'), x.name);
-                  if (n && n !== x.name) void act(() => s.api.call('donor.save', { id: x.id, name: n, default_project_id: x.default_project_id }));
-                }}>✎</button>
-                {x.active
-                  ? <button className="btn small ghost" title={t('حذف (أو إيقاف إن كان مستعملاً)', 'Delete (or deactivate if used)')} onClick={async () => {
-                      // a donor with grants or budget allocations is only deactivated: they stay in the history
-                      if (!(await confirmBox(t(`حذف المانح «${x.name}»؟`, `Delete the donor "${x.name}"?`), true))) return;
-                      try {
-                        await s.api.call('list.delete', { table: 'donor', id: x.id });
-                        await reload();
-                        toast(t('حُذف', 'Deleted'));
-                      } catch {
-                        if (await confirmBox(t(`لـ«${x.name}» منح أو تخصيصات في الموازنة: لا يُحذف. إيقافه بدلاً من ذلك؟ (يبقى في السجل ويختفي من القوائم)`, `"${x.name}" has grants or budget allocations: it cannot be deleted. Deactivate it instead? (it stays in the history and leaves the lists)`)))
-                          await act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: false }), t('أوقف', 'Deactivated'));
-                      }
-                    }}>✕</button>
-                  : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: true }))}>↺</button>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------- spending rules (ProjectMap)
 

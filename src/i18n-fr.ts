@@ -4,6 +4,11 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  "Headings (tick one or more)": "Rubriques (cochez-en une ou plusieurs)",
+  "Lines (tick one or more, from any heading)": "Lignes (cochez-en une ou plusieurs, de n'importe quelle rubrique)",
+  "The amount is shared between them in proportion to their budget.": "Le montant est partagé selon le budget de chacun.",
+  "One allocation is made for each, with the same share.": "Une affectation est créée pour chacun, avec la même part.",
+
   "Lines (tick one or more)": "Lignes (cochez-en une ou plusieurs)",
   "The amount is shared between the lines in proportion to their budget.": "Le montant est partagé entre les lignes selon leur budget.",
   "One allocation is made for each line, with the same share.": "Une affectation est créée pour chaque ligne, avec la même part.",

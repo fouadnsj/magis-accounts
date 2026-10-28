@@ -1118,8 +1118,10 @@ function AllocModal({ start, cells, onClose, onSaved }: { start: Partial<BudgetA
   const [val, setVal] = useState(String(start.amount_usd ?? start.pct ?? 100));
   // new allocation on lines: several lines can be ticked at once (one allocation each; a fixed amount is shared by their budgets)
   const [lineIds, setLineIds] = useState<number[]>(start.line_id != null ? [start.line_id] : []);
+  const [headingIds, setHeadingIds] = useState<number[]>(start.heading_id != null && start.line_id == null ? [start.heading_id] : []);
   const multi = !a.id;
   const expHeadings = d.lists.headings.filter((h) => d.lists.headingTypes.some((x) => x.heading_id === h.id && x.type === 'Exp'));
+  const lineHeading = (id: number) => d.lists.lines.find((l) => l.id === id)?.heading_id ?? null;
   const save = async () => {
     try {
       const base = {
@@ -1130,19 +1132,25 @@ function AllocModal({ start, cells, onClose, onSaved }: { start: Partial<BudgetA
         rest: kind === 'rest' ? 1 : 0,
         heading_id: scope === 'account' || a.account_id === ALL ? null : a.heading_id ?? null,
       };
-      const ids = scope === 'line' && a.account_id !== ALL ? (multi ? lineIds : [a.line_id!]) : [];
-      if (ids.length <= 1) {
-        await s.api.call('alloc.save', { ...base, line_id: ids[0] ?? null } as never);
+      // what is covered: one thing (as before), or several ticked headings / lines (one allocation each)
+      const targets: { heading_id: number | null; line_id: number | null }[] =
+        a.account_id === ALL || scope === 'account' ? [{ heading_id: null, line_id: null }]
+          : !multi ? [{ heading_id: base.heading_id, line_id: scope === 'line' ? a.line_id ?? null : null }]
+            : scope === 'line' ? lineIds.map((id) => ({ heading_id: lineHeading(id), line_id: id }))
+              : headingIds.map((id) => ({ heading_id: id, line_id: null }));
+      if (targets.length <= 1) {
+        await s.api.call('alloc.save', { ...base, heading_id: targets[0]?.heading_id ?? null, line_id: targets[0]?.line_id ?? null } as never);
       } else {
-        // a fixed amount is shared between the lines in proportion to their budget (equally if none has one)
-        const budgetOf = (id: number) => cells.filter((x) => x.account_id === a.account_id && x.line_id === id).reduce((t, x) => t + x.amount_usd, 0);
-        const weights = ids.map(budgetOf);
-        const wsum = weights.reduce((t, x) => t + x, 0);
-        let left = parseAmount(val);
-        for (const [k, id] of ids.entries()) {
-          const part = k === ids.length - 1 ? Math.round(left * 100) / 100 : Math.round(((wsum > 0 ? weights[k] / wsum : 1 / ids.length) * parseAmount(val)) * 100) / 100;
+        // a fixed amount is shared between them in proportion to their budget (equally if none has one)
+        const inT = (t2: { heading_id: number | null; line_id: number | null }) => (x: BudgetAmount) => x.account_id === a.account_id && (t2.line_id != null ? x.line_id === t2.line_id : lineHeading(x.line_id) === t2.heading_id);
+        const weights = targets.map((t2) => cells.filter(inT(t2)).reduce((tot, x) => tot + x.amount_usd, 0));
+        const wsum = weights.reduce((tot, x) => tot + x, 0);
+        const total = parseAmount(val);
+        let left = total;
+        for (const [i, t2] of targets.entries()) {
+          const part = i === targets.length - 1 ? Math.round(left * 100) / 100 : Math.round(((wsum > 0 ? weights[i] / wsum : 1 / targets.length) * total) * 100) / 100;
           left -= part;
-          await s.api.call('alloc.save', { ...base, line_id: id, amount_usd: kind === 'amount' ? part : null, note: base.note ?? null } as never);
+          await s.api.call('alloc.save', { ...base, heading_id: t2.heading_id, line_id: t2.line_id, amount_usd: kind === 'amount' ? part : null } as never);
         }
       }
       toast(t('حُفظ', 'Saved'));
@@ -1151,6 +1159,7 @@ function AllocModal({ start, cells, onClose, onSaved }: { start: Partial<BudgetA
       toast(errText(e), true);
     }
   };
+  const nTargets = scope === 'line' ? lineIds.length : headingIds.length;
   return (
     <Modal title={a.id ? t('تعديل التخصيص', 'Edit allocation') : t('تخصيص جديد', 'New allocation')} onClose={onClose}>
       <div className="grid2">
@@ -1164,26 +1173,45 @@ function AllocModal({ start, cells, onClose, onSaved }: { start: Partial<BudgetA
           { value: 'line', label: t('خطاً', 'A line') },
         ]} />
       </Field>}
-      {scope !== 'account' && a.account_id !== ALL && (
+      {scope !== 'account' && a.account_id !== ALL && !multi && (
         <div className="grid2">
-          <Field label={t('البند', 'Heading')}><Select value={a.heading_id ?? null} options={expHeadings.map((h) => ({ value: h.id, label: h.name }))} onChange={(v) => { setA({ ...a, heading_id: v, line_id: null }); setLineIds([]); }} /></Field>
-          {scope === 'line' && !multi && (
+          <Field label={t('البند', 'Heading')}><Select value={a.heading_id ?? null} options={expHeadings.map((h) => ({ value: h.id, label: h.name }))} onChange={(v) => setA({ ...a, heading_id: v, line_id: null })} /></Field>
+          {scope === 'line' && (
             <Field label={t('الخط', 'Line')}><Select value={a.line_id ?? null} options={d.lists.lines.filter((l) => l.heading_id === a.heading_id).map((l) => ({ value: l.id, label: l.name }))} onChange={(v) => setA({ ...a, line_id: v })} /></Field>
           )}
         </div>
       )}
-      {scope === 'line' && multi && a.account_id !== ALL && a.heading_id != null && (
-        <Field label={t('الخطوط (اختر واحداً أو أكثر)', 'Lines (tick one or more)')}>
+      {scope === 'heading' && multi && a.account_id !== ALL && (
+        <Field label={t('البنود (اختر واحداً أو أكثر)', 'Headings (tick one or more)')}>
           <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
-            {d.lists.lines.filter((l) => l.heading_id === a.heading_id && l.active).map((l) => (
-              <label key={l.id} className="row small" style={{ gap: 4 }}>
-                <input type="checkbox" checked={lineIds.includes(l.id)} onChange={(e) => setLineIds(e.target.checked ? [...lineIds, l.id] : lineIds.filter((x) => x !== l.id))} /> {l.name}
+            {expHeadings.map((h) => (
+              <label key={h.id} className="row small" style={{ gap: 4 }}>
+                <input type="checkbox" checked={headingIds.includes(h.id)} onChange={(e) => setHeadingIds(e.target.checked ? [...headingIds, h.id] : headingIds.filter((x) => x !== h.id))} /> {h.name}
               </label>
             ))}
           </div>
-          {lineIds.length > 1 && kind === 'amount' && <p className="muted small">{t('المبلغ يُوزَّع على الخطوط بنسبة موازنتها.', 'The amount is shared between the lines in proportion to their budget.')}</p>}
-          {lineIds.length > 1 && kind !== 'amount' && <p className="muted small">{t('تُنشأ مساهمة لكل خط بالنسبة نفسها.', 'One allocation is made for each line, with the same share.')}</p>}
         </Field>
+      )}
+      {scope === 'line' && multi && a.account_id !== ALL && (
+        <Field label={t('الخطوط (اختر واحداً أو أكثر، من أي بند)', 'Lines (tick one or more, from any heading)')}>
+          {expHeadings.filter((h) => d.lists.lines.some((l) => l.heading_id === h.id && l.active)).map((h) => (
+            <div key={h.id} style={{ marginBottom: 6 }}>
+              <div className="small" style={{ fontWeight: 650 }}>{h.name}</div>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
+                {d.lists.lines.filter((l) => l.heading_id === h.id && l.active).map((l) => (
+                  <label key={l.id} className="row small" style={{ gap: 4 }}>
+                    <input type="checkbox" checked={lineIds.includes(l.id)} onChange={(e) => setLineIds(e.target.checked ? [...lineIds, l.id] : lineIds.filter((x) => x !== l.id))} /> {l.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </Field>
+      )}
+      {multi && scope !== 'account' && nTargets > 1 && (
+        <p className="muted small">{kind === 'amount'
+          ? t('المبلغ يُوزَّع بنسبة موازنة كل منها.', 'The amount is shared between them in proportion to their budget.')
+          : t('تُنشأ مساهمة لكل اختيار بالنسبة نفسها.', 'One allocation is made for each, with the same share.')}</p>
       )}
       <div className="grid2">
         <Field label={t('المساهمة', 'Contribution')}>
@@ -1199,7 +1227,7 @@ function AllocModal({ start, cells, onClose, onSaved }: { start: Partial<BudgetA
       <Field label={t('ملاحظة', 'Note')}><input value={a.note ?? ''} onChange={(e) => setA({ ...a, note: e.target.value || null })} /></Field>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
-        <button className="btn primary" disabled={!a.donor_id || a.account_id == null || (kind !== 'rest' && !val) || (a.account_id !== ALL && ((scope !== 'account' && !a.heading_id) || (scope === 'line' && (multi ? lineIds.length === 0 : !a.line_id))))} onClick={save}>{t('احفظ', 'Save')}</button>
+        <button className="btn primary" disabled={!a.donor_id || a.account_id == null || (kind !== 'rest' && !val) || (a.account_id !== ALL && scope !== 'account' && (multi ? nTargets === 0 : !a.heading_id || (scope === 'line' && !a.line_id)))} onClick={save}>{t('احفظ', 'Save')}</button>
       </div>
     </Modal>
   );

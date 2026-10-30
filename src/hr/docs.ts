@@ -17,7 +17,8 @@ const lib = () => import('docx');
 
 export async function toBytes(doc: import('docx').Document): Promise<Uint8Array> {
   const { Packer } = await lib();
-  return new Uint8Array(await Packer.toBuffer(doc));
+  // toArrayBuffer works in the browser and in Node (toBuffer needs Node: "nodebuffer is not supported by this platform")
+  return new Uint8Array(await Packer.toArrayBuffer(doc));
 }
 
 /** The heading of a document: the centre (its list item, with the first party and who signs) and the two logos. */

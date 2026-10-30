@@ -44,13 +44,20 @@ export async function createHr(db: Db, s: HrSetup): Promise<void> {
 
 // ---------------------------------------------------------------- reading
 
-export interface HrPerson { id: number; name: string; father_name: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; account: string | null; budget_line: string | null; started: string | null; ended: string | null; active: number; note: string | null }
+export interface HrPerson { id: number; name: string; first_name: string | null; last_name: string | null; father_name: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; account: string | null; budget_line: string | null; started: string | null; ended: string | null; active: number; note: string | null }
 export interface HrPaper { id: number; person_id: number; kind: 'agreement' | 'stipend'; start_date: string | null; end_date: string | null; service: string | null; amount: number | null; currency: 'USD' | 'SYP'; paid_on: string | null; note: string | null; file_name: string | null; size: number | null; created_at: string }
 export interface HrConduct { id: number; version: string; valid_from: string; note: string | null; file_name: string | null; size: number | null }
 export interface HrSign { id: number; conduct_id: number; person_id: number; signed_on: string; file_name: string | null; size: number | null }
 export interface HrDoc { id: number; person_id: number; label: string; expires_on: string | null; file_name: string; mime: string; size: number; created_at: string }
 export interface HrAlert { kind: 'agreement_ending' | 'agreement_missing' | 'doc_expiring' | 'conduct_unsigned' | 'unsigned_paper' | 'insurance_ending'; person_id: number; item_id: number | null; date: string | null; days: number | null }
+export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; name: string; code: string | null; heading: string | null; source: string | null }
 export interface HrData {
+  /** the stored lists the person's centre, account and budget line are chosen from (filled from the budgets) */
+  lists: HrListItem[];
+  /** the positions of the scale (names only), the roles a person can have */
+  positions: string[];
+  /** the names that sign the documents */
+  docSettings: { repAr: string; repEn: string };
   kind: string | null;
   people: HrPerson[];
   papers: HrPaper[];
@@ -69,7 +76,7 @@ const daysTo = (date: string, today: string) => Math.round((Date.parse(date) - D
 
 export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrData> {
   await requireHr(c.db);
-  const people = await c.db.query<HrPerson>('SELECT id, name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note FROM hr_person ORDER BY active DESC, name');
+  const people = await c.db.query<HrPerson>('SELECT id, name, first_name, last_name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note FROM hr_person ORDER BY active DESC, name');
   const papers = await c.db.query<HrPaper>(`SELECT ${PAPER_COLS} FROM hr_paper WHERE deleted_at IS NULL ORDER BY COALESCE(start_date, paid_on, created_at) DESC, id DESC`);
   const conducts = await c.db.query<HrConduct>('SELECT id, version, valid_from, note, file_name, size FROM hr_conduct ORDER BY valid_from DESC, id DESC');
   const signs = await c.db.query<HrSign>('SELECT id, conduct_id, person_id, signed_on, file_name, size FROM hr_conduct_sign WHERE deleted_at IS NULL');
@@ -93,7 +100,11 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
   if (has(c.profile, 'hr.pay'))
     for (const x of await c.db.query<{ id: number; person_id: number; end_date: string }>('SELECT id, person_id, end_date FROM hr_insurance WHERE deleted_at IS NULL AND end_date IS NOT NULL'))
       if (daysTo(x.end_date, today) <= SOON && people.find((p) => p.id === x.person_id)?.active) alerts.push({ kind: 'insurance_ending', person_id: x.person_id, item_id: x.id, date: x.end_date, days: daysTo(x.end_date, today) });
-  return { kind: await getMeta(c.db, 'kind'), people, papers, conducts, signs, docs, alerts };
+  const lists = await c.db.query<HrListItem>('SELECT id, kind, name, code, heading, source FROM hr_list ORDER BY kind, code, name');
+  const positions = (await c.db.query<{ name: string }>('SELECT name FROM hr_grade WHERE active = 1 ORDER BY sort, id')).map((g) => g.name);
+  const setting = async (k: string, d: string) => (await one<{ value: string | null }>(c.db, 'SELECT value FROM setting WHERE key = ?', [k]))?.value ?? d;
+  const docSettings = { repAr: await setting('hr_rep_ar', 'الأب فؤاد نخلة اليسوعي'), repEn: await setting('hr_rep_en', '') };
+  return { kind: await getMeta(c.db, 'kind'), people, papers, conducts, signs, docs, alerts, lists, positions, docSettings };
 }
 
 // ---------------------------------------------------------------- writing
@@ -159,24 +170,61 @@ export const HR_OPS = {
     check: needManage,
     run: async (c: OpCtx, a: Partial<HrPerson> & { name: string }) => {
       await requireHr(c.db);
-      const name = txt(a.name);
-      if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
-      const v = [name, txt(a.father_name), txt(a.national_id), txt(a.birth_place), day(a.birth_date, 'birth'), txt(a.address), txt(a.phone), txt(a.role), txt(a.centre), txt(a.account), txt(a.budget_line), day(a.started, 'start'), day(a.ended, 'end'), a.ended ? 0 : a.active === 0 ? 0 : 1, txt(a.note)];
-      const ACT = 13; // (index of 'active' in v: name, father, id, birthplace, birthdate, address, phone, role, centre, account, budget_line, started, ended, active, note)
+      const first = txt(a.first_name ?? a.name), last = txt(a.last_name);
+      if (!first) throw new UserError(m('اكتب الاسم', 'Write the first name', 'Écrivez le prénom'));
+      const name = [first, last].filter(Boolean).join(' ');
+      // the role, centre, account and budget line are chosen from stored lists (when the list has something)
+      const pick = async (kind: 'centre' | 'account' | 'line', value: string | null) => {
+        if (!value) return null;
+        const items = await c.db.query<{ name: string; code: string | null }>('SELECT name, code FROM hr_list WHERE kind = ?', [kind]);
+        if (items.length && !items.some((i) => (i.code ? `${i.code} · ${i.name}` : i.name) === value)) throw new UserError(m('اختر من القائمة', `Choose from the list: ${value}`, `Choisissez dans la liste : ${value}`));
+        return value;
+      };
+      const role = txt(a.role);
+      if (role && (await one(c.db, 'SELECT 1 AS x FROM hr_grade LIMIT 1')) && !(await one(c.db, 'SELECT 1 AS x FROM hr_grade WHERE name = ?', [role]))) throw new UserError(m('الدور من سلّم الرواتب', `The role must be a position of the scale: ${role}`, `Le rôle doit être un poste de l'échelle : ${role}`));
+      const v = [name, txt(a.father_name), txt(a.national_id), txt(a.birth_place), day(a.birth_date, 'birth'), txt(a.address), txt(a.phone), role, await pick('centre', txt(a.centre)), await pick('account', txt(a.account)), await pick('line', txt(a.budget_line)), day(a.started, 'start'), day(a.ended, 'end'), a.ended ? 0 : a.active === 0 ? 0 : 1, txt(a.note), first, last];
+      const ACT = 13;
       if (a.id) {
         const before = await one<HrPerson>(c.db, 'SELECT * FROM hr_person WHERE id = ?', [a.id]);
         if (!before) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
         await c.db.batch([
-          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=? WHERE id=?', params: [...v, a.id] },
+          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=?, first_name=?, last_name=? WHERE id=?', params: [...v, a.id] },
           auditStmt(c.who, 'update', 'hr_person', String(a.id), { name: before.name, active: before.active }, { name, active: v[ACT] }),
         ]);
         return { id: a.id };
       }
       await c.db.batch([
-        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
+        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, first_name, last_name, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
         auditStmt(c.who, 'add', 'hr_person', null, null, { name }),
       ]);
       return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_person'))!.id };
+    },
+  },
+
+  // the lists can also be added to by hand, or cleaned
+  'hr.list.save': {
+    check: needManage,
+    run: async (c: OpCtx, a: { kind: 'centre' | 'account' | 'line'; name: string; code?: string | null; heading?: string | null }) => {
+      if (!['centre', 'account', 'line'].includes(a.kind)) throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
+      const name = txt(a.name);
+      if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
+      await c.db.batch([{ sql: 'INSERT OR IGNORE INTO hr_list (kind, name, code, heading) VALUES (?,?,?,?)', params: [a.kind, name, txt(a.code), txt(a.heading)] }]);
+      return { ok: true };
+    },
+  },
+  'hr.list.delete': {
+    check: needManage,
+    run: async (c: OpCtx, a: { id: number }) => {
+      await c.db.batch([{ sql: 'DELETE FROM hr_list WHERE id = ?', params: [a.id] }]);
+      return { ok: true };
+    },
+  },
+  'hr.docs.settings': {
+    check: needManage,
+    run: async (c: OpCtx, a: { repAr: string; repEn: string }) => {
+      const put = (k: string, v: string) => ({ sql: 'INSERT INTO setting (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', params: [k, v] });
+      await c.db.batch([put('hr_rep_ar', String(a.repAr ?? '').trim()), put('hr_rep_en', String(a.repEn ?? '').trim())]);
+      return { ok: true };
     },
   },
 

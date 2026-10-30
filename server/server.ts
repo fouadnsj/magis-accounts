@@ -937,6 +937,38 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { ok: true });
     }
 
+    // ---- HR: fill the lists (centre, accounts, budget lines) from the budget of a centre database. Names and codes only.
+    if (url === '/api/hr/sources' && method === 'GET') {
+      if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const out = [];
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug)) continue;
+        const k = (await getMeta(x.handle.db, 'kind')) ?? 'centre';
+        if (k !== 'centre' || (dirPerson && !dirSees(dirPerson, x.slug))) continue;
+        out.push({ slug: x.slug, organisation: (await getMeta(x.handle.db, 'organisation')) ?? x.slug });
+      }
+      return send(res, 200, out);
+    }
+    if (url === '/api/hr/import-lists' && method === 'POST') {
+      if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const body = (await readBody(req)) as { from?: string };
+      const src = centres.get(String(body.from));
+      if (!src || (config.inactive ?? []).includes(src.slug) || ((await getMeta(src.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, src.slug)))
+        throw new HttpError(404, { ar: 'قاعدة المصدر غير موجودة', en: 'Source database not found' });
+      const org = (await getMeta(src.handle.db, 'organisation')) ?? src.slug;
+      const accounts = await src.handle.db.query<{ name: string }>('SELECT name FROM account WHERE active = 1 ORDER BY sort, name');
+      const lines = await src.handle.db.query<{ name: string; code: string; heading: string }>('SELECT l.name, l.code, h.name AS heading FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.active = 1 ORDER BY h.sort, l.code');
+      const stmts: Stmt[] = [
+        { sql: "INSERT OR IGNORE INTO hr_list (kind, name, source) VALUES ('centre', ?, ?)", params: [org, src.slug] },
+        ...accounts.map((a) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, source) VALUES ('account', ?, ?)", params: [a.name, src.slug] })),
+        ...lines.map((l) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source) VALUES ('line', ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug] })),
+      ];
+      await found[2].handle.db.batch(stmts);
+      found[2].version++;
+      log(`HR lists filled from ${src.slug}: ${accounts.length} accounts, ${lines.length} lines (by ${found[1].profile.name})`);
+      return send(res, 200, { centres: 1, accounts: accounts.length, lines: lines.length });
+    }
+
     // ---- a new database (a centre, a test, a new year…)
     if (url === '/api/dbs/create' && method === 'POST') {
       const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null };

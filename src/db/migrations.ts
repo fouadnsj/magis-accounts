@@ -1275,4 +1275,32 @@ CREATE TABLE hr_alloc (
 );
 `,
   },
+  {
+    n: 33,
+    name: 'HR: first and last name, lists taken from the budgets, scale by monthly amount, insurance currency and who pays',
+    sql: `
+-- Fouad, 30 October 2026 (after the first test).
+ALTER TABLE hr_person ADD COLUMN first_name TEXT;
+ALTER TABLE hr_person ADD COLUMN last_name TEXT;
+UPDATE hr_person SET first_name = name;
+-- Centres, accounts and budget lines are chosen from stored lists, filled from the budget of a centre database.
+CREATE TABLE hr_list (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind    TEXT NOT NULL CHECK (kind IN ('centre','account','line')),
+  name    TEXT NOT NULL,
+  code    TEXT,
+  heading TEXT,
+  source  TEXT,
+  UNIQUE (kind, name, code)
+);
+-- The scale is by MONTHLY amount (a position and its amount for each year); the hourly cost is calculated from
+-- each person's weekly hours. (The amounts typed before in hourly form are cleared: nothing real was in them.)
+ALTER TABLE hr_grade_rate RENAME COLUMN hourly_usd TO monthly_usd;
+DELETE FROM hr_grade_rate;
+-- Insurance is paid in USD or SYP; the staff member's own is paid by the centre, the family's by the staff member.
+ALTER TABLE hr_insurance ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';
+ALTER TABLE hr_insurance ADD COLUMN paid_by TEXT NOT NULL DEFAULT 'centre';
+UPDATE hr_insurance SET paid_by = 'staff' WHERE member_name IS NOT NULL;
+`,
+  },
 ];

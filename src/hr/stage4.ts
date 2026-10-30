@@ -7,7 +7,7 @@ import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 
-export interface HrInsurance { id: number; person_id: number; member_name: string | null; relation: string | null; amount_usd: number; end_date: string | null; paid_on: string | null; note: string | null }
+export interface HrInsurance { id: number; person_id: number; member_name: string | null; relation: string | null; amount_usd: number; currency: 'USD' | 'SYP'; paid_by: 'centre' | 'staff'; end_date: string | null; paid_on: string | null; note: string | null }
 export interface HrAlloc { person_id: number; valid_from: string; target: string; pct: number }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -39,19 +39,22 @@ export function splitAmount(total: number, parts: { pct: number }[], decimals = 
 }
 
 export const HR_STAGE4_OPS = {
-  'hr.ins.list': { check: needPay, run: (c: OpCtx) => c.db.query<HrInsurance>('SELECT id, person_id, member_name, relation, amount_usd, end_date, paid_on, note FROM hr_insurance WHERE deleted_at IS NULL ORDER BY person_id, member_name IS NOT NULL, member_name') },
+  'hr.ins.list': { check: needPay, run: (c: OpCtx) => c.db.query<HrInsurance>('SELECT id, person_id, member_name, relation, amount_usd, currency, paid_by, end_date, paid_on, note FROM hr_insurance WHERE deleted_at IS NULL ORDER BY person_id, member_name IS NOT NULL, member_name') },
   'hr.ins.save': {
     check: needPay,
-    run: async (c: OpCtx, a: { id?: number | null; personId: number; memberName?: string | null; relation?: string | null; amountUsd: number; endDate?: string | null; paidOn?: string | null; note?: string | null }) => {
+    run: async (c: OpCtx, a: { id?: number | null; personId: number; memberName?: string | null; relation?: string | null; amountUsd: number; currency?: 'USD' | 'SYP'; paidBy?: 'centre' | 'staff'; endDate?: string | null; paidOn?: string | null; note?: string | null }) => {
       if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
       const amount = Number(a.amountUsd);
       if (!(amount >= 0)) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
-      const v = [a.personId, txt(a.memberName), txt(a.relation), amount, day(a.endDate), day(a.paidOn), txt(a.note)];
+      // the staff member's own insurance is usually paid by the centre; a family member's by the staff member
+      const member = txt(a.memberName);
+      const paidBy = a.paidBy === 'centre' || a.paidBy === 'staff' ? a.paidBy : member ? 'staff' : 'centre';
+      const v = [a.personId, member, txt(a.relation), amount, a.currency === 'SYP' ? 'SYP' : 'USD', paidBy, day(a.endDate), day(a.paidOn), txt(a.note)];
       if (a.id) {
-        await c.db.batch([{ sql: 'UPDATE hr_insurance SET person_id=?, member_name=?, relation=?, amount_usd=?, end_date=?, paid_on=?, note=? WHERE id = ? AND deleted_at IS NULL', params: [...v, a.id] }, auditStmt(c.who, 'update', 'hr_insurance', String(a.id), null, { person: a.personId, amount })]);
+        await c.db.batch([{ sql: 'UPDATE hr_insurance SET person_id=?, member_name=?, relation=?, amount_usd=?, currency=?, paid_by=?, end_date=?, paid_on=?, note=? WHERE id = ? AND deleted_at IS NULL', params: [...v, a.id] }, auditStmt(c.who, 'update', 'hr_insurance', String(a.id), null, { person: a.personId, amount })]);
         return { id: a.id };
       }
-      await c.db.batch([{ sql: 'INSERT INTO hr_insurance (person_id, member_name, relation, amount_usd, end_date, paid_on, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] }, auditStmt(c.who, 'add', 'hr_insurance', null, null, { person: a.personId, amount })]);
+      await c.db.batch([{ sql: 'INSERT INTO hr_insurance (person_id, member_name, relation, amount_usd, currency, paid_by, end_date, paid_on, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] }, auditStmt(c.who, 'add', 'hr_insurance', null, null, { person: a.personId, amount })]);
       return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_insurance'))!.id };
     },
   },

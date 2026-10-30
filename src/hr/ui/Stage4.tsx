@@ -13,63 +13,68 @@ const daysTo = (d: string) => Math.round((Date.parse(d) - Date.parse(todayIso())
 
 export function InsurancePage({ s, hr }: { s: Session; hr: HrData }) {
   const [rows, setRows] = useState<HrInsurance[] | null>(null);
-  const [edit, setEdit] = useState<{ row: HrInsurance | null; personId: number | null } | null>(null);
+  const [edit, setEdit] = useState<{ row: HrInsurance | null; personId: number | null; family: boolean } | null>(null);
   const load = useCallback(async () => { try { setRows(await s.api.call('hr.ins.list', {})); } catch (e) { fail(e); } }, [s]);
   useEffect(() => { void load(); }, [load]);
   if (!rows) return <p className="muted">…</p>;
-  const people = hr.people.filter((p) => p.active || rows.some((r) => r.person_id === p.id));
-  const total = rows.filter((r) => hr.people.find((p) => p.id === r.person_id)?.active).reduce((a, r) => a + r.amount_usd, 0);
-  const due = (r: HrInsurance) => (r.end_date ? daysTo(r.end_date) : null);
+  const active = (r: HrInsurance) => hr.people.find((p) => p.id === r.person_id)?.active;
+  // what the centre pays, by currency (the staff member's own insurance); the family's is paid by the staff member and kept apart
+  const centre = rows.filter((r) => r.paid_by === 'centre' && active(r));
+  const sum = (xs: HrInsurance[], c: 'USD' | 'SYP') => xs.filter((r) => r.currency === c).reduce((a, r) => a + r.amount_usd, 0);
+  const dd = (r: HrInsurance) => (r.end_date ? daysTo(r.end_date) : null);
+  const money = (r: HrInsurance) => `${usd(r.amount_usd)} ${r.currency}`;
+  const endCell = (r: HrInsurance) => (
+    <td className={dd(r) != null && dd(r)! <= 60 ? 'desk-alert' : ''}>{r.end_date ? fmtDate(r.end_date) : '—'}{dd(r) != null && dd(r)! <= 60 ? ` ⚠ ${dd(r)! < 0 ? t3('منتهٍ', 'ended', 'terminée') : t3(`بعد ${dd(r)} يوماً`, `in ${dd(r)} days`, `dans ${dd(r)} jours`)}` : ''}</td>
+  );
+  const people = hr.people.filter((p) => rows.some((r) => r.person_id === p.id));
   return (
     <>
-      <div className="desk-head"><h1>{t3('التأمين الصحي', 'Health insurance', 'Assurance maladie')}</h1><button className="btn primary" onClick={() => setEdit({ row: null, personId: null })}>＋ {t3('مؤمَّن', 'Add an insured person', 'Ajouter un assuré')}</button></div>
-      <p className="muted small">{t3('يُدفع سنوياً. يظهر تنبيه في الصفحة الأولى قبل انتهائه بـ 60 يوماً.', 'Paid yearly. A reminder appears on the home page 60 days before it ends.', "Payée chaque année. Un rappel apparaît sur la page d'accueil 60 jours avant la fin.")}</p>
-      <div className="cty-card desk-scroll">
-        <table className="desk-table">
-          <thead><tr><th>{t3('الموظف', 'Staff member', 'Membre du personnel')}</th><th>{t3('المؤمَّن', 'Insured', 'Assuré')}</th><th className="n">{t3('سنوياً (دولار)', 'Yearly (USD)', 'Par an (USD)')}</th><th>{t3('ينتهي', 'Ends', 'Fin')}</th><th /></tr></thead>
-          <tbody>
-            {rows.map((r) => {
-              const dd = due(r);
-              const p = people.find((x) => x.id === r.person_id);
-              return (
-                <tr key={r.id} style={{ opacity: p?.active ? 1 : 0.55 }}>
-                  <td><b>{p?.name ?? '?'}</b></td>
-                  <td>{r.member_name ? `${r.member_name}${r.relation ? ` (${r.relation})` : ''}` : t3('هو/هي نفسه', 'The staff member', 'Le membre lui-même')}</td>
-                  <td className="n">{usd(r.amount_usd)}</td>
-                  <td className={dd != null && dd <= 60 ? 'desk-alert' : ''}>{r.end_date ? fmtDate(r.end_date) : '—'}{dd != null && dd <= 60 ? ` ⚠ ${dd < 0 ? t3('منتهٍ', 'ended', 'terminée') : t3(`بعد ${dd} يوماً`, `in ${dd} days`, `dans ${dd} jours`)}` : ''}</td>
-                  <td className="right"><button className="btn small" onClick={() => setEdit({ row: r, personId: r.person_id })}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
-                </tr>
-              );
-            })}
-            {!rows.length && <tr><td colSpan={5} className="muted">{t3('لا أحد مؤمَّن بعد.', 'Nobody insured yet.', 'Personne assuré pour le moment.')}</td></tr>}
-            {rows.length > 0 && <tr><td colSpan={2}><b>{t3('المجموع السنوي', 'Yearly total', 'Total annuel')}</b></td><td className="n"><b>{usd(total)}</b></td><td colSpan={2} /></tr>}
-          </tbody>
-        </table>
-      </div>
-      {edit && <InsModal s={s} people={hr.people.filter((p) => p.active)} row={edit.row} personId={edit.personId} onClose={() => setEdit(null)} onDone={async () => { setEdit(null); await load(); }} />}
+      <div className="desk-head"><h1>{t3('التأمين الصحي', 'Health insurance', 'Assurance maladie')}</h1><button className="btn primary" onClick={() => setEdit({ row: null, personId: null, family: false })}>＋ {t3('تأمين', 'Add an insurance', 'Ajouter une assurance')}</button></div>
+      <p className="muted small">{t3('يُدفع سنوياً، بالدولار أو بالليرة. تأمين الموظف نفسه تدفعه المؤسسة، وتأمين عائلته يدفعه هو، ويُسجَّل منفصلاً. يظهر تنبيه قبل انتهائه بـ 60 يوماً.', "Paid yearly, in USD or SYP. The staff member's own insurance is paid by the centre; the family's is paid by the staff member and is kept apart. A reminder appears 60 days before it ends.", "Payée chaque année, en USD ou en SYP. L'assurance du membre du personnel est payée par le centre ; celle de sa famille par lui, et elle est séparée. Un rappel apparaît 60 jours avant la fin.")}</p>
+      {people.map((p) => {
+        const mine = rows.filter((r) => r.person_id === p.id);
+        const own = mine.filter((r) => !r.member_name), family = mine.filter((r) => r.member_name);
+        return (
+          <div key={p.id} className="cty-card" style={{ marginTop: 10, opacity: p.active ? 1 : 0.55 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}><b>{p.name}</b><span className="row" style={{ gap: 6 }}><button className="btn small" onClick={() => setEdit({ row: null, personId: p.id, family: false })}>＋ {t3('تأمينه', 'His/her own', 'La sienne')}</button><button className="btn small" onClick={() => setEdit({ row: null, personId: p.id, family: true })}>＋ {t3('فرد من العائلة', 'A family member', 'Un membre de la famille')}</button></span></div>
+            <div className="muted small">{t3('تدفعه المؤسسة', 'Paid by the centre', 'Payé par le centre')}</div>
+            <table className="desk-table"><tbody>
+              {own.map((r) => <tr key={r.id}><td>{t3('هو/هي نفسه', 'The staff member', 'Le membre lui-même')}</td><td className="n">{money(r)}</td>{endCell(r)}<td className="right"><button className="btn small" onClick={() => setEdit({ row: r, personId: p.id, family: false })}>{t3('تعديل', 'Edit', 'Modifier')}</button></td></tr>)}
+              {!own.length && <tr><td className="muted">—</td></tr>}
+            </tbody></table>
+            <div className="muted small" style={{ marginTop: 6 }}>{t3('العائلة — يدفعها الموظف (منفصلة)', 'Family — paid by the staff member (separate)', 'Famille — payée par le membre du personnel (séparée)')}</div>
+            <table className="desk-table"><tbody>
+              {family.map((r) => <tr key={r.id}><td>{r.member_name}{r.relation ? ` (${r.relation})` : ''}</td><td className="n">{money(r)}</td>{endCell(r)}<td className="right"><button className="btn small" onClick={() => setEdit({ row: r, personId: p.id, family: true })}>{t3('تعديل', 'Edit', 'Modifier')}</button></td></tr>)}
+              {!family.length && <tr><td className="muted">—</td></tr>}
+            </tbody></table>
+          </div>
+        );
+      })}
+      {!rows.length && <p className="muted">{t3('لا أحد مؤمَّن بعد.', 'Nobody insured yet.', 'Personne assuré pour le moment.')}</p>}
+      {centre.length > 0 && <p style={{ marginTop: 10 }}><b>{t3('تدفع المؤسسة سنوياً', 'The centre pays yearly', 'Le centre paie par an')}:</b> {sum(centre, 'USD') ? `${usd(sum(centre, 'USD'))} USD` : ''}{sum(centre, 'USD') && sum(centre, 'SYP') ? ' + ' : ''}{sum(centre, 'SYP') ? `${usd(sum(centre, 'SYP'))} SYP` : ''}</p>}
+      {edit && <InsModal s={s} people={hr.people.filter((p) => p.active)} row={edit.row} personId={edit.personId} family={edit.family} onClose={() => setEdit(null)} onDone={async () => { setEdit(null); await load(); }} />}
     </>
   );
 }
 
-function InsModal({ s, people, row, personId, onClose, onDone }: { s: Session; people: HrPerson[]; row: HrInsurance | null; personId: number | null; onClose: () => void; onDone: () => Promise<void> }) {
-  const [f, setF] = useState({ personId: personId ? String(personId) : '', member: row?.member_name ?? '', relation: row?.relation ?? '', amount: row ? String(row.amount_usd) : '', end: row?.end_date ?? '', paidOn: row?.paid_on ?? '' });
-  const [family, setFamily] = useState(!!row?.member_name);
+function InsModal({ s, people, row, personId, family: fam, onClose, onDone }: { s: Session; people: HrPerson[]; row: HrInsurance | null; personId: number | null; family: boolean; onClose: () => void; onDone: () => Promise<void> }) {
+  const [f, setF] = useState({ personId: personId ? String(personId) : '', member: row?.member_name ?? '', relation: row?.relation ?? '', amount: row ? String(row.amount_usd) : '', currency: (row?.currency ?? 'USD') as 'USD' | 'SYP', end: row?.end_date ?? '', paidOn: row?.paid_on ?? '' });
   return (
-    <Modal title={t3('تأمين صحي', 'Health insurance', 'Assurance maladie')} onClose={onClose} narrow>
+    <Modal title={fam ? t3('تأمين فرد من العائلة (يدفعه الموظف)', 'Insurance of a family member (paid by the staff member)', "Assurance d'un membre de la famille (payée par le membre du personnel)") : t3('تأمين الموظف (تدفعه المؤسسة)', 'Insurance of the staff member (paid by the centre)', 'Assurance du membre du personnel (payée par le centre)')} onClose={onClose} narrow>
       <Field label={t3('الموظف', 'Staff member', 'Membre du personnel')}>
         <select value={f.personId} onChange={(e) => setF({ ...f, personId: e.target.value })}><option value="" />{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
       </Field>
-      <label className="row" style={{ gap: 6, margin: '6px 0' }}><input type="checkbox" checked={family} onChange={(e) => setFamily(e.target.checked)} /> {t3('فرد من العائلة', 'A family member', 'Un membre de la famille')}</label>
-      {family && <div className="grid2"><Field label={t3('الاسم', 'Name', 'Nom')}><input value={f.member} onChange={(e) => setF({ ...f, member: e.target.value })} /></Field><Field label={t3('القرابة', 'Relation', 'Lien')}><input value={f.relation} onChange={(e) => setF({ ...f, relation: e.target.value })} /></Field></div>}
+      {fam && <div className="grid2"><Field label={t3('الاسم', 'Name', 'Nom')}><input value={f.member} onChange={(e) => setF({ ...f, member: e.target.value })} /></Field><Field label={t3('القرابة', 'Relation', 'Lien')}><input value={f.relation} onChange={(e) => setF({ ...f, relation: e.target.value })} /></Field></div>}
       <div className="grid2">
-        <Field label={t3('المبلغ السنوي (دولار)', 'Yearly amount (USD)', 'Montant annuel (USD)')}><input inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+        <Field label={t3('المبلغ السنوي', 'Yearly amount', 'Montant annuel')}><input inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+        <Field label={t3('العملة', 'Currency', 'Devise')}><select value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value as 'USD' | 'SYP' })}><option value="USD">USD</option><option value="SYP">SYP</option></select></Field>
         <Field label={t3('تاريخ انتهاء التأمين', 'End date of the insurance', "Date de fin de l'assurance")}><input type="date" value={f.end} onChange={(e) => setF({ ...f, end: e.target.value })} /></Field>
         <Field label={t3('دُفع في', 'Paid on', 'Payée le')}><input type="date" value={f.paidOn} onChange={(e) => setF({ ...f, paidOn: e.target.value })} /></Field>
       </div>
       <div className="modal-foot">
         {row && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('حذف؟', 'Delete?', 'Supprimer ?'), true)) { try { await s.api.call('hr.ins.delete', { id: row.id }); await onDone(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
-        <button className="btn primary" disabled={!f.personId || f.amount === '' || (family && !f.member.trim())} onClick={async () => {
-          try { await s.api.call('hr.ins.save', { id: row?.id ?? null, personId: Number(f.personId), memberName: family ? f.member : null, relation: family ? f.relation : null, amountUsd: Number(f.amount), endDate: f.end || null, paidOn: f.paidOn || null }); await onDone(); } catch (e) { fail(e); }
+        <button className="btn primary" disabled={!f.personId || f.amount === '' || (fam && !f.member.trim())} onClick={async () => {
+          try { await s.api.call('hr.ins.save', { id: row?.id ?? null, personId: Number(f.personId), memberName: fam ? f.member : null, relation: fam ? f.relation : null, amountUsd: Number(f.amount), currency: f.currency, paidBy: fam ? 'staff' : 'centre', endDate: f.end || null, paidOn: f.paidOn || null }); await onDone(); } catch (e) { fail(e); }
         }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
       </div>
     </Modal>

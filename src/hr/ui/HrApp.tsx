@@ -5,17 +5,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { has } from '../../auth';
 import type { Session } from '../../state';
 import { errText, Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../../ui/kit';
-import { pickFile, toBase64 } from '../../platform';
+import { pickFile, saveFile, toBase64 } from '../../platform';
 import { WhoIs } from '../../community/ui/CtyApp';
 import { t3 } from '../../community/ui/text';
 import type { HrAlert, HrData, HrPaper, HrPerson } from '../hr';
 import { HoursPage, ScalePage } from './Pay';
 import { RunsPage } from './Runs';
 import { DonorsPage, InsurancePage } from './Stage4';
+import { ListsPage } from './Lists';
+import { agreementDoc, stipendDoc } from '../docs';
 import '../../community/ui/cty.css';
 import '../../community/ui/desk/desk.css';
 
-type Page = 'home' | 'people' | 'scale' | 'hours' | 'runs' | 'insurance' | 'donors' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'scale' | 'hours' | 'runs' | 'insurance' | 'donors' | 'lists' | 'conduct' | 'log';
 const MIME: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 const fail = (e: unknown) => toast(errText(e), true);
 
@@ -58,6 +60,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
     { p: 'people', label: t3('الأشخاص', 'People', 'Personnes') },
     ...(pay ? [{ p: 'scale' as Page, label: t3('سلّم الرواتب والمكافآت', 'Salary scale & stipends', 'Échelle et gratifications') }, { p: 'hours' as Page, label: t3('ساعات العمل', 'Hours worked', 'Heures travaillées') }, { p: 'runs' as Page, label: t3('كشوف الرواتب', 'Payroll runs', 'Paies') }, { p: 'insurance' as Page, label: t3('التأمين الصحي', 'Health insurance', 'Assurance maladie') }, { p: 'donors' as Page, label: t3('التكلفة حسب المانح', 'Cost by donor', 'Coût par bailleur') }] : []),
     { p: 'conduct', label: t3('مدونة السلوك', 'Code of conduct', 'Code de conduite') },
+    ...(manage ? [{ p: 'lists' as Page, label: t3('القوائم والتوقيع', 'Lists & signatory', 'Listes et signataire') }] : []),
     ...(vault ? [{ p: 'log' as Page, label: t3('سجل فتح الوثائق', 'Log of document openings', "Journal d'ouverture des documents") }] : []),
   ];
   return (
@@ -79,6 +82,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {page === 'runs' && <RunsPage s={session} hr={d} />}
         {page === 'insurance' && <InsurancePage s={session} hr={d} />}
         {page === 'donors' && <DonorsPage s={session} />}
+        {page === 'lists' && <ListsPage s={session} d={d} reload={reload} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'log' && <Log s={session} d={d} />}
         {person && <PersonModal {...ctx} manage={manage} vault={vault} person={person === 'new' ? null : person} onClose={() => setPerson(null)} />}
@@ -165,13 +169,13 @@ function People({ d, open, manage, add }: Ctx & { manage: boolean; add: () => vo
 }
 
 function PersonModal({ s, d, reload, person, manage, vault, onClose }: Ctx & { person: HrPerson | null; manage: boolean; vault: boolean; onClose: () => void }) {
-  const [f, setF] = useState<Partial<HrPerson>>(person ?? { active: 1 });
+  const [f, setF] = useState<Partial<HrPerson>>(person ? { ...person, first_name: person.first_name ?? person.name } : { active: 1 });
   const [paper, setPaper] = useState<HrPaper | 'agreement' | 'stipend' | null>(null);
   const [docForm, setDocForm] = useState(false);
   const set = (k: keyof HrPerson) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const saveP = async () => {
     try {
-      const r = await s.api.call('hr.person.save', { ...(f as HrPerson), name: f.name ?? '' });
+      const r = await s.api.call('hr.person.save', { ...(f as HrPerson), name: f.first_name ?? '' });
       toast(t3('حُفظ', 'Saved', 'Enregistré'));
       await reload();
       if (!person) onClose();
@@ -179,6 +183,15 @@ function PersonModal({ s, d, reload, person, manage, vault, onClose }: Ctx & { p
     } catch (e) { fail(e); }
   };
   const papers = person ? d.papers.filter((x) => x.person_id === person.id) : [];
+  /** the agreement or the stipend letter, as a Word file made from this person's data */
+  const makeDoc = async (p: HrPaper) => {
+    if (!person) return;
+    try {
+      const ctx = { org: s.organisation, person, repAr: d.docSettings.repAr, repEn: d.docSettings.repEn, maxWeekly: 40 };
+      const bytes = p.kind === 'agreement' ? await agreementDoc(ctx, p) : await stipendDoc(ctx, p);
+      await saveFile(`${p.kind === 'agreement' ? 'Volunteer-agreement' : 'Stipend-letter'}-${person.name.replace(/[^\w\u0600-\u06FF]+/g, '_')}-${p.start_date ?? p.paid_on ?? ''}.docx`, ['docx'], bytes, 'Word');
+    } catch (e) { fail(e); }
+  };
   const docs = person && d.docs ? d.docs.filter((x) => x.person_id === person.id) : [];
   const latest = d.conducts[0];
   const sign = person ? d.signs.find((x) => x.person_id === person.id && x.conduct_id === latest?.id) : null;
@@ -188,22 +201,23 @@ function PersonModal({ s, d, reload, person, manage, vault, onClose }: Ctx & { p
   return (
     <Modal title={person?.name ?? t3('شخص جديد', 'New person', 'Nouvelle personne')} onClose={onClose}>
       <div className="grid2">
-        <Field label={t3('الاسم', 'Name', 'Nom')}><input value={f.name ?? ''} onChange={set('name')} disabled={!manage} /></Field>
+        <Field label={t3('الاسم الأول', 'First name', 'Prénom')}><input value={f.first_name ?? ''} onChange={set('first_name')} disabled={!manage} /></Field>
+        <Field label={t3('الكنية (اسم العائلة)', 'Last name', 'Nom de famille')}><input value={f.last_name ?? ''} onChange={set('last_name')} disabled={!manage} /></Field>
         <Field label={t3('اسم الأب', "Father's name", 'Nom du père')}><input value={f.father_name ?? ''} onChange={set('father_name')} disabled={!manage} /></Field>
         <Field label={t3('الرقم الوطني / رقم الهوية', 'National / ID number', "N° national / pièce d'identité")}><input value={f.national_id ?? ''} onChange={set('national_id')} disabled={!manage} /></Field>
         <Field label={t3('الهاتف', 'Phone', 'Téléphone')}><input value={f.phone ?? ''} onChange={set('phone')} disabled={!manage} /></Field>
         <Field label={t3('مكان الولادة', 'Place of birth', 'Lieu de naissance')}><input value={f.birth_place ?? ''} onChange={set('birth_place')} disabled={!manage} /></Field>
         <Field label={t3('تاريخ الولادة', 'Date of birth', 'Date de naissance')}><input type="date" value={f.birth_date ?? ''} onChange={set('birth_date')} disabled={!manage} /></Field>
         <Field label={t3('العنوان', 'Address', 'Adresse')} className="span2"><input value={f.address ?? ''} onChange={set('address')} disabled={!manage} /></Field>
-        <Field label={t3('الدور', 'Role', 'Rôle')}><input value={f.role ?? ''} onChange={set('role')} disabled={!manage} /></Field>
-        <Field label={t3('المركز', 'Centre', 'Centre')}><input value={f.centre ?? ''} onChange={set('centre')} disabled={!manage} /></Field>
-        <Field label={t3('الحساب في المحاسبة (مثلاً CJF)', 'Account in Accounts (e.g. CJF)', 'Compte en comptabilité (ex. CJF)')}><input value={f.account ?? ''} onChange={set('account')} disabled={!manage} /></Field>
-        <Field label={t3('بند الموازنة', 'Budget line', 'Ligne budgétaire')}><input value={f.budget_line ?? ''} onChange={set('budget_line')} disabled={!manage} /></Field>
+        <Pick label={t3('الدور (وظيفة من سلّم الرواتب)', 'Role (a position of the scale)', "Rôle (un poste de l'échelle)")} value={f.role ?? ''} options={d.positions.map((x) => ({ value: x, label: x }))} onChange={(v) => setF({ ...f, role: v })} disabled={!manage} />
+        <Pick label={t3('المركز', 'Centre', 'Centre')} value={f.centre ?? ''} options={d.lists.filter((x) => x.kind === 'centre').map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, centre: v })} disabled={!manage} />
+        <Pick label={t3('الحساب في المحاسبة', 'Account in Accounts', 'Compte en comptabilité')} value={f.account ?? ''} options={d.lists.filter((x) => x.kind === 'account').map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, account: v })} disabled={!manage} />
+        <Pick label={t3('بند الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={d.lists.filter((x) => x.kind === 'line').map((x) => { const v = x.code ? `${x.code} · ${x.name}` : x.name; return { value: v, label: x.heading ? `${v} (${x.heading})` : v }; })} onChange={(v) => setF({ ...f, budget_line: v })} disabled={!manage} />
         <Field label={t3('بدأ في', 'Started', 'Début')}><input type="date" value={f.started ?? ''} onChange={set('started')} disabled={!manage} /></Field>
         <Field label={t3('غادر في (اتركه فارغاً إن كان مستمراً)', 'Left on (empty if still here)', 'Parti le (vide si toujours là)')}><input type="date" value={f.ended ?? ''} onChange={set('ended')} disabled={!manage} /></Field>
         <Field label={t3('ملاحظة', 'Note', 'Note')} className="span2"><input value={f.note ?? ''} onChange={set('note')} disabled={!manage} /></Field>
       </div>
-      {manage && <div className="modal-foot"><button className="btn primary" disabled={!f.name?.trim()} onClick={saveP}>{t3('حفظ', 'Save', 'Enregistrer')}</button></div>}
+      {manage && <div className="modal-foot"><button className="btn primary" disabled={!f.first_name?.trim()} onClick={saveP}>{t3('حفظ', 'Save', 'Enregistrer')}</button></div>}
 
       {person && (
         <>
@@ -215,6 +229,7 @@ function PersonModal({ s, d, reload, person, manage, vault, onClose }: Ctx & { p
                   <td>{paperTitle(p)}{p.amount != null ? ` · ${p.amount} ${p.currency}` : ''}{p.kind === 'stipend' && p.paid_on ? ` · ${fmtDate(p.paid_on)}` : ''}</td>
                   <td className="right nowrap">
                     {p.file_name ? <button className="btn small" onClick={() => openScan(s, 'paper', p.id)}>📎 {t3('النسخة الموقّعة', 'Signed copy', 'Copie signée')}</button> : <span className="desk-alert small">{t3('بلا نسخة موقّعة', 'no signed copy', 'sans copie signée')}</span>}{' '}
+                    <button className="btn small" title={t3('ينشئ ملف Word من بيانات الشخص', "Makes a Word file from the person's data", 'Crée un fichier Word à partir des données de la personne')} onClick={() => makeDoc(p)}>📄 Word</button>{' '}
                     {manage && <button className="btn small" onClick={() => setPaper(p)}>{t3('تعديل', 'Edit', 'Modifier')}</button>}
                   </td>
                 </tr>
@@ -446,5 +461,18 @@ function Log({ s, d }: { s: Session; d: HrData }) {
         </table>
       </div>
     </>
+  );
+}
+
+/** A choice from a stored list. An old value no longer in the list is kept as an option, so nothing is lost. */
+function Pick({ label, value, options, onChange, disabled }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; disabled?: boolean }) {
+  const all = value && !options.some((o) => o.value === value) ? [{ value, label: value }, ...options] : options;
+  return (
+    <Field label={label}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+        <option value="">{all.length ? '—' : t3('— القائمة فارغة: املأها من «القوائم» —', '— the list is empty: fill it in "Lists" —', '— liste vide : remplissez-la dans « Listes » —')}</option>
+        {all.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </Field>
   );
 }

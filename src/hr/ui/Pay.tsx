@@ -7,7 +7,7 @@ import { t3 } from '../../community/ui/text';
 import type { HrData, HrPerson } from '../hr';
 import type { HrGrade, HrPay, HrPayData } from '../payOps';
 import { SplitModal } from './Stage4';
-import { hourlyFromMonthly, hourlyWithThirteenth, monthlyFromRate, monthlyHours, payOn, rateFor, yearlyCost } from '../pay';
+import { hourlyFromMonthly, hourlyWithThirteenth, monthlyHours, payOn, rateFor, yearlyCost } from '../pay';
 
 const fail = (e: unknown) => toast(errText(e), true);
 const usd = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
@@ -39,26 +39,26 @@ export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
 
       <div className="cty-card">
         <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <b>{t3('الدرجات: أجر الساعة الأساسي بالدولار', 'Grades: base hourly rate in USD', 'Grades : taux horaire de base en USD')}</b>
-          <button className="btn small" onClick={() => setGrade('new')}>＋ {t3('درجة', 'Add a grade', 'Ajouter un grade')}</button>
+          <b>{t3('الوظائف: المبلغ الشهري بالدولار', 'Positions: monthly amount in USD', 'Postes : montant mensuel en USD')}</b>
+          <button className="btn small" onClick={() => setGrade('new')}>＋ {t3('وظيفة', 'Add a position', 'Ajouter un poste')}</button>
         </div>
-        <p className="muted small">{t3('المكافأة الشهرية = أجر الساعة × ساعات الأسبوع × 52 ÷ 12 (تُقرَّب). ساعات الأسبوع تختلف من شخص لآخر.', 'Monthly stipend = hourly rate × weekly hours × 52 ÷ 12 (rounded). Weekly hours differ from person to person.', 'Gratification mensuelle = taux horaire × heures par semaine × 52 ÷ 12 (arrondie). Les heures varient selon la personne.')}</p>
+        <p className="muted small">{t3('المبلغ الشهري هو المحدَّد. تكلفة الساعة تُحسب بعد تثبيت ساعات الأسبوع لكل شخص: شهري × 12 ÷ (ساعات الأسبوع × 52).', 'The monthly amount is the fixed one. The hourly cost is calculated once the weekly hours are fixed for each person: monthly × 12 ÷ (weekly hours × 52).', 'Le montant mensuel est fixé. Le coût horaire est calculé une fois les heures par semaine fixées pour chaque personne : mensuel × 12 ÷ (heures par semaine × 52).')}</p>
         {!d.grades.length ? (
           <div>
-            <p>{t3('لا درجات بعد.', 'No grades yet.', 'Aucun grade pour le moment.')}</p>
-            <button className="btn primary" onClick={async () => { try { await s.api.call('hr.grade.seed', { year }); await reload(); } catch (e) { fail(e); } }}>{t3('حمّل السلّم المقترح (أربع درجات) لتعدّله', 'Load the proposed scale (four grades) to edit', "Charger l'échelle proposée (quatre grades) à modifier")}</button>
+            <p>{t3('لا وظائف بعد.', 'No positions yet.', 'Aucun poste pour le moment.')}</p>
+            <button className="btn primary" onClick={async () => { try { await s.api.call('hr.grade.seed', { year }); await reload(); } catch (e) { fail(e); } }}>{t3('حمّل سلّمك من جدول الرواتب لتعدّله', 'Load your scale from the salary sheet, to edit', 'Charger votre échelle depuis la feuille de salaires, à modifier')}</button>
           </div>
         ) : (
           <div className="desk-scroll">
             <table className="desk-table">
-              <thead><tr><th>{t3('الدرجة', 'Grade', 'Grade')}</th><th>{t3('الأدوار', 'Roles', 'Rôles')}</th><th>{year}</th>{typical.map((h) => <th key={h} className="n">{h} {t3('س', 'h/week', 'h/sem')}</th>)}<th /></tr></thead>
+              <thead><tr><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th>{t3('ملاحظة', 'Note', 'Note')}</th><th className="n">{year - 1}</th><th className="n">{year} · {t3('شهرياً', 'monthly', 'mensuel')}</th><th className="n">{year + 1}</th>{typical.map((h) => <th key={h} className="n">{t3('الساعة عند', 'hourly at', 'horaire à')} {h} {t3('س', 'h/week', 'h/sem')}</th>)}<th /></tr></thead>
               <tbody>
                 {d.grades.map((g) => {
                   const r = rateFor(g, year);
                   return (
                     <tr key={g.id}>
-                      <td><b>{g.name}</b></td><td className="small">{g.note ?? ''}</td><td className="n">{usd(r)}</td>
-                      {typical.map((h) => <td key={h} className="n">{r != null ? usd(monthlyFromRate(r, h, d.settings.roundTo)) : '—'}</td>)}
+                      <td><b>{g.name}</b></td><td className="small">{g.note ?? ''}</td><td className="n">{usd(g.rates[year - 1])}</td><td className="n"><b>{usd(r)}</b></td><td className="n">{usd(g.rates[year + 1])}</td>
+                      {typical.map((h) => <td key={h} className="n">{r != null ? usd(hourlyFromMonthly(r, h)) : '—'}</td>)}
                       <td className="right"><button className="btn small" onClick={() => setGrade(g)}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
                     </tr>
                   );
@@ -73,7 +73,7 @@ export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
         <b>{t3('ما يُعطى لكل شخص اليوم', 'What each person gets today', "Ce que reçoit chaque personne aujourd'hui")}</b>
         <div className="desk-scroll">
           <table className="desk-table">
-            <thead><tr><th>{t3('الاسم', 'Name', 'Nom')}</th><th>{t3('الدرجة', 'Grade', 'Grade')}</th><th className="n">{t3('س/أسبوع', 'h/week', 'h/sem')}</th><th className="n">{t3('شهرياً', 'Monthly', 'Mensuel')}</th><th className="n">{t3('الساعة', 'Hourly', 'Horaire')}</th><th className="n">{t3(`سنوياً (×${d.settings.paymentsPerYear})`, `Yearly (×${d.settings.paymentsPerYear})`, `Annuel (×${d.settings.paymentsPerYear})`)}</th><th /></tr></thead>
+            <thead><tr><th>{t3('الاسم', 'Name', 'Nom')}</th><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th className="n">{t3('س/أسبوع', 'h/week', 'h/sem')}</th><th className="n">{t3('شهرياً', 'Monthly', 'Mensuel')}</th><th className="n">{t3('الساعة', 'Hourly', 'Horaire')}</th><th className="n">{t3(`سنوياً (×${d.settings.paymentsPerYear})`, `Yearly (×${d.settings.paymentsPerYear})`, `Annuel (×${d.settings.paymentsPerYear})`)}</th><th /></tr></thead>
             <tbody>
               {rows.map(({ p, c }) => (
                 <tr key={p.id}>
@@ -103,17 +103,16 @@ export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
 }
 
 function Settings({ s, d, reload }: { s: Session; d: HrPayData; reload: () => Promise<void> }) {
-  const [f, setF] = useState({ paymentsPerYear: String(d.settings.paymentsPerYear), roundTo: String(d.settings.roundTo), maxWeekly: String(d.settings.maxWeekly) });
+  const [f, setF] = useState({ paymentsPerYear: String(d.settings.paymentsPerYear), maxWeekly: String(d.settings.maxWeekly) });
   return (
     <div className="cty-card" style={{ marginTop: 12 }}>
       <b>{t3('الإعدادات', 'Settings', 'Réglages')}</b>
       <div className="grid2" style={{ marginTop: 6 }}>
         <Field label={t3('عدد الدفعات في السنة (الثالثة عشرة = بدل الضمان)', 'Payments a year (the 13th = instead of social security)', 'Paiements par an (le 13e = à la place de la sécurité sociale)')}><input inputMode="decimal" value={f.paymentsPerYear} onChange={(e) => setF({ ...f, paymentsPerYear: e.target.value })} /></Field>
-        <Field label={t3('تقريب المبلغ الشهري إلى أقرب', 'Round the monthly amount to the nearest', 'Arrondir le mensuel au plus proche de')}><input inputMode="decimal" value={f.roundTo} onChange={(e) => setF({ ...f, roundTo: e.target.value })} /></Field>
         <Field label={t3('الحد الأقصى لساعات الأسبوع (الاتفاقية)', "Maximum weekly hours (the agreement's)", "Maximum d'heures par semaine (l'accord)")}><input inputMode="decimal" value={f.maxWeekly} onChange={(e) => setF({ ...f, maxWeekly: e.target.value })} /></Field>
       </div>
       <button className="btn small" onClick={async () => {
-        try { await s.api.call('hr.pay.settings', { paymentsPerYear: Number(f.paymentsPerYear), roundTo: Number(f.roundTo), maxWeekly: Number(f.maxWeekly) }); toast(t3('حُفظ', 'Saved', 'Enregistré')); await reload(); } catch (e) { fail(e); }
+        try { await s.api.call('hr.pay.settings', { paymentsPerYear: Number(f.paymentsPerYear), maxWeekly: Number(f.maxWeekly) }); toast(t3('حُفظ', 'Saved', 'Enregistré')); await reload(); } catch (e) { fail(e); }
       }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
     </div>
   );
@@ -126,16 +125,16 @@ function GradeModal({ s, grade, onClose, reload }: { s: Session; grade: HrGrade 
   const [note, setNote] = useState(grade?.note ?? '');
   const [rates, setRates] = useState<Record<number, string>>(() => Object.fromEntries(years.map((yr) => [yr, grade?.rates[yr] != null ? String(grade.rates[yr]) : ''])));
   return (
-    <Modal title={grade?.name ?? t3('درجة جديدة', 'New grade', 'Nouveau grade')} onClose={onClose} narrow>
+    <Modal title={grade?.name ?? t3('وظيفة جديدة', 'New position', 'Nouveau poste')} onClose={onClose} narrow>
       <Field label={t3('الاسم', 'Name', 'Nom')}><input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label={t3('الأدوار (للتذكير)', 'Roles (a reminder)', 'Rôles (pour mémoire)')}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-      <h3>{t3('أجر الساعة الأساسي (دولار)', 'Base hourly rate (USD)', 'Taux horaire de base (USD)')}</h3>
+      <Field label={t3('ملاحظة', 'Note', 'Note')}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      <h3>{t3('المبلغ الشهري (دولار)', 'Monthly amount (USD)', 'Montant mensuel (USD)')}</h3>
       <div className="grid2">
         {years.map((yr) => <Field key={yr} label={String(yr)}><input inputMode="decimal" value={rates[yr] ?? ''} onChange={(e) => setRates({ ...rates, [yr]: e.target.value })} /></Field>)}
       </div>
       <div className="modal-foot">
         {grade && <button className="btn danger" onClick={async () => {
-          if (!(await confirmBox(t3('حذف هذه الدرجة؟', 'Delete this grade?', 'Supprimer ce grade ?'), true))) return;
+          if (!(await confirmBox(t3('حذف هذه الوظيفة؟', 'Delete this position?', 'Supprimer ce poste ?'), true))) return;
           try { await s.api.call('hr.grade.delete', { id: grade.id }); await reload(); onClose(); } catch (e) { fail(e); }
         }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
         <button className="btn primary" disabled={!name.trim()} onClick={async () => {
@@ -154,7 +153,7 @@ function PayModal({ s, d, person, onClose, reload }: { s: Session; d: HrPayData;
   const cur = payOn(d, person.id, todayIso());
   const [f, setF] = useState({ validFrom: todayIso(), gradeId: String(cur?.pay.grade_id ?? ''), weekly: String(cur?.weekly ?? ''), monthly: '', note: '' });
   const rate = f.gradeId ? rateFor(d.grades.find((g) => g.id === Number(f.gradeId))!, Number(f.validFrom.slice(0, 4))) : null;
-  const preview = f.monthly !== '' ? Number(f.monthly) : rate != null && Number(f.weekly) > 0 ? monthlyFromRate(rate, Number(f.weekly), d.settings.roundTo) : null;
+  const preview = f.monthly !== '' ? Number(f.monthly) : rate;
   const label = (p: HrPay) => `${fmtDate(p.valid_from)} · ${p.grade_id ? d.grades.find((g) => g.id === p.grade_id)?.name : t3('مبلغ خاص', 'own amount', 'montant propre')} · ${p.weekly_hours ?? '—'} ${t3('س/أسبوع', 'h/week', 'h/sem')}${p.monthly_usd != null ? ` · ${usd(p.monthly_usd)}` : ''}`;
   return (
     <Modal title={`${t3('الراتب', 'Pay', 'Paie')} · ${person.name}`} onClose={onClose}>
@@ -173,13 +172,13 @@ function PayModal({ s, d, person, onClose, reload }: { s: Session; d: HrPayData;
       <div className="grid2">
         <Field label={t3('ابتداءً من', 'From', 'À partir du')}><input type="date" value={f.validFrom} onChange={(e) => setF({ ...f, validFrom: e.target.value })} /></Field>
         <Field label={t3('ساعات الأسبوع', 'Weekly hours', 'Heures par semaine')}><input inputMode="decimal" value={f.weekly} onChange={(e) => setF({ ...f, weekly: e.target.value })} /></Field>
-        <Field label={t3('الدرجة', 'Grade', 'Grade')}>
+        <Field label={t3('الوظيفة', 'Position', 'Poste')}>
           <select value={f.gradeId} onChange={(e) => setF({ ...f, gradeId: e.target.value })}>
-            <option value="">{t3('— بلا درجة (مبلغ خاص) —', '— no grade (own amount) —', '— sans grade (montant propre) —')}</option>
+            <option value="">{t3('— بلا وظيفة (مبلغ خاص) —', '— no position (own amount) —', '— sans poste (montant propre) —')}</option>
             {d.grades.map((g) => <option key={g.id} value={g.id}>{g.name}{g.note ? ` · ${g.note}` : ''}</option>)}
           </select>
         </Field>
-        <Field label={t3('أو مبلغ شهري خاص (دولار)', 'Or an own monthly amount (USD)', 'Ou un montant mensuel propre (USD)')}><input inputMode="decimal" value={f.monthly} onChange={(e) => setF({ ...f, monthly: e.target.value })} /></Field>
+        <Field label={t3('أو مبلغ شهري خاص بهذا الشخص (دولار)', 'Or a monthly amount of their own (USD)', 'Ou un montant mensuel propre à cette personne (USD)')}><input inputMode="decimal" value={f.monthly} onChange={(e) => setF({ ...f, monthly: e.target.value })} /></Field>
       </div>
       <Field label={t3('ملاحظة', 'Note', 'Note')}><input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
       {preview != null && <p className="ok">{t3('شهرياً', 'Monthly', 'Mensuel')}: <b>{usd(preview)}</b> · {t3('الساعة', 'hourly', 'horaire')} {usd(hourlyFromMonthly(preview, Number(f.weekly)))} · {t3('سنوياً', 'yearly', 'annuel')} {usd(yearlyCost(preview, d.settings.paymentsPerYear))}</p>}

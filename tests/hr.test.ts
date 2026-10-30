@@ -107,7 +107,7 @@ describe('HR database', () => {
     expect(hourlyFromMonthly(250, null)).toBeNull();
     expect(hourlyWithThirteenth(300, 42, 13)).toBe(1.79);
     expect(monthlyHours(40)).toBeCloseTo(173.33, 2);
-    // grade 1 (1.15) for a guard of 48 hours: 239 rounded to 240; the cleaner of 36 hours: 179 rounded to 180
+    // (an hourly rate gives a monthly stipend: kept as a reference; the scale itself is by monthly amount)
     expect(monthlyFromRate(1.15, 48, 5)).toBe(240);
     expect(monthlyFromRate(1.15, 36, 5)).toBe(180);
     expect(monthlyFromRate(1.4, 30, 5)).toBe(180);
@@ -124,12 +124,11 @@ describe('HR database', () => {
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(200);
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(400); // only into an empty scale
     let d = (await op('hr.pay.data', {}, ck)).body;
-    expect(d.grades.map((g: { name: string; rates: Record<string, number> }) => [g.name, g.rates['2027']])).toEqual([['Grade 1', 1.15], ['Grade 2', 1.3], ['Grade 3', 1.4], ['Grade 4', 1.65]]);
+    expect(d.grades.map((g: { name: string; rates: Record<string, number> }) => [g.name, g.rates['2027']])).toEqual([['Centre Director', 300], ['Workshop Coordinator', 250], ['Guard & logistics', 230], ['Accountant', 250], ['Reception', 180], ['IT', 180], ['Cleaner', 180], ['Cook', 200]]);
     expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40 });
 
-    // a pay needs a grade or an amount; a grade needs weekly hours
+    // a pay needs a position or an amount; the weekly hours only give the hourly cost
     expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01' }, ck)).status).toBe(400);
-    expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01', gradeId: 1 }, ck)).status).toBe(400);
     expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01', gradeId: 1, weeklyHours: 48 }, ck)).status).toBe(200);
     // a change of hours later keeps the history
     expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-07-01', gradeId: 1, weeklyHours: 40 }, ck)).status).toBe(200);
@@ -140,8 +139,8 @@ describe('HR database', () => {
     expect((await op('hr.grade.delete', { id: 1 }, ck)).status).toBe(400);
     expect((await op('hr.grade.delete', { id: 4 }, ck)).status).toBe(200);
     // a new year's rate on an existing grade
-    expect((await op('hr.grade.save', { id: 1, name: 'Grade 1', rates: { '2028': 1.2 } }, ck)).status).toBe(200);
-    expect((await op('hr.grade.save', { id: 1, name: 'Grade 1', rates: { '2028': 0 } }, ck)).status).toBe(400);
+    expect((await op('hr.grade.save', { id: 1, name: 'Centre Director', rates: { '2028': 320 } }, ck)).status).toBe(200);
+    expect((await op('hr.grade.save', { id: 1, name: 'Centre Director', rates: { '2028': 0 } }, ck)).status).toBe(400);
 
     // hours of a month, then removed
     expect((await op('hr.hours.save', { personId: pid, ym: '2027-03', hours: 190 }, ck)).status).toBe(200);
@@ -170,8 +169,8 @@ describe('HR database', () => {
     const r = await mk('Reception One', { account: 'CJF', budget_line: 'Staff - Reception' });
     const l = await mk('Left Long Ago', { ended: '2026-02-01' });
     await op('hr.grade.seed', { year: 2026 }, ck);
-    await op('hr.pay.save', { personId: g, validFrom: '2026-01-01', gradeId: 1, weeklyHours: 48 }, ck);   // 240
-    await op('hr.pay.save', { personId: r, validFrom: '2026-01-01', gradeId: 3, weeklyHours: 30 }, ck);   // 180
+    await op('hr.pay.save', { personId: g, validFrom: '2026-01-01', gradeId: 3, weeklyHours: 48 }, ck);   // Guard & logistics: 230
+    await op('hr.pay.save', { personId: r, validFrom: '2026-01-01', gradeId: 5, weeklyHours: 30 }, ck);   // Reception: 130 in 2026 (180 in 2027)
     await op('hr.pay.save', { personId: l, validFrom: '2026-01-01', monthlyUsd: 100, weeklyHours: 20 }, ck);
     await op('hr.hours.save', { personId: g, ym: '2026-11', hours: 205 }, ck);
     // a stipend letter paid in November, in pounds
@@ -185,14 +184,14 @@ describe('HR database', () => {
     let got = (await op('hr.run.get', { id: runId }, ck)).body;
     // the person who left in February is not in November's run; the letter is a line of its own
     expect(got.lines.map((x: { person_name: string; total_usd: number; label: string | null }) => [x.person_name, x.total_usd, x.label])).toEqual([
-      ['Guard One', 240, null], ['Reception One', 180, null], ['Reception One', 50, 'Stipend: Workshop'],
+      ['Guard One', 230, null], ['Reception One', 130, null], ['Reception One', 50, 'Stipend: Workshop'],
     ]);
     expect(got.lines[0].hours_worked).toBe(205);
     expect(got.lines[2]).toMatchObject({ paid_in: 'SYP', amount_paid: 650000 });
 
     // an occasional bonus on a line; paying the guard in pounds rounds to 1,000
     const gl = got.lines[0].id;
-    expect((await op('hr.run.line.save', { id: gl, bonusUsd: 20, paidIn: 'SYP' }, ck)).body).toEqual({ total: 260, paid: 3380000 });
+    expect((await op('hr.run.line.save', { id: gl, bonusUsd: 20, paidIn: 'SYP' }, ck)).body).toEqual({ total: 250, paid: 3250000 });
     expect((await op('hr.run.line.add', { runId, personId: r, label: 'Eid bonus', bonusUsd: 15 }, ck)).status).toBe(200);
     expect((await op('hr.run.voucher', { id: runId }, ck)).status).toBe(400); // approve first
 
@@ -206,16 +205,16 @@ describe('HR database', () => {
     const v = (await op('hr.run.voucher', { id: runId }, ck)).body;
     expect(JSON.stringify(v)).not.toContain('Guard One');
     expect(v.rows).toEqual([
-      { account: 'CJF', budget_line: 'Staff - Guards', target: null, paid_in: 'SYP', total_usd: 260, amount_paid: 3380000 },
+      { account: 'CJF', budget_line: 'Staff - Guards', target: null, paid_in: 'SYP', total_usd: 250, amount_paid: 3250000 },
       { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'SYP', total_usd: 50, amount_paid: 650000 },
-      { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'USD', total_usd: 195, amount_paid: 195 },
+      { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'USD', total_usd: 145, amount_paid: 145 },
     ]);
-    expect(v.total_usd).toBe(505);
+    expect(v.total_usd).toBe(445);
 
     // the 13th payment is a run of its own
     expect((await op('hr.run.create', { ym: '2026-12', kind: 'thirteenth', rateSyp: 13000 }, ck)).status).toBe(200);
     const th = (await op('hr.run.list', {}, ck)).body;
-    expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 420], ['2026-11', 'monthly', 'paid', 505]]);
+    expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 360], ['2026-11', 'monthly', 'paid', 445]]);
   });
 
   it('insurance with its reminder; split by donor or project in the voucher and the donor report', async () => {
@@ -273,5 +272,67 @@ describe('HR database', () => {
     expect((await op('hr.ins.list', {}, rc)).status).toBe(400);
     expect((await op('hr.alloc.report', { year: 2026 }, rc)).status).toBe(400);
     expect((await op('hr.data', { today: '2026-11-20' }, rc)).body.alerts.some((a: { kind: string }) => a.kind === 'insurance_ending')).toBe(false);
+  });
+
+  it('first and last name, lists from a centre budget, insurance in two currencies with the family apart, Word documents', async () => {
+    const { agreementDoc, stipendDoc, payslipsDoc } = await import('../src/hr/docs');
+    const made = await call('/api/dbs/create', { organisation: 'HR five', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR five', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const profiles = (await call(`/api/profiles?db=${slug}`)).body;
+    const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
+
+    // a centre with a budget: its account, its heading and lines are copied into the HR lists (names and codes only)
+    const centre = await call('/api/dbs/create', { organisation: 'MAGIS Five', centre: 'homs' });
+    await call('/api/setup/new', { db: centre.body.slug, organisation: 'MAGIS Five', supName: 'Boss', supPin: 'boss-five-1', comName: 'Clerk', comPin: 'clerk-five-1' });
+    const imp = await fetch(`${base}/api/hr/import-lists`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: ck }, body: JSON.stringify({ from: centre.body.slug }) });
+    expect(imp.status).toBe(200);
+    expect((await imp.json()).centres).toBe(1);
+    expect((await (await fetch(`${base}/api/hr/sources`, { headers: { Cookie: ck } })).json()).map((x: { slug: string }) => x.slug)).toContain(centre.body.slug);
+    const lists = (await op('hr.data', {}, ck)).body.lists as { kind: string; name: string; code: string | null }[];
+    expect(lists.some((x) => x.kind === 'centre' && x.name === 'MAGIS Five')).toBe(true);
+
+    // first and last name make the full name; the role, centre and account must come from the lists
+    const id = (await op('hr.person.save', { first_name: 'Salma', last_name: 'Haddad', father_name: 'Ahmad', national_id: '01234567890', address: 'Aleppo', centre: 'MAGIS Five' }, ck)).body.id;
+    let person = (await op('hr.data', {}, ck)).body.people.find((x: { id: number }) => x.id === id);
+    expect([person.name, person.first_name, person.last_name]).toEqual(['Salma Haddad', 'Salma', 'Haddad']);
+    expect((await op('hr.person.save', { id, first_name: 'Salma', last_name: 'Haddad', centre: 'Somewhere else' }, ck)).status).toBe(400);
+    await op('hr.list.save', { kind: 'account', name: 'CJF' }, ck);
+    expect((await op('hr.person.save', { id, first_name: 'Salma', last_name: 'Haddad', account: 'CJF' }, ck)).status).toBe(200);
+    expect((await op('hr.person.save', { id, first_name: 'Salma', last_name: 'Haddad', account: 'XYZ' }, ck)).status).toBe(400);
+    await op('hr.grade.seed', {}, ck);
+    expect((await op('hr.person.save', { id, first_name: 'Salma', last_name: 'Haddad', role: 'Reception' }, ck)).status).toBe(200);
+    expect((await op('hr.person.save', { id, first_name: 'Salma', last_name: 'Haddad', role: 'Astronaut' }, ck)).status).toBe(400);
+
+    // (a save replaces the whole card: the full data again)
+    expect((await op('hr.person.save', { id, first_name: 'Salma', last_name: 'Haddad', father_name: 'Ahmad', national_id: '01234567890', address: 'Aleppo', centre: 'MAGIS Five', account: 'CJF', role: 'Reception' }, ck)).status).toBe(200);
+    // insurance in either currency; the family is kept apart from the staff member's own
+    await op('hr.ins.save', { personId: id, amountUsd: 120, currency: 'USD', endDate: '2027-06-30' }, ck);
+    await op('hr.ins.save', { personId: id, memberName: 'Her mother', relation: 'mother', amountUsd: 1500000, currency: 'SYP' }, ck);
+    await op('hr.ins.save', { personId: id, memberName: 'Her brother', amountUsd: 90 }, ck);
+    const ins = (await op('hr.ins.list', {}, ck)).body as { member_name: string | null; currency: string; paid_by: string }[];
+    expect(ins.map((x) => [x.member_name, x.currency, x.paid_by])).toEqual([[null, 'USD', 'centre'], ['Her brother', 'USD', 'staff'], ['Her mother', 'SYP', 'staff']]);
+
+    // the Word files are real .docx (a zip) holding the person's data
+    const { default: JSZip } = await import('jszip');
+    const textOf = async (bytes: Uint8Array) => (await (await JSZip.loadAsync(bytes)).file('word/document.xml')!.async('string')).replace(/<[^>]+>/g, '');
+    person = (await op('hr.data', {}, ck)).body.people.find((x: { id: number }) => x.id === id);
+    const ctx = { org: 'HR five', person, repAr: 'الأب فؤاد', repEn: 'Fr Fouad', maxWeekly: 40 };
+    const agreement = await textOf(await agreementDoc(ctx, { id: 1, person_id: id, kind: 'agreement', start_date: '2027-01-01', end_date: '2027-12-31', service: null, amount: 100, currency: 'USD', paid_on: null, note: null, file_name: null, size: null, created_at: '' }));
+    expect(agreement).toContain('اتفاقية تطوع');
+    expect(agreement).toContain('Salma Haddad');
+    expect(agreement).toContain('01234567890');
+    expect(agreement).toContain('01-01-2027');
+    expect(agreement).toContain('$100 USD');
+    expect(agreement).toContain('Volunteer agreement (English translation');
+    const letter = await textOf(await stipendDoc(ctx, { id: 2, person_id: id, kind: 'stipend', start_date: '2026-10-01', end_date: null, service: 'Workshop animation', amount: 650000, currency: 'SYP', paid_on: '2026-10-15', note: null, file_name: null, size: null, created_at: '' }));
+    expect(letter).toContain('رسالة مكافأة لمرة واحدة');
+    expect(letter).toContain('Workshop animation');
+    expect(letter).toContain('650,000 SYP');
+    const run = { id: 1, ym: '2026-11', kind: 'monthly', rate_syp: 13000, status: 'approved', note: null, created_by: null, approved_at: null, approved_by: null, paid_on: null, paid_by: null, lines: 1, total_usd: 180 } as const;
+    const slips = await textOf(await payslipsDoc('HR five', run, [{ id: 1, run_id: 1, person_id: id, person_name: 'Salma Haddad', national_id: '01234567890', role: 'Reception', label: null, paper_id: null, weekly_hours: 30, hours_worked: null, base_usd: 180, bonus_usd: 0, deduction_usd: 0, total_usd: 180, paid_in: 'USD', amount_paid: 180, account: null, budget_line: null, note: null }], [person]));
+    expect(slips).toContain('Salma Haddad');
+    expect(slips).toContain('Payslip');
+    expect(slips).toContain('180 USD');
   });
 });

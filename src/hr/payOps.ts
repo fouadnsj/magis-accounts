@@ -30,9 +30,9 @@ async function settingsOf(c: OpCtx): Promise<PaySettings> {
 
 export async function payData(c: OpCtx): Promise<HrPayData> {
   const grades = await c.db.query<Omit<HrGrade, 'rates'>>('SELECT id, name, sort, note, active FROM hr_grade ORDER BY sort, id');
-  const rates = await c.db.query<{ grade_id: number; year: number; hourly_usd: number }>('SELECT * FROM hr_grade_rate');
+  const rates = await c.db.query<{ grade_id: number; year: number; monthly_usd: number }>('SELECT * FROM hr_grade_rate');
   return {
-    grades: grades.map((g) => ({ ...g, rates: Object.fromEntries(rates.filter((r) => r.grade_id === g.id).map((r) => [r.year, r.hourly_usd])) })),
+    grades: grades.map((g) => ({ ...g, rates: Object.fromEntries(rates.filter((r) => r.grade_id === g.id).map((r) => [r.year, r.monthly_usd])) })),
     pays: await c.db.query<HrPay>('SELECT id, person_id, valid_from, grade_id, weekly_hours, monthly_usd, note FROM hr_pay WHERE deleted_at IS NULL ORDER BY person_id, valid_from'),
     hours: await c.db.query<HrHours>('SELECT id, person_id, ym, hours, note FROM hr_hours ORDER BY ym DESC, person_id'),
     settings: await settingsOf(c),
@@ -59,8 +59,8 @@ export const HR_PAY_OPS = {
         const y = Number(year), r = num(rate);
         if (!(y >= 2000 && y <= 2100)) throw new UserError(m('سنة غير صالحة', 'Not a valid year', 'Année non valide'));
         if (r == null) stmts.push({ sql: 'DELETE FROM hr_grade_rate WHERE grade_id = ? AND year = ?', params: [id, y] });
-        else if (!(r > 0)) throw new UserError(m('أجر الساعة يجب أن يكون أكبر من صفر', 'The hourly rate must be above zero', "Le taux horaire doit être supérieur à zéro"));
-        else stmts.push({ sql: 'INSERT INTO hr_grade_rate (grade_id, year, hourly_usd) VALUES (?,?,?) ON CONFLICT(grade_id, year) DO UPDATE SET hourly_usd = excluded.hourly_usd', params: [id, y, r] });
+        else if (!(r > 0)) throw new UserError(m('المبلغ الشهري يجب أن يكون أكبر من صفر', 'The monthly amount must be above zero', 'Le montant mensuel doit être supérieur à zéro'));
+        else stmts.push({ sql: 'INSERT INTO hr_grade_rate (grade_id, year, monthly_usd) VALUES (?,?,?) ON CONFLICT(grade_id, year) DO UPDATE SET monthly_usd = excluded.monthly_usd', params: [id, y, r] });
       }
       stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', 'hr_grade', String(id), null, { name, rates: a.rates }));
       await c.db.batch(stmts);
@@ -75,18 +75,21 @@ export const HR_PAY_OPS = {
       return { ok: true };
     },
   },
-  // the proposed scale of 30 October 2026 (to edit): four grades, only into an empty scale
+  // the scale taken from Fouad's own sheet "Salary scale" (monthly amount of each position, 2026 and 2027): only into an empty scale
   'hr.grade.seed': {
     check: needPay,
-    run: async (c: OpCtx, a: { year: number }) => {
+    run: async (c: OpCtx, _a?: { year?: number }) => {
       if (await one(c.db, 'SELECT 1 AS x FROM hr_grade')) throw new UserError(m('السلّم غير فارغ', 'The scale is not empty', "L'échelle n'est pas vide"));
-      const proposal: [string, string, number][] = [['Grade 1', 'Guard & logistics, Cleaner', 1.15], ['Grade 2', 'Cook', 1.3], ['Grade 3', 'Reception, IT, Workshop Coordinator, Accountant', 1.4], ['Grade 4', 'Centre Director', 1.65]];
+      const sheet: [string, Record<number, number>][] = [
+        ['Centre Director', { 2026: 280, 2027: 300 }], ['Workshop Coordinator', { 2026: 200, 2027: 250 }], ['Guard & logistics', { 2026: 230, 2027: 230 }], ['Accountant', { 2027: 250 }],
+        ['Reception', { 2026: 130, 2027: 180 }], ['IT', { 2026: 130, 2027: 180 }], ['Cleaner', { 2026: 150, 2027: 180 }], ['Cook', { 2026: 150, 2027: 200 }],
+      ];
       const stmts = [];
-      for (const [i, [name, note, rate]] of proposal.entries()) {
-        stmts.push({ sql: 'INSERT INTO hr_grade (id, name, sort, note) VALUES (?,?,?,?)', params: [i + 1, name, i + 1, note] });
-        stmts.push({ sql: 'INSERT INTO hr_grade_rate (grade_id, year, hourly_usd) VALUES (?,?,?)', params: [i + 1, a.year, rate] });
+      for (const [i, [name, rates]] of sheet.entries()) {
+        stmts.push({ sql: 'INSERT INTO hr_grade (id, name, sort) VALUES (?,?,?)', params: [i + 1, name, i + 1] });
+        for (const [y, v] of Object.entries(rates)) stmts.push({ sql: 'INSERT INTO hr_grade_rate (grade_id, year, monthly_usd) VALUES (?,?,?)', params: [i + 1, Number(y), v] });
       }
-      await c.db.batch([...stmts, auditStmt(c.who, 'seed', 'hr_grade', null, null, { year: a.year })]);
+      await c.db.batch([...stmts, auditStmt(c.who, 'seed', 'hr_grade', null, null, { from: 'Salary scale sheet' })]);
       return { ok: true };
     },
   },
@@ -112,7 +115,6 @@ export const HR_PAY_OPS = {
       if (monthly != null && !(monthly >= 0)) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
       if (grade == null && monthly == null) throw new UserError(m('اختر درجة أو اكتب مبلغاً شهرياً', 'Choose a grade or write a monthly amount', 'Choisissez un grade ou écrivez un montant mensuel'));
       if (grade != null && !(await one(c.db, 'SELECT 1 AS x FROM hr_grade WHERE id = ?', [grade]))) throw new UserError(m('درجة غير موجودة', 'Grade not found', 'Grade introuvable'));
-      if (grade != null && monthly == null && weekly == null) throw new UserError(m('اكتب ساعات الأسبوع', 'Write the weekly hours', 'Écrivez les heures par semaine'));
       const v = [a.personId, from, grade, weekly, monthly, txt(a.note)];
       if (a.id) {
         await c.db.batch([{ sql: 'UPDATE hr_pay SET person_id=?, valid_from=?, grade_id=?, weekly_hours=?, monthly_usd=?, note=? WHERE id = ? AND deleted_at IS NULL', params: [...v, a.id] }, auditStmt(c.who, 'update', 'hr_pay', String(a.id), null, { person: a.personId, from })]);

@@ -6,6 +6,7 @@ import { has } from '../../auth';
 import type { Session } from '../../state';
 import { errText, Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../../ui/kit';
 import { saveFile } from '../../platform';
+import { payslipsDoc } from '../docs';
 import { t3 } from '../../community/ui/text';
 import type { HrData } from '../hr';
 import type { HrRun, HrRunLine, HrVoucherRow } from '../runOps';
@@ -14,7 +15,6 @@ const fail = (e: unknown) => toast(errText(e), true);
 const usd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const KIND = (k: string) => (k === 'thirteenth' ? t3('الدفعة الثالثة عشرة', 'The 13th payment', 'Le 13e paiement') : t3('مكافآت الشهر', 'Monthly stipends', 'Gratifications du mois'));
 const STATUS = (s: string) => (s === 'paid' ? t3('مدفوع', 'Paid', 'Payée') : s === 'approved' ? t3('معتمد', 'Approved', 'Approuvée') : t3('مسودة', 'Draft', 'Brouillon'));
-const esc = (x: unknown) => String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const monthName = (ym: string) => new Date(`${ym}-01T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
 export function RunsPage({ s, hr }: { s: Session; hr: HrData }) {
@@ -118,7 +118,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
                 <td className="n"><b>{usd(l.total_usd)}</b></td>
                 <td>{draft && !l.paper_id ? <select value={l.paid_in} onChange={(e) => void saveLine(l, { paidIn: e.target.value })}><option value="USD">USD</option><option value="SYP">SYP</option></select> : l.paid_in}</td>
                 <td className="n">{usd(l.amount_paid)} {l.paid_in}</td>
-                <td className="right nowrap"><button className="btn small" onClick={() => printSlips(s, hr, run, lines.filter((x) => x.person_id === l.person_id))}>🖨</button>{draft && <>{' '}<button className="btn small danger" onClick={async () => { try { await s.api.call('hr.run.line.delete', { id: l.id }); await load(); } catch (e) { fail(e); } }}>✕</button></>}</td>
+                <td className="right nowrap"><button className="btn small" onClick={() => saveSlips(s, hr, run, lines.filter((x) => x.person_id === l.person_id))}>📄</button>{draft && <>{' '}<button className="btn small danger" onClick={async () => { try { await s.api.call('hr.run.line.delete', { id: l.id }); await load(); } catch (e) { fail(e); } }}>✕</button></>}</td>
               </tr>
             ))}
             <tr><td colSpan={5}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(total)}</b></td><td colSpan={3} /></tr>
@@ -127,7 +127,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
       </div>
       <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         {draft && <button className="btn" onClick={() => setAdd(true)}>＋ {t3('سطر (مكافأة من حين لآخر…)', 'Add a line (an occasional bonus…)', 'Ajouter une ligne (prime ponctuelle…)')}</button>}
-        <button className="btn" onClick={() => printSlips(s, hr, run, lines)}>🖨 {t3('كل قسائم الدفع', 'All payslips', 'Toutes les fiches')}</button>
+        <button className="btn" onClick={() => saveSlips(s, hr, run, lines)}>📄 {t3('كل قسائم الدفع (Word)', 'All payslips (Word)', 'Toutes les fiches (Word)')}</button>
         {!draft && <button className="btn" onClick={async () => { try { setVoucher(await s.api.call('hr.run.voucher', { id })); } catch (e) { fail(e); } }}>{t3('قسيمة للمحاسبة (مجاميع فقط)', 'Voucher for Accounts (totals only)', 'Bon pour la comptabilité (totaux seulement)')}</button>}
       </div>
       {add && <AddLine s={s} hr={hr} runId={id} onClose={() => setAdd(false)} onDone={async () => { setAdd(false); await load(); }} />}
@@ -188,28 +188,10 @@ function Voucher({ org, v, onClose }: { org: string; v: { run: { ym: string; kin
   );
 }
 
-/** One payslip per person (a person with several lines gets them on one slip), in a page to print. */
-function printSlips(s: Session, hr: HrData, run: HrRun, lines: HrRunLine[]) {
-  const byPerson = new Map<number, HrRunLine[]>();
-  for (const l of lines) byPerson.set(l.person_id, [...(byPerson.get(l.person_id) ?? []), l]);
-  const slips = [...byPerson.values()].map((ls) => {
-    const p = hr.people.find((x) => x.id === ls[0].person_id);
-    const total = ls.reduce((a, l) => a + l.total_usd, 0);
-    const rows = ls.map((l) => `<tr><td>${esc(l.label ?? (run.kind === 'thirteenth' ? '13th payment · الدفعة الثالثة عشرة' : 'Monthly stipend · المكافأة الشهرية'))}${l.weekly_hours ? ` <small>(${l.weekly_hours} h/week)</small>` : ''}</td><td class="n">${usd(l.base_usd)}</td><td class="n">${l.bonus_usd ? usd(l.bonus_usd) : ''}</td><td class="n">${l.deduction_usd ? usd(l.deduction_usd) : ''}</td><td class="n">${usd(l.total_usd)}</td></tr>`).join('');
-    const paid = [...new Set(ls.map((l) => l.paid_in))].map((c) => `${usd(ls.filter((l) => l.paid_in === c).reduce((a, l) => a + l.amount_paid, 0))} ${c}`).join(' + ');
-    return `<section>
-      <h2>${esc(s.organisation)}</h2><h3>Payslip · قسيمة دفع — ${esc(monthName(run.ym))}</h3>
-      <p><b>${esc(p?.name ?? ls[0].person_name)}</b>${p?.role ? ` · ${esc(p.role)}` : ''}${ls[0].national_id ? ` · ID ${esc(ls[0].national_id)}` : ''}</p>
-      <table><thead><tr><th>Item · البند</th><th class="n">Base · الأساس</th><th class="n">Bonus · مكافأة</th><th class="n">Deduction · حسم</th><th class="n">USD</th></tr></thead><tbody>${rows}
-      <tr class="tot"><td colspan="4">Total · المجموع</td><td class="n">${usd(total)}</td></tr></tbody></table>
-      <p>Paid in · يُدفع بـ: <b>${esc(paid)}</b> <small>(1 USD = ${usd(run.rate_syp)} SYP)</small></p>
-      <p class="sig">Received · استلمتُ: ........................ &nbsp; Date · التاريخ: ........../........../..........</p>
-    </section>`;
-  }).join('');
-  const html = `<!doctype html><meta charset="utf-8"><title>Payslips ${esc(run.ym)}</title><style>
-    body{font-family:Calibri,Arial,sans-serif;margin:0;color:#222}section{padding:28px 36px;page-break-after:always;max-width:720px}
-    h2{margin:0;font-size:18px}h3{margin:2px 0 14px;font-size:15px;color:#555}table{width:100%;border-collapse:collapse;margin:8px 0}
-    th,td{border-bottom:1px solid #ccc;padding:5px 6px;text-align:start;font-size:13px}.n{text-align:end}.tot td{font-weight:700;border-top:2px solid #333}
-    .sig{margin-top:30px}@media print{.noprint{display:none}}</style><p class="noprint" style="padding:8px 36px">Press Ctrl+P (or Cmd+P) to print or save as PDF.</p>${slips}`;
-  window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank');
+/** The payslips as a Word file (one per person, one per page), like the agreement. */
+async function saveSlips(s: Session, hr: HrData, run: HrRun, lines: HrRunLine[]) {
+  try {
+    const bytes = await payslipsDoc(s.organisation, run, lines, hr.people);
+    await saveFile(`Payslips-${run.ym}-${run.kind}.docx`, ['docx'], bytes, 'Word');
+  } catch (e) { fail(e); }
 }

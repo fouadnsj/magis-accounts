@@ -12,8 +12,8 @@ import { t3 } from '../community/ui/text';
 
 export function ServerSetup({ db, onDone, onBack, askGate }: { db: DbInfo; onDone: () => void; onBack: () => void; /** no communities' password on this server yet */ askGate?: boolean }) {
   // (a database made from the communities' side already says what it is: straight to its form)
-  const fixed = db.kind === 'community' || db.kind === 'country' ? db.kind : null;
-  const [mode, setMode] = useState<'choose' | 'upload' | 'new' | 'community' | 'country'>(fixed ?? 'choose');
+  const fixed = db.kind === 'community' || db.kind === 'country' || db.kind === 'hr' ? db.kind : null;
+  const [mode, setMode] = useState<'choose' | 'upload' | 'new' | 'community' | 'country' | 'hr'>(fixed ?? 'choose');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
@@ -83,6 +83,8 @@ export function ServerSetup({ db, onDone, onBack, askGate }: { db: DbInfo; onDon
             </div>
             <div className="modal-foot"><button className="btn" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button></div>
           </>
+        ) : mode === 'hr' ? (
+          <HrForm initialName={db.organisation} onBack={onBack} onSubmit={async (s) => { await serverSetup('hr', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'community' ? (
           <CommunityForm askGate={askGate} initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('community', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'country' ? (
@@ -125,5 +127,33 @@ export function ServerSetup({ db, onDone, onBack, askGate }: { db: DbInfo; onDon
         )}
       </div>
     </BrandFrame>
+  );
+}
+
+/** The HR database: who keeps it (the first person, with all the permissions). */
+function HrForm({ initialName, onBack, onSubmit }: { initialName: string; onBack: () => void; onSubmit: (s: { organisation: string; people: { name: string; password: string }[] }) => Promise<void> }) {
+  const [org, setOrg] = useState(initialName);
+  const [name, setName] = useState('');
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="panel">
+      <h2>{t3('قاعدة الموارد البشرية', 'The HR database', 'La base des ressources humaines')}</h2>
+      <p className="muted small">{t3('قاعدة خاصة منفصلة عن الحسابات. من يتولاها يرى كل شيء فيها. تضيف لاحقاً من يقرأ فقط، وتعطي كل شخص حقه من «الأشخاص والصلاحيات» في الصفحة الأولى.', 'A private database, separate from the accounts. Whoever keeps it sees everything in it. Later you can add people who only read, and give each person their access in "People & access" on the first page.', "Une base privée, séparée des comptes. Celui qui la tient voit tout. Plus tard vous ajoutez des lecteurs et donnez à chacun son accès dans « Personnes et accès » sur la première page.")}</p>
+      <div className="grid2">
+        <Field label={t3('الاسم', 'Name', 'Nom')} className="span2"><input value={org} onChange={(e) => setOrg(e.target.value)} /></Field>
+        <Field label={t3('من يتولى الموارد البشرية', 'Who keeps the HR', 'Qui tient les RH')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={t3('كلمة سره (6+)', 'Password (6+)', 'Mot de passe (6+)')}><input type="password" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
+      </div>
+      {err && <div className="alert err">{err}</div>}
+      <div className="modal-foot">
+        <button className="btn" onClick={onBack}>{t3('رجوع', 'Back', 'Retour')}</button>
+        <button className="btn primary" disabled={busy || !name.trim() || pw.length < 6} onClick={async () => {
+          setBusy(true); setErr(null);
+          try { await onSubmit({ organisation: org, people: [{ name, password: pw }] }); } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
+        }}>{busy ? '…' : t3('إنشاء', 'Create', 'Créer')}</button>
+      </div>
+    </div>
   );
 }

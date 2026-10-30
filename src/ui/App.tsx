@@ -28,6 +28,7 @@ import { ServerSetup } from './ServerSetup';
 import { IdleGuard } from './Idle';
 import { dropDraft } from './draft';
 import { CtyApp } from '../community/ui/CtyApp';
+import { HrApp } from '../hr/ui/HrApp';
 import { CountryApp } from '../community/ui/country/CountryApp';
 import { triName, t3 } from '../community/ui/text';
 import { officeLabel } from '../community/ui/People';
@@ -335,7 +336,7 @@ export function App() {
       <Login
         key={serverDb.slug}
         title={serverDb.organisation}
-        subtitle={serverDb.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : serverDb.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
+        subtitle={serverDb.kind === 'hr' ? tx(m('الموارد البشرية', 'Human resources', 'Ressources humaines')) : serverDb.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) : serverDb.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : serverDb.color || serverDb.logo ? t('خادم ماجيس', 'MAGIS server') : tx(centreStyle(serverDb.centre).name)}
         brand={serverDb}
         community={serverDb.kind === 'community' || serverDb.kind === 'country'}
         loadProfiles={() => serverProfiles(serverDb.slug)}
@@ -364,6 +365,13 @@ export function App() {
         onClose={closeDb}
         notice={idleOut}
       />
+    );
+  else if (session?.kind === 'hr')
+    body = (
+      <>
+        <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
+        <HrApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} />
+      </>
     );
   else if (session?.kind === 'country')
     body = (

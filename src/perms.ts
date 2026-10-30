@@ -88,8 +88,21 @@ export const CTY_PERM_GROUPS = [
   },
 ] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
 
-export type Perm = (typeof PERM_GROUPS)[number]['perms'][number]['key'] | (typeof CTY_PERM_GROUPS)[number]['perms'][number]['key'];
-export const ALL_PERMS: Perm[] = [...PERM_GROUPS, ...CTY_PERM_GROUPS].flatMap((g) => g.perms.map((p) => p.key));
+// Only in the HR database (Fouad, 30 October 2026).
+export const HR_PERM_GROUPS = [
+  {
+    key: 'hr',
+    label: m('الموارد البشرية', 'Human resources', 'Ressources humaines'),
+    perms: [
+      { key: 'hr.view', label: m('يرى الأشخاص والاتفاقيات ورسائل المكافأة ومدونة السلوك', 'Sees the people, agreements, stipend letters and the code of conduct', 'Voit les personnes, accords, lettres de gratification et le code de conduite') },
+      { key: 'hr.manage', label: m('يضيف ويعدّل الأشخاص والاتفاقيات والرسائل والتوقيعات', 'Adds and changes people, agreements, letters and signatures', 'Ajoute et modifie personnes, accords, lettres et signatures') },
+      { key: 'hr.vault', label: m('يفتح خزانة الوثائق (الهويات وغيرها) — كل فتح يُسجَّل', 'Opens the document vault (IDs and others) — every opening is logged', 'Ouvre le coffre des documents (pièces d\u2019identité, etc.) — chaque ouverture est notée') },
+    ],
+  },
+] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
+
+export type Perm = (typeof PERM_GROUPS)[number]['perms'][number]['key'] | (typeof CTY_PERM_GROUPS)[number]['perms'][number]['key'] | (typeof HR_PERM_GROUPS)[number]['perms'][number]['key'];
+export const ALL_PERMS: Perm[] = [...PERM_GROUPS, ...CTY_PERM_GROUPS, ...HR_PERM_GROUPS].flatMap((g) => g.perms.map((p) => p.key));
 
 /** Keeps only known permissions (a stored list may be older or hand-edited). */
 export function cleanPerms(xs: unknown): Perm[] {

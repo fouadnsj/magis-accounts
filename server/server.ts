@@ -29,6 +29,7 @@ import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../
 import { createOffice } from '../src/setup';
 import { createCommunity, type CommunitySetup } from '../src/community/setup';
 import { createCountry, type CountrySetup } from '../src/community/country';
+import { createHr } from '../src/hr/hr';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx } from '../src/domain/types';
@@ -954,7 +955,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         setMetaStmt('brand_color', color), setMetaStmt('brand_logo', logo),
         // made from the communities' side: it is a community (or a country) from the start, so it is
         // listed there and its setup goes straight to the community (or country) form
-        ...(body.kind === 'community' || body.kind === 'country' ? [setMetaStmt('kind', body.kind)] : []),
+        ...(body.kind === 'community' || body.kind === 'country' || body.kind === 'hr' ? [setMetaStmt('kind', body.kind)] : []),
       ]);
       log(`new database ${slug} (${organisation}, ${centre})`);
       return send(res, 200, { slug });
@@ -989,6 +990,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const salt = randomBytes(16).toString('base64url');
         return { salt, hash: await hashSecret(salt, pw) };
       };
+      if (url === '/api/setup/hr') {
+        const s = body as unknown as { organisation?: string; people?: { name: string; password: string }[]; mustChange?: boolean };
+        await createHr(c.handle.db, { organisation: s.organisation || ((await getMeta(c.handle.db, 'organisation')) ?? ''), people: Array.isArray(s.people) ? s.people : [], mustChange: s.mustChange });
+        c.version++;
+        log(`setup: ${c.slug} (HR)`);
+        return send(res, 200, { ok: true });
+      }
       if (url === '/api/setup/community') {
         const gate = await firstGate();
         const s = body as unknown as CommunitySetup;

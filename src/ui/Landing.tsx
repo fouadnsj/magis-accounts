@@ -61,7 +61,7 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
       <div className="db-card-mark">{db.kind === 'community' || db.kind === 'country' ? <img src="/brand/jesuits.png" alt="" /> : st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}</div>
       <div className="db-card-text">
         <b>{db.organisation}</b>
-        <span>{db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) + (db.city ? ` · ${db.city}` : '') : db.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
+        <span>{db.kind === 'hr' ? tx(m('الموارد البشرية', 'Human resources', 'Ressources humaines')) : db.kind === 'community' ? tx(m('جماعة يسوعية', 'Jesuit community', 'Communauté jésuite')) + (db.city ? ` · ${db.city}` : '') : db.kind === 'country' ? tx(m('قيم البلد', 'Country econome', "Économe du pays")) : tx(st.name)}</span>
         {path && <span className="ltr" style={{ textAlign: 'start', fontSize: 11 }}>{path}</span>}
         {db.setupNeeded && <span className="pill" style={{ background: '#fff6e0', color: '#6d4b00' }}>{t('لم تُعدّ بعد', 'not set up yet')}</span>}
       </div>
@@ -227,12 +227,13 @@ function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; o
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [ctyKind, setCtyKind] = useState<'community' | 'country'>('community');
+  const [isHr, setIsHr] = useState(false);
   const chosen = centre ?? (name ? guessCentre(name) : null);
   const go = async () => {
     setErr(null);
     setBusy(true);
     try {
-      const r = community ? await serverCreateDb(name, 'other', null, null, ctyKind) : chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
+      const r = community ? await serverCreateDb(name, 'other', null, null, ctyKind) : isHr ? await serverCreateDb(name, 'other', null, null, 'hr') : chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
       onCreated(r.slug);
     } catch (e) {
       setErr(errText(e));
@@ -258,7 +259,13 @@ function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; o
       <Field label={community ? (ctyKind === 'country' ? tx(m('اسم البلد', 'Name of the country', 'Nom du pays')) : tx(m('اسم الجماعة', 'Name of the community', 'Nom de la communauté'))) : t('الاسم (مثلاً: ماجيس حمص، حمص 2027، تجربة)', 'Name (e.g. MAGIS Homs, Homs 2027, Test)')}>
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      {!community && <><h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
+      {!community && (
+        <label className="row" style={{ gap: 8, marginTop: 12 }}>
+          <input type="checkbox" checked={isHr} onChange={(e) => setIsHr(e.target.checked)} />
+          <span><b>{tx(m('هذه قاعدة الموارد البشرية', 'This is the HR database', "C'est la base des ressources humaines"))}</b> <span className="muted small">{tx(m('خاصة: الأشخاص والاتفاقيات والوثائق', 'private: people, agreements, documents', 'privée : personnes, accords, documents'))}</span></span>
+        </label>
+      )}
+      {!community && !isHr && <><h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
       <div className="centre-pick">
         {(Object.keys(CENTRES) as CentreKey[]).map((k) => {
           const st = CENTRES[k];

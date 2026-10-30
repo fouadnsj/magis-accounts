@@ -145,12 +145,12 @@ export const serverLogin = (db: string, profileId: number, password: string) =>
   post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { db, profileId, password });
 
 /** kind: a Jesuit community or a country database (made from the communities' side); otherwise a centre */
-export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null, kind: 'community' | 'country' | null = null) =>
+export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null, kind: 'community' | 'country' | 'hr' | null = null) =>
   post<{ slug: string }>('/api/dbs/create', { organisation, centre, color, logo, kind });
 /** The communities' password: give it (the communities appear), or set / change it. */
 export const serverCtyUnlock = (password: string) => post<{ ok: true }>('/api/cty/unlock', { password });
 export const serverCtyGate = (password: string) => post<{ ok: true }>('/api/cty/gate', { password });
-export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community' | 'country', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
+export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community' | 'country' | 'hr', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
 
 /** Managing the databases: all of them (also the switched-off ones) and the deleted ones kept in a folder. */
 export interface ManagedDb { slug: string; organisation: string; kind: string; city: string | null; active: boolean; bytes: number; backups: number; lastBackup: string | null }

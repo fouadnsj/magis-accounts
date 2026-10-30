@@ -1050,4 +1050,105 @@ INSERT INTO cty_count_log (book_id, at, who, kind, ym, held_loc, held_usd, held_
     FROM cty_month WHERE counted_loc IS NOT NULL OR counted_usd IS NOT NULL OR counted_eur IS NOT NULL;
 `,
   },
+  {
+    n: 29,
+    name: 'HR database: people, volunteer agreements, stipend letters, code of conduct, document vault with its access log',
+    sql: `
+-- Fouad, 30 October 2026: the HR database (a separate, private database; kind 'hr').
+-- A person is a volunteer or a member of the staff. Only the minimum personal data.
+CREATE TABLE hr_person (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  father_name TEXT,
+  national_id TEXT,
+  birth_place TEXT,
+  birth_date  TEXT,
+  address     TEXT,
+  phone       TEXT,
+  role        TEXT,
+  centre      TEXT,
+  started     TEXT,
+  ended       TEXT,
+  active      INTEGER NOT NULL DEFAULT 1,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT
+);
+-- A paper between the centre and a person: a yearly volunteer agreement (kind 'agreement'), or a one-time
+-- stipend letter for a named service (kind 'stipend'). The signed scan is attached when it comes back.
+CREATE TABLE hr_paper (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id   INTEGER NOT NULL REFERENCES hr_person(id),
+  kind        TEXT NOT NULL CHECK (kind IN ('agreement','stipend')),
+  start_date  TEXT,
+  end_date    TEXT,
+  service     TEXT,
+  amount      REAL,
+  currency    TEXT NOT NULL DEFAULT 'USD' CHECK (currency IN ('USD','SYP')),
+  paid_on     TEXT,
+  note        TEXT,
+  file        TEXT,
+  file_name   TEXT,
+  mime        TEXT,
+  size        INTEGER,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  deleted_at  TEXT
+);
+CREATE INDEX hr_paper_person ON hr_paper(person_id, kind);
+-- The code of conduct: every version is kept; each person signs a version (with the scan if there is one).
+CREATE TABLE hr_conduct (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  version     TEXT NOT NULL,
+  valid_from  TEXT NOT NULL,
+  note        TEXT,
+  file        TEXT,
+  file_name   TEXT,
+  mime        TEXT,
+  size        INTEGER,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT
+);
+CREATE TABLE hr_conduct_sign (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  conduct_id  INTEGER NOT NULL REFERENCES hr_conduct(id),
+  person_id   INTEGER NOT NULL REFERENCES hr_person(id),
+  signed_on   TEXT NOT NULL,
+  file        TEXT,
+  file_name   TEXT,
+  mime        TEXT,
+  size        INTEGER,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  deleted_at  TEXT
+);
+CREATE INDEX hr_conduct_sign_person ON hr_conduct_sign(person_id, conduct_id);
+-- The vault: copies of identity and other documents, with an expiry date if they have one.
+CREATE TABLE hr_doc (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id   INTEGER NOT NULL REFERENCES hr_person(id),
+  label       TEXT NOT NULL,
+  expires_on  TEXT,
+  file        TEXT NOT NULL,
+  file_name   TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  deleted_at  TEXT
+);
+CREATE INDEX hr_doc_person ON hr_doc(person_id);
+-- Every time a scan is opened, added or removed, by whom: nothing here is ever changed or deleted.
+CREATE TABLE hr_access_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  at          TEXT NOT NULL,
+  who         TEXT NOT NULL,
+  action      TEXT NOT NULL,
+  what        TEXT NOT NULL,
+  person_id   INTEGER,
+  item_id     INTEGER,
+  detail      TEXT
+);
+`,
+  },
 ];

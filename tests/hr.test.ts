@@ -480,6 +480,13 @@ describe('HR database', () => {
     const ck = (await call('/api/login', { db: slug, profileId: hrId, password: 'fouad-hr-1' }, '')).set!;
     const post = async (url: string, body: unknown) => { const r = await fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: ck }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
+    // a line switched off in the centre leaves the HR list at the next copy
+    await op('line.add', { headingId, name: 'Old line by name' }, boss);
+    expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
+    const oldLine = (await op('data', {}, boss)).body.lists.lines.find((l: { name: string }) => l.name === 'Old line by name');
+    await op('list.setActive', { table: 'budget_line', id: oldLine.id, active: false }, boss);
+    expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
+    expect((await op('hr.data', {}, ck)).body.lists.some((x: { name: string }) => x.name === 'Old line by name')).toBe(false);
     const c = (await op('hr.data', {}, ck)).body.lists.find((x: { kind: string; name: string }) => x.kind === 'centre' && x.name === 'MAGIS Nine');
     expect([c.salary_heading, c.account]).toEqual(['Salary', 'Center']); // found by itself
     await op('hr.grade.seed', {}, ck);

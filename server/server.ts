@@ -969,6 +969,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         ...accounts.map((a) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, source) VALUES ('account', ?, ?)", params: [a.name, src.slug] })),
         ...lines.map((l) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source) VALUES ('line', ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug] })),
       ];
+      // what the centre no longer has (a line or an account switched off or removed) leaves the HR lists too
+      stmts.push(
+        { sql: `DELETE FROM hr_list WHERE kind = 'line' AND source = ? AND (code || '|' || name) NOT IN (${lines.map(() => '?').join(',') || "''"})`, params: [src.slug, ...lines.map((l) => `${l.code}|${l.name}`)] },
+        { sql: `DELETE FROM hr_list WHERE kind = 'account' AND source = ? AND name NOT IN (${accounts.map(() => '?').join(',') || "''"})`, params: [src.slug, ...accounts.map((a) => a.name)] },
+      );
       // the heading that holds the salaries, and the centre's usual account (its default in the accounts), when not set yet
       const hs = lines.map((l) => l.heading);
       const salaryHeading = hs.find((h) => /staff/i.test(h) && /salar/i.test(h)) ?? hs.find((h) => /salar|رات/i.test(h)) ?? hs.find((h) => /staff/i.test(h)) ?? null;

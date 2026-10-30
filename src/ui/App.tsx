@@ -12,14 +12,15 @@ import { dailyBackup, desktopFiles } from '../db/backup';
 import { listProfiles, login, type LoginPerson, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
-import { connectRemote, disconnectRemote, hello, httpApi, remoteBase, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
+import { connectRemote, dirEnter, dirLogout, disconnectRemote, hello, httpApi, remoteBase, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
 import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { m, tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
 import { AppProvider, type Install, type Session } from '../state';
 import { getLang } from '../i18n';
 import type { Role } from '../domain/types';
-import { ConfirmHost, PromptHost, ToastHost, biName, errText, t } from './kit';
+import { ConfirmHost, PromptHost, ToastHost, biName, errText, t, toast } from './kit';
+import { DirMustChange, DirSignIn } from './Directory';
 import { Welcome } from './Welcome';
 import { ICON, PersonIcon } from './icons';
 import { Shell } from './Shell';
@@ -54,6 +55,10 @@ export function App() {
   const [opened, setOpened] = useState<Opened | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const sessionRef = useRef<Session | null>(null);
+  const dirOn = useRef(false);
+  useEffect(() => {
+    dirOn.current = !!server?.dir?.on;
+  }, [server]);
   useEffect(() => {
     sessionRef.current = session;
     if (session) setIdleOut(false);
@@ -159,10 +164,11 @@ export function App() {
     const out = () => {
       if (sessionRef.current) setIdleOut(true);
       setSession(null);
+      if (dirOn.current) { setServerDb(null); void refreshServer(); }
     };
     window.addEventListener('magis-logged-out', out);
     return () => window.removeEventListener('magis-logged-out', out);
-  }, []);
+  }, [refreshServer]);
 
   const onCreated = useCallback(async (db: Db, dbPath: string | null) => {
     if (dbPath) await openPath(dbPath);
@@ -192,6 +198,7 @@ export function App() {
     setIdleOut(false);
     setSession(null);
     setMustChange(false);
+    if (server?.dir?.person) setServerDb(null); // signed in to the directory: back to my list of databases
   }, [server, refreshServer]);
 
   /** No activity for too long: out, but a half-typed entry is kept for the same person. */
@@ -202,7 +209,8 @@ export function App() {
     setSession(null);
     setMustChange(false);
     setIdleOut(true);
-  }, [server]);
+    if (server?.dir?.on) { setServerDb(null); void refreshServer(); }
+  }, [server, refreshServer]);
 
   /** the language was chosen (Shell, phone): draw everything again */
   const toggleLang = () => force((x) => x + 1);
@@ -221,6 +229,10 @@ export function App() {
 
   let body;
   if (booting) body = <div className="center-page muted">…</div>;
+  else if (server?.dir?.on && !session && !server.dir.person && !serverDb)
+    body = <DirSignIn local={server.local} onDone={async () => { await refreshServer(); }} />;
+  else if (server?.dir?.person?.mustChange && !session)
+    body = <DirMustChange name={server.dir.person.name} onDone={async () => { await refreshServer(); }} onLogout={async () => { await dirLogout(); await refreshServer(); }} />;
   else if (server && ((!session && !serverDb) || (session && browsing)))
     body = (
       <Landing
@@ -229,6 +241,17 @@ export function App() {
         canCreateCty={server.canCreateCty}
         canManage={server.canManage}
         onManaged={async () => { await refreshServer(); }}
+        dir={server.dir}
+        isLocal={server.local}
+        onDirChanged={async () => { await refreshServer(); }}
+        onDirSignOut={async () => {
+          await dirLogout();
+          setSession(null);
+          setServerDb(null);
+          setBrowsing(false);
+          setMustChange(false);
+          await refreshServer();
+        }}
         signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
         startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : null}
         ctyLocked={!!server.ctyGate && !server.ctyOpen}
@@ -236,8 +259,21 @@ export function App() {
         address={remoteBase}
         onLeave={remoteBase ? leaveServer : undefined}
         onBackIn={session ? () => setBrowsing(false) : undefined}
-        onOpen={(db) => {
+        onOpen={async (db) => {
           if (session && db.slug === serverDb?.slug && !db.setupNeeded) return setBrowsing(false);
+          // signed in to the directory: straight in, as the account given to this person
+          if (server.dir?.person && !db.setupNeeded) {
+            try {
+              const r = await dirEnter(db.slug);
+              setServerDb(db);
+              setMustChange(false);
+              setBrowsing(false);
+              setSession(serverSession(db, r.profile));
+            } catch (e) {
+              toast(errText(e), true);
+            }
+            return;
+          }
           if (session) {
             // another database: a new sign-in there
             void serverLogout();

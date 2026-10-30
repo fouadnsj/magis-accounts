@@ -19,6 +19,10 @@ export interface DbInfo {
   kind?: string;
 }
 
+export interface DirInfo { on: boolean; enforced: boolean; person: { name: string; admin: boolean; mustChange: boolean } | null }
+export interface DirPerson { id: number; name: string; admin: boolean; active: boolean; mustChange: boolean; grants: Record<string, number | null> }
+export interface DirDb { slug: string; organisation: string; kind: string; profiles: { id: number; name: string; access_name: string; office: string | null }[] }
+
 export interface Hello {
   server: true;
   version: string;
@@ -30,6 +34,8 @@ export interface Hello {
   canCreateCty?: boolean;
   /** may open the window that manages the databases (server computer, or someone who manages users) */
   canManage?: boolean;
+  /** the sign-in directory: set up or not, enforced or not, and who is signed in to it in this browser */
+  dir?: DirInfo;
   dbs: DbInfo[];
   /** the database of the session already open in this browser, if any */
   current: string | null;
@@ -172,3 +178,14 @@ export const httpApi: Api = {
 export const serverStatus = <T,>() => get<T>('/api/server/status');
 export const serverConfig = (c: Record<string, unknown>) => post('/api/server/config', c);
 export const serverRestoreUpload = (base64: string, fileName: string) => post('/api/server/restore-upload', { base64, fileName });
+
+// ---- the sign-in directory: one name and password, then the databases given to that person
+export const dirSetup = (name: string, password: string) => post<{ ok: true }>('/api/dir/setup', { name, password });
+export const dirLogin = (name: string, password: string) => post<{ person: DirPerson }>('/api/dir/login', { name, password });
+export const dirLogout = () => post('/api/dir/logout', {}).catch(() => undefined);
+export const dirPassword = (old: string, password: string) => post<{ ok: true }>('/api/dir/password', { old, password });
+export const dirEnter = (db: string) => post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/dir/enter', { db });
+export const dirPeople = () => get<{ people: DirPerson[]; enforced: boolean; dbs: DirDb[] }>('/api/dir/people');
+export const dirSave = (p: { id?: number | null; name: string; admin: boolean; active: boolean; password?: string; grants: Record<string, number | null> }) => post<{ person: DirPerson }>('/api/dir/save', p);
+export const dirEnforce = (enforced: boolean) => post<{ ok: true }>('/api/dir/enforce', { enforced });
+export const dirReset = (name: string, password: string, superior: string) => post<{ ok: true }>('/api/dir/reset', { name, password, superior });

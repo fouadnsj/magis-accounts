@@ -3,12 +3,13 @@
 import { useState, type ReactNode } from 'react';
 import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
 import { m, tx } from '../i18n';
-import type { DbInfo } from '../net';
+import type { DbInfo, DirInfo } from '../net';
 import { serverCreateDb } from '../net';
 import { paletteOf } from '../community/style';
 import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
 import { Field, errText, t } from './kit';
 import { ManageDbs } from './ManageDbs';
+import { DirAdmin, DirSetup } from './Directory';
 
 /** The page around every welcome, login and setup screen. */
 export function BrandFrame({ children, brand, wide, jesuit, title }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string }) {
@@ -69,13 +70,18 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
+export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, dir, isLocal, onDirChanged, onDirSignOut, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
   dbs: DbInfo[];
   canCreate: boolean;
   canCreateCty?: boolean;
   /** the "Manage databases" window: switch off / on, delete, restore */
   canManage?: boolean;
   onManaged?: () => Promise<void>;
+  /** the sign-in directory: who is signed in, and what changed (people, access) */
+  dir?: DirInfo;
+  isLocal?: boolean;
+  onDirChanged?: () => Promise<void>;
+  onDirSignOut?: () => void;
   onOpen: (db: DbInfo) => void;
   onCreated: (slug: string) => void;
   /** already signed in (came here from inside the program) */
@@ -93,6 +99,8 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   const [creating, setCreating] = useState(false);
   const [howTo, setHowTo] = useState(false);
   const [managing, setManaging] = useState(false);
+  const [dirAdmin, setDirAdmin] = useState(false);
+  const [dirSetup, setDirSetup] = useState(false);
   // one program: first "centres" or "communities", when the server holds both
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   // (also when only one kind exists but the person may create: he can start the other kind)
@@ -154,12 +162,17 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
                 : <><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></>}</div>
             </button>
           </div>
-          {canManage && (
-            <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <button className="btn small ghost" onClick={() => setManaging(true)}>⚙ {tx(m('إدارة قواعد البيانات', 'Manage databases', 'Gérer les bases de données'))}</button>
+          {(canManage || dir?.person || (isLocal && dir && !dir.on)) && (
+            <div className="row" style={{ justifyContent: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+              {dir?.person?.admin && <button className="btn small ghost" onClick={() => setDirAdmin(true)}>👥 {tx(m('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès'))}</button>}
+              {isLocal && dir && !dir.on && <button className="btn small ghost" onClick={() => setDirSetup(true)}>🔑 {tx(m('تفعيل دليل الدخول', 'Set up the sign-in directory', "Mettre en place l'annuaire de connexion"))}</button>}
+              {canManage && <button className="btn small ghost" onClick={() => setManaging(true)}>⚙ {tx(m('إدارة قواعد البيانات', 'Manage databases', 'Gérer les bases de données'))}</button>}
+              {dir?.person && <button className="btn small ghost" onClick={onDirSignOut}>{dir.person.name} · {tx(m('خروج', 'Sign out', 'Se déconnecter'))}</button>}
             </div>
           )}
           {managing && <ManageDbs onClose={() => setManaging(false)} onChanged={async () => { await onManaged?.(); }} />}
+          {dirAdmin && <DirAdmin onClose={() => setDirAdmin(false)} onChanged={async () => { await onDirChanged?.(); }} />}
+          {dirSetup && <DirSetup onClose={() => setDirSetup(false)} onDone={async () => { setDirSetup(false); await onDirChanged?.(); }} />}
           {howTo && !canCreate && (
             <div className="alert info" style={{ marginTop: 14 }}>
               {area === 'cty'

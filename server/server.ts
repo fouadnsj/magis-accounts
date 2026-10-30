@@ -24,7 +24,7 @@ import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigrations } from '../src/db/db';
 import { getMeta, setMetaStmt } from '../src/db/repo';
-import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, type Profile } from '../src/auth';
+import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
 import { createOffice } from '../src/setup';
 import { createCommunity, type CommunitySetup } from '../src/community/setup';
@@ -73,6 +73,23 @@ function readConfig(dataDir: string): ServerConfig {
 
 function writeConfig(dataDir: string, c: ServerConfig) {
   fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify(c, null, 2));
+}
+
+function readDirectory(dataDir: string): Directory {
+  try {
+    const d = JSON.parse(fs.readFileSync(path.join(dataDir, 'directory.json'), 'utf8')) as Directory;
+    return { enforced: !!d.enforced, next: d.next ?? 1, people: Array.isArray(d.people) ? d.people : [] };
+  } catch {
+    return { enforced: false, next: 1, people: [] };
+  }
+}
+
+function writeDirectory(dataDir: string, d: Directory) {
+  const f = path.join(dataDir, 'directory.json');
+  // the file before this change is kept, and the new one is written whole then moved into place
+  if (fs.existsSync(f)) fs.copyFileSync(f, path.join(dataDir, 'directory.prev.json'));
+  fs.writeFileSync(f + '.tmp', JSON.stringify(d, null, 2));
+  fs.renameSync(f + '.tmp', f);
 }
 
 // ---------------------------------------------------------------- database
@@ -181,6 +198,27 @@ interface Session {
   ip: string;
 }
 
+/** The sign-in directory (Fouad, 30 October 2026): one person, one password, and the list of databases that person may enter. */
+interface DirPerson {
+  id: number;
+  name: string;
+  salt: string;
+  hash: string;
+  /** sees every database and manages the directory */
+  admin: boolean;
+  active: boolean;
+  /** a password given by the administrator must be replaced first */
+  mustChange: boolean;
+  /** database slug → the profile (person) of that database to enter as; null = its Superior */
+  grants: Record<string, number | null>;
+}
+interface Directory {
+  /** true = the databases are shown and opened only through the directory (old sign-in refused, except on the server computer) */
+  enforced: boolean;
+  next: number;
+  people: DirPerson[];
+}
+
 export interface StartOptions {
   dataDir?: string;
   webRoot?: string;
@@ -222,6 +260,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const centres = new Map<string, Centre>();
   const sessions = new Map<string, Session>();
   const failures = new Map<string, { n: number; until: number }>();
+  let directory = readDirectory(dataDir);
+  /** directory sign-ins: cookie magis_dir → person id */
+  const dirSessions = new Map<string, { id: number; last: number }>();
 
   // ---------------------------------------------------------------- one centre = one folder
   const makeFiles = (c: Centre): FileOps => ({
@@ -424,6 +465,20 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     return `magis_cty=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${viaHttps ? '; Secure' : ''}`;
   };
 
+  const dirCookie = (req: http.IncomingMessage) => /(?:^|;\s*)magis_dir=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1] ?? null;
+  const dirPersonOf = (req: http.IncomingMessage): DirPerson | null => {
+    const t = dirCookie(req);
+    const x = t ? dirSessions.get(t) : undefined;
+    if (!t || !x) return null;
+    const p = directory.people.find((q) => q.id === x.id && q.active);
+    if (!p || Date.now() - x.last > Math.max(1, Number(config.idleMinutes) || 15) * 60e3) {
+      dirSessions.delete(t);
+      return null;
+    }
+    if (req.headers['x-magis-background'] !== '1') x.last = Date.now();
+    return p;
+  };
+
   /** The person behind this request, re-read from his database (a deactivated user is out at once). */
   const idleMs = () => Math.max(1, Number(config.idleMinutes) || 15) * 60e3;
 
@@ -532,6 +587,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const method = req.method ?? 'GET';
     const ip = ipOf(req);
     const found = await sessionOf(req);
+    const dirPerson = dirPersonOf(req);
+    /** may this directory person enter this database? (the administrator: all) */
+    const dirSees = (p: DirPerson, slug: string) => p.admin || Object.prototype.hasOwnProperty.call(p.grants, slug);
+    const dirInfo = () => ({ on: directory.people.length > 0, enforced: directory.enforced, person: dirPerson ? { name: dirPerson.name, admin: dirPerson.admin, mustChange: dirPerson.mustChange } : null });
     const isCtyKind = (k: string | null | undefined) => k === 'community' || k === 'country';
     // the communities' side is open: no password set yet, or given in this browser, or signed in to a community
     const ctyOpen = (): boolean => {
@@ -539,6 +598,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const t = ctyCookie(req);
       const until = t ? ctyPasses.get(t) : undefined;
       if (until && until > Date.now()) return true;
+      if (dirPerson && (dirPerson.admin || Object.keys(dirPerson.grants).some((x) => ctyKinds.get(x)))) return true; // given to this person in the directory
       return !!found && ctyKinds.get(found[2].slug) === true;
     };
     const ctyKinds = new Map<string, boolean>();
@@ -561,9 +621,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     if (url === '/api/hello' && method === 'GET') {
       // the communities are not even named until their password is given
-      const dbs = (await Promise.all([...centres.values()].filter((x) => !(config.inactive ?? []).includes(x.slug)).map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
+      let dbs = (await Promise.all([...centres.values()].filter((x) => !(config.inactive ?? []).includes(x.slug)).map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
+      // the directory: a signed-in person sees only what was given to them; when it is enforced, nobody else sees anything
+      if (dirPerson) dbs = dbs.filter((d) => dirSees(dirPerson, d.slug));
+      else if (directory.enforced && !isLocal(req)) dbs = [];
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
     }
 
     // ---- the communities' password: give it (unlock), or set / change it
@@ -703,6 +766,176 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { ok: true, slug });
     }
 
+    // ---- the sign-in directory: one name and password, then the databases given to that person
+    const dirCookieSet = (token: string, viaHttps: boolean) => `magis_dir=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${viaHttps ? '; Secure' : ''}`;
+    const dirTooMany = () => {
+      const f = failures.get(ip);
+      if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
+    };
+    const dirFail = () => {
+      const f = failures.get(ip);
+      const n = f && f.until > 0 && f.until <= Date.now() ? 1 : (f?.n ?? 0) + 1;
+      failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
+    };
+    const needDirAdmin = () => {
+      if (!(dirPerson?.admin || (isLocal(req) && !directory.people.length))) throw new HttpError(403, { ar: 'لمدير الدليل فقط', en: 'For the directory administrator only' });
+    };
+    const publicPerson = (p: DirPerson) => ({ id: p.id, name: p.name, admin: p.admin, active: p.active, mustChange: p.mustChange, grants: p.grants });
+    /** the profile of a database this person enters as: the one chosen, else (for the administrator) its Superior */
+    const dirProfile = async (p: DirPerson, c: Centre): Promise<Profile | null> => {
+      const linked = p.grants[c.slug];
+      if (typeof linked === 'number') return loadProfile(c.handle.db, linked);
+      if (!p.admin && !Object.prototype.hasOwnProperty.call(p.grants, c.slug)) return null;
+      for (const q of await listProfiles(c.handle.db)) {
+        const pr = await loadProfile(c.handle.db, q.id);
+        if (pr && has(pr, 'users.manage')) return pr;
+      }
+      return null;
+    };
+
+    if (url === '/api/dir/setup' && method === 'POST') {
+      // the very first person: the administrator, made on the server computer itself
+      if (directory.people.length) throw new HttpError(409, { ar: 'الدليل مُعدّ مسبقاً', en: 'The directory is already set up' });
+      if (!isLocal(req)) throw new HttpError(403, { ar: 'الإعداد من حاسوب الخادم نفسه', en: 'Setup only from the server computer itself' });
+      const body = (await readBody(req)) as { name?: string; password?: string };
+      const name = String(body.name ?? '').trim();
+      if (!name) throw new HttpError(400, { ar: 'اكتب الاسم', en: 'Write the name' });
+      checkSecretShape(String(body.password ?? ''));
+      const salt = randomBytes(16).toString('base64url');
+      directory = { enforced: false, next: 2, people: [{ id: 1, name, salt, hash: await hashSecret(salt, String(body.password)), admin: true, active: true, mustChange: false, grants: {} }] };
+      writeDirectory(dataDir, directory);
+      const token = randomBytes(32).toString('base64url');
+      dirSessions.set(token, { id: 1, last: Date.now() });
+      log(`directory set up: administrator ${name}`);
+      return send(res, 200, { ok: true }, { 'Set-Cookie': dirCookieSet(token, viaHttps) });
+    }
+    if (url === '/api/dir/login' && method === 'POST') {
+      dirTooMany();
+      const body = (await readBody(req)) as { name?: string; password?: string };
+      const name = String(body.name ?? '').trim().toLowerCase();
+      const p = directory.people.find((q) => q.active && q.name.toLowerCase() === name);
+      const ok = p ? (await verifySecret(p.salt, String(body.password ?? ''), p.hash)).ok : false;
+      if (!p || !ok) {
+        dirFail();
+        log(`failed directory sign-in from ${ip}`);
+        throw new HttpError(403, { ar: 'الاسم أو كلمة السر غير صحيحة', en: 'The name or the password is not right' });
+      }
+      failures.delete(ip);
+      const token = randomBytes(32).toString('base64url');
+      dirSessions.set(token, { id: p.id, last: Date.now() });
+      log(`directory sign-in: ${p.name} from ${ip}`);
+      return send(res, 200, { person: publicPerson(p) }, { 'Set-Cookie': dirCookieSet(token, viaHttps) });
+    }
+    if (url === '/api/dir/logout' && method === 'POST') {
+      const t = dirCookie(req);
+      if (t) dirSessions.delete(t);
+      if (found) sessions.delete(found[0]);
+      return send(res, 200, { ok: true }, { 'Set-Cookie': 'magis_dir=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
+    }
+    if (url === '/api/dir/password' && method === 'POST') {
+      if (!dirPerson) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
+      dirTooMany();
+      const body = (await readBody(req)) as { old?: string; password?: string };
+      if (!(await verifySecret(dirPerson.salt, String(body.old ?? ''), dirPerson.hash)).ok) {
+        dirFail();
+        throw new HttpError(403, { ar: 'كلمة السر الحالية غير صحيحة', en: 'The current password is not right' });
+      }
+      checkSecretShape(String(body.password ?? ''));
+      const salt = randomBytes(16).toString('base64url');
+      dirPerson.salt = salt;
+      dirPerson.hash = await hashSecret(salt, String(body.password));
+      dirPerson.mustChange = false;
+      writeDirectory(dataDir, directory);
+      log(`directory: ${dirPerson.name} changed their password`);
+      return send(res, 200, { ok: true });
+    }
+    if (url === '/api/dir/enter' && method === 'POST') {
+      if (!dirPerson) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
+      if (dirPerson.mustChange) throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
+      const body = (await readBody(req)) as { db?: string };
+      const c = centreOf(body.db);
+      if (!dirSees(dirPerson, c.slug)) throw new HttpError(403, { ar: 'لا إذن لك في قاعدة البيانات هذه', en: 'You have no access to this database' });
+      if (await setupNeeded(c)) throw new HttpError(409, { ar: 'لم تُعدّ هذه القاعدة بعد', en: 'This database is not set up yet' });
+      const profile = await dirProfile(dirPerson, c);
+      if (!profile) throw new HttpError(403, { ar: 'لا حساب لك في هذه القاعدة. اطلب من المدير ربطه.', en: 'You have no account in this database. Ask the administrator to link one.' });
+      if (found) sessions.delete(found[0]);
+      const sid = randomBytes(32).toString('base64url');
+      sessions.set(sid, { db: c.slug, profile, mustChange: false, last: Date.now(), ip });
+      log(`directory entry ${c.slug}: ${dirPerson.name} as ${profile.name} from ${ip}`);
+      return send(res, 200, { profile, mustChange: false, install: 'office' }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Strict; Path=/${viaHttps ? '; Secure' : ''}` });
+    }
+    if (url === '/api/dir/people' && method === 'GET') {
+      needDirAdmin();
+      const dbs = await Promise.all([...centres.values()].filter((x) => ctyOpen() || !ctyKinds.get(x.slug)).map(async (x) => ({ ...(await describe(x)), profiles: (await listProfiles(x.handle.db)).map((q) => ({ id: q.id, name: q.name, access_name: q.access_name, office: q.office ?? null })) })));
+      return send(res, 200, { people: directory.people.map(publicPerson), enforced: directory.enforced, dbs: dbs.map((d) => ({ slug: d.slug, organisation: d.organisation, kind: d.kind, profiles: d.profiles })) });
+    }
+    if (url === '/api/dir/save' && method === 'POST') {
+      needDirAdmin();
+      const body = (await readBody(req)) as { id?: number | null; name?: string; admin?: boolean; active?: boolean; password?: string; grants?: Record<string, number | null> };
+      const name = String(body.name ?? '').trim();
+      if (!name) throw new HttpError(400, { ar: 'اكتب الاسم', en: 'Write the name' });
+      if (directory.people.some((q) => q.id !== body.id && q.name.toLowerCase() === name.toLowerCase())) throw new HttpError(409, { ar: 'هذا الاسم موجود', en: 'This name already exists' });
+      const grants: Record<string, number | null> = {};
+      for (const [slug, link] of Object.entries(body.grants ?? {})) {
+        const cc = centres.get(slug);
+        if (!cc) continue;
+        if (typeof link === 'number' && !(await loadProfile(cc.handle.db, link))) throw new HttpError(400, { ar: 'حساب غير موجود في القاعدة', en: 'That account does not exist in the database' });
+        grants[slug] = typeof link === 'number' ? link : null;
+      }
+      let p = directory.people.find((q) => q.id === body.id);
+      const wasAdmin = !!p?.admin && p.active;
+      const admin = !!body.admin, active = body.active !== false;
+      if (wasAdmin && (!admin || !active) && directory.people.filter((q) => q.admin && q.active && q.id !== p!.id).length === 0)
+        throw new HttpError(409, { ar: 'يجب أن يبقى مدير واحد على الأقل', en: 'There must stay at least one administrator' });
+      if (!p) {
+        checkSecretShape(String(body.password ?? ''));
+        const salt = randomBytes(16).toString('base64url');
+        p = { id: directory.next++, name, salt, hash: await hashSecret(salt, String(body.password)), admin, active, mustChange: true, grants };
+        directory.people.push(p);
+      } else {
+        p.name = name; p.admin = admin; p.active = active; p.grants = grants;
+        if (body.password) {
+          checkSecretShape(String(body.password));
+          p.salt = randomBytes(16).toString('base64url');
+          p.hash = await hashSecret(p.salt, String(body.password));
+          p.mustChange = true; // a password given by the administrator is replaced at the next sign-in
+        }
+      }
+      writeDirectory(dataDir, directory);
+      // an inactive person, or one with fewer databases, is out at once
+      for (const [t, x] of dirSessions) if (x.id === p.id && !p.active) dirSessions.delete(t);
+      log(`directory: ${dirPerson?.name ?? 'the server computer'} saved ${p.name}`);
+      return send(res, 200, { person: publicPerson(p) });
+    }
+    if (url === '/api/dir/enforce' && method === 'POST') {
+      needDirAdmin();
+      const body = (await readBody(req)) as { enforced?: boolean };
+      directory.enforced = !!body.enforced;
+      writeDirectory(dataDir, directory);
+      log(`directory ${directory.enforced ? 'enforced' : 'not enforced'}`);
+      return send(res, 200, { ok: true });
+    }
+    if (url === '/api/dir/reset' && method === 'POST') {
+      // forgot: on the server computer, with the password of the Superior of any database
+      if (!isLocal(req)) throw new HttpError(403, { ar: 'من حاسوب الخادم نفسه', en: 'From the server computer itself' });
+      const body = (await readBody(req)) as { name?: string; password?: string; superior?: string };
+      const p = directory.people.find((q) => q.name.toLowerCase() === String(body.name ?? '').trim().toLowerCase());
+      if (!p) throw new HttpError(404, { ar: 'الاسم غير موجود', en: 'Name not found' });
+      let who: string | null = null;
+      for (const cc of centres.values()) {
+        try { who = await needSuperior(cc, body.superior); break; } catch (e) { if (e instanceof HttpError && e.status === 429) throw e; }
+      }
+      if (!who) throw new HttpError(403, { ar: 'كلمة سر الرئيس غير صحيحة', en: "The Superior's password is not right" });
+      checkSecretShape(String(body.password ?? ''));
+      p.salt = randomBytes(16).toString('base64url');
+      p.hash = await hashSecret(p.salt, String(body.password));
+      p.mustChange = true;
+      p.active = true;
+      writeDirectory(dataDir, directory);
+      log(`directory: password of ${p.name} reset on the server (password of ${who})`);
+      return send(res, 200, { ok: true });
+    }
+
     // ---- a new database (a centre, a test, a new year…)
     if (url === '/api/dbs/create' && method === 'POST') {
       const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null };
@@ -781,7 +1014,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
     }
 
+    const oldSignInClosed = () => {
+      if (directory.enforced && !isLocal(req)) throw new HttpError(403, { ar: 'الدخول من الدليل: اكتب اسمك وكلمة سرك في الصفحة الأولى', en: 'Sign in through the directory: your name and password on the first page' });
+    };
     if (url === '/api/profiles' && method === 'GET') {
+      oldSignInClosed();
       const c = centreOf(query.get('db'));
       needCtyOpen(c.slug);
       const ps = await listProfiles(c.handle.db);
@@ -789,6 +1026,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
 
     if (url === '/api/login' && method === 'POST') {
+      oldSignInClosed();
       const f = failures.get(ip);
       if (f && f.until > Date.now())
         throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });

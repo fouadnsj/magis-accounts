@@ -20,7 +20,10 @@ interface P { s: Session; d: HrData; pd: HrPayData | null; reload: () => Promise
 
 export function PersonPage({ person, onBack, onCreated, ...x }: P & { person: HrPerson | null; onBack: () => void; onCreated: (id: number) => void }) {
   const [tab, setTab] = useState<Tab>('identity');
-  const { key } = centreOf(x.d, person);
+  // a person just added: add another (same centre), open the card, or close
+  const [added, setAdded] = useState<{ id: number; name: string; centre: string | null } | null>(null);
+  const [again, setAgain] = useState<{ n: number; centre: string | null }>({ n: 0, centre: null });
+  const { key } = centreOf(x.d, person ?? (again.centre ? { centre: again.centre } : null));
   const tabs: [Tab, string][] = [
     ['identity', t3('الهوية', 'Identity', 'Identité')],
     ['agreement', t3('الاتفاقية والمكافأة', 'Agreement & stipend', 'Accord et gratification')],
@@ -43,7 +46,17 @@ export function PersonPage({ person, onBack, onCreated, ...x }: P & { person: Hr
         </div>
         {person && <div className="hr-tabs">{tabs.map(([k, label]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>)}</div>}
       </div>
-      {(!person || tab === 'identity') && <Identity {...x} person={person} onCreated={onCreated} onDeleted={onBack} />}
+      {(!person || tab === 'identity') && <Identity key={again.n} {...x} person={person} preset={again.centre} onCreated={(id, p) => setAdded({ id, name: p.name_ar || p.name || '', centre: p.centre ?? null })} onDeleted={onBack} />}
+      {added && (
+        <Modal title={t3('أُضيف الشخص', 'Person added', 'Personne ajoutée')} onClose={onBack} narrow>
+          <p className="ok">✓ <b>{added.name}</b></p>
+          <div className="modal-foot" style={{ justifyContent: 'stretch', flexWrap: 'wrap' }}>
+            <button className="btn gold" autoFocus onClick={() => { setAgain({ n: again.n + 1, centre: added.centre }); setAdded(null); window.scrollTo({ top: 0 }); }}>＋ {t3('إضافة شخص آخر', 'Add another person', 'Ajouter une autre personne')}</button>
+            <button className="btn" onClick={() => onCreated(added.id)}>{t3('فتح بطاقته (الاتفاقية…)', 'Open the card (agreement…)', 'Ouvrir la fiche (accord…)')}</button>
+            <button className="btn" onClick={onBack}>{t3('إغلاق', 'Close', 'Fermer')}</button>
+          </div>
+        </Modal>
+      )}
       {person && tab === 'agreement' && <Agreement {...x} person={person} />}
       {person && tab === 'letters' && <Letters {...x} person={person} />}
       {person && tab === 'insurance' && <InsurancePage s={x.s} hr={x.d} only={person.id} />}
@@ -55,8 +68,8 @@ export function PersonPage({ person, onBack, onCreated, ...x }: P & { person: Hr
 
 // ---------------------------------------------------------------- who they are, in Arabic and English
 
-function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { person: HrPerson | null; onCreated: (id: number) => void; onDeleted: () => void }) {
-  const [f, setF] = useState<Partial<HrPerson>>(person ? { ...person, first_name: person.first_name ?? (person.name_ar ? null : person.name) } : { active: 1 });
+function Identity({ s, d, reload, manage, person, preset, onCreated, onDeleted }: P & { person: HrPerson | null; preset?: string | null; onCreated: (id: number, p: Partial<HrPerson>) => void; onDeleted: () => void }) {
+  const [f, setF] = useState<Partial<HrPerson>>(person ? { ...person, first_name: person.first_name ?? (person.name_ar ? null : person.name) } : { active: 1, centre: preset ?? null });
   const set = (k: keyof HrPerson) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const inp = (k: keyof HrPerson, o: { dir?: 'rtl' | 'ltr'; type?: string } = {}) => <input dir={o.dir} type={o.type} value={(f[k] as string | null) ?? ''} onChange={set(k)} disabled={!manage} />;
   const list = (kind: 'centre') => d.lists.filter((x) => x.kind === kind).map((x) => ({ value: x.name, label: x.name }));
@@ -65,7 +78,7 @@ function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { 
       const r = await s.api.call('hr.person.save', { ...(f as HrPerson), name: f.first_name ?? f.first_name_ar ?? '' });
       toast(t3('حُفظ', 'Saved', 'Enregistré'));
       await reload();
-      if (!person) onCreated(r.id);
+      if (!person) onCreated(r.id, { ...f, name: [f.first_name, f.last_name].filter(Boolean).join(' '), name_ar: [f.first_name_ar, f.last_name_ar].filter(Boolean).join(' ') || null });
     } catch (e) { fail(e); }
   };
   return (

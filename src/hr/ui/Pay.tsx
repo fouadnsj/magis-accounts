@@ -42,7 +42,7 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
             <tbody>
               {pd.grades.map((g) => (
                 <tr key={g.id}>
-                  <td><b>{g.name}</b>{g.note ? <div className="muted small">{g.note}</div> : null}</td>
+                  <td><b dir="rtl">{g.name_ar ?? ''}</b>{g.name_ar ? ' · ' : ''}<b>{g.name}</b>{g.note ? <div className="muted small">{g.note}</div> : null}</td>
                   <td className="n"><b>{usd(g.monthly_usd)}</b> $</td>
                   <td className="small">{on(g).map((r) => r.p.name_ar || r.p.name).join('، ') || '—'}</td>
                   <td className="right"><button className="btn small" onClick={() => setGrade(g)}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
@@ -65,7 +65,7 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
                   <tr key={p.id} className="click" onClick={() => open(p)} style={centreVars(key)}>
                     <td style={{ width: 30 }}><img src={markOf(key)} alt="" style={{ height: 22 }} /></td>
                     <td><TwoNames p={p} /></td>
-                    <td>{c?.grade?.name ?? p.role ?? '—'}{c?.monthly != null && ref != null && c.monthly !== ref ? <div className="muted small">{t3('المرجع', 'reference', 'référence')} {usd(ref)}</div> : null}</td>
+                    <td>{(() => { const n = c?.grade?.name ?? p.role; return n ? (hr.positionsAr[n] ? `${hr.positionsAr[n]} · ${n}` : n) : '—'; })()}{c?.monthly != null && ref != null && c.monthly !== ref ? <div className="muted small">{t3('المرجع', 'reference', 'référence')} {usd(ref)}</div> : null}</td>
                     <td className="n"><b>{usd(c?.monthly)}</b></td>
                     <td className="n">{c?.weekly ?? '—'}{c?.weekly && c.weekly > pd.settings.maxWeekly ? <span className="desk-alert" title={t3('أكثر من حد الاتفاقية', "Above the agreement's maximum", "Au-dessus du maximum de l'accord")}> ⚠</span> : null}</td>
                     <td className="n" title={c?.monthly != null ? t3(`مع الدفعة الثالثة عشرة: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `With the 13th payment: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `Avec le 13e : ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`) : ''}>{usd(c?.hourly)}</td>
@@ -103,18 +103,22 @@ function Settings({ s, d, reload }: { s: Session; d: HrPayData; reload: () => Pr
 
 function GradeModal({ s, grade, onClose, reload }: { s: Session; grade: HrGrade | null; onClose: () => void; reload: () => Promise<void> }) {
   const [name, setName] = useState(grade?.name ?? '');
+  const [nameAr, setNameAr] = useState(grade?.name_ar ?? '');
   const [note, setNote] = useState(grade?.note ?? '');
   const [amount, setAmount] = useState(grade?.monthly_usd != null ? String(grade.monthly_usd) : '');
   return (
-    <Modal title={grade?.name ?? t3('وظيفة جديدة', 'New position', 'Nouveau poste')} onClose={onClose} narrow>
-      <Field label={t3('الوظيفة', 'Position', 'Poste')}><input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+    <Modal title={grade ? `${grade.name_ar ? `${grade.name_ar} · ` : ''}${grade.name}` : t3('وظيفة جديدة', 'New position', 'Nouveau poste')} onClose={onClose} narrow>
+      <div className="grid2">
+        <Field label="اسم الوظيفة بالعربية"><input dir="rtl" autoFocus value={nameAr} onChange={(e) => setNameAr(e.target.value)} /></Field>
+        <Field label="Position in English"><input dir="ltr" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      </div>
       <Field label={t3('المبلغ المرجعي الشهري (USD)', 'Reference monthly amount (USD)', 'Montant mensuel de référence (USD)')}><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
       <Field label={t3('ملاحظة', 'Note', 'Note')}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       <p className="muted small">{t3('تغيير المرجع لا يغيّر مكافأة أحد: المكافأة مثبّتة في الاتفاقية.', "Changing the reference does not change anyone's stipend: it is fixed in the agreement.", "Changer la référence ne change la gratification de personne : elle est fixée dans l'accord.")}</p>
       <div className="modal-foot">
         {grade && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('حذف هذه الوظيفة؟', 'Delete this position?', 'Supprimer ce poste ?'), true)) { try { await s.api.call('hr.grade.delete', { id: grade.id }); await reload(); onClose(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
         <button className="btn primary" disabled={!name.trim()} onClick={async () => {
-          try { await s.api.call('hr.grade.save', { id: grade?.id ?? null, name, note, monthlyUsd: amount === '' ? null : Number(amount) }); await reload(); onClose(); } catch (e) { fail(e); }
+          try { await s.api.call('hr.grade.save', { id: grade?.id ?? null, name, nameAr, note, monthlyUsd: amount === '' ? null : Number(amount) }); await reload(); onClose(); } catch (e) { fail(e); }
         }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
       </div>
     </Modal>

@@ -184,7 +184,7 @@ function People({ d, pd, open, manage, add }: Ctx & { pd: HrPayData | null; mana
           return (
             <button key={p.id} className={`hr-card ${p.active ? '' : 'off'}`} style={centreVars(key)} onClick={() => open(p)}>
               <div className="mark"><img src={markOf(key)} alt="" /></div>
-              <div className="body"><TwoNames p={p} /><div className="meta">{p.role ?? '—'}</div></div>
+              <div className="body"><TwoNames p={p} /><div className="meta">{p.role ? (d.positionsAr[p.role] ? `${d.positionsAr[p.role]} · ${p.role}` : p.role) : '—'}</div></div>
               {now?.monthly != null && <div className="amount">{usd(now.monthly)} $</div>}
             </button>
           );

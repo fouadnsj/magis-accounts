@@ -23,13 +23,15 @@ import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigrations } from '../src/db/db';
-import { getMeta, setMetaStmt } from '../src/db/repo';
+import { blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
 import { createOffice } from '../src/setup';
 import { createCommunity, type CommunitySetup } from '../src/community/setup';
 import { createCountry, type CountrySetup } from '../src/community/country';
-import { createHr } from '../src/hr/hr';
+import { createHr, type HrListItem, type HrPerson } from '../src/hr/hr';
+import { accountFor, centreItem, lineFor } from '../src/hr/link';
+import { allocOn, splitAmount, type HrAlloc } from '../src/hr/stage4';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx } from '../src/domain/types';
@@ -967,10 +969,106 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         ...accounts.map((a) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, source) VALUES ('account', ?, ?)", params: [a.name, src.slug] })),
         ...lines.map((l) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source) VALUES ('line', ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug] })),
       ];
+      // the heading that holds the salaries, and the centre's usual account (its default in the accounts), when not set yet
+      const hs = lines.map((l) => l.heading);
+      const salaryHeading = hs.find((h) => /staff/i.test(h) && /salar/i.test(h)) ?? hs.find((h) => /salar|رات/i.test(h)) ?? hs.find((h) => /staff/i.test(h)) ?? null;
+      const defAcc = await one<{ name: string }>(src.handle.db, "SELECT a.name FROM account a JOIN setting s ON s.key = 'def_account_id' AND CAST(s.value AS INTEGER) = a.id");
+      stmts.push({ sql: "UPDATE hr_list SET salary_heading = COALESCE(salary_heading, ?), account = COALESCE(account, ?) WHERE kind = 'centre' AND source = ?", params: [salaryHeading, defAcc?.name ?? accounts[0]?.name ?? null, src.slug] });
       await found[2].handle.db.batch(stmts);
       found[2].version++;
       log(`HR lists filled from ${src.slug}: ${accounts.length} accounts, ${lines.length} lines (by ${found[1].profile.name})`);
       return send(res, 200, { centres: 1, accounts: accounts.length, lines: lines.length });
+    }
+
+    // ---- HR: an approved payroll run goes into the accounts of each centre (Fouad, 30 October 2026). Totals only: one
+    // expense per account, budget line and currency, in the centre's Main book, with no names. Nobody types it twice.
+    const hrApprover = async () => {
+      if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.approve')) throw new HttpError(403, { ar: 'لمن يعتمد الكشوف فقط', en: 'For the person who approves the payroll only' });
+      return found;
+    };
+    if (url === '/api/hr/send-run' && method === 'POST') {
+      const [, hs, hc] = await hrApprover();
+      const hdb = hc.handle.db;
+      const body = (await readBody(req)) as { runId?: number };
+      const run = await one<{ id: number; ym: string; kind: string; status: string; paid_on: string | null }>(hdb, 'SELECT id, ym, kind, status, paid_on FROM hr_run WHERE id = ?', [Number(body.runId)]);
+      if (!run) throw new HttpError(404, { ar: 'الكشف غير موجود', en: 'Run not found' });
+      if (run.status === 'draft') throw new HttpError(400, { ar: 'اعتمد الكشف أولاً', en: 'Approve the run first' });
+      const lists = await hdb.query<HrListItem>('SELECT * FROM hr_list');
+      const people = await hdb.query<HrPerson>('SELECT * FROM hr_person');
+      const allocs = await hdb.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc');
+      const lines = await hdb.query<{ person_id: number; paid_in: 'USD' | 'SYP'; amount_paid: number; total_usd: number }>('SELECT person_id, paid_in, amount_paid, total_usd FROM hr_run_line WHERE run_id = ?', [run.id]);
+      const sent = new Set((await hdb.query<{ centre: string }>('SELECT centre FROM hr_run_sent WHERE run_id = ?', [run.id])).map((x) => x.centre));
+      const last = `${run.ym}-${String(new Date(Date.UTC(Number(run.ym.slice(0, 4)), Number(run.ym.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0')}`;
+      // every line: its centre, its account (the donor split, when it names accounts of the centre) and its budget line
+      type Part = { account: string; line: string; cur: 'USD' | 'SYP'; amount: number; usd: number; person: number };
+      const byCentre = new Map<string, Part[]>();
+      const missing: string[] = [];
+      for (const l of lines) {
+        const p = people.find((x) => x.id === l.person_id);
+        const who = p ? p.name : `#${l.person_id}`;
+        const c = p ? centreItem(lists, p) : null;
+        if (!p || !c?.source) { missing.push(`${who}: ${'centre'}`); continue; }
+        const line = lineFor(lists, p).line;
+        const own = accountFor(lists, p);
+        if (!line) missing.push(`${who}: budget line`);
+        const split = allocOn(allocs, p.id, last);
+        const accs = lists.filter((x) => x.kind === 'account' && x.source === c.source).map((x) => x.name);
+        const parts = split.length && split.every((x) => accs.some((a) => a.toLowerCase() === x.target.toLowerCase())) ? split.map((x) => ({ acc: accs.find((a) => a.toLowerCase() === x.target.toLowerCase())!, pct: x.pct })) : own ? [{ acc: own, pct: 100 }] : [];
+        if (!parts.length) missing.push(`${who}: account`);
+        if (!line || !parts.length) continue;
+        const amounts = splitAmount(l.amount_paid, parts, l.paid_in === 'SYP' ? 0 : 2), usds = splitAmount(l.total_usd, parts);
+        parts.forEach((x, i) => byCentre.set(c.source!, [...(byCentre.get(c.source!) ?? []), { account: x.acc, line: line.code ?? line.name, cur: l.paid_in, amount: amounts[i], usd: usds[i], person: p.id }]));
+      }
+      if (missing.length) throw new HttpError(400, { ar: `ينقص: ${missing.join('، ')}`, en: `Missing: ${missing.join(' · ')}` });
+      const done: { centre: string; rows: number; total_usd: number }[] = [];
+      for (const [slug, parts] of byCentre) {
+        if (sent.has(slug)) continue;
+        const cc = centres.get(slug);
+        if (!cc) throw new HttpError(404, { ar: `قاعدة المركز غير موجودة: ${slug}`, en: `Centre database not found: ${slug}` });
+        const cl = await loadLists(cc.handle.db);
+        const book = cl.settings.def_book_id ?? cl.books.find((b) => b.is_main)?.id ?? null;
+        const city = cl.settings.def_city_id ?? cl.cities[0]?.id ?? null;
+        const groups = new Map<string, { account: string; line: string; cur: 'USD' | 'SYP'; amount: number; usd: number; people: Set<number> }>();
+        for (const x of parts) {
+          const k = JSON.stringify([x.account, x.line, x.cur]);
+          const g = groups.get(k) ?? { account: x.account, line: x.line, cur: x.cur, amount: 0, usd: 0, people: new Set<number>() };
+          g.amount += x.amount; g.usd += x.usd; g.people.add(x.person);
+          groups.set(k, g);
+        }
+        const what = run.kind === 'thirteenth' ? `13th payment ${run.ym.slice(0, 4)} · الدفعة الثالثة عشرة` : `Stipends ${run.ym} · مكافآت`;
+        const rows = [...groups.values()].map((g) => {
+          const acc = cl.accounts.find((a) => a.name.toLowerCase() === g.account.toLowerCase());
+          const bl = cl.lines.find((l) => l.code === g.line) ?? cl.lines.find((l) => l.name === g.line);
+          if (!acc || !bl) throw new HttpError(400, { ar: `غير موجود في حسابات ${slug}: ${!acc ? g.account : g.line}`, en: `Not in the accounts of ${slug}: ${!acc ? g.account : g.line}` });
+          return { ...blankTrx(), date: run.paid_on ?? last, type: 'Exp' as const, book_id: book, city_id: city, account_id: acc.id, heading_id: bl.heading_id, line_id: bl.id,
+            explanation: `${what} · HR (${g.people.size})`, exp_syp: g.cur === 'SYP' ? Math.round(g.amount) : 0, exp_usd: g.cur === 'USD' ? Math.round(g.amount * 100) / 100 : 0, source_file: `hr-run:${run.id}` };
+        });
+        const ctx: OpCtx = { db: cc.handle.db, profile: { id: 0, name: `HR · ${hs.profile.name}`, role: 'com', book_id: null, active: 1, access_id: null, access_name: 'HR', perms: ['register.edit', 'register.view'], books: [] }, who: `HR · ${hs.profile.name}`, install: 'office', files: cc.files };
+        await runOp(ctx, 'trx.save', { rows });
+        cc.version++;
+        const total = Math.round(parts.reduce((a, x) => a + x.usd, 0) * 100) / 100;
+        await hdb.batch([{ sql: 'INSERT INTO hr_run_sent (run_id, centre, sent_at, sent_by, trx_ids, total_usd) VALUES (?,?,?,?,?,?)', params: [run.id, slug, new Date().toISOString(), hs.profile.name, JSON.stringify(rows.map((r) => r.id)), total] }]);
+        hc.version++;
+        log(`HR run ${run.id} (${run.ym}) sent to ${slug}: ${rows.length} rows by ${hs.profile.name}`);
+        done.push({ centre: slug, rows: rows.length, total_usd: total });
+      }
+      return send(res, 200, { sent: done });
+    }
+    if (url === '/api/hr/take-back' && method === 'POST') {
+      const [, hs, hc] = await hrApprover();
+      const body = (await readBody(req)) as { runId?: number; centre?: string };
+      const row = await one<{ trx_ids: string }>(hc.handle.db, 'SELECT trx_ids FROM hr_run_sent WHERE run_id = ? AND centre = ?', [Number(body.runId), String(body.centre)]);
+      const cc = centres.get(String(body.centre));
+      if (!row || !cc) throw new HttpError(404, { ar: 'لم يُرسل', en: 'Not sent' });
+      const ids = (JSON.parse(row.trx_ids) as string[]).filter(Boolean);
+      const still = (await cc.handle.db.query<{ id: string }>(`SELECT id FROM trx WHERE id IN (${ids.map(() => '?').join(',') || "''"})`, ids)).map((x) => x.id);
+      const ctx: OpCtx = { db: cc.handle.db, profile: { id: 0, name: `HR · ${hs.profile.name}`, role: 'com', book_id: null, active: 1, access_id: null, access_name: 'HR', perms: ['register.edit', 'register.view'], books: [] }, who: `HR · ${hs.profile.name}`, install: 'office', files: cc.files };
+      if (still.length) await runOp(ctx, 'trx.delete', { ids: still, reason: 'payroll taken back by HR · سحبته الموارد البشرية' });
+      cc.version++;
+      await hc.handle.db.batch([{ sql: 'DELETE FROM hr_run_sent WHERE run_id = ? AND centre = ?', params: [Number(body.runId), String(body.centre)] }]);
+      hc.version++;
+      log(`HR run ${body.runId} taken back from ${body.centre} by ${hs.profile.name}`);
+      return send(res, 200, { ok: true, removed: still.length });
     }
 
     // ---- a new database (a centre, a test, a new year…)

@@ -51,12 +51,13 @@ export interface HrSign { id: number; conduct_id: number; person_id: number; sig
 export interface HrDoc { id: number; person_id: number; label: string; expires_on: string | null; file_name: string; mime: string; size: number; created_at: string }
 export interface HrAlert { kind: 'agreement_ending' | 'agreement_missing' | 'doc_expiring' | 'conduct_unsigned' | 'unsigned_paper' | 'insurance_ending'; person_id: number; item_id: number | null; date: string | null; days: number | null }
 /** an item of the lists; a centre also carries its heading on the documents (code = its mark: jaramana | aleppo | homs | other) */
-export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; name: string; code: string | null; heading: string | null; source: string | null; party_ar: string | null; party_en: string | null; rep_ar: string | null; rep_en: string | null; city_ar: string | null; city_en: string | null }
+export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; name: string; code: string | null; heading: string | null; source: string | null; salary_heading: string | null; account: string | null; party_ar: string | null; party_en: string | null; rep_ar: string | null; rep_en: string | null; city_ar: string | null; city_en: string | null }
 export interface HrData {
   /** the stored lists the person's centre, account and budget line are chosen from (filled from the budgets) */
   lists: HrListItem[];
-  /** the positions of the scale (names only), the roles a person can have */
+  /** the positions of the scale (names only), the roles a person can have, and their Arabic names */
   positions: string[];
+  positionsAr: Record<string, string>;
   /** the names that sign the documents */
   docSettings: { repAr: string; repEn: string };
   kind: string | null;
@@ -101,11 +102,13 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
   if (has(c.profile, 'hr.pay'))
     for (const x of await c.db.query<{ id: number; person_id: number; end_date: string }>('SELECT id, person_id, end_date FROM hr_insurance WHERE deleted_at IS NULL AND end_date IS NOT NULL'))
       if (daysTo(x.end_date, today) <= SOON && people.find((p) => p.id === x.person_id)?.active) alerts.push({ kind: 'insurance_ending', person_id: x.person_id, item_id: x.id, date: x.end_date, days: daysTo(x.end_date, today) });
-  const lists = await c.db.query<HrListItem>('SELECT id, kind, name, code, heading, source, party_ar, party_en, rep_ar, rep_en, city_ar, city_en FROM hr_list ORDER BY kind, code, name');
-  const positions = (await c.db.query<{ name: string }>('SELECT name FROM hr_grade WHERE active = 1 ORDER BY sort, id')).map((g) => g.name);
+  const lists = await c.db.query<HrListItem>('SELECT id, kind, name, code, heading, source, salary_heading, account, party_ar, party_en, rep_ar, rep_en, city_ar, city_en FROM hr_list ORDER BY kind, code, name');
+  const grades = await c.db.query<{ name: string; name_ar: string | null }>('SELECT name, name_ar FROM hr_grade WHERE active = 1 ORDER BY sort, id');
+  const positions = grades.map((g) => g.name);
+  const positionsAr = Object.fromEntries(grades.filter((g) => g.name_ar).map((g) => [g.name, g.name_ar!]));
   const setting = async (k: string, d: string) => (await one<{ value: string | null }>(c.db, 'SELECT value FROM setting WHERE key = ?', [k]))?.value ?? d;
   const docSettings = { repAr: await setting('hr_rep_ar', 'الأب فؤاد نخلة اليسوعي'), repEn: await setting('hr_rep_en', '') };
-  return { kind: await getMeta(c.db, 'kind'), people, papers, conducts, signs, docs, alerts, lists, positions, docSettings };
+  return { kind: await getMeta(c.db, 'kind'), people, papers, conducts, signs, docs, alerts, lists, positions, positionsAr, docSettings };
 }
 
 // ---------------------------------------------------------------- writing
@@ -229,7 +232,7 @@ export const HR_OPS = {
   // the lists can also be added to by hand, or cleaned
   'hr.list.save': {
     check: needManage,
-    run: async (c: OpCtx, a: { id?: number | null; kind: 'centre' | 'account' | 'line'; name: string; code?: string | null; heading?: string | null; party_ar?: string | null; party_en?: string | null; rep_ar?: string | null; rep_en?: string | null; city_ar?: string | null; city_en?: string | null }) => {
+    run: async (c: OpCtx, a: { id?: number | null; kind: 'centre' | 'account' | 'line'; name: string; code?: string | null; heading?: string | null; salary_heading?: string | null; account?: string | null; party_ar?: string | null; party_en?: string | null; rep_ar?: string | null; rep_en?: string | null; city_ar?: string | null; city_en?: string | null }) => {
       if (!['centre', 'account', 'line'].includes(a.kind)) throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
@@ -241,7 +244,7 @@ export const HR_OPS = {
         const label = (n: string, code: string | null) => (before.kind === 'line' && code ? `${code} · ${n}` : n);
         const field = before.kind === 'centre' ? 'centre' : before.kind === 'account' ? 'account' : 'budget_line';
         await c.db.batch([
-          { sql: 'UPDATE hr_list SET name = ?, code = ?, heading = ?, party_ar = ?, party_en = ?, rep_ar = ?, rep_en = ?, city_ar = ?, city_en = ? WHERE id = ?', params: [name, txt(a.code), txt(a.heading), ...doc, a.id] },
+          { sql: 'UPDATE hr_list SET name = ?, code = ?, heading = ?, party_ar = ?, party_en = ?, rep_ar = ?, rep_en = ?, city_ar = ?, city_en = ?, salary_heading = ?, account = ? WHERE id = ?', params: [name, txt(a.code), txt(a.heading), ...doc, txt(a.salary_heading), txt(a.account), a.id] },
           // the people keep their choice when its name changes
           { sql: `UPDATE hr_person SET ${field} = ? WHERE ${field} = ?`, params: [label(name, txt(a.code)), label(before.name, before.code)] },
         ]);

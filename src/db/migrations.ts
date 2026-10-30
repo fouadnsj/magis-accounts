@@ -1330,4 +1330,31 @@ ALTER TABLE hr_grade ADD COLUMN monthly_usd REAL;
 UPDATE hr_grade SET monthly_usd = (SELECT r.monthly_usd FROM hr_grade_rate r WHERE r.grade_id = hr_grade.id ORDER BY r.year DESC LIMIT 1);
 `,
   },
+  {
+    n: 35,
+    name: 'HR: position names in Arabic, each centre\'s salary heading and usual account, payroll sent to the accounts',
+    sql: `
+-- Fouad, 30 October 2026. A position has a name in Arabic too.
+ALTER TABLE hr_grade ADD COLUMN name_ar TEXT;
+UPDATE hr_grade SET name_ar = CASE name WHEN 'Centre Director' THEN 'مدير المركز' WHEN 'Workshop Coordinator' THEN 'منسق الورشات' WHEN 'Guard & logistics' THEN 'حارس ولوجستيات'
+  WHEN 'Accountant' THEN 'محاسب' WHEN 'Reception' THEN 'استقبال' WHEN 'IT' THEN 'تقنية المعلومات' WHEN 'Cleaner' THEN 'عامل نظافة' WHEN 'Cook' THEN 'طباخ' END WHERE name_ar IS NULL;
+-- Each centre: the heading of its budget that holds the stipends, and the account they are paid from (when a person
+-- has none of their own). The lines offered for a person are that heading's lines in their centre.
+ALTER TABLE hr_list ADD COLUMN salary_heading TEXT;
+ALTER TABLE hr_list ADD COLUMN account TEXT;
+UPDATE hr_list SET salary_heading = (SELECT l.heading FROM hr_list l WHERE l.kind = 'line' AND l.source = hr_list.source
+  AND (lower(l.heading) LIKE '%salar%' OR lower(l.heading) LIKE '%staff%' OR l.heading LIKE '%رات%')
+  ORDER BY (lower(l.heading) LIKE '%staff%' AND lower(l.heading) LIKE '%salar%') DESC, lower(l.heading) LIKE '%salar%' DESC LIMIT 1) WHERE kind = 'centre';
+-- A payroll run sent to the accounts of a centre: the rows written there (totals only), to take them back if needed.
+CREATE TABLE hr_run_sent (
+  run_id    INTEGER NOT NULL REFERENCES hr_run(id),
+  centre    TEXT NOT NULL,
+  sent_at   TEXT NOT NULL,
+  sent_by   TEXT,
+  trx_ids   TEXT NOT NULL,
+  total_usd REAL NOT NULL,
+  PRIMARY KEY (run_id, centre)
+);
+`,
+  },
 ];

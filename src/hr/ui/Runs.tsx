@@ -6,6 +6,8 @@ import { has } from '../../auth';
 import type { Session } from '../../state';
 import { errText, Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../../ui/kit';
 import { saveFile } from '../../platform';
+import { tx, type Msg } from '../../i18n';
+const getLangText = (m?: Msg) => (m ? tx(m) : 'Error');
 import { payslipsDoc, type DocHead } from '../docs';
 import { TwoNames, headOf } from './common';
 import { t3 } from '../../community/ui/text';
@@ -74,14 +76,21 @@ function NewRun({ s, onClose, onDone }: { s: Session; onClose: () => void; onDon
 }
 
 function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; onBack: () => void }) {
-  const [d, setD] = useState<{ run: HrRun; lines: HrRunLine[] } | null>(null);
+  const [d, setD] = useState<{ run: HrRun; lines: HrRunLine[]; sent: { centre: string; sent_at: string; sent_by: string | null; total_usd: number }[] } | null>(null);
+  const [busy, setBusy] = useState(false);
   const [add, setAdd] = useState(false);
   const [voucher, setVoucher] = useState<{ run: { ym: string; kind: string; rate_syp: number; status: string; approved_by: string | null; paid_on: string | null }; rows: HrVoucherRow[]; total_usd: number } | null>(null);
   const approver = has(s.profile, 'hr.approve');
   const load = useCallback(async () => { try { setD(await s.api.call('hr.run.get', { id })); } catch (e) { fail(e); } }, [s, id]);
   useEffect(() => { void load(); }, [load]);
   if (!d) return <p className="muted">…</p>;
-  const { run, lines } = d;
+  const { run, lines, sent } = d;
+  const post = async (url: string, body: object) => {
+    const r = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(getLangText(j?.error));
+    return j;
+  };
   const draft = run.status === 'draft';
   const total = lines.reduce((a, l) => a + l.total_usd, 0);
   const act = (op: 'hr.run.approve' | 'hr.run.reopen', msg?: string) => async () => {
@@ -131,6 +140,19 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
         <button className="btn" onClick={() => saveSlips(hr, run, lines)}>📄 {t3('كل قسائم الدفع (Word)', 'All payslips (Word)', 'Toutes les fiches (Word)')}</button>
         {!draft && <button className="btn" onClick={async () => { try { setVoucher(await s.api.call('hr.run.voucher', { id })); } catch (e) { fail(e); } }}>{t3('قسيمة للمحاسبة (مجاميع فقط)', 'Voucher for Accounts (totals only)', 'Bon pour la comptabilité (totaux seulement)')}</button>}
       </div>
+      {!draft && approver && (
+        <div className="hr-panel" style={{ marginTop: 14, background: '#FBF7EE' }}>
+          <b>{t3('إلى حسابات المراكز', "Into the centres' accounts", 'Vers la comptabilité des centres')}</b>
+          <p className="muted small" style={{ margin: '4px 0 8px' }}>{t3('يُكتب في الدفتر الرئيسي لكل مركز نفقة واحدة لكل حساب وخط موازنة وعملة: مجاميع فقط، بلا أسماء. لا يكتبه أحد مرة ثانية.', "Written in each centre's Main book: one expense per account, budget line and currency — totals only, no names. Nobody types it a second time.", 'Écrit dans le livre principal de chaque centre : une dépense par compte, ligne budgétaire et devise — totaux seulement, sans noms. Personne ne la retape.')}</p>
+          {sent.map((x) => (
+            <div key={x.centre} className="row" style={{ gap: 8, marginBottom: 4 }}>
+              <span className="ok">✓ {x.centre} · {usd(x.total_usd)} USD · {fmtDate(x.sent_at.slice(0, 10))} · {x.sent_by}</span>
+              <button className="btn small" disabled={busy} onClick={async () => { if (!(await confirmBox(t3('سحب هذه النفقات من حسابات المركز؟', "Take these expenses back out of the centre's accounts?", 'Retirer ces dépenses de la comptabilité du centre ?'), true))) return; setBusy(true); try { await post('/api/hr/take-back', { runId: id, centre: x.centre }); toast(t3('سُحب', 'Taken back', 'Retiré')); await load(); } catch (e) { fail(e); } finally { setBusy(false); } }}>{t3('سحب', 'Take back', 'Retirer')}</button>
+            </div>
+          ))}
+          <button className="btn gold" disabled={busy} onClick={async () => { setBusy(true); try { const r = await post('/api/hr/send-run', { runId: id }); toast(r.sent.length ? t3(`أُرسل إلى ${r.sent.length} مركز`, `Sent to ${r.sent.length} centre(s)`, `Envoyé à ${r.sent.length} centre(s)`) : t3('أُرسل من قبل', 'Already sent', 'Déjà envoyé')); await load(); } catch (e) { fail(e); } finally { setBusy(false); } }}>{t3('إرسال إلى الحسابات', 'Send to the accounts', 'Envoyer à la comptabilité')}</button>
+        </div>
+      )}
       {add && <AddLine s={s} hr={hr} runId={id} onClose={() => setAdd(false)} onDone={async () => { setAdd(false); await load(); }} />}
       {voucher && <Voucher org={s.organisation} v={voucher} onClose={() => setVoucher(null)} />}
     </>

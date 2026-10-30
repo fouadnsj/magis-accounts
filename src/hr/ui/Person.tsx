@@ -12,6 +12,7 @@ import { hourlyFromMonthly, payOn, yearlyCost } from '../pay';
 import { agreementDoc, stipendDoc } from '../docs';
 import { InsurancePage } from './Stage4';
 import { TwoNames, centreOf, centreVars, chooseScan, fail, headOf, markOf, openScan, usd } from './common';
+import { accountFor, centreAccounts, lineFor, lineLabel, salaryLines } from '../link';
 
 type Tab = 'identity' | 'agreement' | 'letters' | 'insurance' | 'documents' | 'conduct';
 
@@ -36,7 +37,7 @@ export function PersonPage({ person, onBack, onCreated, ...x }: P & { person: Hr
           <img src={markOf(key)} alt="" />
           <div className="mid">
             {person ? <TwoNames p={person} big /> : <span className="hr-names big"><b>{t3('شخص جديد', 'New person', 'Nouvelle personne')}</b></span>}
-            {person && <div className="sub">{[person.role, person.centre].filter(Boolean).join(' · ') || '—'}{!person.active ? ` · ${t3('غادر', 'left', 'parti')} ${fmtDate(person.ended)}` : ''}</div>}
+            {person && <div className="sub">{[person.role ? (x.d.positionsAr[person.role] ? `${x.d.positionsAr[person.role]} · ${person.role}` : person.role) : null, person.centre].filter(Boolean).join(' · ') || '—'}{!person.active ? ` · ${t3('غادر', 'left', 'parti')} ${fmtDate(person.ended)}` : ''}</div>}
           </div>
           <img className="jesuit" src="/brand/jesuits.png" alt="" />
         </div>
@@ -58,7 +59,7 @@ function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { 
   const [f, setF] = useState<Partial<HrPerson>>(person ? { ...person, first_name: person.first_name ?? (person.name_ar ? null : person.name) } : { active: 1 });
   const set = (k: keyof HrPerson) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const inp = (k: keyof HrPerson, o: { dir?: 'rtl' | 'ltr'; type?: string } = {}) => <input dir={o.dir} type={o.type} value={(f[k] as string | null) ?? ''} onChange={set(k)} disabled={!manage} />;
-  const list = (kind: 'centre' | 'account' | 'line') => d.lists.filter((x) => x.kind === kind).map((x) => { const v = kind === 'line' && x.code ? `${x.code} · ${x.name}` : x.name; return { value: v, label: kind === 'line' && x.heading ? `${v} (${x.heading})` : v }; });
+  const list = (kind: 'centre') => d.lists.filter((x) => x.kind === kind).map((x) => ({ value: x.name, label: x.name }));
   const save = async () => {
     try {
       const r = await s.api.call('hr.person.save', { ...(f as HrPerson), name: f.first_name ?? f.first_name_ar ?? '' });
@@ -94,10 +95,12 @@ function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { 
       <div className="grid2" style={{ marginTop: 14 }}>
         <Field label={t3('الرقم الوطني', 'National number', 'Numéro national')}>{inp('national_id', { dir: 'ltr' })}</Field>
         <Field label={t3('تاريخ الولادة', 'Date of birth', 'Date de naissance')}>{inp('birth_date', { type: 'date' })}</Field>
-        <Pick label={t3('المركز (شعاره على الوثائق)', 'Centre (its mark on the documents)', 'Centre (son logo sur les documents)')} value={f.centre ?? ''} options={list('centre')} onChange={(v) => setF({ ...f, centre: v })} disabled={!manage} />
-        <Pick label={t3('الوظيفة (من سلّم الرواتب)', 'Position (from the scale)', "Poste (de l'échelle)")} value={f.role ?? ''} options={d.positions.map((p) => ({ value: p, label: p }))} onChange={(v) => setF({ ...f, role: v })} disabled={!manage} />
-        <Pick label={t3('الحساب في المحاسبة', 'Account in Accounts', 'Compte en comptabilité')} value={f.account ?? ''} options={list('account')} onChange={(v) => setF({ ...f, account: v })} disabled={!manage} />
-        <Pick label={t3('بند الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={list('line')} onChange={(v) => setF({ ...f, budget_line: v })} disabled={!manage} />
+        <Pick label={t3('المركز (شعاره على الوثائق)', 'Centre (its mark on the documents)', 'Centre (son logo sur les documents)')} value={f.centre ?? ''} options={list('centre')} onChange={(v) => setF({ ...f, centre: v, budget_line: null, account: null })} disabled={!manage} />
+        <Pick label={t3('الوظيفة (من سلّم الرواتب)', 'Position (from the scale)', "Poste (de l'échelle)")} value={f.role ?? ''} options={d.positions.map((p) => ({ value: p, label: d.positionsAr[p] ? `${d.positionsAr[p]} · ${p}` : p }))} onChange={(v) => setF({ ...f, role: v })} disabled={!manage} />
+        <Pick label={t3('خط الموازنة في حسابات المركز', "Budget line in the centre's accounts", 'Ligne budgétaire dans la comptabilité du centre')} value={f.budget_line ?? ''} options={salaryLines(d.lists, f).map((l) => ({ value: lineLabel(l), label: lineLabel(l) }))} onChange={(v) => setF({ ...f, budget_line: v })} disabled={!manage}
+          empty={!f.centre ? t3('— اختر المركز أولاً —', '— choose the centre first —', "— choisissez d'abord le centre —") : (() => { const g = lineFor(d.lists, { ...f, budget_line: null } as HrPerson).line; return g ? t3(`تلقائياً: ${lineLabel(g)}`, `automatic: ${lineLabel(g)}`, `automatique : ${lineLabel(g)}`) : t3('— لا خط مناسب: اختر —', '— no matching line: choose —', '— aucune ligne : choisissez —'); })()} />
+        <Pick label={t3('الحساب (من يدفع)', 'Account (who pays)', 'Compte (qui paie)')} value={f.account ?? ''} options={centreAccounts(d.lists, f).map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, account: v })} disabled={!manage}
+          empty={(() => { const a = accountFor(d.lists, { ...f, account: null } as HrPerson); return a ? t3(`حساب المركز: ${a}`, `the centre's: ${a}`, `celui du centre : ${a}`) : '—'; })()} />
         <Field label={t3('بدأ في', 'Started', 'Début')}>{inp('started', { type: 'date' })}</Field>
         <Field label={t3('غادر في (فارغ إن كان مستمراً)', 'Left on (empty if still here)', 'Parti le (vide si toujours là)')}>{inp('ended', { type: 'date' })}</Field>
         <Field label={t3('ملاحظة', 'Note', 'Note')} className="span2">{inp('note')}</Field>
@@ -111,14 +114,16 @@ function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { 
 }
 
 /** A choice from a stored list. An old value no longer in the list is kept as an option, so nothing is lost. */
-export function Pick({ label, value, options, onChange, disabled }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; disabled?: boolean }) {
-  const all = value && !options.some((o) => o.value === value) ? [{ value, label: value }, ...options] : options;
+export function Pick({ label, value, options, onChange, disabled, empty }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void; disabled?: boolean; /** what an empty choice means */ empty?: string }) {
+  const stray = !!value && !options.some((o) => o.value === value);
+  const all = stray ? [{ value, label: `⚠ ${value}` }, ...options] : options;
   return (
     <Field label={label}>
       <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
-        <option value="">{all.length ? '—' : t3('— القائمة فارغة: املأها من «القوائم» —', '— the list is empty: fill it in "Lists" —', '— liste vide : remplissez-la dans « Listes » —')}</option>
+        <option value="">{empty ?? (all.length ? '—' : t3('— القائمة فارغة: املأها من «القوائم» —', '— the list is empty: fill it in "Lists" —', '— liste vide : remplissez-la dans « Listes » —'))}</option>
         {all.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+      {stray && options.length > 0 && <div className="desk-alert small">{t3('⚠ ليس في قائمة هذا المركز: اختر من جديد', "⚠ Not in this centre's list: choose again", '⚠ Pas dans la liste de ce centre : choisissez à nouveau')}</div>}
     </Field>
   );
 }
@@ -229,7 +234,7 @@ function AgreementModal({ s, d, pd, person, paper, onClose, reload }: { s: Sessi
       <div className="grid2">
         <Field label={t3('من', 'From', 'Du')}><input type="date" value={f.start} onChange={(e) => setF({ ...f, start: e.target.value })} /></Field>
         <Field label={t3('إلى', 'To', 'Au')}><input type="date" value={f.end} onChange={(e) => setF({ ...f, end: e.target.value })} /></Field>
-        <Pick label={t3('الوظيفة', 'Position', 'Poste')} value={f.position} options={(pd?.grades ?? d.positions.map((name, i) => ({ id: i, name, monthly_usd: null }))).map((g) => ({ value: g.name, label: g.monthly_usd != null ? `${g.name} · ${usd(g.monthly_usd)} USD` : g.name }))} onChange={(v) => setF({ ...f, position: v, amount: f.amount === '' || Number(f.amount) === refOf(f.position) ? String(refOf(v) ?? '') : f.amount })} />
+        <Pick label={t3('الوظيفة', 'Position', 'Poste')} value={f.position} options={(pd?.grades ?? d.positions.map((name, i) => ({ id: i, name, monthly_usd: null }))).map((g) => ({ value: g.name, label: `${d.positionsAr[g.name] ? `${d.positionsAr[g.name]} · ` : ''}${g.name}${g.monthly_usd != null ? ` · ${usd(g.monthly_usd)} USD` : ''}` }))} onChange={(v) => setF({ ...f, position: v, amount: f.amount === '' || Number(f.amount) === refOf(f.position) ? String(refOf(v) ?? '') : f.amount })} />
         <Field label={t3('ساعات الأسبوع المتفق عليها', 'Agreed hours a week', 'Heures par semaine convenues')}><input inputMode="decimal" value={f.weekly} onChange={(e) => setF({ ...f, weekly: e.target.value })} /></Field>
         <Field label={t3('المكافأة الشهرية', 'Monthly stipend', 'Gratification mensuelle')}><input inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
         <Field label={t3('العملة', 'Currency', 'Devise')}><select value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value as 'USD' | 'SYP' })}><option value="USD">USD</option><option value="SYP">SYP</option></select></Field>

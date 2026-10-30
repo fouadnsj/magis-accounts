@@ -49,7 +49,9 @@ export const HR_RUN_OPS = {
     run: async (c: OpCtx, a: { id: number }) => {
       const run = await runOf(c, a.id);
       const lines = await c.db.query<HrRunLine>('SELECT l.*, p.name AS person_name, p.national_id, p.role FROM hr_run_line l JOIN hr_person p ON p.id = l.person_id WHERE l.run_id = ? ORDER BY p.name, l.id', [a.id]);
-      return { run, lines };
+      // the centres whose accounts already received it
+      const sent = await c.db.query<{ centre: string; sent_at: string; sent_by: string | null; total_usd: number }>('SELECT centre, sent_at, sent_by, total_usd FROM hr_run_sent WHERE run_id = ?', [a.id]);
+      return { run, lines, sent };
     },
   },
 
@@ -152,6 +154,7 @@ export const HR_RUN_OPS = {
     run: async (c: OpCtx, a: { id: number }) => {
       const run = await runOf(c, a.id);
       if (run.status === 'paid') throw new UserError(m('الكشف مدفوع ولا يُعاد فتحه', 'This run is paid and cannot be reopened', 'Cette paie est payée et ne peut pas être rouverte'));
+      if (await one(c.db, 'SELECT 1 AS x FROM hr_run_sent WHERE run_id = ?', [a.id])) throw new UserError(m('أُرسل إلى الحسابات: اسحبه أولاً', 'It was sent to the accounts: take it back first', "Elle a été envoyée à la comptabilité : reprenez-la d'abord"));
       await c.db.batch([{ sql: "UPDATE hr_run SET status = 'draft', approved_at = NULL, approved_by = NULL WHERE id = ?", params: [a.id] }, auditStmt(c.who, 'reopen', 'hr_run', String(a.id), null, null)]);
       return { ok: true };
     },

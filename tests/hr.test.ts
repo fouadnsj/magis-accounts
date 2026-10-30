@@ -459,4 +459,71 @@ describe('HR database', () => {
     expect((await op('hr.person.delete', { id: paid }, ck)).status).toBe(400);
     expect((await op('hr.access.list', {}, ck)).body.some((l: { action: string; what: string; detail: string }) => l.action === 'delete' && l.what === 'person' && l.detail === 'Typed by mistake')).toBe(true);
   });
+
+  it('an approved payroll goes into the centre accounts: totals per account, line and currency, no names; and can be taken back', async () => {
+    // a centre with an account, a city and a salary heading of two lines (like Homs: lines by position)
+    const centre = (await call('/api/dbs/create', { organisation: 'MAGIS Nine', centre: 'homs' })).body.slug;
+    await call('/api/setup/new', { db: centre, organisation: 'MAGIS Nine', supName: 'Boss', supPin: 'boss-nine-1', comName: 'Clerk', comPin: 'clerk-nine-1' });
+    const bossId = (await call(`/api/profiles?db=${centre}`)).body.find((p: { name: string }) => p.name === 'Boss').id;
+    const boss = (await call('/api/login', { db: centre, profileId: bossId, password: 'boss-nine-1' }, '')).set!;
+    await op('list.add', { table: 'account', name: 'Center' }, boss);
+    await op('list.add', { table: 'city', name: 'Homs' }, boss);
+    const hid = (await op('heading.add', { name: 'Salary', types: ['Exp'] }, boss)).body;
+    const headingId = typeof hid === 'number' ? hid : hid?.id ?? (await op('data', {}, boss)).body.lists.headings.find((h: { name: string }) => h.name === 'Salary').id;
+    await op('line.add', { headingId, name: 'Reception' }, boss);
+    await op('line.add', { headingId, name: 'Cleaner' }, boss);
+
+    const made = await call('/api/dbs/create', { organisation: 'HR nine', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR nine', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const hrId = (await call(`/api/profiles?db=${slug}`)).body[0].id;
+    const ck = (await call('/api/login', { db: slug, profileId: hrId, password: 'fouad-hr-1' }, '')).set!;
+    const post = async (url: string, body: unknown) => { const r = await fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: ck }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+    expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
+    const c = (await op('hr.data', {}, ck)).body.lists.find((x: { kind: string; name: string }) => x.kind === 'centre' && x.name === 'MAGIS Nine');
+    expect([c.salary_heading, c.account]).toEqual(['Salary', 'Center']); // found by itself
+    await op('hr.grade.seed', {}, ck);
+    const mk = async (first: string, role: string, amount: number) => {
+      const id = (await op('hr.person.save', { first_name: first, centre: 'MAGIS Nine', role, started: '2026-01-01' }, ck)).body.id;
+      await op('hr.paper.save', { personId: id, kind: 'agreement', start: '2026-01-01', end: '2026-12-31', position: role, amount, weeklyHours: 30 }, ck);
+      return id;
+    };
+    await mk('Nadia', 'Reception', 180);
+    await mk('Rami', 'Reception', 170);
+    const cl = await mk('Hanan', 'Cleaner', 150);
+    const run = (await op('hr.run.create', { ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const lines = (await op('hr.run.get', { id: run }, ck)).body.lines;
+    await op('hr.run.line.save', { id: lines.find((l: { person_id: number }) => l.person_id === cl).id, paidIn: 'SYP' }, ck);
+    expect((await post('/api/hr/send-run', { runId: run })).status).toBe(400); // approve first
+    await op('hr.run.approve', { id: run }, ck);
+    const sent = await post('/api/hr/send-run', { runId: run });
+    expect(sent.status).toBe(200);
+    expect(sent.body.sent).toEqual([{ centre, rows: 2, total_usd: 500 }]);
+    // in the centre's register: two expenses, with the right line, account and currency, and no names
+    const rows = ((await op('data', {}, boss)).body.rows as { explanation: string; exp_usd: number; exp_syp: number; line_id: number; source_file: string }[]).filter((r) => r.source_file === `hr-run:${run}`);
+    const data = (await op('data', {}, boss)).body;
+    const lineName = (id: number) => data.lists.lines.find((l: { id: number }) => l.id === id).name;
+    expect(rows.map((r) => [lineName(r.line_id), r.exp_usd, r.exp_syp]).sort()).toEqual([['Cleaner', 0, 1950000], ['Reception', 350, 0]]);
+    expect(JSON.stringify(rows)).not.toMatch(/Nadia|Rami|Hanan/);
+    expect(rows[0].explanation).toContain('Stipends 2026-10');
+    // sent once only; a sent run cannot be reopened; taken back, the rows leave the centre
+    expect((await post('/api/hr/send-run', { runId: run })).body.sent).toEqual([]);
+    expect((await op('hr.run.get', { id: run }, ck)).body.sent).toHaveLength(1);
+    expect((await op('hr.run.reopen', { id: run }, ck)).status).toBe(400);
+    expect((await post('/api/hr/take-back', { runId: run, centre })).body.removed).toBe(2);
+    expect(((await op('data', {}, boss)).body.rows as { source_file: string }[]).filter((r) => r.source_file === `hr-run:${run}`)).toHaveLength(0);
+    // a line or account of another centre on the card is not used: the centre's own (guessed) ones are
+    const { lineFor, accountFor } = await import('../src/hr/link');
+    const lists = (await op('hr.data', {}, ck)).body.lists;
+    const stray = { centre: 'MAGIS Nine', budget_line: 'E99.1 · Somewhere else', account: 'Other centre', role: 'Cleaner', first_name: 'X', first_name_ar: null, name: 'X' };
+    expect(lineFor(lists, stray).line?.name).toBe('Cleaner');
+    expect(accountFor(lists, stray)).toBe('Center');
+    // a person without a line that fits says what is missing
+    await mk('Odd', 'Cook', 200);
+    const run2 = (await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    await op('hr.run.approve', { id: run2 }, ck);
+    const bad = await post('/api/hr/send-run', { runId: run2 });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.en).toContain('Odd: budget line');
+  });
 });

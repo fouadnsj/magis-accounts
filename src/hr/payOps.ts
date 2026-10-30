@@ -7,7 +7,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import { DEFAULT_PAY, payOn, type PaySettings } from './pay';
 
-export interface HrGrade { id: number; name: string; sort: number; note: string | null; active: number; monthly_usd: number | null }
+export interface HrGrade { id: number; name: string; name_ar: string | null; sort: number; note: string | null; active: number; monthly_usd: number | null }
 export interface HrPay { id: number; person_id: number; valid_from: string; grade_id: number | null; weekly_hours: number | null; monthly_usd: number | null; note: string | null; paper_id: number | null }
 export interface HrHours { id: number; person_id: number; ym: string; hours: number; note: string | null }
 /** a line of the staff list for the budget (the columns of Fouad's salary sheet): no names */
@@ -32,7 +32,7 @@ async function settingsOf(c: OpCtx): Promise<PaySettings> {
 
 export async function payData(c: OpCtx): Promise<HrPayData> {
   return {
-    grades: await c.db.query<HrGrade>('SELECT id, name, sort, note, active, monthly_usd FROM hr_grade ORDER BY sort, id'),
+    grades: await c.db.query<HrGrade>('SELECT id, name, name_ar, sort, note, active, monthly_usd FROM hr_grade ORDER BY sort, id'),
     pays: await c.db.query<HrPay>('SELECT id, person_id, valid_from, grade_id, weekly_hours, monthly_usd, note, paper_id FROM hr_pay WHERE deleted_at IS NULL ORDER BY person_id, valid_from, id'),
     hours: await c.db.query<HrHours>('SELECT id, person_id, ym, hours, note FROM hr_hours ORDER BY ym DESC, person_id'),
     settings: await settingsOf(c),
@@ -83,7 +83,7 @@ export const HR_PAY_OPS = {
   // a position of the scale and its reference monthly amount (a suggestion when an agreement is made)
   'hr.grade.save': {
     check: needPay,
-    run: async (c: OpCtx, a: { id?: number | null; name: string; note?: string | null; monthlyUsd?: number | null }) => {
+    run: async (c: OpCtx, a: { id?: number | null; name: string; nameAr?: string | null; note?: string | null; monthlyUsd?: number | null }) => {
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب اسم الوظيفة', 'Write the name of the position', 'Écrivez le nom du poste'));
       const amount = num(a.monthlyUsd);
@@ -92,7 +92,7 @@ export const HR_PAY_OPS = {
       if (a.id) {
         const before = await one<{ name: string }>(c.db, 'SELECT name FROM hr_grade WHERE id = ?', [a.id]);
         await c.db.batch([
-          { sql: 'UPDATE hr_grade SET name = ?, note = ?, monthly_usd = ? WHERE id = ?', params: [name, txt(a.note), amount, a.id] },
+          { sql: 'UPDATE hr_grade SET name = ?, name_ar = ?, note = ?, monthly_usd = ? WHERE id = ?', params: [name, txt(a.nameAr), txt(a.note), amount, a.id] },
           // a renamed position keeps its people
           ...(before && before.name !== name ? [{ sql: 'UPDATE hr_person SET role = ? WHERE role = ?', params: [name, before.name] }, { sql: 'UPDATE hr_paper SET position = ? WHERE position = ?', params: [name, before.name] }] : []),
           auditStmt(c.who, 'update', 'hr_grade', String(a.id), before, { name, monthly: amount }),
@@ -100,7 +100,7 @@ export const HR_PAY_OPS = {
         return { id: a.id };
       }
       const next = ((await one<{ s: number | null }>(c.db, 'SELECT MAX(sort) AS s FROM hr_grade'))?.s ?? 0) + 1;
-      await c.db.batch([{ sql: 'INSERT INTO hr_grade (name, sort, note, monthly_usd) VALUES (?,?,?,?)', params: [name, next, txt(a.note), amount] }, auditStmt(c.who, 'add', 'hr_grade', null, null, { name, monthly: amount })]);
+      await c.db.batch([{ sql: 'INSERT INTO hr_grade (name, name_ar, sort, note, monthly_usd) VALUES (?,?,?,?,?)', params: [name, txt(a.nameAr), next, txt(a.note), amount] }, auditStmt(c.who, 'add', 'hr_grade', null, null, { name, monthly: amount })]);
       return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_grade'))!.id };
     },
   },
@@ -118,12 +118,12 @@ export const HR_PAY_OPS = {
     check: needPay,
     run: async (c: OpCtx) => {
       if (await one(c.db, 'SELECT 1 AS x FROM hr_grade')) throw new UserError(m('السلّم غير فارغ', 'The scale is not empty', "L'échelle n'est pas vide"));
-      const sheet: [string, number, string][] = [
-        ['Centre Director', 300, '7 h a day'], ['Workshop Coordinator', 250, '7 h a day'], ['Guard & logistics', 230, '8 h a day'], ['Accountant', 250, ''],
-        ['Reception', 180, '5 h a day'], ['IT', 180, '5 h a day'], ['Cleaner', 180, '6 h a day'], ['Cook', 200, '6 h a day'],
+      const sheet: [string, number, string, string][] = [
+        ['Centre Director', 300, '7 h a day', 'مدير المركز'], ['Workshop Coordinator', 250, '7 h a day', 'منسق الورشات'], ['Guard & logistics', 230, '8 h a day', 'حارس ولوجستيات'], ['Accountant', 250, '', 'محاسب'],
+        ['Reception', 180, '5 h a day', 'استقبال'], ['IT', 180, '5 h a day', 'تقنية المعلومات'], ['Cleaner', 180, '6 h a day', 'عامل نظافة'], ['Cook', 200, '6 h a day', 'طباخ'],
       ];
       await c.db.batch([
-        ...sheet.map(([name, amount, note], i) => ({ sql: 'INSERT INTO hr_grade (id, name, sort, monthly_usd, note) VALUES (?,?,?,?,?)', params: [i + 1, name, i + 1, amount, note || null] })),
+        ...sheet.map(([name, amount, note, ar], i) => ({ sql: 'INSERT INTO hr_grade (id, name, name_ar, sort, monthly_usd, note) VALUES (?,?,?,?,?,?)', params: [i + 1, name, ar, i + 1, amount, note || null] })),
         auditStmt(c.who, 'seed', 'hr_grade', null, null, { from: 'Salary scale sheet, 2027 column' }),
       ]);
       return { ok: true };

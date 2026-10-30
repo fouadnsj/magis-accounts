@@ -50,7 +50,7 @@ export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () 
           return (
             <button key={c.id} className="hr-card" style={centreVars(key)} onClick={() => setEdit(c)}>
               <div className="mark"><img src={markOf(key)} alt="" /></div>
-              <div className="body"><b>{c.name}</b><div className="meta" dir="rtl">{p.partyAr}</div><div className="meta">{c.rep_ar || c.rep_en ? `✍ ${[c.rep_ar, c.rep_en].filter(Boolean).join(' · ')}` : <span className="desk-alert">{t3('من يوقّع؟', 'Who signs?', 'Qui signe ?')}</span>}</div></div>
+              <div className="body"><b>{c.name}</b><div className="meta" dir="rtl">{p.partyAr}</div><div className="meta">{c.salary_heading ? `💼 ${c.salary_heading}${c.account ? ` · ${c.account}` : ''}` : ''}</div><div className="meta">{c.rep_ar || c.rep_en ? `✍ ${[c.rep_ar, c.rep_en].filter(Boolean).join(' · ')}` : <span className="desk-alert">{t3('من يوقّع؟', 'Who signs?', 'Qui signe ?')}</span>}</div></div>
             </button>
           );
         })}
@@ -82,13 +82,15 @@ export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () 
           <button className="btn" disabled={!add.name.trim()} onClick={async () => { try { await s.api.call('hr.list.save', { kind: add.kind, name: add.name, code: add.code || null }); setAdd({ ...add, name: '', code: '' }); await reload(); } catch (e) { fail(e); } }}>＋</button>
         </div>
       </div>
-      {edit && <CentreModal s={s} item={edit === 'new' ? null : edit} onClose={() => setEdit(null)} reload={reload} />}
+      {edit && <CentreModal s={s} d={d} item={edit === 'new' ? null : edit} onClose={() => setEdit(null)} reload={reload} />}
     </>
   );
 }
 
-function CentreModal({ s, item, onClose, reload }: { s: Session; item: HrListItem | null; onClose: () => void; reload: () => Promise<void> }) {
-  const [f, setF] = useState({ name: item?.name ?? '', code: (item?.code ?? 'aleppo') as CentreKey, city_ar: item?.city_ar ?? '', city_en: item?.city_en ?? '', party_ar: item?.party_ar ?? '', party_en: item?.party_en ?? '', rep_ar: item?.rep_ar ?? '', rep_en: item?.rep_en ?? '' });
+function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; item: HrListItem | null; onClose: () => void; reload: () => Promise<void> }) {
+  const [f, setF] = useState({ name: item?.name ?? '', code: (item?.code ?? 'aleppo') as CentreKey, city_ar: item?.city_ar ?? '', city_en: item?.city_en ?? '', party_ar: item?.party_ar ?? '', party_en: item?.party_en ?? '', rep_ar: item?.rep_ar ?? '', rep_en: item?.rep_en ?? '', salary_heading: item?.salary_heading ?? '', account: item?.account ?? '' });
+  const headings = [...new Set(d.lists.filter((x) => x.kind === 'line' && x.source && x.source === item?.source).map((x) => x.heading).filter((h): h is string => !!h))];
+  const accounts = d.lists.filter((x) => x.kind === 'account' && x.source && x.source === item?.source);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const preview = partyOf({ ...(item ?? { id: 0, kind: 'centre', heading: null, source: null }), ...f } as HrListItem);
   return (
@@ -111,6 +113,16 @@ function CentreModal({ s, item, onClose, reload }: { s: Session; item: HrListIte
           <Field label="Represented by (who signs)"><input dir="ltr" value={f.rep_en} onChange={set('rep_en')} /></Field>
         </div>
       </div>
+      {item?.source && (
+        <div className="grid2" style={{ marginTop: 12 }}>
+          <Field label={t3('بند الرواتب في موازنة المركز', "The salary heading of the centre's budget", 'La rubrique des salaires du budget du centre')}>
+            <select value={f.salary_heading} onChange={(e) => setF({ ...f, salary_heading: e.target.value })}><option value="">—</option>{headings.map((h) => <option key={h} value={h}>{h}</option>)}</select>
+          </Field>
+          <Field label={t3('الحساب المعتاد (من يدفع)', 'The usual account (who pays)', 'Le compte habituel (qui paie)')}>
+            <select value={f.account} onChange={(e) => setF({ ...f, account: e.target.value })}><option value="">—</option>{accounts.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}</select>
+          </Field>
+        </div>
+      )}
       <div className="hr-panel" style={{ marginTop: 12, background: '#FBF7EE' }}>
         <div className="muted small">{t3('هكذا يبدأ العقد:', 'The agreement will begin:', "L'accord commencera :")}</div>
         <div dir="rtl">الفريق الأول: {preview.partyAr} يمثله في هذا العقد {preview.repAr}</div>

@@ -10,10 +10,11 @@ import { WhoIs } from '../../community/ui/CtyApp';
 import { t3 } from '../../community/ui/text';
 import type { HrAlert, HrData, HrPaper, HrPerson } from '../hr';
 import { HoursPage, ScalePage } from './Pay';
+import { RunsPage } from './Runs';
 import '../../community/ui/cty.css';
 import '../../community/ui/desk/desk.css';
 
-type Page = 'home' | 'people' | 'scale' | 'hours' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'scale' | 'hours' | 'runs' | 'conduct' | 'log';
 const MIME: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 const fail = (e: unknown) => toast(errText(e), true);
 
@@ -54,7 +55,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
   const items: { p: Page; label: string; badge?: number }[] = [
     { p: 'home', label: t3('البداية: ما يحتاج انتباهاً', 'Home: what needs attention', 'Accueil : à surveiller'), badge: d.alerts.length },
     { p: 'people', label: t3('الأشخاص', 'People', 'Personnes') },
-    ...(pay ? [{ p: 'scale' as Page, label: t3('سلّم الرواتب والمكافآت', 'Salary scale & stipends', 'Échelle et gratifications') }, { p: 'hours' as Page, label: t3('ساعات العمل', 'Hours worked', 'Heures travaillées') }] : []),
+    ...(pay ? [{ p: 'scale' as Page, label: t3('سلّم الرواتب والمكافآت', 'Salary scale & stipends', 'Échelle et gratifications') }, { p: 'hours' as Page, label: t3('ساعات العمل', 'Hours worked', 'Heures travaillées') }, { p: 'runs' as Page, label: t3('كشوف الرواتب', 'Payroll runs', 'Paies') }] : []),
     { p: 'conduct', label: t3('مدونة السلوك', 'Code of conduct', 'Code de conduite') },
     ...(vault ? [{ p: 'log' as Page, label: t3('سجل فتح الوثائق', 'Log of document openings', "Journal d'ouverture des documents") }] : []),
   ];
@@ -74,6 +75,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {page === 'people' && <People {...ctx} manage={manage} add={() => setPerson('new')} />}
         {page === 'scale' && <ScalePage s={session} hr={d} />}
         {page === 'hours' && <HoursPage s={session} hr={d} />}
+        {page === 'runs' && <RunsPage s={session} hr={d} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'log' && <Log s={session} d={d} />}
         {person && <PersonModal {...ctx} manage={manage} vault={vault} person={person === 'new' ? null : person} onClose={() => setPerson(null)} />}
@@ -189,6 +191,8 @@ function PersonModal({ s, d, reload, person, manage, vault, onClose }: Ctx & { p
         <Field label={t3('العنوان', 'Address', 'Adresse')} className="span2"><input value={f.address ?? ''} onChange={set('address')} disabled={!manage} /></Field>
         <Field label={t3('الدور', 'Role', 'Rôle')}><input value={f.role ?? ''} onChange={set('role')} disabled={!manage} /></Field>
         <Field label={t3('المركز', 'Centre', 'Centre')}><input value={f.centre ?? ''} onChange={set('centre')} disabled={!manage} /></Field>
+        <Field label={t3('الحساب في المحاسبة (مثلاً CJF)', 'Account in Accounts (e.g. CJF)', 'Compte en comptabilité (ex. CJF)')}><input value={f.account ?? ''} onChange={set('account')} disabled={!manage} /></Field>
+        <Field label={t3('بند الموازنة', 'Budget line', 'Ligne budgétaire')}><input value={f.budget_line ?? ''} onChange={set('budget_line')} disabled={!manage} /></Field>
         <Field label={t3('بدأ في', 'Started', 'Début')}><input type="date" value={f.started ?? ''} onChange={set('started')} disabled={!manage} /></Field>
         <Field label={t3('غادر في (اتركه فارغاً إن كان مستمراً)', 'Left on (empty if still here)', 'Parti le (vide si toujours là)')}><input type="date" value={f.ended ?? ''} onChange={set('ended')} disabled={!manage} /></Field>
         <Field label={t3('ملاحظة', 'Note', 'Note')} className="span2"><input value={f.note ?? ''} onChange={set('note')} disabled={!manage} /></Field>

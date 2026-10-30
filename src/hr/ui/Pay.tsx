@@ -6,26 +6,12 @@ import { errText, Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../
 import { t3 } from '../../community/ui/text';
 import type { HrData, HrPerson } from '../hr';
 import type { HrGrade, HrPay, HrPayData } from '../payOps';
-import { hourlyFromMonthly, hourlyWithThirteenth, monthlyFromRate, monthlyHours, yearlyCost } from '../pay';
+import { hourlyFromMonthly, hourlyWithThirteenth, monthlyFromRate, monthlyHours, payOn, rateFor, yearlyCost } from '../pay';
 
 const fail = (e: unknown) => toast(errText(e), true);
 const usd = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
 
-/** The hourly rate of a grade for a year: that year's, else the latest earlier one. */
-export function rateFor(g: HrGrade, year: number): number | null {
-  const ys = Object.keys(g.rates).map(Number).filter((y) => y <= year).sort((a, b) => b - a);
-  return ys.length ? g.rates[ys[0]] : null;
-}
-
-/** What a person is paid on a date: from the latest pay that has begun. */
-export function payOn(d: HrPayData, personId: number, today: string) {
-  const p = d.pays.filter((x) => x.person_id === personId && x.valid_from <= today).sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
-  if (!p) return null;
-  const g = p.grade_id ? d.grades.find((x) => x.id === p.grade_id) ?? null : null;
-  const rate = g ? rateFor(g, Number(today.slice(0, 4))) : null;
-  const monthly = p.monthly_usd ?? (rate != null && p.weekly_hours ? monthlyFromRate(rate, p.weekly_hours, d.settings.roundTo) : null);
-  return { pay: p, grade: g, rate, monthly, weekly: p.weekly_hours };
-}
+export { payOn, rateFor };
 
 function usePayData(s: Session) {
   const [d, setD] = useState<HrPayData | null>(null);

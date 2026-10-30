@@ -158,4 +158,63 @@ describe('HR database', () => {
     expect((await op('hr.pay.data', {}, rl.set!)).status).toBe(400);
     expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01', monthlyUsd: 99 }, rl.set!)).status).toBe(400);
   });
+
+  it('payroll: a run per month, bonus lines, approval, paid, voucher of totals only', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR run', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR run', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const profiles = (await call(`/api/profiles?db=${slug}`)).body;
+    const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
+    const mk = async (name: string, extra: object) => (await op('hr.person.save', { name, started: '2026-01-01', ...extra }, ck)).body.id as number;
+    const g = await mk('Guard One', { account: 'CJF', budget_line: 'Staff - Guards' });
+    const r = await mk('Reception One', { account: 'CJF', budget_line: 'Staff - Reception' });
+    const l = await mk('Left Long Ago', { ended: '2026-02-01' });
+    await op('hr.grade.seed', { year: 2026 }, ck);
+    await op('hr.pay.save', { personId: g, validFrom: '2026-01-01', gradeId: 1, weeklyHours: 48 }, ck);   // 240
+    await op('hr.pay.save', { personId: r, validFrom: '2026-01-01', gradeId: 3, weeklyHours: 30 }, ck);   // 180
+    await op('hr.pay.save', { personId: l, validFrom: '2026-01-01', monthlyUsd: 100, weeklyHours: 20 }, ck);
+    await op('hr.hours.save', { personId: g, ym: '2026-11', hours: 205 }, ck);
+    // a stipend letter paid in November, in pounds
+    await op('hr.paper.save', { personId: r, kind: 'stipend', service: 'Workshop', amount: 650000, currency: 'SYP', paidOn: '2026-11-12' }, ck);
+
+    expect((await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 0 }, ck)).status).toBe(400);
+    const created = await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck);
+    expect(created.status).toBe(200);
+    expect((await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).status).toBe(400); // one per month and kind
+    const runId = created.body.id;
+    let got = (await op('hr.run.get', { id: runId }, ck)).body;
+    // the person who left in February is not in November's run; the letter is a line of its own
+    expect(got.lines.map((x: { person_name: string; total_usd: number; label: string | null }) => [x.person_name, x.total_usd, x.label])).toEqual([
+      ['Guard One', 240, null], ['Reception One', 180, null], ['Reception One', 50, 'Stipend: Workshop'],
+    ]);
+    expect(got.lines[0].hours_worked).toBe(205);
+    expect(got.lines[2]).toMatchObject({ paid_in: 'SYP', amount_paid: 650000 });
+
+    // an occasional bonus on a line; paying the guard in pounds rounds to 1,000
+    const gl = got.lines[0].id;
+    expect((await op('hr.run.line.save', { id: gl, bonusUsd: 20, paidIn: 'SYP' }, ck)).body).toEqual({ total: 260, paid: 3380000 });
+    expect((await op('hr.run.line.add', { runId, personId: r, label: 'Eid bonus', bonusUsd: 15 }, ck)).status).toBe(200);
+    expect((await op('hr.run.voucher', { id: runId }, ck)).status).toBe(400); // approve first
+
+    expect((await op('hr.run.approve', { id: runId }, ck)).status).toBe(200);
+    expect((await op('hr.run.line.save', { id: gl, bonusUsd: 99 }, ck)).status).toBe(400); // approved: closed
+    expect((await op('hr.run.delete', { id: runId }, ck)).status).toBe(400);
+    expect((await op('hr.run.paid', { id: runId, paidOn: '2026-11-30' }, ck)).status).toBe(200);
+    expect((await op('hr.run.reopen', { id: runId }, ck)).status).toBe(400); // paid
+
+    // the voucher: totals by account, budget line and currency; no names
+    const v = (await op('hr.run.voucher', { id: runId }, ck)).body;
+    expect(JSON.stringify(v)).not.toContain('Guard One');
+    expect(v.rows).toEqual([
+      { account: 'CJF', budget_line: 'Staff - Guards', paid_in: 'SYP', total_usd: 260, amount_paid: 3380000 },
+      { account: 'CJF', budget_line: 'Staff - Reception', paid_in: 'SYP', total_usd: 50, amount_paid: 650000 },
+      { account: 'CJF', budget_line: 'Staff - Reception', paid_in: 'USD', total_usd: 195, amount_paid: 195 },
+    ]);
+    expect(v.total_usd).toBe(505);
+
+    // the 13th payment is a run of its own
+    expect((await op('hr.run.create', { ym: '2026-12', kind: 'thirteenth', rateSyp: 13000 }, ck)).status).toBe(200);
+    const th = (await op('hr.run.list', {}, ck)).body;
+    expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 420], ['2026-11', 'monthly', 'paid', 505]]);
+  });
 });

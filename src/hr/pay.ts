@@ -30,3 +30,24 @@ export function hourlyWithThirteenth(monthly: number, weekly: number | null | un
 }
 
 export const yearlyCost = (monthly: number, payments = 13) => monthly * payments;
+
+// ---- what a person is paid on a date (shared by the server and the screens)
+export interface ScaleGrade { id: number; name: string; rates: Record<number, number> }
+export interface ScalePay { id: number; person_id: number; valid_from: string; grade_id: number | null; weekly_hours: number | null; monthly_usd: number | null }
+export interface ScaleData { grades: ScaleGrade[]; pays: ScalePay[]; settings: PaySettings }
+
+/** The hourly rate of a grade for a year: that year's, else the latest earlier one. */
+export function rateFor(g: ScaleGrade, year: number): number | null {
+  const ys = Object.keys(g.rates).map(Number).filter((y) => y <= year).sort((a, b) => b - a);
+  return ys.length ? g.rates[ys[0]] : null;
+}
+
+/** What a person is paid on a date: from the latest pay that has begun. */
+export function payOn<G extends ScaleGrade, P extends ScalePay>(d: { grades: G[]; pays: P[]; settings: PaySettings }, personId: number, today: string) {
+  const p = d.pays.filter((x) => x.person_id === personId && x.valid_from <= today).sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
+  if (!p) return null;
+  const g = p.grade_id ? d.grades.find((x) => x.id === p.grade_id) ?? null : null;
+  const rate = g ? rateFor(g, Number(today.slice(0, 4))) : null;
+  const monthly = p.monthly_usd ?? (rate != null && p.weekly_hours ? monthlyFromRate(rate, p.weekly_hours, d.settings.roundTo) : null);
+  return { pay: p, grade: g, rate, monthly, weekly: p.weekly_hours };
+}

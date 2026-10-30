@@ -97,6 +97,7 @@ export const HR_PERM_GROUPS = [
       { key: 'hr.view', label: m('يرى الأشخاص والاتفاقيات ورسائل المكافأة ومدونة السلوك', 'Sees the people, agreements, stipend letters and the code of conduct', 'Voit les personnes, accords, lettres de gratification et le code de conduite') },
       { key: 'hr.manage', label: m('يضيف ويعدّل الأشخاص والاتفاقيات والرسائل والتوقيعات', 'Adds and changes people, agreements, letters and signatures', 'Ajoute et modifie personnes, accords, lettres et signatures') },
       { key: 'hr.pay', label: m('يرى ويعدّل سلّم الرواتب والمكافآت الشهرية وساعات العمل', 'Sees and edits the salary scale, the monthly stipends and the hours', "Voit et modifie l'échelle, les gratifications mensuelles et les heures") },
+      { key: 'hr.approve', label: m('يعتمد كشف الرواتب ويسجّل الدفع (الرئيس)', 'Approves the payroll run and marks it paid (the Superior)', 'Approuve la paie et la marque payée (le Supérieur)') },
       { key: 'hr.vault', label: m('يفتح خزانة الوثائق (الهويات وغيرها) — كل فتح يُسجَّل', 'Opens the document vault (IDs and others) — every opening is logged', 'Ouvre le coffre des documents (pièces d\u2019identité, etc.) — chaque ouverture est notée') },
     ],
   },

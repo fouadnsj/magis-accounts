@@ -1198,4 +1198,48 @@ CREATE TABLE hr_hours (
 INSERT OR IGNORE INTO setting (key, value) VALUES ('hr_payments_per_year', '13'), ('hr_round_to', '5'), ('hr_max_weekly', '40');
 `,
   },
+  {
+    n: 31,
+    name: 'HR stage 3: payroll runs (monthly, and the 13th payment), their lines, the account and budget line of each person',
+    sql: `
+-- Fouad, 30 October 2026. A run = the stipends of one month (kind 'monthly') or the 13th payment ('thirteenth').
+-- Prepared by one person, approved by someone with hr.approve (the Superior), then marked paid.
+ALTER TABLE hr_person ADD COLUMN account TEXT;
+ALTER TABLE hr_person ADD COLUMN budget_line TEXT;
+CREATE TABLE hr_run (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ym          TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('monthly','thirteenth')),
+  rate_syp    REAL NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved','paid')),
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  approved_at TEXT,
+  approved_by TEXT,
+  paid_on     TEXT,
+  paid_by     TEXT,
+  UNIQUE (ym, kind)
+);
+CREATE TABLE hr_run_line (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id       INTEGER NOT NULL REFERENCES hr_run(id),
+  person_id    INTEGER NOT NULL REFERENCES hr_person(id),
+  label        TEXT,
+  paper_id     INTEGER REFERENCES hr_paper(id),
+  weekly_hours REAL,
+  hours_worked REAL,
+  base_usd     REAL NOT NULL DEFAULT 0,
+  bonus_usd    REAL NOT NULL DEFAULT 0,
+  deduction_usd REAL NOT NULL DEFAULT 0,
+  total_usd    REAL NOT NULL DEFAULT 0,
+  paid_in      TEXT NOT NULL DEFAULT 'USD' CHECK (paid_in IN ('USD','SYP')),
+  amount_paid  REAL NOT NULL DEFAULT 0,
+  account      TEXT,
+  budget_line  TEXT,
+  note         TEXT
+);
+CREATE INDEX hr_run_line_run ON hr_run_line(run_id);
+`,
+  },
 ];

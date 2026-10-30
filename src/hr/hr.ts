@@ -11,7 +11,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import type { Perm } from '../perms';
 
-export const HR_PERMS: Perm[] = ['hr.view', 'hr.manage', 'hr.pay', 'hr.vault', 'users.manage', 'data.backup', 'data.restore', 'data.export', 'audit.view'];
+export const HR_PERMS: Perm[] = ['hr.view', 'hr.manage', 'hr.pay', 'hr.approve', 'hr.vault', 'users.manage', 'data.backup', 'data.restore', 'data.export', 'audit.view'];
 
 export interface HrSetup {
   organisation: string;
@@ -44,7 +44,7 @@ export async function createHr(db: Db, s: HrSetup): Promise<void> {
 
 // ---------------------------------------------------------------- reading
 
-export interface HrPerson { id: number; name: string; father_name: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; started: string | null; ended: string | null; active: number; note: string | null }
+export interface HrPerson { id: number; name: string; father_name: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; account: string | null; budget_line: string | null; started: string | null; ended: string | null; active: number; note: string | null }
 export interface HrPaper { id: number; person_id: number; kind: 'agreement' | 'stipend'; start_date: string | null; end_date: string | null; service: string | null; amount: number | null; currency: 'USD' | 'SYP'; paid_on: string | null; note: string | null; file_name: string | null; size: number | null; created_at: string }
 export interface HrConduct { id: number; version: string; valid_from: string; note: string | null; file_name: string | null; size: number | null }
 export interface HrSign { id: number; conduct_id: number; person_id: number; signed_on: string; file_name: string | null; size: number | null }
@@ -69,7 +69,7 @@ const daysTo = (date: string, today: string) => Math.round((Date.parse(date) - D
 
 export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrData> {
   await requireHr(c.db);
-  const people = await c.db.query<HrPerson>('SELECT id, name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, started, ended, active, note FROM hr_person ORDER BY active DESC, name');
+  const people = await c.db.query<HrPerson>('SELECT id, name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note FROM hr_person ORDER BY active DESC, name');
   const papers = await c.db.query<HrPaper>(`SELECT ${PAPER_COLS} FROM hr_paper WHERE deleted_at IS NULL ORDER BY COALESCE(start_date, paid_on, created_at) DESC, id DESC`);
   const conducts = await c.db.query<HrConduct>('SELECT id, version, valid_from, note, file_name, size FROM hr_conduct ORDER BY valid_from DESC, id DESC');
   const signs = await c.db.query<HrSign>('SELECT id, conduct_id, person_id, signed_on, file_name, size FROM hr_conduct_sign WHERE deleted_at IS NULL');
@@ -157,18 +157,19 @@ export const HR_OPS = {
       await requireHr(c.db);
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
-      const v = [name, txt(a.father_name), txt(a.national_id), txt(a.birth_place), day(a.birth_date, 'birth'), txt(a.address), txt(a.phone), txt(a.role), txt(a.centre), day(a.started, 'start'), day(a.ended, 'end'), a.ended ? 0 : a.active === 0 ? 0 : 1, txt(a.note)];
+      const v = [name, txt(a.father_name), txt(a.national_id), txt(a.birth_place), day(a.birth_date, 'birth'), txt(a.address), txt(a.phone), txt(a.role), txt(a.centre), txt(a.account), txt(a.budget_line), day(a.started, 'start'), day(a.ended, 'end'), a.ended ? 0 : a.active === 0 ? 0 : 1, txt(a.note)];
+      const ACT = 13; // (index of 'active' in v: name, father, id, birthplace, birthdate, address, phone, role, centre, account, budget_line, started, ended, active, note)
       if (a.id) {
         const before = await one<HrPerson>(c.db, 'SELECT * FROM hr_person WHERE id = ?', [a.id]);
         if (!before) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
         await c.db.batch([
-          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, started=?, ended=?, active=?, note=? WHERE id=?', params: [...v, a.id] },
-          auditStmt(c.who, 'update', 'hr_person', String(a.id), { name: before.name, active: before.active }, { name, active: v[11] }),
+          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=? WHERE id=?', params: [...v, a.id] },
+          auditStmt(c.who, 'update', 'hr_person', String(a.id), { name: before.name, active: before.active }, { name, active: v[ACT] }),
         ]);
         return { id: a.id };
       }
       await c.db.batch([
-        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, started, ended, active, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
+        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
         auditStmt(c.who, 'add', 'hr_person', null, null, { name }),
       ]);
       return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_person'))!.id };

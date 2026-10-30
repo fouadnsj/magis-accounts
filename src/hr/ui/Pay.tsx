@@ -1,13 +1,13 @@
 // The salary scale (Fouad, 30 October 2026): each position has ONE reference monthly amount, a suggestion when an
 // agreement is made. The stipend itself is fixed in each person's agreement at its beginning, and can change from a
-// date in the middle of the year. The cost of an hour is calculated from each person's own amount and weekly hours.
+// date in the middle of the year. Totals are in dollars; the cost of an hour is private (Reports, the Superior only).
 import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '../../state';
 import { Field, Modal, confirmBox, toast, todayIso } from '../../ui/kit';
 import { t3 } from '../../community/ui/text';
 import type { HrData, HrPerson } from '../hr';
 import type { HrGrade, HrPayData } from '../payOps';
-import { hourlyWithThirteenth, monthlyHours, payOn, yearlyCost } from '../pay';
+import { monthlyHours, payOn, yearlyCost } from '../pay';
 import { TwoNames, centreOf, centreVars, fail, markOf, usd } from './common';
 
 export { payOn };
@@ -26,6 +26,7 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
   const people = hr.people.filter((p) => p.active);
   const rows = people.map((p) => ({ p, c: payOn(pd, p.id, today) }));
   const total = rows.reduce((a, r) => a + (r.c?.monthly ?? 0), 0);
+  const noRate = rows.filter((r) => r.c?.needsRate).length;
   const on = (g: HrGrade) => rows.filter((r) => (r.c?.pay.grade_id ?? null) === g.id || (!r.c && r.p.role === g.name));
   return (
     <>
@@ -37,7 +38,7 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
         </span>
       </div>
       <div className="hr-panel" style={{ marginBottom: 14 }}>
-        <p className="muted small" style={{ marginTop: 0 }}>{t3('المبلغ المرجعي اقتراح عند كتابة اتفاقية. المكافأة نفسها تُثبَّت في اتفاقية كل شخص عند بدايتها، ويمكن تغييرها ابتداءً من تاريخ. تكلفة الساعة = شهري × 12 ÷ (ساعات الأسبوع × 52).', "The reference amount is a suggestion when an agreement is written. The stipend itself is fixed in each person's agreement at its beginning, and can be changed from a date. Cost of an hour = monthly × 12 ÷ (hours a week × 52).", "Le montant de référence est une suggestion quand un accord est rédigé. La gratification est fixée dans l'accord de chaque personne à son début, et peut changer à partir d'une date. Coût horaire = mensuel × 12 ÷ (heures par semaine × 52).")}</p>
+        <p className="muted small" style={{ marginTop: 0 }}>{t3('المبلغ المرجعي اقتراح عند كتابة اتفاقية. المكافأة نفسها تُثبَّت في اتفاقية كل شخص عند بدايتها، ويمكن تغييرها ابتداءً من تاريخ. المجاميع بالدولار دائماً؛ المكافأة بالليرة تُحسب بسعر الدولار في الإعدادات.', "The reference amount is a suggestion when an agreement is written. The stipend itself is fixed in each person's agreement at its beginning, and can be changed from a date. Totals are always in dollars; a stipend in pounds is counted at the dollar rate in the Settings.", "Le montant de référence est une suggestion quand un accord est rédigé. La gratification est fixée dans l'accord de chaque personne à son début, et peut changer à partir d'une date. Les totaux sont toujours en dollars ; une gratification en livres est comptée au taux du dollar des Réglages.")}</p>
         {!pd.grades.length ? (
           <button className="btn primary" onClick={async () => { try { await s.api.call('hr.grade.seed', {}); await reload(); } catch (e) { fail(e); } }}>{t3('حمّل الوظائف من جدول الرواتب', 'Load the positions from the salary sheet', 'Charger les postes depuis la feuille de salaires')}</button>
         ) : (
@@ -60,7 +61,7 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
         <b>{t3('مكافأة كل شخص اليوم', "Each person's stipend today", "La gratification de chacun aujourd'hui")}</b>
         <div className="desk-scroll">
           <table className="desk-table" style={{ marginTop: 6 }}>
-            <thead><tr><th /><th>{t3('الاسم', 'Name', 'Nom')}</th><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th className="n">{t3('شهرياً', 'Monthly', 'Mensuel')}</th><th className="n">{t3('س/أسبوع', 'h/week', 'h/sem')}</th><th className="n">{t3('تكلفة الساعة', 'Cost of an hour', 'Coût horaire')}</th><th className="n">{t3(`سنوياً (×${pd.settings.paymentsPerYear})`, `Yearly (×${pd.settings.paymentsPerYear})`, `Annuel (×${pd.settings.paymentsPerYear})`)}</th></tr></thead>
+            <thead><tr><th /><th>{t3('الاسم', 'Name', 'Nom')}</th><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th className="n">{t3('شهرياً', 'Monthly', 'Mensuel')}</th><th className="n">{t3('س/أسبوع', 'h/week', 'h/sem')}</th><th className="n">{t3(`سنوياً (×${pd.settings.paymentsPerYear})`, `Yearly (×${pd.settings.paymentsPerYear})`, `Annuel (×${pd.settings.paymentsPerYear})`)}</th></tr></thead>
             <tbody>
               {rows.map(({ p, c }) => {
                 const { key } = centreOf(hr, p);
@@ -70,18 +71,17 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
                     <td style={{ width: 30 }}><img src={markOf(key)} alt="" style={{ height: 22 }} /></td>
                     <td><TwoNames p={p} /></td>
                     <td>{(() => { const n = c?.grade?.name ?? p.role; return n ? (hr.positionsAr[n] ? `${hr.positionsAr[n]} · ${n}` : n) : '—'; })()}{c?.monthly != null && ref != null && c.monthly !== ref ? <div className="muted small">{t3('المرجع', 'reference', 'référence')} {usd(ref)}</div> : null}</td>
-                    <td className="n">{c?.syp != null ? <><b>{usd(c.syp)}</b> SYP<div className="muted small">{c.monthly != null ? `≈ ${usd(c.monthly)} USD` : t3('بلا سعر دولار', 'no dollar rate', 'pas de taux')}</div></> : <b>{usd(c?.monthly)}</b>}</td>
+                    <td className="n">{c?.syp != null ? <><b>{usd(c.syp)}</b> SYP<div className="muted small">{c.monthly != null ? `≈ ${usd(c.monthly)} USD` : t3('بلا سعر دولار', 'no dollar rate', 'pas de taux')}</div></> : c?.monthly != null ? <><b>{usd(c.monthly)}</b> USD</> : '—'}</td>
                     <td className="n">{c?.weekly ?? '—'}{c?.weekly && c.weekly > pd.settings.maxWeekly ? <span className="desk-alert" title={t3('أكثر من حد الاتفاقية', "Above the agreement's maximum", "Au-dessus du maximum de l'accord")}> ⚠</span> : null}</td>
-                    <td className="n" title={c?.monthly != null ? t3(`مع الدفعة الثالثة عشرة: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `With the 13th payment: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `Avec le 13e : ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`) : ''}>{usd(c?.hourly)}</td>
-                    <td className="n">{c?.monthly != null ? usd(yearlyCost(c.monthly, pd.settings.paymentsPerYear)) : '—'}</td>
+                    <td className="n">{c?.monthly != null ? `${usd(yearlyCost(c.monthly, pd.settings.paymentsPerYear))} USD` : '—'}</td>
                   </tr>
                 );
               })}
-              {rows.length > 0 && <tr><td /><td colSpan={2}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(total)}</b></td><td /><td /><td className="n"><b>{usd(yearlyCost(total, pd.settings.paymentsPerYear))}</b></td></tr>}
+              {rows.length > 0 && <tr><td /><td colSpan={2}><b>{t3('المجموع بالدولار', 'Total in USD', 'Total en USD')}</b>{noRate > 0 && <div className="desk-alert small">{t3(`${noRate} بالليرة غير محسوبين: لا سعر دولار`, `${noRate} in pounds not counted: no dollar rate`, `${noRate} en livres non comptés : pas de taux`)}</div>}</td><td className="n"><b>{usd(total)} USD</b></td><td /><td className="n"><b>{usd(yearlyCost(total, pd.settings.paymentsPerYear))} USD</b></td></tr>}
             </tbody>
           </table>
         </div>
-        <p className="muted small">{t3('الدفعة الثالثة عشرة مكافأة بدل الضمان الاجتماعي. مرّر المؤشر على تكلفة الساعة لتراها معها. اضغط على شخص لتغيير مكافأته.', 'The 13th payment is a bonus instead of social security. Hover the cost of an hour to see it with the 13th. Click a person to change their stipend.', 'Le 13e paiement remplace la sécurité sociale. Survolez le coût horaire pour le voir avec le 13e. Cliquez une personne pour changer sa gratification.')}</p>
+        <p className="muted small">{t3('الدفعة الثالثة عشرة مكافأة بدل الضمان الاجتماعي. اضغط على شخص لتغيير مكافأته.', 'The 13th payment is a bonus instead of social security. Click a person to change their stipend.', 'Le 13e paiement remplace la sécurité sociale. Cliquez une personne pour changer sa gratification.')}</p>
       </div>
       <Settings s={s} d={pd} reload={reload} />
       {fromBudget && <FromBudget s={s} onClose={() => setFromBudget(false)} reload={reload} />}

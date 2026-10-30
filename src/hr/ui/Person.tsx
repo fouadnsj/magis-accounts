@@ -3,6 +3,7 @@
 // (fixed by the agreement, changed from a date when needed), their stipend letters, insurance, documents, code of conduct.
 import { useState } from 'react';
 import type { Session } from '../../state';
+import { has } from '../../auth';
 import { Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../../ui/kit';
 import { saveFile } from '../../platform';
 import { t3 } from '../../community/ui/text';
@@ -188,6 +189,7 @@ function Agreement({ s, d, pd, reload, manage, pay, person }: P & { person: HrPe
   const [split, setSplit] = useState(false);
   const today = todayIso();
   const agreements = d.papers.filter((x) => x.person_id === person.id && x.kind === 'agreement');
+  const sup = has(s.profile, 'hr.approve');
   const now = pd ? payOn(pd, person.id, today) : null;
   const lines = pd ? pd.pays.filter((x) => x.person_id === person.id).sort((a, b) => a.valid_from.localeCompare(b.valid_from) || a.id - b.id) : [];
   const fromAgreement = (l: HrPay) => (l.paper_id ? agreements.find((a) => a.id === l.paper_id) : undefined);
@@ -208,8 +210,8 @@ function Agreement({ s, d, pd, reload, manage, pay, person }: P & { person: HrPe
             <div className="hr-stats">
               <div><small>{t3('شهرياً', 'Monthly', 'Mensuel')}</small>{now.syp != null ? <><span className="hr-big">{usd(now.syp)}</span> SYP<div className="muted small">{now.monthly != null ? `≈ ${usd(now.monthly)} USD · ${t3('بسعر', 'at', 'au taux')} ${usd(pd.settings.rateSyp)}` : '—'}</div></> : <><span className="hr-big">{usd(now.monthly)}</span> USD</>}</div>
               <div><small>{t3('ساعات الأسبوع', 'Hours a week', 'Heures par semaine')}</small><span className="hr-big">{now.weekly ?? '—'}</span>{now.weekly && now.weekly > (pd.settings.maxWeekly) ? <span className="desk-alert"> ⚠ &gt; {pd.settings.maxWeekly}</span> : null}</div>
-              <div><small>{t3('تكلفة الساعة', 'Cost of an hour', "Coût d'une heure")}</small><span className="hr-big">{usd(now.hourly)}</span> USD</div>
-              <div><small>{t3(`سنوياً (×${pd.settings.paymentsPerYear})`, `Yearly (×${pd.settings.paymentsPerYear})`, `Annuel (×${pd.settings.paymentsPerYear})`)}</small>{now.syp != null ? <><span className="hr-big">{usd(now.syp * pd.settings.paymentsPerYear)}</span> SYP</> : <><span className="hr-big">{usd(yearlyCost(now.monthly!, pd.settings.paymentsPerYear))}</span> USD</>}</div>
+              {sup && <div><small>{t3('تكلفة الساعة (للرئيس)', 'Cost of an hour (Superior)', "Coût d'une heure (Supérieur)")}</small><span className="hr-big">{usd(now.hourly)}</span> USD</div>}
+              <div><small>{t3(`سنوياً (×${pd.settings.paymentsPerYear})`, `Yearly (×${pd.settings.paymentsPerYear})`, `Annuel (×${pd.settings.paymentsPerYear})`)}</small>{now.syp != null ? <><span className="hr-big">{usd(now.syp * pd.settings.paymentsPerYear)}</span> SYP<div className="muted small">{now.monthly != null ? `≈ ${usd(yearlyCost(now.monthly, pd.settings.paymentsPerYear))} USD` : '—'}</div></> : <><span className="hr-big">{usd(yearlyCost(now.monthly!, pd.settings.paymentsPerYear))}</span> USD</>}</div>
             </div>
           ) : <p className="muted">{t3('لا مكافأة بعد: تُحدَّد في الاتفاقية.', 'No stipend yet: it is fixed in the agreement.', "Pas encore de gratification : elle est fixée dans l'accord.")}</p>}
           {lines.length > 0 && (
@@ -220,7 +222,7 @@ function Agreement({ s, d, pd, reload, manage, pay, person }: P & { person: HrPe
                 return (
                   <li key={l.id} className={now?.pay.id === l.id ? 'now' : ''}>
                     <div className="when">{fmtDate(l.valid_from)} · {ag ? t3('الاتفاقية', 'the agreement', "l'accord") : `${t3('تغيير', 'change', 'changement')}${l.note ? ` — ${l.note}` : ''}`}</div>
-                    <b>{l.monthly_syp != null ? `${usd(l.monthly_syp)} SYP` : `${usd(amount)} USD`}</b>{l.monthly_syp != null && amount != null ? ` ≈ ${usd(amount)} USD` : ''} · {l.weekly_hours ?? '—'} {t3('س/أسبوع', 'h/week', 'h/sem')} · {t3('الساعة', 'hour', 'heure')} {usd(amount != null ? hourlyFromMonthly(amount, l.weekly_hours) : null)}
+                    <b>{l.monthly_syp != null ? `${usd(l.monthly_syp)} SYP` : `${usd(amount)} USD`}</b>{l.monthly_syp != null && amount != null ? ` ≈ ${usd(amount)} USD` : ''} · {l.weekly_hours ?? '—'} {t3('س/أسبوع', 'h/week', 'h/sem')}{sup ? <> · {t3('الساعة', 'hour', 'heure')} {usd(amount != null ? hourlyFromMonthly(amount, l.weekly_hours) : null)}</> : null}
                     {manage && !ag && <button className="link" style={{ marginInlineStart: 10 }} onClick={async () => { if (await confirmBox(t3('حذف هذا التغيير؟', 'Delete this change?', 'Supprimer ce changement ?'), true)) { try { await s.api.call('hr.pay.delete', { id: l.id }); await reload(); } catch (e) { fail(e); } } }}>✕</button>}
                   </li>
                 );
@@ -271,6 +273,7 @@ function AgreementModal({ s, d, pd, person, paper, onClose, reload }: { s: Sessi
   const rate = pd?.settings.rateSyp ?? 0;
   const asUsd = f.amount === '' ? null : f.currency === 'USD' ? Number(f.amount) : rate > 0 ? Math.round((Number(f.amount) / rate) * 100) / 100 : null;
   const hourly = asUsd != null ? hourlyFromMonthly(asUsd, Number(f.weekly) || null) : null;
+  const sup = has(s.profile, 'hr.approve');
   const save = async () => {
     try {
       await s.api.call('hr.paper.save', { id: paper?.id ?? null, personId: person.id, kind: 'agreement', start: f.start || null, end: f.end || null, amount: f.amount === '' ? null : Number(f.amount), currency: f.currency, position: f.position || null, weeklyHours: f.weekly === '' ? null : Number(f.weekly), note: f.note || null });
@@ -291,7 +294,8 @@ function AgreementModal({ s, d, pd, person, paper, onClose, reload }: { s: Sessi
         <Field label={t3('العملة', 'Currency', 'Devise')}><select value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value as 'USD' | 'SYP' })}><option value="USD">USD</option><option value="SYP">SYP</option></select></Field>
       </div>
       {f.currency === 'SYP' && f.amount !== '' && <p className="muted">{asUsd != null ? <>≈ <b>{usd(asUsd)} USD</b> {t3('بسعر', 'at', 'au taux')} {usd(rate)}</> : t3('اكتب سعر الدولار في «سلّم الرواتب ← الإعدادات» لترى المعادل بالدولار.', 'Write the dollar rate in Salary scale, Settings, to see the equivalent in dollars.', 'Écrivez le taux du dollar dans Échelle, Réglages, pour voir l équivalent en dollars.')}</p>}
-      {hourly != null && <p className="ok">{t3('تكلفة الساعة', 'Cost of an hour', "Coût d'une heure")}: <b>{usd(hourly)} USD</b> <span className="muted small">({t3('شهري × 12 ÷ (ساعات الأسبوع × 52)', 'monthly × 12 ÷ (hours a week × 52)', 'mensuel × 12 ÷ (heures par semaine × 52)')})</span>{Number(f.weekly) > (pd?.settings.maxWeekly ?? 40) ? <span className="desk-alert"> · ⚠ {t3('أكثر من حد الاتفاقية', "above the agreement's maximum", "au-dessus du maximum de l'accord")} ({pd?.settings.maxWeekly ?? 40})</span> : null}</p>}
+      {sup && hourly != null && <p className="ok">{t3('تكلفة الساعة', 'Cost of an hour', "Coût d'une heure")}: <b>{usd(hourly)} USD</b> <span className="muted small">({t3('شهري × 12 ÷ (ساعات الأسبوع × 52)', 'monthly × 12 ÷ (hours a week × 52)', 'mensuel × 12 ÷ (heures par semaine × 52)')})</span></p>}
+      {Number(f.weekly) > (pd?.settings.maxWeekly ?? 40) && <p className="desk-alert">⚠ {t3('ساعات أكثر من حد الاتفاقية', "Hours above the agreement's maximum", "Heures au-dessus du maximum de l'accord")} ({pd?.settings.maxWeekly ?? 40})</p>}
       <Field label={t3('ملاحظة', 'Note', 'Note')}><input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
       <div className="modal-foot">
         {paper && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('حذف هذه الاتفاقية؟', 'Delete this agreement?', 'Supprimer cet accord ?'), true)) { try { await s.api.call('hr.paper.delete', { id: paper.id }); await reload(); onClose(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
@@ -307,6 +311,7 @@ function ChangeModal({ s, pd, person, now, onClose, reload }: { s: Session; pd: 
   const rate = pd.settings.rateSyp;
   const asUsd = f.amount === '' ? null : f.currency === 'USD' ? Number(f.amount) : rate > 0 ? Math.round((Number(f.amount) / rate) * 100) / 100 : null;
   const hourly = asUsd != null ? hourlyFromMonthly(asUsd, Number(f.weekly) || null) : null;
+  const sup = has(s.profile, 'hr.approve');
   return (
     <Modal title={t3('تغيير المكافأة ابتداءً من تاريخ', 'Change the stipend from a date', "Changer la gratification à partir d'une date")} onClose={onClose} narrow>
       <p className="muted small">{t3('تبقى المكافأة السابقة في التاريخ. الكشوف التالية تأخذ الجديدة.', 'The earlier stipend stays in the history. The next payroll runs take the new one.', "L'ancienne gratification reste dans l'historique. Les paies suivantes prennent la nouvelle.")}</p>
@@ -317,7 +322,7 @@ function ChangeModal({ s, pd, person, now, onClose, reload }: { s: Session; pd: 
       </div>
       <Field label={t3('السبب', 'Why', 'Pourquoi')}><input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
       {f.currency === 'SYP' && asUsd != null && <p className="muted">≈ <b>{usd(asUsd)} USD</b> {t3('بسعر', 'at', 'au taux')} {usd(rate)}</p>}
-      {hourly != null && <p className="ok">{t3('تكلفة الساعة', 'Cost of an hour', "Coût d'une heure")}: <b>{usd(hourly)} USD</b></p>}
+      {sup && hourly != null && <p className="ok">{t3('تكلفة الساعة', 'Cost of an hour', "Coût d'une heure")}: <b>{usd(hourly)} USD</b></p>}
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t3('إلغاء', 'Cancel', 'Annuler')}</button>
         <button className="btn primary" disabled={!f.from || f.amount === ''} onClick={async () => {

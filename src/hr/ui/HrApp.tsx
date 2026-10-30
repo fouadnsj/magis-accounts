@@ -18,10 +18,11 @@ import { DonorsPage, InsurancePage } from './Stage4';
 import { ListsPage } from './Lists';
 import { PersonPage } from './Person';
 import { BudgetListPage } from './BudgetList';
+import { ReportsPage } from './Reports';
 import { TwoNames, centreOf, centreVars, chooseScan, fail, markOf, openScan, usd } from './common';
 import './hr.css';
 
-type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'budget' | 'insurance' | 'donors' | 'lists' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log';
 
 interface Ctx { s: Session; d: HrData; reload: () => Promise<void>; open: (p: HrPerson) => void }
 
@@ -37,6 +38,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
   const manage = has(session.profile, 'hr.manage');
   const vault = has(session.profile, 'hr.vault');
   const pay = has(session.profile, 'hr.pay');
+  const sup = pay && has(session.profile, 'hr.approve');
   const reload = useCallback(async () => {
     try {
       setD(await session.api.call('hr.data', {}));
@@ -67,6 +69,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {pay && item('budget', t3('القائمة للموازنة', 'List for the budget', 'Liste pour le budget'))}
         {pay && item('insurance', t3('التأمين الصحي', 'Health insurance', 'Assurance maladie'))}
         {pay && item('donors', t3('حسب المانح', 'By donor', 'Par bailleur'))}
+        {sup && item('reports', t3('التقارير', 'Reports', 'Rapports'))}
         <div className="group">{t3('أخرى', 'More', 'Plus')}</div>
         {item('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'))}
         {manage && item('lists', t3('القوائم والمراكز', 'Lists & centres', 'Listes et centres'))}
@@ -87,6 +90,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {page === 'budget' && <BudgetListPage s={session} hr={d} />}
         {page === 'insurance' && <InsurancePage s={session} hr={d} />}
         {page === 'donors' && <DonorsPage s={session} />}
+        {page === 'reports' && pd && sup && <ReportsPage s={session} hr={d} pd={pd} open={open} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'lists' && <ListsPage s={session} d={d} reload={reload} />}
         {page === 'log' && <Log s={session} d={d} />}
@@ -183,7 +187,7 @@ function People({ d, pd, open, manage, add }: Ctx & { pd: HrPayData | null; mana
             <button key={p.id} className={`hr-card ${p.active ? '' : 'off'}`} style={centreVars(key)} onClick={() => open(p)}>
               <div className="mark"><img src={markOf(key)} alt="" /></div>
               <div className="body"><TwoNames p={p} /><div className="meta">{p.role ? (d.positionsAr[p.role] ? `${d.positionsAr[p.role]} · ${p.role}` : p.role) : '—'}</div></div>
-              {now?.syp != null ? <div className="amount" title={now.monthly != null ? `≈ ${usd(now.monthly)} USD` : ''}>{usd(now.syp)} SYP</div> : now?.monthly != null && <div className="amount">{usd(now.monthly)} $</div>}
+              {now?.syp != null ? <div className="amount" style={{ textAlign: 'end' }}>{usd(now.syp)} SYP<div className="meta" style={{ fontWeight: 400 }}>{now.monthly != null ? `≈ ${usd(now.monthly)} $` : t3('بلا سعر دولار', 'no dollar rate', 'pas de taux')}</div></div> : now?.monthly != null && <div className="amount">{usd(now.monthly)} $</div>}
             </button>
           );
         })}

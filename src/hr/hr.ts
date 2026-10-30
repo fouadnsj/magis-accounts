@@ -303,13 +303,15 @@ export const HR_OPS = {
       }
       // the agreement fixes the stipend from its first day: its own pay line (kept in step with the agreement)
       if (agreement) {
+        // agreed in pounds: the pounds are kept (the dollars are an equivalent, shown at the dollar rate)
         const usd = amount != null && cur === 'SYP' ? null : amount;
+        const syp = amount != null && cur === 'SYP' ? amount : null;
         const line = await one<{ id: number }>(c.db, 'SELECT id FROM hr_pay WHERE paper_id = ? AND deleted_at IS NULL', [id]);
-        if (start && (usd != null || grade)) {
-          const pv = [a.personId, start, grade?.id ?? null, weekly, usd];
+        if (start && (usd != null || syp != null || grade)) {
+          const pv = [a.personId, start, grade?.id ?? null, weekly, usd, syp];
           await c.db.batch([line
-            ? { sql: 'UPDATE hr_pay SET person_id=?, valid_from=?, grade_id=?, weekly_hours=?, monthly_usd=? WHERE id = ?', params: [...pv, line.id] }
-            : { sql: "INSERT INTO hr_pay (person_id, valid_from, grade_id, weekly_hours, monthly_usd, note, paper_id, created_at, created_by) VALUES (?,?,?,?,?,'agreement',?,?,?)", params: [...pv, id, nowIso(), c.who] }]);
+            ? { sql: 'UPDATE hr_pay SET person_id=?, valid_from=?, grade_id=?, weekly_hours=?, monthly_usd=?, monthly_syp=? WHERE id = ?', params: [...pv, line.id] }
+            : { sql: "INSERT INTO hr_pay (person_id, valid_from, grade_id, weekly_hours, monthly_usd, monthly_syp, note, paper_id, created_at, created_by) VALUES (?,?,?,?,?,?,'agreement',?,?,?)", params: [...pv, id, nowIso(), c.who] }]);
         } else if (line) await c.db.batch([{ sql: 'UPDATE hr_pay SET deleted_at = ? WHERE id = ?', params: [nowIso(), line.id] }]);
         if (position) await c.db.batch([{ sql: 'UPDATE hr_person SET role = ? WHERE id = ?', params: [position, a.personId] }]);
       }

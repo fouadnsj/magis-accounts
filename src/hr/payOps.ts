@@ -8,7 +8,7 @@ import type { OpCtx } from '../ops';
 import { DEFAULT_PAY, payOn, type PaySettings } from './pay';
 
 export interface HrGrade { id: number; name: string; name_ar: string | null; sort: number; note: string | null; active: number; monthly_usd: number | null }
-export interface HrPay { id: number; person_id: number; valid_from: string; grade_id: number | null; weekly_hours: number | null; monthly_usd: number | null; note: string | null; paper_id: number | null }
+export interface HrPay { id: number; person_id: number; valid_from: string; grade_id: number | null; weekly_hours: number | null; monthly_usd: number | null; monthly_syp: number | null; note: string | null; paper_id: number | null }
 export interface HrHours { id: number; person_id: number; ym: string; hours: number; note: string | null }
 /** a line of the staff list for the budget (the columns of Fouad's salary sheet): no names */
 export interface HrBudgetRow { centre: string | null; position: string; monthly: number; months: number; people: number; times: number; total: number }
@@ -27,13 +27,15 @@ const date = (x: unknown) => {
 async function settingsOf(c: OpCtx): Promise<PaySettings> {
   const rows = await c.db.query<{ key: string; value: string | null }>("SELECT key, value FROM setting WHERE key LIKE 'hr_%'");
   const get = (k: string, d: number) => { const v = Number(rows.find((r) => r.key === k)?.value); return Number.isFinite(v) && v >= 0 ? v : d; };
-  return { paymentsPerYear: get('hr_payments_per_year', DEFAULT_PAY.paymentsPerYear), roundTo: get('hr_round_to', DEFAULT_PAY.roundTo), maxWeekly: get('hr_max_weekly', DEFAULT_PAY.maxWeekly) };
+  // the dollar rate: written in the settings, else the one of the last payroll run
+  const last = (await one<{ r: number }>(c.db, 'SELECT rate_syp AS r FROM hr_run ORDER BY ym DESC, id DESC LIMIT 1'))?.r ?? 0;
+  return { paymentsPerYear: get('hr_payments_per_year', DEFAULT_PAY.paymentsPerYear), roundTo: get('hr_round_to', DEFAULT_PAY.roundTo), maxWeekly: get('hr_max_weekly', DEFAULT_PAY.maxWeekly), rateSyp: get('hr_rate_syp', 0) || last };
 }
 
 export async function payData(c: OpCtx): Promise<HrPayData> {
   return {
     grades: await c.db.query<HrGrade>('SELECT id, name, name_ar, sort, note, active, monthly_usd FROM hr_grade ORDER BY sort, id'),
-    pays: await c.db.query<HrPay>('SELECT id, person_id, valid_from, grade_id, weekly_hours, monthly_usd, note, paper_id FROM hr_pay WHERE deleted_at IS NULL ORDER BY person_id, valid_from, id'),
+    pays: await c.db.query<HrPay>('SELECT id, person_id, valid_from, grade_id, weekly_hours, monthly_usd, monthly_syp, note, paper_id FROM hr_pay WHERE deleted_at IS NULL ORDER BY person_id, valid_from, id'),
     hours: await c.db.query<HrHours>('SELECT id, person_id, ym, hours, note FROM hr_hours ORDER BY ym DESC, person_id'),
     settings: await settingsOf(c),
   };
@@ -136,9 +138,9 @@ export const HR_PAY_OPS = {
     run: async (c: OpCtx, a: Partial<PaySettings>) => {
       const cur = await settingsOf(c);
       const s = { ...cur, ...a };
-      if (!(s.paymentsPerYear >= 1 && s.paymentsPerYear <= 24) || !(s.roundTo >= 0) || !(s.maxWeekly > 0 && s.maxWeekly <= 84)) throw new UserError(m('قيم غير صالحة', 'Not valid values', 'Valeurs non valides'));
+      if (!(s.paymentsPerYear >= 1 && s.paymentsPerYear <= 24) || !(s.roundTo >= 0) || !(s.maxWeekly > 0 && s.maxWeekly <= 84) || !(s.rateSyp >= 0)) throw new UserError(m('قيم غير صالحة', 'Not valid values', 'Valeurs non valides'));
       const put = (k: string, v: number) => ({ sql: 'INSERT INTO setting (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', params: [k, String(v)] });
-      await c.db.batch([put('hr_payments_per_year', s.paymentsPerYear), put('hr_round_to', s.roundTo), put('hr_max_weekly', s.maxWeekly), auditStmt(c.who, 'update', 'hr_settings', null, cur, s)]);
+      await c.db.batch([put('hr_payments_per_year', s.paymentsPerYear), put('hr_round_to', s.roundTo), put('hr_max_weekly', s.maxWeekly), put('hr_rate_syp', s.rateSyp), auditStmt(c.who, 'update', 'hr_settings', null, cur, s)]);
       return s;
     },
   },
@@ -146,21 +148,23 @@ export const HR_PAY_OPS = {
   // the stipend changes from a date in the middle of the year (the agreement's line stays as history)
   'hr.pay.save': {
     check: needPay,
-    run: async (c: OpCtx, a: { id?: number | null; personId: number; validFrom: string; gradeId?: number | null; weeklyHours?: number | null; monthlyUsd?: number | null; note?: string | null }) => {
+    run: async (c: OpCtx, a: { id?: number | null; personId: number; validFrom: string; gradeId?: number | null; weeklyHours?: number | null; monthlyUsd?: number | null; monthlySyp?: number | null; note?: string | null }) => {
       if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
       const from = date(a.validFrom);
       const weekly = num(a.weeklyHours), monthly = num(a.monthlyUsd), grade = a.gradeId ?? null;
       if (weekly != null && !(weekly > 0 && weekly <= 84)) throw new UserError(m('ساعات الأسبوع غير صالحة', 'Not valid weekly hours', 'Heures par semaine non valides'));
       if (monthly != null && !(monthly >= 0)) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
-      if (grade == null && monthly == null) throw new UserError(m('اكتب المبلغ الشهري', 'Write the monthly amount', 'Écrivez le montant mensuel'));
+      const syp = num(a.monthlySyp);
+      if (syp != null && !(syp > 0)) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
+      if (grade == null && monthly == null && syp == null) throw new UserError(m('اكتب المبلغ الشهري', 'Write the monthly amount', 'Écrivez le montant mensuel'));
       if (grade != null && !(await one(c.db, 'SELECT 1 AS x FROM hr_grade WHERE id = ?', [grade]))) throw new UserError(m('وظيفة غير موجودة', 'Position not found', 'Poste introuvable'));
-      const v = [a.personId, from, grade, weekly, monthly, txt(a.note)];
+      const v = [a.personId, from, grade, weekly, syp != null ? null : monthly, txt(a.note), syp];
       if (a.id) {
         if ((await one<{ paper_id: number | null }>(c.db, 'SELECT paper_id FROM hr_pay WHERE id = ?', [a.id]))?.paper_id) throw new UserError(m('هذا السطر من الاتفاقية: عدّل الاتفاقية', 'This line comes from the agreement: change the agreement', "Cette ligne vient de l'accord : modifiez l'accord"));
-        await c.db.batch([{ sql: 'UPDATE hr_pay SET person_id=?, valid_from=?, grade_id=?, weekly_hours=?, monthly_usd=?, note=? WHERE id = ? AND deleted_at IS NULL', params: [...v, a.id] }, auditStmt(c.who, 'update', 'hr_pay', String(a.id), null, { person: a.personId, from })]);
+        await c.db.batch([{ sql: 'UPDATE hr_pay SET person_id=?, valid_from=?, grade_id=?, weekly_hours=?, monthly_usd=?, note=?, monthly_syp=? WHERE id = ? AND deleted_at IS NULL', params: [...v, a.id] }, auditStmt(c.who, 'update', 'hr_pay', String(a.id), null, { person: a.personId, from })]);
         return { id: a.id };
       }
-      await c.db.batch([{ sql: 'INSERT INTO hr_pay (person_id, valid_from, grade_id, weekly_hours, monthly_usd, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] }, auditStmt(c.who, 'add', 'hr_pay', null, null, { person: a.personId, from, monthly })]);
+      await c.db.batch([{ sql: 'INSERT INTO hr_pay (person_id, valid_from, grade_id, weekly_hours, monthly_usd, note, monthly_syp, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] }, auditStmt(c.who, 'add', 'hr_pay', null, null, { person: a.personId, from, monthly })]);
       return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_pay'))!.id };
     },
   },

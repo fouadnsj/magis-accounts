@@ -74,9 +74,12 @@ export const HR_RUN_OPS = {
       const skipped: number[] = [];
       for (const p of people) {
         const cur = payOn(d, p.id, last);
-        if (!cur || cur.monthly == null || cur.monthly <= 0) { skipped.push(p.id); continue; }
-        const { total, paid } = lineAmounts(cur.monthly, 0, 0, 'USD', rate);
-        lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, weekly_hours, hours_worked, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [runId, p.id, a.kind === 'thirteenth' ? '13th payment' : null, cur.weekly, hours.find((h) => h.person_id === p.id)?.hours ?? null, cur.monthly, total, 'USD', paid, p.account, p.budget_line] });
+        if (!cur || (cur.monthly == null && cur.syp == null) || (cur.monthly ?? 0) < 0) { skipped.push(p.id); continue; }
+        // agreed in pounds: paid in exactly those pounds; the dollars are what they are worth at THIS run's rate
+        const inPounds = cur.syp != null;
+        const base = inPounds ? r2(cur.syp! / rate) : cur.monthly!;
+        const { total, paid } = lineAmounts(base, 0, 0, inPounds ? 'SYP' : 'USD', rate);
+        lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, weekly_hours, hours_worked, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [runId, p.id, a.kind === 'thirteenth' ? '13th payment' : null, cur.weekly, hours.find((h) => h.person_id === p.id)?.hours ?? null, base, total, inPounds ? 'SYP' : 'USD', inPounds ? cur.syp! : paid, p.account, p.budget_line] });
       }
       // the one-time stipend letters paid this month and not yet in a run
       if (a.kind === 'monthly') {

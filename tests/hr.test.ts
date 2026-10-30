@@ -125,7 +125,7 @@ describe('HR database', () => {
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(400); // only into an empty scale
     let d = (await op('hr.pay.data', {}, ck)).body;
     expect(d.grades.map((g: { name: string; monthly_usd: number }) => [g.name, g.monthly_usd])).toEqual([['Centre Director', 300], ['Workshop Coordinator', 250], ['Guard & logistics', 230], ['Accountant', 250], ['Reception', 180], ['IT', 180], ['Cleaner', 180], ['Cook', 200], ['Academic Coordinator', 250], ['Media', 200]]);
-    expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40 });
+    expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40, rateSyp: 0 });
 
     // a pay needs a position or an amount; the weekly hours only give the hourly cost
     expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01' }, ck)).status).toBe(400);
@@ -551,5 +551,38 @@ describe('HR database', () => {
     expect(bad.body.error.en).toContain('Odd: budget line');
     // one centre at a time: a centre with nobody in this run sends nothing
     expect((await post('/api/hr/send-run', { runId: run2, centre: 'no-such-centre' })).body.sent).toEqual([]);
+  });
+
+  it('an agreement in pounds: kept as pounds, shown in dollars at the rate, paid in exact pounds at each run\'s rate', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR ten', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR ten', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const hrId = (await call(`/api/profiles?db=${slug}`)).body[0].id;
+    const ck = (await call('/api/login', { db: slug, profileId: hrId, password: 'fouad-hr-1' }, '')).set!;
+    const { payOn } = await import('../src/hr/pay');
+    const id = (await op('hr.person.save', { first_name: 'Layla', started: '2027-01-01' }, ck)).body.id;
+    await op('hr.paper.save', { personId: id, kind: 'agreement', start: '2027-01-01', end: '2027-12-31', amount: 1300000, currency: 'SYP', weeklyHours: 30 }, ck);
+    let pd = (await op('hr.pay.data', {}, ck)).body;
+    expect(pd.pays.map((p: { monthly_usd: number | null; monthly_syp: number | null }) => [p.monthly_usd, p.monthly_syp])).toEqual([[null, 1300000]]);
+    // no dollar rate known yet: the pounds are there, the dollars wait for a rate
+    let now = payOn(pd, id, '2027-03-31')!;
+    expect([now.syp, now.monthly, now.needsRate]).toEqual([1300000, null, true]);
+    // a rate in the settings: the equivalent appears (and the hourly cost with it)
+    await op('hr.pay.settings', { rateSyp: 13000 }, ck);
+    pd = (await op('hr.pay.data', {}, ck)).body;
+    now = payOn(pd, id, '2027-03-31')!;
+    expect([now.syp, now.monthly, now.needsRate, now.hourly]).toEqual([1300000, 100, false, 0.77]);
+    // payroll: exactly the pounds, the dollars at THIS run's rate
+    const run = (await op('hr.run.create', { ym: '2027-03', kind: 'monthly', rateSyp: 14000 }, ck)).body.id;
+    const line = (await op('hr.run.get', { id: run }, ck)).body.lines[0];
+    expect([line.paid_in, line.amount_paid, line.total_usd]).toEqual(['SYP', 1300000, 92.86]);
+    // a change from a date, in dollars this time, replaces the pounds
+    await op('hr.pay.save', { personId: id, validFrom: '2027-07-01', monthlyUsd: 120, weeklyHours: 30 }, ck);
+    pd = (await op('hr.pay.data', {}, ck)).body;
+    const aug = payOn(pd, id, '2027-08-31')!;
+    expect([aug.syp, aug.monthly]).toEqual([null, 120]);
+    // the last run's rate is the rate when none is written
+    await op('hr.pay.settings', { rateSyp: 0 }, ck);
+    expect((await op('hr.pay.data', {}, ck)).body.settings.rateSyp).toBe(14000);
   });
 });

@@ -91,16 +91,17 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
 }
 
 function Settings({ s, d, reload }: { s: Session; d: HrPayData; reload: () => Promise<void> }) {
-  const [f, setF] = useState({ paymentsPerYear: String(d.settings.paymentsPerYear), maxWeekly: String(d.settings.maxWeekly) });
+  const [f, setF] = useState({ paymentsPerYear: String(d.settings.paymentsPerYear), maxWeekly: String(d.settings.maxWeekly), rateSyp: d.settings.rateSyp ? String(d.settings.rateSyp) : '' });
   return (
     <div className="hr-panel" style={{ marginTop: 14 }}>
       <b>{t3('الإعدادات', 'Settings', 'Réglages')}</b>
       <div className="grid2" style={{ marginTop: 6 }}>
         <Field label={t3('عدد الدفعات في السنة (الثالثة عشرة = بدل الضمان)', 'Payments a year (the 13th = instead of social security)', 'Paiements par an (le 13e = à la place de la sécurité sociale)')}><input inputMode="decimal" value={f.paymentsPerYear} onChange={(e) => setF({ ...f, paymentsPerYear: e.target.value })} /></Field>
+        <Field label={t3('سعر الدولار بالليرة (لإظهار المكافآت بالليرة بالدولار)', 'Dollar rate in pounds (to show pound stipends in dollars)', 'Taux du dollar en livres (pour voir en dollars les gratifications en livres)')}><input inputMode="decimal" placeholder={t3('اتركه فارغاً: آخر كشف', 'empty: the last payroll\'s', 'vide : celui de la dernière paie')} value={f.rateSyp} onChange={(e) => setF({ ...f, rateSyp: e.target.value })} /></Field>
         <Field label={t3('الحد الأقصى لساعات الأسبوع (الاتفاقية)', "Maximum weekly hours (the agreement's)", "Maximum d'heures par semaine (l'accord)")}><input inputMode="decimal" value={f.maxWeekly} onChange={(e) => setF({ ...f, maxWeekly: e.target.value })} /></Field>
       </div>
       <button className="btn small" onClick={async () => {
-        try { await s.api.call('hr.pay.settings', { paymentsPerYear: Number(f.paymentsPerYear), maxWeekly: Number(f.maxWeekly) }); toast(t3('حُفظ', 'Saved', 'Enregistré')); await reload(); } catch (e) { fail(e); }
+        try { await s.api.call('hr.pay.settings', { paymentsPerYear: Number(f.paymentsPerYear), maxWeekly: Number(f.maxWeekly), rateSyp: Number(f.rateSyp) || 0 }); toast(t3('حُفظ', 'Saved', 'Enregistré')); await reload(); } catch (e) { fail(e); }
       }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
     </div>
   );

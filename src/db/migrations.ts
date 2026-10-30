@@ -1357,4 +1357,13 @@ CREATE TABLE hr_run_sent (
 );
 `,
   },
+  {
+    n: 36,
+    name: 'HR: a stipend can be agreed in Syrian pounds (kept as pounds; the dollar equivalent is shown at the dollar rate)',
+    sql: `
+-- Fouad, 30 October 2026. An agreement in SYP fixes a monthly amount in pounds; payroll pays exactly that, converted at the
+-- rate of each run; the card shows its equivalent in dollars at the rate of the settings (or the last run's).
+ALTER TABLE hr_pay ADD COLUMN monthly_syp REAL;
+`,
+  },
 ];

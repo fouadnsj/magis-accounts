@@ -784,6 +784,61 @@ async function saveBudgetItems(c: OpCtx, a: { versionId: number; account_id: num
   ]);
 }
 
+/**
+ * Allocates the budget of one account to several accounts, by percentage (Fouad, 30 October 2026): "this budget is paid
+ * 60% by CEI and 40% by SZ". The source account's items and amounts are divided: every item goes to each account with its
+ * cost scaled by the percentage (the note says which share), so each account's budget stays readable and the total is
+ * the same. What the target accounts already had stays. The percentages make 100; the source may keep a share.
+ */
+async function allocateBudget(c: OpCtx, a: { versionId: number; fromAccountId: number; parts: { account_id: number; pct: number }[] }) {
+  const v = await latestVersion(c, a.versionId);
+  const parts = (a.parts ?? []).map((p) => ({ account_id: Number(p.account_id), pct: Number(p.pct) }));
+  if (!parts.length || parts.some((p) => !p.account_id || !(p.pct > 0 && p.pct <= 100))) throw new UserError(m('اختر الحساب والنسبة في كل سطر', 'Choose the account and the percentage on every line'));
+  if (new Set(parts.map((p) => p.account_id)).size !== parts.length) throw new UserError(m('حساب مكرر', 'An account is chosen twice'));
+  if (Math.abs(parts.reduce((x, p) => x + p.pct, 0) - 100) > 0.01) throw new UserError(m('المجموع يجب أن يكون 100%', 'The total must be 100%'));
+  if (parts.length === 1 && parts[0].account_id === a.fromAccountId) throw new UserError(m('لا شيء يتغير', 'Nothing would change'));
+  await refuseIfWhole(c, v.id, [a.fromAccountId, ...parts.map((p) => p.account_id)]);
+  const items = await c.db.query<BudgetItem>('SELECT * FROM budget_item WHERE version_id = ? AND account_id = ? ORDER BY sort, id', [v.id, a.fromAccountId]);
+  const cells = await c.db.query<BudgetAmount>('SELECT * FROM budget_amount WHERE version_id = ? AND account_id = ?', [v.id, a.fromAccountId]);
+  if (!cells.length && !items.length) throw new UserError(m('لا موازنة في هذا الحساب', 'This account has no budget'));
+  const withItems = new Set(items.map((i) => i.line_id));
+  const names = new Map((await c.db.query<{ id: number; name: string }>('SELECT id, name FROM account')).map((x) => [x.id, x.name]));
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const stmts: Stmt[] = [
+    { sql: 'DELETE FROM budget_item WHERE version_id = ? AND account_id = ?', params: [v.id, a.fromAccountId] },
+    { sql: 'DELETE FROM budget_amount WHERE version_id = ? AND account_id = ?', params: [v.id, a.fromAccountId] },
+  ];
+  for (const p of parts) {
+    const target = (await one<{ n: number | null }>(c.db, 'SELECT MAX(sort) AS n FROM budget_item WHERE version_id = ? AND account_id = ?', [v.id, p.account_id]))?.n ?? -1;
+    let k = 0;
+    const lineTotal = new Map<number, number>();
+    for (const i of items) {
+      const unit = r2(i.unit_cost * p.pct / 100);
+      lineTotal.set(i.line_id, (lineTotal.get(i.line_id) ?? 0) + i.qty * i.times * unit);
+      stmts.push({
+        sql: 'INSERT INTO budget_item (version_id, account_id, line_id, name, unit, qty, times, unit_cost, note, sort) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        params: [v.id, p.account_id, i.line_id, i.name, i.unit ?? null, i.qty, i.times, unit, `${p.pct}% of ${names.get(a.fromAccountId) ?? ''}${i.note ? ` · ${i.note}` : ''}`.slice(0, 400), target + 1 + k++],
+      });
+    }
+    // amounts: from the items just divided; lines with an amount typed directly are divided too
+    for (const x of cells) {
+      if (!withItems.has(x.line_id)) lineTotal.set(x.line_id, (lineTotal.get(x.line_id) ?? 0) + x.amount_usd * p.pct / 100);
+    }
+    for (const [line_id, total] of lineTotal)
+      stmts.push({
+        sql: 'INSERT INTO budget_amount (version_id, account_id, line_id, amount_usd) VALUES (?,?,?,?) ON CONFLICT (version_id, account_id, line_id) DO UPDATE SET amount_usd = amount_usd + excluded.amount_usd',
+        params: [v.id, p.account_id, line_id, r2(total)],
+      });
+    // the contingency of the source goes with the share
+    const src = await one<BudgetAccount>(c.db, 'SELECT * FROM budget_account WHERE version_id = ? AND account_id = ?', [v.id, a.fromAccountId]);
+    if (src && src.contingency_pct && !(await one(c.db, 'SELECT 1 FROM budget_account WHERE version_id = ? AND account_id = ?', [v.id, p.account_id])))
+      stmts.push({ sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct, lump_usd) VALUES (?,?,?,NULL)', params: [v.id, p.account_id, src.contingency_pct] });
+  }
+  stmts.push(auditStmt(c.who, 'allocate', 'budget', `${v.budget_id}/${v.rev}/${a.fromAccountId}`, { items: items.length, cells: cells.length }, parts));
+  await c.db.batch(stmts);
+  return { ok: true };
+}
+
 /** A whole account from a budget sheet (e.g. "Homs 2027"): its items replace what the account had. */
 async function importBudgetItems(c: OpCtx, a: { versionId: number; account_id: number; contingency_pct: number; items: (BudgetItem & { new_line?: { heading_id: number; name: string } })[]; source?: string }) {
   const v = await latestVersion(c, a.versionId);
@@ -1563,6 +1618,7 @@ export const OPS = {
   },
   'budget.saveAmounts': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof saveBudgetAmounts>[1]) => saveBudgetAmounts(c, a) },
   'budget.saveItems': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof saveBudgetItems>[1]) => saveBudgetItems(c, a) },
+  'budget.allocate': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof allocateBudget>[1]) => allocateBudget(c, a) },
   'budget.importItems': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof importBudgetItems>[1]) => importBudgetItems(c, a) },
   'budget.fillActual': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: { versionId: number; account_id: number }) => fillFromActual(c, a) },
   'budget.setAccount': {

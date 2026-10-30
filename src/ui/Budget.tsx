@@ -562,6 +562,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
   const clearLump = async () => {
     await act(() => s.api.call('budget.setAccount', { versionId: v.id, account_id: account, lump_usd: null }), t('حُفظ', 'Saved'));
   };
+  const [allocating, setAllocating] = useState(false);
   const toggleOutside = async () => {
     await act(() => s.api.call('account.setOutside', { id: account, outside: !acc?.outside_budget }), t('حُفظ', 'Saved'));
   };
@@ -587,6 +588,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
         {may && (
           <div className="row" style={{ flexWrap: 'wrap', marginTop: 8 }}>
             <button className="btn" onClick={() => setImporting(true)}>{t('استيراد من Excel…', 'Import from Excel…')}</button>
+            {lump == null && b.amounts.some((y) => y.account_id === account) && accounts.length > 1 && <button className="btn" onClick={() => setAllocating(true)}>{t('توزيع على عدة حسابات…', 'Allocate to several accounts…')}</button>}
             <button className="btn" onClick={setContingency}>{t('نسبة الاحتياط…', 'Contingency…')}</button>
             <button className="btn" onClick={setLump}>{lump != null ? t('تغيير المبلغ الواحد…', 'Change the one amount…') : t('مبلغ واحد للحساب كله…', 'One amount for the whole account…')}</button>
             {lump != null && <button className="btn" onClick={clearLump}>{t('حسب الخطوط', 'Line by line')}</button>}
@@ -605,6 +607,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
         )}
       </div>
 
+      {allocating && <AllocateModal accounts={accounts} from={account} onClose={() => setAllocating(false)} onDone={async (parts) => { setAllocating(false); await act(() => s.api.call('budget.allocate', { versionId: v.id, fromAccountId: account, parts }), t('وُزّعت الموازنة', 'Budget allocated')); }} />}
       {lump != null ? (
         <div className="alert info">
           {t(`لـ«${acc?.name}» مبلغ واحد (${usd(lump)}) لكل مصاريفه، أياً كان الخط: هكذا يُتابع في المتابعة وعند المانحين.`,
@@ -1228,6 +1231,34 @@ function AllocModal({ start, cells, onClose, onSaved }: { start: Partial<BudgetA
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" disabled={!a.donor_id || a.account_id == null || (kind !== 'rest' && !val) || (a.account_id !== ALL && scope !== 'account' && (multi ? nTargets === 0 : !a.heading_id || (scope === 'line' && !a.line_id)))} onClick={save}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Splits the budget of one account between several accounts, by percentage (they make 100). */
+function AllocateModal({ accounts, from, onClose, onDone }: { accounts: { id: number; name: string }[]; from: number; onClose: () => void; onDone: (parts: { account_id: number; pct: number }[]) => Promise<void> }) {
+  const others = accounts.filter((a) => a.id !== from);
+  const [parts, setParts] = useState<{ account_id: number; pct: string }[]>([{ account_id: others[0]?.id ?? from, pct: '100' }]);
+  const sum = parts.reduce((x, p) => x + (Number(p.pct) || 0), 0);
+  const name = accounts.find((a) => a.id === from)?.name ?? '';
+  return (
+    <Modal title={t(`توزيع موازنة «${name}»`, `Allocate the budget of "${name}"`)} onClose={onClose}>
+      <p className="muted small">{t('تُقسَم عناصر هذا الحساب بين الحسابات بالنسب المكتوبة (المجموع 100%). كل حساب يأخذ نسبته من تكلفة كل عنصر، والمجموع لا يتغير. يمكن أن يحتفظ هذا الحساب بنصيب.', "The items of this account are divided between the accounts by the percentages (total 100%). Each account takes its share of the cost of every item; the total does not change. This account may keep a share.")}</p>
+      {parts.map((p, i) => (
+        <div key={i} className="row" style={{ gap: 6, marginBottom: 4 }}>
+          <select style={{ flex: 1 }} value={p.account_id} onChange={(e) => setParts(parts.map((x, j) => (j === i ? { ...x, account_id: Number(e.target.value) } : x)))}>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}{a.id === from ? ` (${t('يبقى هنا', 'stays here')})` : ''}</option>)}
+          </select>
+          <input className="ltr" style={{ width: 80 }} inputMode="decimal" value={p.pct} onChange={(e) => setParts(parts.map((x, j) => (j === i ? { ...x, pct: e.target.value } : x)))} /> %
+          {parts.length > 1 && <button className="btn small" onClick={() => setParts(parts.filter((_, j) => j !== i))}>✕</button>}
+        </div>
+      ))}
+      <button className="btn small" onClick={() => setParts([...parts, { account_id: accounts.find((a) => !parts.some((p) => p.account_id === a.id))?.id ?? from, pct: String(Math.max(0, 100 - sum)) }])}>＋ {t('حساب', 'Add an account')}</button>
+      <p className={Math.abs(sum - 100) < 0.01 ? 'ok' : 'err'}>{t('المجموع', 'Total')}: {sum}%</p>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={Math.abs(sum - 100) > 0.01 || new Set(parts.map((p) => p.account_id)).size !== parts.length} onClick={() => void onDone(parts.map((p) => ({ account_id: p.account_id, pct: Number(p.pct) })))}>{t('وزّع', 'Allocate')}</button>
       </div>
     </Modal>
   );

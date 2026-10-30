@@ -8,10 +8,11 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import { payData } from './payOps';
 import { payOn } from './pay';
+import { allocOn, splitAmount, type HrAlloc } from './stage4';
 
 export interface HrRun { id: number; ym: string; kind: 'monthly' | 'thirteenth'; rate_syp: number; status: 'draft' | 'approved' | 'paid'; note: string | null; created_by: string | null; approved_at: string | null; approved_by: string | null; paid_on: string | null; paid_by: string | null; lines: number; total_usd: number }
 export interface HrRunLine { id: number; run_id: number; person_id: number; person_name: string; national_id: string | null; role: string | null; label: string | null; paper_id: number | null; weekly_hours: number | null; hours_worked: number | null; base_usd: number; bonus_usd: number; deduction_usd: number; total_usd: number; paid_in: 'USD' | 'SYP'; amount_paid: number; account: string | null; budget_line: string | null; note: string | null }
-export interface HrVoucherRow { account: string | null; budget_line: string | null; paid_in: 'USD' | 'SYP'; total_usd: number; amount_paid: number }
+export interface HrVoucherRow { account: string | null; budget_line: string | null; target: string | null; paid_in: 'USD' | 'SYP'; total_usd: number; amount_paid: number }
 
 const SYP_STEP = 1000;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -180,7 +181,24 @@ export const HR_RUN_OPS = {
     run: async (c: OpCtx, a: { id: number }) => {
       const run = await runOf(c, a.id);
       if (run.status === 'draft') throw new UserError(m('اعتمد الكشف أولاً', 'Approve the run first', "Approuvez d'abord la paie"));
-      const rows = await c.db.query<HrVoucherRow>('SELECT account, budget_line, paid_in, ROUND(SUM(total_usd), 2) AS total_usd, SUM(amount_paid) AS amount_paid FROM hr_run_line WHERE run_id = ? GROUP BY account, budget_line, paid_in ORDER BY account, budget_line, paid_in', [a.id]);
+      // each line is split by the donor or project percentages of its person (on the last day of the month); totals only
+      const lines = await c.db.query<{ person_id: number; account: string | null; budget_line: string | null; paid_in: 'USD' | 'SYP'; total_usd: number; amount_paid: number }>('SELECT person_id, account, budget_line, paid_in, total_usd, amount_paid FROM hr_run_line WHERE run_id = ?', [a.id]);
+      const allocs = await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc');
+      const acc = new Map<string, HrVoucherRow>();
+      for (const l of lines) {
+        const parts = allocOn(allocs, l.person_id, lastDay(run.ym));
+        const usds = parts.length ? splitAmount(l.total_usd, parts) : [l.total_usd];
+        const paids = parts.length ? splitAmount(l.amount_paid, parts, l.paid_in === 'SYP' ? 0 : 2) : [l.amount_paid];
+        (parts.length ? parts.map((p) => p.target) : [null]).forEach((target, i) => {
+          const key = JSON.stringify([l.account, l.budget_line, target, l.paid_in]);
+          const row = acc.get(key) ?? { account: l.account, budget_line: l.budget_line, target, paid_in: l.paid_in, total_usd: 0, amount_paid: 0 };
+          row.total_usd = r2(row.total_usd + usds[i]);
+          row.amount_paid = r2(row.amount_paid + paids[i]);
+          acc.set(key, row);
+        });
+      }
+      const key = (x: string | null) => x ?? '';
+      const rows = [...acc.values()].sort((p, q) => key(p.account).localeCompare(key(q.account)) || key(p.budget_line).localeCompare(key(q.budget_line)) || key(p.target).localeCompare(key(q.target)) || p.paid_in.localeCompare(q.paid_in));
       return { run: { id: run.id, ym: run.ym, kind: run.kind, rate_syp: run.rate_syp, status: run.status, approved_by: run.approved_by, paid_on: run.paid_on }, rows, total_usd: r2(rows.reduce((s, r) => s + r.total_usd, 0)) };
     },
   },

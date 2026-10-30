@@ -11,10 +11,11 @@ import { t3 } from '../../community/ui/text';
 import type { HrAlert, HrData, HrPaper, HrPerson } from '../hr';
 import { HoursPage, ScalePage } from './Pay';
 import { RunsPage } from './Runs';
+import { DonorsPage, InsurancePage } from './Stage4';
 import '../../community/ui/cty.css';
 import '../../community/ui/desk/desk.css';
 
-type Page = 'home' | 'people' | 'scale' | 'hours' | 'runs' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'scale' | 'hours' | 'runs' | 'insurance' | 'donors' | 'conduct' | 'log';
 const MIME: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 const fail = (e: unknown) => toast(errText(e), true);
 
@@ -55,7 +56,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
   const items: { p: Page; label: string; badge?: number }[] = [
     { p: 'home', label: t3('البداية: ما يحتاج انتباهاً', 'Home: what needs attention', 'Accueil : à surveiller'), badge: d.alerts.length },
     { p: 'people', label: t3('الأشخاص', 'People', 'Personnes') },
-    ...(pay ? [{ p: 'scale' as Page, label: t3('سلّم الرواتب والمكافآت', 'Salary scale & stipends', 'Échelle et gratifications') }, { p: 'hours' as Page, label: t3('ساعات العمل', 'Hours worked', 'Heures travaillées') }, { p: 'runs' as Page, label: t3('كشوف الرواتب', 'Payroll runs', 'Paies') }] : []),
+    ...(pay ? [{ p: 'scale' as Page, label: t3('سلّم الرواتب والمكافآت', 'Salary scale & stipends', 'Échelle et gratifications') }, { p: 'hours' as Page, label: t3('ساعات العمل', 'Hours worked', 'Heures travaillées') }, { p: 'runs' as Page, label: t3('كشوف الرواتب', 'Payroll runs', 'Paies') }, { p: 'insurance' as Page, label: t3('التأمين الصحي', 'Health insurance', 'Assurance maladie') }, { p: 'donors' as Page, label: t3('التكلفة حسب المانح', 'Cost by donor', 'Coût par bailleur') }] : []),
     { p: 'conduct', label: t3('مدونة السلوك', 'Code of conduct', 'Code de conduite') },
     ...(vault ? [{ p: 'log' as Page, label: t3('سجل فتح الوثائق', 'Log of document openings', "Journal d'ouverture des documents") }] : []),
   ];
@@ -76,6 +77,8 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {page === 'scale' && <ScalePage s={session} hr={d} />}
         {page === 'hours' && <HoursPage s={session} hr={d} />}
         {page === 'runs' && <RunsPage s={session} hr={d} />}
+        {page === 'insurance' && <InsurancePage s={session} hr={d} />}
+        {page === 'donors' && <DonorsPage s={session} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'log' && <Log s={session} d={d} />}
         {person && <PersonModal {...ctx} manage={manage} vault={vault} person={person === 'new' ? null : person} onClose={() => setPerson(null)} />}
@@ -97,6 +100,9 @@ function alertText(a: HrAlert, d: HrData): string {
       ? t3(`${n}: وثيقة منتهية منذ ${fmtDate(a.date)}`, `${n}: a document expired on ${fmtDate(a.date)}`, `${n} : un document a expiré le ${fmtDate(a.date)}`)
       : t3(`${n}: وثيقة تنتهي في ${fmtDate(a.date)}`, `${n}: a document expires on ${fmtDate(a.date)}`, `${n} : un document expire le ${fmtDate(a.date)}`);
     case 'conduct_unsigned': return t3(`${n}: لم يوقّع آخر نسخة من مدونة السلوك`, `${n}: has not signed the latest code of conduct`, `${n} : n'a pas signé le dernier code de conduite`);
+    case 'insurance_ending': return a.days != null && a.days < 0
+      ? t3(`${n}: انتهى التأمين الصحي في ${fmtDate(a.date)}`, `${n}: the health insurance ended on ${fmtDate(a.date)}`, `${n} : l'assurance maladie a pris fin le ${fmtDate(a.date)}`)
+      : t3(`${n}: ينتهي التأمين الصحي في ${fmtDate(a.date)} (بعد ${a.days} يوماً)`, `${n}: the health insurance ends on ${fmtDate(a.date)} (in ${a.days} days)`, `${n} : l'assurance maladie se termine le ${fmtDate(a.date)} (dans ${a.days} jours)`);
     case 'unsigned_paper': return t3(`${n}: ورقة بلا نسخة موقّعة`, `${n}: a paper without its signed copy`, `${n} : un document sans copie signée`);
   }
 }

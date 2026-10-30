@@ -1242,4 +1242,37 @@ CREATE TABLE hr_run_line (
 CREATE INDEX hr_run_line_run ON hr_run_line(run_id);
 `,
   },
+  {
+    n: 32,
+    name: 'HR stage 4: health insurance (the person and the family members, paid yearly), split of a person\'s cost by donor or project',
+    sql: `
+-- Fouad, 30 October 2026. Insurance is paid yearly: a row per insured person (member_name empty = the staff member
+-- himself or herself) with the yearly amount and the end date (a reminder before it).
+CREATE TABLE hr_insurance (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id   INTEGER NOT NULL REFERENCES hr_person(id),
+  member_name TEXT,
+  relation    TEXT,
+  amount_usd  REAL NOT NULL,
+  end_date    TEXT,
+  paid_on     TEXT,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  deleted_at  TEXT
+);
+CREATE INDEX hr_insurance_person ON hr_insurance(person_id);
+-- The split of a person's cost by donor or project, in percent (it must make 100), from a date.
+CREATE TABLE hr_alloc (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id  INTEGER NOT NULL REFERENCES hr_person(id),
+  valid_from TEXT NOT NULL,
+  target     TEXT NOT NULL,
+  pct        REAL NOT NULL CHECK (pct > 0 AND pct <= 100),
+  created_at TEXT NOT NULL,
+  created_by TEXT,
+  UNIQUE (person_id, valid_from, target)
+);
+`,
+  },
 ];

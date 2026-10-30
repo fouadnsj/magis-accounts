@@ -49,7 +49,7 @@ export interface HrPaper { id: number; person_id: number; kind: 'agreement' | 's
 export interface HrConduct { id: number; version: string; valid_from: string; note: string | null; file_name: string | null; size: number | null }
 export interface HrSign { id: number; conduct_id: number; person_id: number; signed_on: string; file_name: string | null; size: number | null }
 export interface HrDoc { id: number; person_id: number; label: string; expires_on: string | null; file_name: string; mime: string; size: number; created_at: string }
-export interface HrAlert { kind: 'agreement_ending' | 'agreement_missing' | 'doc_expiring' | 'conduct_unsigned' | 'unsigned_paper'; person_id: number; item_id: number | null; date: string | null; days: number | null }
+export interface HrAlert { kind: 'agreement_ending' | 'agreement_missing' | 'doc_expiring' | 'conduct_unsigned' | 'unsigned_paper' | 'insurance_ending'; person_id: number; item_id: number | null; date: string | null; days: number | null }
 export interface HrData {
   kind: string | null;
   people: HrPerson[];
@@ -89,6 +89,10 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
     for (const x of papers.filter((q) => q.person_id === p.id && !q.file_name)) alerts.push({ kind: 'unsigned_paper', person_id: p.id, item_id: x.id, date: x.start_date ?? x.paid_on, days: null });
   }
   for (const d of docs ?? []) if (d.expires_on && daysTo(d.expires_on, today) <= SOON && people.find((p) => p.id === d.person_id)?.active) alerts.push({ kind: 'doc_expiring', person_id: d.person_id, item_id: d.id, date: d.expires_on, days: daysTo(d.expires_on, today) });
+  // the health insurance ending (or ended): only for those who see the pay
+  if (has(c.profile, 'hr.pay'))
+    for (const x of await c.db.query<{ id: number; person_id: number; end_date: string }>('SELECT id, person_id, end_date FROM hr_insurance WHERE deleted_at IS NULL AND end_date IS NOT NULL'))
+      if (daysTo(x.end_date, today) <= SOON && people.find((p) => p.id === x.person_id)?.active) alerts.push({ kind: 'insurance_ending', person_id: x.person_id, item_id: x.id, date: x.end_date, days: daysTo(x.end_date, today) });
   return { kind: await getMeta(c.db, 'kind'), people, papers, conducts, signs, docs, alerts };
 }
 

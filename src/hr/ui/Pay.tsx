@@ -6,6 +6,7 @@ import { errText, Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../
 import { t3 } from '../../community/ui/text';
 import type { HrData, HrPerson } from '../hr';
 import type { HrGrade, HrPay, HrPayData } from '../payOps';
+import { SplitModal } from './Stage4';
 import { hourlyFromMonthly, hourlyWithThirteenth, monthlyFromRate, monthlyHours, payOn, rateFor, yearlyCost } from '../pay';
 
 const fail = (e: unknown) => toast(errText(e), true);
@@ -24,6 +25,7 @@ export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
   const [d, reload] = usePayData(s);
   const [grade, setGrade] = useState<HrGrade | 'new' | null>(null);
   const [editPay, setEditPay] = useState<HrPerson | null>(null);
+  const [split, setSplit] = useState<HrPerson | null>(null);
   const today = todayIso();
   const year = Number(today.slice(0, 4));
   if (!d) return <p className="muted">…</p>;
@@ -81,7 +83,7 @@ export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
                   <td className="n"><b>{usd(c?.monthly)}</b></td>
                   <td className="n" title={c?.monthly != null ? t3(`مع الدفعة الثالثة عشرة: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, d.settings.paymentsPerYear))}`, `With the 13th payment: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, d.settings.paymentsPerYear))}`, `Avec le 13e paiement : ${usd(hourlyWithThirteenth(c.monthly, c.weekly, d.settings.paymentsPerYear))}`) : ''}>{c?.monthly != null ? usd(hourlyFromMonthly(c.monthly, c.weekly)) : '—'}</td>
                   <td className="n">{c?.monthly != null ? usd(yearlyCost(c.monthly, d.settings.paymentsPerYear)) : '—'}</td>
-                  <td className="right"><button className="btn small" onClick={() => setEditPay(p)}>{t3('الراتب', 'Pay', 'Paie')}</button></td>
+                  <td className="right"><button className="btn small" onClick={() => setEditPay(p)}>{t3('الراتب', 'Pay', 'Paie')}</button>{' '}<button className="btn small" title={t3('توزيع التكلفة بين المانحين', 'Split the cost between donors or projects', 'Répartir le coût entre bailleurs ou projets')} onClick={() => setSplit(p)}>%</button></td>
                 </tr>
               ))}
               {!rows.length && <tr><td colSpan={7} className="muted">{t3('أضف الأشخاص أولاً.', 'Add the people first.', "Ajoutez d'abord les personnes.")}</td></tr>}
@@ -94,6 +96,7 @@ export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
 
       <Settings s={s} d={d} reload={reload} />
       {grade && <GradeModal s={s} grade={grade === 'new' ? null : grade} onClose={() => setGrade(null)} reload={reload} />}
+      {split && <SplitModal s={s} person={split} onClose={() => setSplit(null)} />}
       {editPay && <PayModal s={s} d={d} person={editPay} onClose={() => setEditPay(null)} reload={reload} />}
     </>
   );

@@ -206,9 +206,9 @@ describe('HR database', () => {
     const v = (await op('hr.run.voucher', { id: runId }, ck)).body;
     expect(JSON.stringify(v)).not.toContain('Guard One');
     expect(v.rows).toEqual([
-      { account: 'CJF', budget_line: 'Staff - Guards', paid_in: 'SYP', total_usd: 260, amount_paid: 3380000 },
-      { account: 'CJF', budget_line: 'Staff - Reception', paid_in: 'SYP', total_usd: 50, amount_paid: 650000 },
-      { account: 'CJF', budget_line: 'Staff - Reception', paid_in: 'USD', total_usd: 195, amount_paid: 195 },
+      { account: 'CJF', budget_line: 'Staff - Guards', target: null, paid_in: 'SYP', total_usd: 260, amount_paid: 3380000 },
+      { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'SYP', total_usd: 50, amount_paid: 650000 },
+      { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'USD', total_usd: 195, amount_paid: 195 },
     ]);
     expect(v.total_usd).toBe(505);
 
@@ -216,5 +216,62 @@ describe('HR database', () => {
     expect((await op('hr.run.create', { ym: '2026-12', kind: 'thirteenth', rateSyp: 13000 }, ck)).status).toBe(200);
     const th = (await op('hr.run.list', {}, ck)).body;
     expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 420], ['2026-11', 'monthly', 'paid', 505]]);
+  });
+
+  it('insurance with its reminder; split by donor or project in the voucher and the donor report', async () => {
+    const { splitAmount, allocOn } = await import('../src/hr/stage4');
+    expect(splitAmount(100, [{ pct: 33.33 }, { pct: 33.33 }, { pct: 33.34 }])).toEqual([33.33, 33.33, 33.34]);
+    expect(splitAmount(10, [{ pct: 33.33 }, { pct: 66.67 }]).reduce((a, b) => a + b, 0)).toBeCloseTo(10, 5); // the parts always add up
+    expect(splitAmount(3380000, [{ pct: 50 }, { pct: 50 }], 0)).toEqual([1690000, 1690000]);
+    expect(allocOn([{ person_id: 1, valid_from: '2026-01-01', target: 'A', pct: 100 }, { person_id: 1, valid_from: '2026-07-01', target: 'B', pct: 100 }], 1, '2026-08-01')[0].target).toBe('B');
+
+    const made = await call('/api/dbs/create', { organisation: 'HR four', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR four', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const profiles = (await call(`/api/profiles?db=${slug}`)).body;
+    const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
+    const pid = (await op('hr.person.save', { name: 'Salma', started: '2026-01-01', account: 'CJF', budget_line: 'Staff' }, ck)).body.id;
+    await op('hr.pay.save', { personId: pid, validFrom: '2026-01-01', monthlyUsd: 200, weeklyHours: 40 }, ck);
+
+    // insurance: the person and a family member; the end date raises a reminder
+    expect((await op('hr.ins.save', { personId: pid, amountUsd: 120, endDate: '2026-12-31' }, ck)).status).toBe(200);
+    expect((await op('hr.ins.save', { personId: pid, memberName: 'Her mother', relation: 'mother', amountUsd: 150, endDate: '2027-06-30' }, ck)).status).toBe(200);
+    expect((await op('hr.ins.save', { personId: pid, amountUsd: -1 }, ck)).status).toBe(400);
+    const ins = (await op('hr.ins.list', {}, ck)).body;
+    expect(ins.map((x: { member_name: string | null; amount_usd: number }) => [x.member_name, x.amount_usd])).toEqual([[null, 120], ['Her mother', 150]]);
+    const al = (await op('hr.data', { today: '2026-11-20' }, ck)).body.alerts.filter((a: { kind: string }) => a.kind === 'insurance_ending');
+    expect(al).toHaveLength(1); // only the one ending within 60 days
+    expect(al[0].days).toBe(41);
+
+    // the split must make 100%
+    expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'Project B', pct: 30 }] }, ck)).status).toBe(400);
+    expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'donor a', pct: 40 }] }, ck)).status).toBe(400);
+    expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'Project B', pct: 40 }] }, ck)).status).toBe(200);
+
+    const run = (await op('hr.run.create', { ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    await op('hr.run.approve', { id: run }, ck);
+    const v = (await op('hr.run.voucher', { id: run }, ck)).body;
+    expect(v.rows.map((r: { target: string; total_usd: number; amount_paid: number }) => [r.target, r.total_usd, r.amount_paid])).toEqual([['Donor A', 120, 120], ['Project B', 80, 80]]);
+    expect(v.total_usd).toBe(200);
+    expect(JSON.stringify(v)).not.toContain('Salma');
+
+    // from July the split changes; the report follows the date of each month
+    await op('hr.alloc.save', { personId: pid, validFrom: '2026-11-01', parts: [{ target: 'Donor A', pct: 100 }] }, ck);
+    const run2 = (await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    await op('hr.run.approve', { id: run2 }, ck);
+    expect((await op('hr.alloc.report', { year: 2026 }, ck)).body).toEqual([
+      { ym: '2026-10', target: 'Donor A', total_usd: 120 }, { ym: '2026-10', target: 'Project B', total_usd: 80 }, { ym: '2026-11', target: 'Donor A', total_usd: 200 },
+    ]);
+    expect((await op('hr.alloc.delete', { personId: pid, validFrom: '2026-11-01' }, ck)).status).toBe(200);
+    expect((await op('hr.alloc.list', {}, ck)).body).toHaveLength(2);
+
+    // a reader sees none of it
+    await op('user.save', { name: 'Reader', access_id: 2, books: [], pin: 'reader-pass-1' }, ck);
+    const rp = (await call(`/api/profiles?db=${slug}`)).body.find((p: { name: string }) => p.name === 'Reader');
+    const rc = (await call('/api/login', { db: slug, profileId: rp.id, password: 'reader-pass-1' }, '')).set!;
+    await op('profile.setPin', { id: rp.id, pin: 'reader-own-2' }, rc);
+    expect((await op('hr.ins.list', {}, rc)).status).toBe(400);
+    expect((await op('hr.alloc.report', { year: 2026 }, rc)).status).toBe(400);
+    expect((await op('hr.data', { today: '2026-11-20' }, rc)).body.alerts.some((a: { kind: string }) => a.kind === 'insurance_ending')).toBe(false);
   });
 });

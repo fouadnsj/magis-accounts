@@ -988,6 +988,31 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { centres: 1, accounts: accounts.length, lines: lines.length });
     }
 
+    // ---- HR: the positions of the scale can come from the salary lines of the centres' budgets (Fouad, 30 October 2026).
+    // This only LISTS what it finds (name, centre, the unit cost of the latest budget); the screen creates the ones ticked.
+    if (url === '/api/hr/positions-from-budget' && method === 'GET') {
+      if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.pay')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const hdb = found[2].handle.db;
+      const have = new Set((await hdb.query<{ name: string }>('SELECT name FROM hr_grade')).map((x) => x.name.toLowerCase()));
+      const out = new Map<string, { name: string; centres: string[]; amount: number | null; exists: boolean }>();
+      for (const c of await hdb.query<{ name: string; source: string; salary_heading: string | null }>("SELECT name, source, salary_heading FROM hr_list WHERE kind = 'centre' AND source IS NOT NULL AND salary_heading IS NOT NULL")) {
+        const src = centres.get(c.source);
+        if (!src || (config.inactive ?? []).includes(src.slug) || (dirPerson && !dirSees(dirPerson, src.slug))) continue;
+        const heads = c.salary_heading!.split('|').map((h) => h.trim()).filter(Boolean);
+        const lines = await src.handle.db.query<{ id: number; name: string }>(`SELECT l.id, l.name FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.name IN (${heads.map(() => '?').join(',')}) ORDER BY l.code`, heads);
+        for (const l of lines) {
+          if (/insurance|تأمين|care/i.test(l.name)) continue;
+          const cost = (await src.handle.db.query<{ unit_cost: number }>('SELECT i.unit_cost FROM budget_item i WHERE i.line_id = ? ORDER BY i.version_id DESC, i.id LIMIT 1', [l.id]))[0]?.unit_cost ?? null;
+          const key = l.name.toLowerCase();
+          const cur = out.get(key) ?? { name: l.name, centres: [], amount: null, exists: have.has(key) };
+          cur.centres.push(c.name);
+          if (cur.amount == null) cur.amount = cost;
+          out.set(key, cur);
+        }
+      }
+      return send(res, 200, [...out.values()]);
+    }
+
     // ---- HR: an approved payroll run goes into the accounts of each centre (Fouad, 30 October 2026). Totals only: one
     // expense per account, budget line and currency, in the centre's Main book, with no names. Nobody types it twice.
     const hrApprover = async () => {

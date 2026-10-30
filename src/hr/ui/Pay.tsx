@@ -21,6 +21,7 @@ function usePayData(s: Session) {
 
 export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData; pd: HrPayData; reload: () => Promise<void>; open: (p: HrPerson) => void }) {
   const [grade, setGrade] = useState<HrGrade | 'new' | null>(null);
+  const [fromBudget, setFromBudget] = useState(false);
   const today = todayIso();
   const people = hr.people.filter((p) => p.active);
   const rows = people.map((p) => ({ p, c: payOn(pd, p.id, today) }));
@@ -30,7 +31,10 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
     <>
       <div className="hr-head">
         <div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')}</div><h1>{t3('سلّم الرواتب', 'Salary scale', 'Échelle des gratifications')}</h1></div>
-        <button className="btn gold" onClick={() => setGrade('new')}>＋ {t3('وظيفة', 'Add a position', 'Ajouter un poste')}</button>
+        <span className="row" style={{ gap: 6 }}>
+          <button className="btn" onClick={() => setFromBudget(true)}>{t3('استيراد الوظائف من الموازنات…', 'Import positions from the budgets…', 'Importer les postes depuis les budgets…')}</button>
+          <button className="btn gold" onClick={() => setGrade('new')}>＋ {t3('وظيفة', 'Add a position', 'Ajouter un poste')}</button>
+        </span>
       </div>
       <div className="hr-panel" style={{ marginBottom: 14 }}>
         <p className="muted small" style={{ marginTop: 0 }}>{t3('المبلغ المرجعي اقتراح عند كتابة اتفاقية. المكافأة نفسها تُثبَّت في اتفاقية كل شخص عند بدايتها، ويمكن تغييرها ابتداءً من تاريخ. تكلفة الساعة = شهري × 12 ÷ (ساعات الأسبوع × 52).', "The reference amount is a suggestion when an agreement is written. The stipend itself is fixed in each person's agreement at its beginning, and can be changed from a date. Cost of an hour = monthly × 12 ÷ (hours a week × 52).", "Le montant de référence est une suggestion quand un accord est rédigé. La gratification est fixée dans l'accord de chaque personne à son début, et peut changer à partir d'une date. Coût horaire = mensuel × 12 ÷ (heures par semaine × 52).")}</p>
@@ -80,6 +84,7 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
         <p className="muted small">{t3('الدفعة الثالثة عشرة مكافأة بدل الضمان الاجتماعي. مرّر المؤشر على تكلفة الساعة لتراها معها. اضغط على شخص لتغيير مكافأته.', 'The 13th payment is a bonus instead of social security. Hover the cost of an hour to see it with the 13th. Click a person to change their stipend.', 'Le 13e paiement remplace la sécurité sociale. Survolez le coût horaire pour le voir avec le 13e. Cliquez une personne pour changer sa gratification.')}</p>
       </div>
       <Settings s={s} d={pd} reload={reload} />
+      {fromBudget && <FromBudget s={s} onClose={() => setFromBudget(false)} reload={reload} />}
       {grade && <GradeModal s={s} grade={grade === 'new' ? null : grade} onClose={() => setGrade(null)} reload={reload} />}
     </>
   );
@@ -162,5 +167,42 @@ export function HoursPage({ s, hr }: { s: Session; hr: HrData }) {
         <p className="muted small">{t3('ساعات عادية فقط. المتوقّع = ساعات الأسبوع × 52 ÷ 12. الأجر الإضافي مكافأة تُعطى من حين لآخر.', 'Normal hours only. Expected = weekly hours × 52 ÷ 12. Extra pay is a bonus given from time to time.', 'Heures normales seulement. Attendues = heures par semaine × 52 ÷ 12. Un supplément est une gratification donnée de temps en temps.')}</p>
       </div>
     </>
+  );
+}
+
+/** The salary lines of the centres' budgets, as positions: tick the ones to create (the amount is the unit cost of the latest budget). */
+function FromBudget({ s, onClose, reload }: { s: Session; onClose: () => void; reload: () => Promise<void> }) {
+  const [rows, setRows] = useState<{ name: string; centres: string[]; amount: number | null; exists: boolean }[] | null>(null);
+  const [on, setOn] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    fetch('/api/hr/positions-from-budget', { credentials: 'same-origin' }).then((r) => r.json()).then((x) => { setRows(Array.isArray(x) ? x : []); setOn(Object.fromEntries((Array.isArray(x) ? x : []).filter((y: { exists: boolean }) => !y.exists).map((y: { name: string }) => [y.name, true]))); }).catch(() => setRows([]));
+  }, []);
+  const n = Object.values(on).filter(Boolean).length;
+  return (
+    <Modal title={t3('الوظائف من موازنات المراكز', "Positions from the centres' budgets", 'Postes depuis les budgets des centres')} onClose={onClose}>
+      <p className="muted small">{t3('بنود الرواتب في موازنة كل مركز (بلا التأمين). المبلغ هو تكلفة الوحدة في آخر موازنة، وهو اقتراح يمكنك تعديله. لتظهر هنا اختر أولاً بند الرواتب لكل مركز في «القوائم والمراكز».', 'The salary lines of the budget of each centre (insurance left out). The amount is the unit cost in the latest budget, a suggestion you can change. To appear here, first choose the salary heading of each centre in Lists and centres.', "Les lignes de salaires du budget de chaque centre (sans l'assurance). Le montant est le coût unitaire du dernier budget, une suggestion modifiable. Pour apparaître ici, choisissez d'abord la rubrique des salaires de chaque centre dans Listes et centres.")}</p>
+      {!rows ? <p className="muted">…</p> : !rows.length ? <p className="desk-alert">{t3('لا شيء: انسخ القوائم من المراكز واختر بند الرواتب لكل مركز.', "Nothing found: copy the lists from the centres and choose each centre's salary heading.", "Rien : copiez les listes des centres et choisissez la rubrique des salaires de chacun.")}</p> : (
+        <table className="desk-table">
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.name} style={{ opacity: r.exists ? 0.5 : 1 }}>
+                <td style={{ width: 28 }}><input type="checkbox" disabled={r.exists} checked={!!on[r.name]} onChange={(e) => setOn({ ...on, [r.name]: e.target.checked })} /></td>
+                <td><b>{r.name}</b><div className="muted small">{r.centres.join(' · ')}</div></td>
+                <td className="n">{r.amount != null ? `${usd(r.amount)} $` : '—'}</td>
+                <td className="small">{r.exists ? t3('موجودة', 'exists', 'existe') : ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t3('إلغاء', 'Cancel', 'Annuler')}</button>
+        <button className="btn primary" disabled={busy || !n} onClick={async () => {
+          setBusy(true);
+          try { for (const r of rows ?? []) if (on[r.name] && !r.exists) await s.api.call('hr.grade.save', { name: r.name, monthlyUsd: r.amount }); toast(t3(`أُنشئت ${n} وظيفة`, `${n} positions created`, `${n} postes créés`)); await reload(); onClose(); } catch (e) { fail(e); } finally { setBusy(false); }
+        }}>{t3(`إنشاء (${n})`, `Create (${n})`, `Créer (${n})`)}</button>
+      </div>
+    </Modal>
   );
 }

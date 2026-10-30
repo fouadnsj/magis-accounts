@@ -489,6 +489,12 @@ describe('HR database', () => {
     expect((await op('hr.data', {}, ck)).body.lists.some((x: { name: string }) => x.name === 'Old line by name')).toBe(false);
     const c = (await op('hr.data', {}, ck)).body.lists.find((x: { kind: string; name: string }) => x.kind === 'centre' && x.name === 'MAGIS Nine');
     expect([c.salary_heading, c.account]).toEqual(['Salary', 'Center']); // found by itself
+    // the positions can come from the salary lines of the budget (never an insurance line)
+    await op('line.add', { headingId, name: 'Health insurance (all staff)' }, boss);
+    expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
+    const found = await (await fetch(`${base}/api/hr/positions-from-budget`, { headers: { Cookie: ck } })).json();
+    expect(found.map((x: { name: string }) => x.name).sort()).toEqual(['Cleaner', 'Reception']);
+    expect(found.every((x: { exists: boolean; centres: string[] }) => !x.exists && x.centres[0] === 'MAGIS Nine')).toBe(true);
     await op('hr.grade.seed', {}, ck);
     const mk = async (first: string, role: string, amount: number) => {
       const id = (await op('hr.person.save', { first_name: first, centre: 'MAGIS Nine', role, started: '2026-01-01' }, ck)).body.id;

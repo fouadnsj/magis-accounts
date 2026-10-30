@@ -124,7 +124,7 @@ describe('HR database', () => {
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(200);
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(400); // only into an empty scale
     let d = (await op('hr.pay.data', {}, ck)).body;
-    expect(d.grades.map((g: { name: string; monthly_usd: number }) => [g.name, g.monthly_usd])).toEqual([['Centre Director', 300], ['Workshop Coordinator', 250], ['Guard & logistics', 230], ['Accountant', 250], ['Reception', 180], ['IT', 180], ['Cleaner', 180], ['Cook', 200]]);
+    expect(d.grades.map((g: { name: string; monthly_usd: number }) => [g.name, g.monthly_usd])).toEqual([['Centre Director', 300], ['Workshop Coordinator', 250], ['Guard & logistics', 230], ['Accountant', 250], ['Reception', 180], ['IT', 180], ['Cleaner', 180], ['Cook', 200], ['Academic Coordinator', 250], ['Media', 200]]);
     expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40 });
 
     // a pay needs a position or an amount; the weekly hours only give the hourly cost

@@ -112,7 +112,7 @@ export const HR_PAY_OPS = {
       return { ok: true };
     },
   },
-  // the scale taken from Fouad's own sheet "Salary scale": the positions and the monthly amount planned for 2027 (the
+  // the scale taken from Fouad's own sheet "Salary scale": the positions and the monthly amount planned for 2027 (and the two posts of the 2027 budgets) (the
   // agreements of January 2027 start from it); only into an empty scale
   'hr.grade.seed': {
     check: needPay,
@@ -121,6 +121,8 @@ export const HR_PAY_OPS = {
       const sheet: [string, number, string, string][] = [
         ['Centre Director', 300, '7 h a day', 'مدير المركز'], ['Workshop Coordinator', 250, '7 h a day', 'منسق الورشات'], ['Guard & logistics', 230, '8 h a day', 'حارس ولوجستيات'], ['Accountant', 250, '', 'محاسب'],
         ['Reception', 180, '5 h a day', 'استقبال'], ['IT', 180, '5 h a day', 'تقنية المعلومات'], ['Cleaner', 180, '6 h a day', 'عامل نظافة'], ['Cook', 200, '6 h a day', 'طباخ'],
+        // in the 2027 budgets (Magis budget folder), not in the salary sheet
+        ['Academic Coordinator', 250, '2027 budget', 'منسق أكاديمي'], ['Media', 200, '2027 budget', 'إعلام'],
       ];
       await c.db.batch([
         ...sheet.map(([name, amount, note, ar], i) => ({ sql: 'INSERT INTO hr_grade (id, name, name_ar, sort, monthly_usd, note) VALUES (?,?,?,?,?,?)', params: [i + 1, name, ar, i + 1, amount, note || null] })),

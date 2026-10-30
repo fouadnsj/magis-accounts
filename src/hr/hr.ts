@@ -204,6 +204,28 @@ export const HR_OPS = {
     },
   },
 
+  // Deleting a person (Fouad, 30 October 2026): everything about them goes (agreements, stipend, insurance, the list of
+  // their documents, signatures). Refused once they are in an approved or paid payroll run: that history belongs to the
+  // accounts, so they are marked as having left instead. Their lines in a draft run go with them.
+  'hr.person.delete': {
+    check: needManage,
+    run: async (c: OpCtx, a: { id: number }) => {
+      await requireHr(c.db);
+      const p = await one<{ name: string }>(c.db, 'SELECT name FROM hr_person WHERE id = ?', [a.id]);
+      if (!p) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
+      if (await one(c.db, "SELECT 1 AS x FROM hr_run_line l JOIN hr_run r ON r.id = l.run_id WHERE l.person_id = ? AND r.status IN ('approved','paid')", [a.id]))
+        throw new UserError(m('دُفعت له مكافآت في كشف معتمد: لا يُحذف. اكتب تاريخ مغادرته بدلاً من ذلك.', 'This person is in an approved or paid payroll run: they cannot be deleted. Write the date they left instead.', "Cette personne figure dans une paie approuvée ou payée : elle ne peut pas être supprimée. Indiquez plutôt la date de départ."));
+      const del = (table: string) => ({ sql: `DELETE FROM ${table} WHERE person_id = ?`, params: [a.id] });
+      await c.db.batch([
+        del('hr_run_line'), del('hr_pay'), del('hr_alloc'), del('hr_hours'), del('hr_insurance'), del('hr_conduct_sign'), del('hr_doc'), del('hr_paper'),
+        { sql: 'DELETE FROM hr_person WHERE id = ?', params: [a.id] },
+        logStmt(c, 'delete', 'person', a.id, a.id, p.name),
+        auditStmt(c.who, 'delete', 'hr_person', String(a.id), { name: p.name }, null),
+      ]);
+      return { ok: true };
+    },
+  },
+
   // the lists can also be added to by hand, or cleaned
   'hr.list.save': {
     check: needManage,

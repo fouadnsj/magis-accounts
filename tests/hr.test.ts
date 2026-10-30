@@ -428,4 +428,35 @@ describe('HR database', () => {
       ['Reception', 180, 3, 1, 3.25, 585],
     ]);
   });
+
+  it('a person can be deleted, with everything about them, unless already paid in an approved run', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR eight', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR eight', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const profiles = (await call(`/api/profiles?db=${slug}`)).body;
+    const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
+    await op('hr.grade.seed', {}, ck);
+    const mk = async (name: string) => {
+      const id = (await op('hr.person.save', { first_name: name, started: '2026-01-01' }, ck)).body.id as number;
+      await op('hr.paper.save', { personId: id, kind: 'agreement', start: '2026-01-01', end: '2026-12-31', position: 'Cook', amount: 200, weeklyHours: 36 }, ck);
+      await op('hr.ins.save', { personId: id, amountUsd: 100 }, ck);
+      return id;
+    };
+    const mistake = await mk('Typed by mistake');
+    const paid = await mk('Already paid');
+    const run = (await op('hr.run.create', { ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    expect((await op('hr.run.get', { id: run }, ck)).body.lines).toHaveLength(2);
+    // in a draft run: the person goes, with their line
+    expect((await op('hr.person.delete', { id: mistake }, ck)).status).toBe(200);
+    const d = (await op('hr.data', {}, ck)).body;
+    expect(d.people.map((p: { id: number }) => p.id)).toEqual([paid]);
+    expect(d.papers.every((p: { person_id: number }) => p.person_id === paid)).toBe(true);
+    expect((await op('hr.pay.data', {}, ck)).body.pays.every((p: { person_id: number }) => p.person_id === paid)).toBe(true);
+    expect((await op('hr.ins.list', {}, ck)).body).toHaveLength(1);
+    expect((await op('hr.run.get', { id: run }, ck)).body.lines).toHaveLength(1);
+    // once approved, the history stays: refused
+    await op('hr.run.approve', { id: run }, ck);
+    expect((await op('hr.person.delete', { id: paid }, ck)).status).toBe(400);
+    expect((await op('hr.access.list', {}, ck)).body.some((l: { action: string; what: string; detail: string }) => l.action === 'delete' && l.what === 'person' && l.detail === 'Typed by mistake')).toBe(true);
+  });
 });

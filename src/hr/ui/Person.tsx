@@ -42,7 +42,7 @@ export function PersonPage({ person, onBack, onCreated, ...x }: P & { person: Hr
         </div>
         {person && <div className="hr-tabs">{tabs.map(([k, label]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>)}</div>}
       </div>
-      {(!person || tab === 'identity') && <Identity {...x} person={person} onCreated={onCreated} />}
+      {(!person || tab === 'identity') && <Identity {...x} person={person} onCreated={onCreated} onDeleted={onBack} />}
       {person && tab === 'agreement' && <Agreement {...x} person={person} />}
       {person && tab === 'letters' && <Letters {...x} person={person} />}
       {person && tab === 'insurance' && <InsurancePage s={x.s} hr={x.d} only={person.id} />}
@@ -54,7 +54,7 @@ export function PersonPage({ person, onBack, onCreated, ...x }: P & { person: Hr
 
 // ---------------------------------------------------------------- who they are, in Arabic and English
 
-function Identity({ s, d, reload, manage, person, onCreated }: P & { person: HrPerson | null; onCreated: (id: number) => void }) {
+function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { person: HrPerson | null; onCreated: (id: number) => void; onDeleted: () => void }) {
   const [f, setF] = useState<Partial<HrPerson>>(person ? { ...person, first_name: person.first_name ?? (person.name_ar ? null : person.name) } : { active: 1 });
   const set = (k: keyof HrPerson) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const inp = (k: keyof HrPerson, o: { dir?: 'rtl' | 'ltr'; type?: string } = {}) => <input dir={o.dir} type={o.type} value={(f[k] as string | null) ?? ''} onChange={set(k)} disabled={!manage} />;
@@ -102,7 +102,10 @@ function Identity({ s, d, reload, manage, person, onCreated }: P & { person: HrP
         <Field label={t3('غادر في (فارغ إن كان مستمراً)', 'Left on (empty if still here)', 'Parti le (vide si toujours là)')}>{inp('ended', { type: 'date' })}</Field>
         <Field label={t3('ملاحظة', 'Note', 'Note')} className="span2">{inp('note')}</Field>
       </div>
-      {manage && <div className="modal-foot"><button className="btn primary" disabled={!(f.first_name?.trim() || f.first_name_ar?.trim())} onClick={save}>{person ? t3('حفظ', 'Save', 'Enregistrer') : t3('إنشاء', 'Create', 'Créer')}</button></div>}
+      {manage && <div className="modal-foot">{person && <button className="btn danger" style={{ marginInlineEnd: 'auto' }} onClick={async () => {
+        if (!(await confirmBox(t3(`حذف ${person.name_ar || person.name} نهائياً، مع اتفاقياته ومكافآته وتأمينه ووثائقه؟`, `Delete ${person.name || person.name_ar} for good, with their agreements, stipend, insurance and documents?`, `Supprimer définitivement ${person.name || person.name_ar}, avec ses accords, gratifications, assurance et documents ?`), true))) return;
+        try { await s.api.call('hr.person.delete', { id: person.id }); toast(t3('حُذف', 'Deleted', 'Supprimé')); await reload(); onDeleted(); } catch (e) { fail(e); }
+      }}>{t3('حذف الشخص', 'Delete the person', 'Supprimer la personne')}</button>}<button className="btn primary" disabled={!(f.first_name?.trim() || f.first_name_ar?.trim())} onClick={save}>{person ? t3('حفظ', 'Save', 'Enregistrer') : t3('إنشاء', 'Create', 'Créer')}</button></div>}
     </div>
   );
 }

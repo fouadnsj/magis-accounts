@@ -1,0 +1,123 @@
+/* The HR screens in the MAGIS design (Concept Note 2027): warm off-white, ink and a thin gold line, and each person
+   in the colour and with the mark of their centre — Jaramana gold, Aleppo navy, Homs maroon. */
+.hr { --hr-bg: #FDFCF9; --hr-ink: #26292E; --hr-line: #E4DED0; --hr-gold: #B8891B; --hr-gold-d: #8A6A1A; --hr-warm: #EFEAE0; --hr-soft: #8A8577;
+  display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; background: var(--hr-bg); color: var(--hr-ink); }
+
+/* the side: ink, the gold line, the Jesuit logo and the MAGIS sun */
+.hr-side { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--hr-ink); color: #fff; border-inline-start: 4px solid var(--hr-gold); padding: 16px 12px; display: flex; flex-direction: column; gap: 2px; }
+.hr-side-top { display: flex; align-items: center; gap: 10px; padding: 0 6px 14px; border-bottom: 1px solid rgba(255,255,255,0.14); margin-bottom: 10px; }
+.hr-side-top .tile { background: var(--hr-bg); border-radius: 10px; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; flex: none; padding: 4px; }
+.hr-side-top .tile img { max-width: 100%; max-height: 100%; }
+.hr-side-top b { display: block; font-size: 15px; }
+.hr-side-top span { display: block; font-size: 12px; opacity: 0.7; }
+.hr-side .group { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #d9c48f; padding: 12px 10px 3px; }
+.hr-side button { background: none; border: 0; color: #fff; text-align: start; padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px; font: inherit; }
+.hr-side button:hover { background: rgba(255,255,255,0.08); }
+.hr-side button.on { background: var(--hr-gold); color: #fff; font-weight: 650; }
+.hr-side .spacer { flex: 1; }
+.hr-side .sun { display: flex; justify-content: center; padding: 10px 0 4px; opacity: 0.9; }
+.hr-side .sun img { height: 40px; }
+.hr-badge { background: #fff; color: var(--hr-gold-d); border-radius: 10px; padding: 0 7px; font-size: 12px; font-weight: 700; font-style: normal; }
+.hr-side button.on .hr-badge { color: var(--hr-gold-d); }
+
+.hr-main { padding: 22px 28px 70px; min-width: 0; }
+.hr-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--hr-line); }
+.hr-head h1 { margin: 2px 0 0; font-size: 24px; color: var(--hr-ink); }
+.hr-eyebrow { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hr-gold-d); }
+
+/* panels and tables, also for the pages written before (payroll, insurance, lists) */
+.hr .cty-card, .hr .hr-panel { background: #fff; border: 1px solid var(--hr-line); border-radius: 12px; padding: 14px 16px; }
+.hr .desk-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--hr-line); }
+.hr .desk-head h1 { font-size: 22px; margin: 0; color: var(--hr-ink); }
+.hr .desk-filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hr .desk-filters input, .hr .desk-filters select { padding: 7px 10px; border: 1px solid var(--hr-line); border-radius: 8px; background: #fff; }
+.hr .desk-scroll { overflow-x: auto; }
+.hr .desk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hr .desk-table th { text-align: start; font-weight: 600; color: var(--hr-soft); border-bottom: 2px solid var(--hr-line); padding: 7px 8px; white-space: nowrap; font-size: 12px; }
+.hr .desk-table td { border-bottom: 1px solid #F1ECE2; padding: 7px 8px; vertical-align: middle; }
+.hr .desk-table td.n, .hr .desk-table th.n { text-align: end; font-variant-numeric: tabular-nums; direction: ltr; white-space: nowrap; }
+.hr .desk-table tr.click { cursor: pointer; }
+.hr .desk-table tr.click:hover td { background: #FBF7EE; }
+.hr .desk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.hr .desk-card { margin: 0; }
+.hr .desk-bal b { font-size: 24px; color: var(--hr-ink); font-variant-numeric: tabular-nums; }
+.hr .desk-todo ul { margin: 6px 0 0; padding-inline-start: 18px; }
+.hr .desk-todo li { margin: 4px 0; }
+.hr .desk-alert { color: #a3341f; }
+.hr .cty-badge.static { background: var(--hr-gold); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 12px; font-style: normal; }
+.hr .ok { color: #2f6b3a; }
+.hr .link { background: none; border: 0; padding: 0; color: var(--hr-gold-d); cursor: pointer; font: inherit; text-align: start; }
+.hr .link:hover { text-decoration: underline; }
+.hr .btn.primary { background: var(--hr-ink); border-color: var(--hr-ink); color: #fff; }
+.hr .btn.primary:hover { background: #000; }
+.hr .btn.gold { background: var(--hr-gold); border-color: var(--hr-gold); color: #fff; }
+
+/* the two names of a person: Arabic, then English */
+.hr-names { display: inline-flex; flex-direction: column; line-height: 1.25; }
+.hr-names b { font-weight: 650; }
+.hr-names i { font-style: normal; font-size: 12px; color: var(--hr-soft); }
+.hr-names.big b { font-size: 24px; }
+.hr-names.big i { font-size: 15px; }
+
+/* centre filters */
+.hr-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.hr-chips button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--hr-line); background: #fff; border-radius: 20px; padding: 5px 12px 5px 6px; cursor: pointer; font: inherit; }
+.hr-chips button img { height: 22px; }
+.hr-chips button.on { border-color: var(--centre-deep, var(--hr-ink)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--centre, var(--hr-gold)) 35%, transparent); font-weight: 600; }
+
+/* a person: a card in the colour of their centre */
+.hr-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.hr-card { display: flex; gap: 12px; align-items: center; background: #fff; border: 1px solid var(--hr-line); border-inline-start: 6px solid var(--centre, var(--hr-gold)); border-radius: 12px; padding: 12px 14px; cursor: pointer; text-align: start; font: inherit; color: inherit; transition: transform 0.08s, box-shadow 0.08s; }
+.hr-card:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(38,41,46,0.08); }
+.hr-card.off { opacity: 0.55; }
+.hr-card .mark { width: 42px; height: 42px; flex: none; display: flex; align-items: center; justify-content: center; }
+.hr-card .mark img { max-width: 100%; max-height: 100%; }
+.hr-card .body { flex: 1; min-width: 0; }
+.hr-card .meta { font-size: 12px; color: var(--hr-soft); margin-top: 3px; }
+.hr-card .amount { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--centre-deep, var(--hr-ink)); white-space: nowrap; }
+.hr-card.new { border-style: dashed; border-inline-start: 6px dashed var(--hr-gold); background: transparent; justify-content: center; color: var(--hr-gold-d); font-weight: 600; }
+
+/* the person's page: its heading is the heading of their documents (centre mark | names | Jesuit logo) */
+.hr-sheet { background: #fff; border: 1px solid var(--hr-line); border-top: 6px solid var(--centre, var(--hr-gold)); border-radius: 14px; padding: 16px 20px 0; margin-bottom: 16px; }
+.hr-sheet-top { display: grid; grid-template-columns: 70px 1fr 70px; align-items: center; gap: 12px; padding-bottom: 12px; border-bottom: 2px solid var(--hr-gold); }
+.hr-sheet-top img { max-width: 64px; max-height: 64px; }
+.hr-sheet-top .jesuit { justify-self: end; }
+.hr-sheet-top .mid { text-align: center; }
+.hr-sheet-top .mid .hr-names { align-items: center; }
+.hr-sheet-top .sub { font-size: 13px; color: var(--hr-soft); margin-top: 4px; }
+.hr-tabs { display: flex; gap: 2px; flex-wrap: wrap; padding-top: 4px; }
+.hr-tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 12px; cursor: pointer; font: inherit; color: var(--hr-soft); }
+.hr-tabs button.on { color: var(--hr-ink); border-bottom-color: var(--centre, var(--hr-gold)); font-weight: 650; }
+
+/* Arabic | English side by side */
+.hr-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 22px; }
+.hr-two > div > h4 { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hr-gold-d); }
+
+/* the stipend over time: the agreement fixes it, a change from a date follows */
+.hr-timeline { list-style: none; margin: 8px 0 0; padding: 0; border-inline-start: 2px solid var(--hr-line); }
+.hr-timeline li { position: relative; padding: 6px 0 10px 18px; }
+.hr-timeline li::before { content: ''; position: absolute; inset-inline-start: -7px; top: 10px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid var(--centre, var(--hr-gold)); }
+.hr-timeline li.now::before { background: var(--centre, var(--hr-gold)); }
+.hr-timeline .when { font-size: 12px; color: var(--hr-soft); }
+.hr-big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hr-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 4px; }
+.hr-stats > div { background: var(--hr-warm); border-radius: 10px; padding: 10px 12px; }
+.hr-stats small { display: block; color: var(--hr-soft); font-size: 12px; }
+
+@media (max-width: 760px) {
+  .hr { grid-template-columns: 1fr; }
+  .hr-side { position: static; height: auto; }
+  .hr-main { padding: 14px; }
+  .hr-two { grid-template-columns: 1fr; }
+}
+
+/* what needs attention: one line per kind, the names inside */
+.hr-attn { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.hr-attn-row > button { width: 100%; display: flex; align-items: center; gap: 10px; background: var(--hr-warm); border: 0; border-radius: 10px; padding: 9px 12px; cursor: pointer; font: inherit; color: inherit; text-align: start; }
+.hr-attn-row.open > button { background: #E9E1CF; }
+.hr-attn-row .ico { width: 22px; text-align: center; }
+.hr-attn-row .lbl { flex: 1; }
+.hr-attn-row .n { background: #fff; color: var(--hr-gold-d); border-radius: 12px; padding: 0 9px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hr-attn-row .chev { color: var(--hr-soft); }
+.hr-attn-row ul { margin: 6px 0 4px; padding-inline-start: 40px; }
+.hr-attn-row li { margin: 3px 0; }

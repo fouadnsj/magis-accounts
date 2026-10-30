@@ -124,7 +124,7 @@ describe('HR database', () => {
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(200);
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(400); // only into an empty scale
     let d = (await op('hr.pay.data', {}, ck)).body;
-    expect(d.grades.map((g: { name: string; rates: Record<string, number> }) => [g.name, g.rates['2027']])).toEqual([['Centre Director', 300], ['Workshop Coordinator', 250], ['Guard & logistics', 230], ['Accountant', 250], ['Reception', 180], ['IT', 180], ['Cleaner', 180], ['Cook', 200]]);
+    expect(d.grades.map((g: { name: string; monthly_usd: number }) => [g.name, g.monthly_usd])).toEqual([['Centre Director', 300], ['Workshop Coordinator', 250], ['Guard & logistics', 230], ['Accountant', 250], ['Reception', 180], ['IT', 180], ['Cleaner', 180], ['Cook', 200]]);
     expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40 });
 
     // a pay needs a position or an amount; the weekly hours only give the hourly cost
@@ -139,8 +139,9 @@ describe('HR database', () => {
     expect((await op('hr.grade.delete', { id: 1 }, ck)).status).toBe(400);
     expect((await op('hr.grade.delete', { id: 4 }, ck)).status).toBe(200);
     // a new year's rate on an existing grade
-    expect((await op('hr.grade.save', { id: 1, name: 'Centre Director', rates: { '2028': 320 } }, ck)).status).toBe(200);
-    expect((await op('hr.grade.save', { id: 1, name: 'Centre Director', rates: { '2028': 0 } }, ck)).status).toBe(400);
+    expect((await op('hr.grade.save', { id: 1, name: 'Centre Director', monthlyUsd: 320 }, ck)).status).toBe(200);
+    expect((await op('hr.grade.save', { id: 1, name: 'Centre Director', monthlyUsd: 0 }, ck)).status).toBe(400);
+    expect((await op('hr.grade.save', { name: 'Cook', monthlyUsd: 210 }, ck)).status).toBe(400); // exists already
 
     // hours of a month, then removed
     expect((await op('hr.hours.save', { personId: pid, ym: '2027-03', hours: 190 }, ck)).status).toBe(200);
@@ -170,7 +171,7 @@ describe('HR database', () => {
     const l = await mk('Left Long Ago', { ended: '2026-02-01' });
     await op('hr.grade.seed', { year: 2026 }, ck);
     await op('hr.pay.save', { personId: g, validFrom: '2026-01-01', gradeId: 3, weeklyHours: 48 }, ck);   // Guard & logistics: 230
-    await op('hr.pay.save', { personId: r, validFrom: '2026-01-01', gradeId: 5, weeklyHours: 30 }, ck);   // Reception: 130 in 2026 (180 in 2027)
+    await op('hr.pay.save', { personId: r, validFrom: '2026-01-01', gradeId: 5, weeklyHours: 30 }, ck);   // Reception: 180 (the reference of the position)
     await op('hr.pay.save', { personId: l, validFrom: '2026-01-01', monthlyUsd: 100, weeklyHours: 20 }, ck);
     await op('hr.hours.save', { personId: g, ym: '2026-11', hours: 205 }, ck);
     // a stipend letter paid in November, in pounds
@@ -184,7 +185,7 @@ describe('HR database', () => {
     let got = (await op('hr.run.get', { id: runId }, ck)).body;
     // the person who left in February is not in November's run; the letter is a line of its own
     expect(got.lines.map((x: { person_name: string; total_usd: number; label: string | null }) => [x.person_name, x.total_usd, x.label])).toEqual([
-      ['Guard One', 230, null], ['Reception One', 130, null], ['Reception One', 50, 'Stipend: Workshop'],
+      ['Guard One', 230, null], ['Reception One', 180, null], ['Reception One', 50, 'Stipend: Workshop'],
     ]);
     expect(got.lines[0].hours_worked).toBe(205);
     expect(got.lines[2]).toMatchObject({ paid_in: 'SYP', amount_paid: 650000 });
@@ -207,14 +208,14 @@ describe('HR database', () => {
     expect(v.rows).toEqual([
       { account: 'CJF', budget_line: 'Staff - Guards', target: null, paid_in: 'SYP', total_usd: 250, amount_paid: 3250000 },
       { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'SYP', total_usd: 50, amount_paid: 650000 },
-      { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'USD', total_usd: 145, amount_paid: 145 },
+      { account: 'CJF', budget_line: 'Staff - Reception', target: null, paid_in: 'USD', total_usd: 195, amount_paid: 195 },
     ]);
-    expect(v.total_usd).toBe(445);
+    expect(v.total_usd).toBe(495);
 
     // the 13th payment is a run of its own
     expect((await op('hr.run.create', { ym: '2026-12', kind: 'thirteenth', rateSyp: 13000 }, ck)).status).toBe(200);
     const th = (await op('hr.run.list', {}, ck)).body;
-    expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 360], ['2026-11', 'monthly', 'paid', 445]]);
+    expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 410], ['2026-11', 'monthly', 'paid', 495]]);
   });
 
   it('insurance with its reminder; split by donor or project in the voucher and the donor report', async () => {
@@ -313,26 +314,118 @@ describe('HR database', () => {
     const ins = (await op('hr.ins.list', {}, ck)).body as { member_name: string | null; currency: string; paid_by: string }[];
     expect(ins.map((x) => [x.member_name, x.currency, x.paid_by])).toEqual([[null, 'USD', 'centre'], ['Her brother', 'USD', 'staff'], ['Her mother', 'SYP', 'staff']]);
 
-    // the Word files are real .docx (a zip) holding the person's data
-    const { default: JSZip } = await import('jszip');
-    const textOf = async (bytes: Uint8Array) => (await (await JSZip.loadAsync(bytes)).file('word/document.xml')!.async('string')).replace(/<[^>]+>/g, '');
+    // the names in Arabic too: the Arabic text of the agreement takes them, the English text the English ones
+    expect((await op('hr.person.save', { id, first_name: 'Salma', last_name: 'Haddad', father_name: 'Ahmad', first_name_ar: 'سلمى', last_name_ar: 'حداد', father_name_ar: 'أحمد', address_ar: 'حلب، العزيزية', national_id: '01234567890', address: 'Aleppo, Azizieh', centre: 'MAGIS Five', account: 'CJF', role: 'Reception' }, ck)).status).toBe(200);
     person = (await op('hr.data', {}, ck)).body.people.find((x: { id: number }) => x.id === id);
-    const ctx = { org: 'HR five', person, repAr: 'الأب فؤاد', repEn: 'Fr Fouad', maxWeekly: 40 };
-    const agreement = await textOf(await agreementDoc(ctx, { id: 1, person_id: id, kind: 'agreement', start_date: '2027-01-01', end_date: '2027-12-31', service: null, amount: 100, currency: 'USD', paid_on: null, note: null, file_name: null, size: null, created_at: '' }));
+    expect(person.name_ar).toBe('سلمى حداد');
+    expect(person.name).toBe('Salma Haddad');
+
+    // the Word files are real .docx (a zip) holding the person's data, with the centre mark and the Jesuit logo
+    const { default: JSZip } = await import('jszip');
+    const zipOf = async (bytes: Uint8Array) => JSZip.loadAsync(bytes);
+    const textOf = async (bytes: Uint8Array) => (await (await zipOf(bytes)).file('word/document.xml')!.async('string')).replace(/<[^>]+>/g, '');
+    const headerText = async (bytes: Uint8Array) => (await Promise.all(Object.keys((await zipOf(bytes)).files).filter((f) => /word\/header\d*\.xml/.test(f)).map(async (f) => (await (await zipOf(bytes)).file(f)!.async('string')).replace(/<[^>]+>/g, '')))).join(' ');
+    const centreItem = (await op('hr.data', {}, ck)).body.lists.find((x: { kind: string; name: string }) => x.kind === 'centre' && x.name === 'MAGIS Five');
+    expect(centreItem.code).toBe('homs'); // the centre's mark comes from the centre database
+    const png = (f: string) => new Uint8Array(fs.readFileSync(path.join(__dirname, '..', 'public', 'brand', f)));
+    const head = { centre: centreItem, mark: png('mark-homs.png'), jesuit: png('jesuits.png') };
+    const ctx = { person, head, maxWeekly: 40 };
+    const agBytes = await agreementDoc(ctx, { id: 1, person_id: id, kind: 'agreement', start_date: '2027-01-01', end_date: '2027-12-31', service: null, amount: 100, currency: 'USD', paid_on: null, note: null, file_name: null, size: null, created_at: '', position: 'Reception', weekly_hours: 30 });
+    const agreement = await textOf(agBytes);
     expect(agreement).toContain('اتفاقية تطوع');
-    expect(agreement).toContain('Salma Haddad');
+    expect(agreement).toContain('سلمى حداد');          // Arabic name in the Arabic text
+    expect(agreement).toContain('أحمد');
+    expect(agreement).toContain('حلب، العزيزية');
+    expect(agreement).toContain('Salma Haddad');       // English name in the English text
     expect(agreement).toContain('01234567890');
     expect(agreement).toContain('01-01-2027');
     expect(agreement).toContain('$100 USD');
-    expect(agreement).toContain('Volunteer agreement (English translation');
-    const letter = await textOf(await stipendDoc(ctx, { id: 2, person_id: id, kind: 'stipend', start_date: '2026-10-01', end_date: null, service: 'Workshop animation', amount: 650000, currency: 'SYP', paid_on: '2026-10-15', note: null, file_name: null, size: null, created_at: '' }));
+    expect(agreement).toContain('الرهبانية اليسوعية – حمص'); // the first party of the centre (Homs: no text of its own yet)
+    expect(Object.keys((await zipOf(agBytes)).files).filter((f) => f.startsWith('word/media/')).length).toBeGreaterThanOrEqual(2); // the two logos
+    expect(await headerText(agBytes)).toContain('Society of Jesus');
+    const letter = await textOf(await stipendDoc(ctx, { id: 2, person_id: id, kind: 'stipend', start_date: '2026-10-01', end_date: null, service: 'Workshop animation', amount: 650000, currency: 'SYP', paid_on: '2026-10-15', note: null, file_name: null, size: null, created_at: '', position: null, weekly_hours: null }));
     expect(letter).toContain('رسالة مكافأة لمرة واحدة');
     expect(letter).toContain('Workshop animation');
     expect(letter).toContain('650,000 SYP');
     const run = { id: 1, ym: '2026-11', kind: 'monthly', rate_syp: 13000, status: 'approved', note: null, created_by: null, approved_at: null, approved_by: null, paid_on: null, paid_by: null, lines: 1, total_usd: 180 } as const;
-    const slips = await textOf(await payslipsDoc('HR five', run, [{ id: 1, run_id: 1, person_id: id, person_name: 'Salma Haddad', national_id: '01234567890', role: 'Reception', label: null, paper_id: null, weekly_hours: 30, hours_worked: null, base_usd: 180, bonus_usd: 0, deduction_usd: 0, total_usd: 180, paid_in: 'USD', amount_paid: 180, account: null, budget_line: null, note: null }], [person]));
+    const slips = await textOf(await payslipsDoc(run, [{ id: 1, run_id: 1, person_id: id, person_name: 'Salma Haddad', national_id: '01234567890', role: 'Reception', label: null, paper_id: null, weekly_hours: 30, hours_worked: null, base_usd: 180, bonus_usd: 0, deduction_usd: 0, total_usd: 180, paid_in: 'USD', amount_paid: 180, account: null, budget_line: null, note: null }], [person], () => head));
+    expect(slips).toContain('سلمى حداد');
     expect(slips).toContain('Salma Haddad');
     expect(slips).toContain('Payslip');
     expect(slips).toContain('180 USD');
+
+    // a centre's own heading: who signs, in both languages
+    expect((await op('hr.list.save', { id: centreItem.id, kind: 'centre', name: 'MAGIS Five', code: 'homs', party_ar: 'دير الآباء اليسوعيين في حمص', rep_ar: 'الأب س', rep_en: 'Fr S', city_ar: 'حمص', city_en: 'Homs' }, ck)).status).toBe(200);
+    expect((await op('hr.list.save', { id: centreItem.id, kind: 'centre', name: 'MAGIS Five', code: 'mars' }, ck)).status).toBe(400);
+    const c2 = (await op('hr.data', {}, ck)).body.lists.find((x: { id: number }) => x.id === centreItem.id);
+    const ag2 = await textOf(await agreementDoc({ person, head: { ...head, centre: c2 }, maxWeekly: 40 }, { id: 1, person_id: id, kind: 'agreement', start_date: '2027-01-01', end_date: '2027-12-31', service: null, amount: 100, currency: 'USD', paid_on: null, note: null, file_name: null, size: null, created_at: '', position: null, weekly_hours: null }));
+    expect(ag2).toContain('دير الآباء اليسوعيين في حمص يمثله في هذا العقد الأب س');
+    expect(ag2).toContain('represented in this agreement by Fr S');
+  });
+
+  it('the agreement fixes the stipend at its beginning; it changes from a date; the hourly cost follows', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR six', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR six', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const profiles = (await call(`/api/profiles?db=${slug}`)).body;
+    const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
+    await op('hr.grade.seed', {}, ck);
+    const pid = (await op('hr.person.save', { first_name_ar: 'ريم', last_name_ar: 'خوري', started: '2027-01-01' }, ck)).body.id;
+    expect((await op('hr.data', {}, ck)).body.people.find((p: { id: number }) => p.id === pid).name).toBe('ريم خوري'); // an Arabic name only is enough
+
+    // the agreement: position Reception (reference 180), but this person is agreed at 170 for 25 hours a week
+    expect((await op('hr.paper.save', { personId: pid, kind: 'agreement', start: '2027-01-01', end: '2027-12-31', position: 'Astronaut', amount: 170 }, ck)).status).toBe(400);
+    const ag = (await op('hr.paper.save', { personId: pid, kind: 'agreement', start: '2027-01-01', end: '2027-12-31', position: 'Reception', amount: 170, weeklyHours: 25 }, ck)).body.id;
+    let pd = (await op('hr.pay.data', {}, ck)).body;
+    expect(pd.pays.map((p: { valid_from: string; monthly_usd: number; weekly_hours: number; paper_id: number }) => [p.valid_from, p.monthly_usd, p.weekly_hours, p.paper_id])).toEqual([['2027-01-01', 170, 25, ag]]);
+    expect((await op('hr.data', {}, ck)).body.people.find((p: { id: number }) => p.id === pid).role).toBe('Reception');
+    // the agreement's line follows the agreement, and cannot be changed or deleted on its own
+    await op('hr.paper.save', { id: ag, personId: pid, kind: 'agreement', start: '2027-01-01', end: '2027-12-31', position: 'Reception', amount: 175, weeklyHours: 25 }, ck);
+    pd = (await op('hr.pay.data', {}, ck)).body;
+    expect(pd.pays).toHaveLength(1);
+    expect(pd.pays[0].monthly_usd).toBe(175);
+    expect((await op('hr.pay.delete', { id: pd.pays[0].id }, ck)).status).toBe(400);
+
+    // in the middle of the year: 190 from 1 July, 30 hours
+    expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-07-01', gradeId: pd.pays[0].grade_id, monthlyUsd: 190, weeklyHours: 30, note: 'more hours' }, ck)).status).toBe(200);
+    const { payOn } = await import('../src/hr/pay');
+    pd = (await op('hr.pay.data', {}, ck)).body;
+    const march = payOn(pd, pid, '2027-03-31')!, august = payOn(pd, pid, '2027-08-31')!;
+    expect([march.monthly, march.weekly, march.hourly]).toEqual([175, 25, 1.62]); // 175 x 12 / (25 x 52)
+    expect([august.monthly, august.weekly, august.hourly]).toEqual([190, 30, 1.46]);
+    // the payroll of each month takes the stipend of that month
+    const r3 = (await op('hr.run.create', { ym: '2027-03', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const r8 = (await op('hr.run.create', { ym: '2027-08', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    expect((await op('hr.run.get', { id: r3 }, ck)).body.lines[0].total_usd).toBe(175);
+    expect((await op('hr.run.get', { id: r8 }, ck)).body.lines[0].total_usd).toBe(190);
+    // deleting the agreement removes its line (the change of July stays)
+    await op('hr.paper.delete', { id: ag }, ck);
+    expect((await op('hr.pay.data', {}, ck)).body.pays.map((p: { valid_from: string }) => p.valid_from)).toEqual(['2027-07-01']);
+  });
+
+  it('the staff list for the budget: by centre, position and amount, the months and the 13th in proportion, no names', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR seven', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR seven', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const profiles = (await call(`/api/profiles?db=${slug}`)).body;
+    const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
+    await op('hr.grade.seed', {}, ck);
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Aleppo', code: 'aleppo' }, ck);
+    const mk = async (name: string, amount: number, start = '2027-01-01') => {
+      const id = (await op('hr.person.save', { first_name: name, centre: 'MAGIS Aleppo', started: start }, ck)).body.id;
+      await op('hr.paper.save', { personId: id, kind: 'agreement', start, end: '2027-12-31', position: 'Reception', amount, weeklyHours: 30 }, ck);
+      return id;
+    };
+    await mk('Secret One', 180);
+    await mk('Secret Two', 180);
+    const late = await mk('Secret Three', 180, '2027-07-01'); // 6 months
+    await op('hr.pay.save', { personId: late, validFrom: '2027-10-01', monthlyUsd: 200, weeklyHours: 30 }, ck); // 3 at 180, 3 at 200
+    const r = (await op('hr.budget.staff', { year: 2027 }, ck)).body;
+    expect(JSON.stringify(r)).not.toContain('Secret');
+    expect(r.rows.map((x: { position: string; monthly: number; months: number; people: number; times: number; total: number }) => [x.position, x.monthly, x.months, x.people, x.times, x.total])).toEqual([
+      ['Reception', 200, 3, 1, 3.25, 650],
+      ['Reception', 180, 12, 2, 13, 4680],
+      ['Reception', 180, 3, 1, 3.25, 585],
+    ]);
   });
 });

@@ -11,7 +11,7 @@ const fail = (e: unknown) => toast(errText(e), true);
 const usd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const daysTo = (d: string) => Math.round((Date.parse(d) - Date.parse(todayIso())) / 86400e3);
 
-export function InsurancePage({ s, hr }: { s: Session; hr: HrData }) {
+export function InsurancePage({ s, hr, only }: { s: Session; hr: HrData; /** one person's insurance only (their page) */ only?: number }) {
   const [rows, setRows] = useState<HrInsurance[] | null>(null);
   const [edit, setEdit] = useState<{ row: HrInsurance | null; personId: number | null; family: boolean } | null>(null);
   const load = useCallback(async () => { try { setRows(await s.api.call('hr.ins.list', {})); } catch (e) { fail(e); } }, [s]);
@@ -26,17 +26,17 @@ export function InsurancePage({ s, hr }: { s: Session; hr: HrData }) {
   const endCell = (r: HrInsurance) => (
     <td className={dd(r) != null && dd(r)! <= 60 ? 'desk-alert' : ''}>{r.end_date ? fmtDate(r.end_date) : '—'}{dd(r) != null && dd(r)! <= 60 ? ` ⚠ ${dd(r)! < 0 ? t3('منتهٍ', 'ended', 'terminée') : t3(`بعد ${dd(r)} يوماً`, `in ${dd(r)} days`, `dans ${dd(r)} jours`)}` : ''}</td>
   );
-  const people = hr.people.filter((p) => rows.some((r) => r.person_id === p.id));
+  const people = only ? hr.people.filter((p) => p.id === only) : hr.people.filter((p) => rows.some((r) => r.person_id === p.id));
   return (
     <>
-      <div className="desk-head"><h1>{t3('التأمين الصحي', 'Health insurance', 'Assurance maladie')}</h1><button className="btn primary" onClick={() => setEdit({ row: null, personId: null, family: false })}>＋ {t3('تأمين', 'Add an insurance', 'Ajouter une assurance')}</button></div>
+      {!only && <div className="hr-head"><div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')}</div><h1>{t3('التأمين الصحي', 'Health insurance', 'Assurance maladie')}</h1></div><button className="btn gold" onClick={() => setEdit({ row: null, personId: null, family: false })}>＋ {t3('تأمين', 'Add an insurance', 'Ajouter une assurance')}</button></div>}
       <p className="muted small">{t3('يُدفع سنوياً، بالدولار أو بالليرة. تأمين الموظف نفسه تدفعه المؤسسة، وتأمين عائلته يدفعه هو، ويُسجَّل منفصلاً. يظهر تنبيه قبل انتهائه بـ 60 يوماً.', "Paid yearly, in USD or SYP. The staff member's own insurance is paid by the centre; the family's is paid by the staff member and is kept apart. A reminder appears 60 days before it ends.", "Payée chaque année, en USD ou en SYP. L'assurance du membre du personnel est payée par le centre ; celle de sa famille par lui, et elle est séparée. Un rappel apparaît 60 jours avant la fin.")}</p>
       {people.map((p) => {
         const mine = rows.filter((r) => r.person_id === p.id);
         const own = mine.filter((r) => !r.member_name), family = mine.filter((r) => r.member_name);
         return (
-          <div key={p.id} className="cty-card" style={{ marginTop: 10, opacity: p.active ? 1 : 0.55 }}>
-            <div className="row" style={{ justifyContent: 'space-between' }}><b>{p.name}</b><span className="row" style={{ gap: 6 }}><button className="btn small" onClick={() => setEdit({ row: null, personId: p.id, family: false })}>＋ {t3('تأمينه', 'His/her own', 'La sienne')}</button><button className="btn small" onClick={() => setEdit({ row: null, personId: p.id, family: true })}>＋ {t3('فرد من العائلة', 'A family member', 'Un membre de la famille')}</button></span></div>
+          <div key={p.id} className="hr-panel" style={{ marginTop: only ? 0 : 10, opacity: p.active ? 1 : 0.55 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}><b>{p.name_ar || p.name}</b><span className="row" style={{ gap: 6 }}><button className="btn small" onClick={() => setEdit({ row: null, personId: p.id, family: false })}>＋ {t3('تأمينه', 'His/her own', 'La sienne')}</button><button className="btn small" onClick={() => setEdit({ row: null, personId: p.id, family: true })}>＋ {t3('فرد من العائلة', 'A family member', 'Un membre de la famille')}</button></span></div>
             <div className="muted small">{t3('تدفعه المؤسسة', 'Paid by the centre', 'Payé par le centre')}</div>
             <table className="desk-table"><tbody>
               {own.map((r) => <tr key={r.id}><td>{t3('هو/هي نفسه', 'The staff member', 'Le membre lui-même')}</td><td className="n">{money(r)}</td>{endCell(r)}<td className="right"><button className="btn small" onClick={() => setEdit({ row: r, personId: p.id, family: false })}>{t3('تعديل', 'Edit', 'Modifier')}</button></td></tr>)}
@@ -50,8 +50,8 @@ export function InsurancePage({ s, hr }: { s: Session; hr: HrData }) {
           </div>
         );
       })}
-      {!rows.length && <p className="muted">{t3('لا أحد مؤمَّن بعد.', 'Nobody insured yet.', 'Personne assuré pour le moment.')}</p>}
-      {centre.length > 0 && <p style={{ marginTop: 10 }}><b>{t3('تدفع المؤسسة سنوياً', 'The centre pays yearly', 'Le centre paie par an')}:</b> {sum(centre, 'USD') ? `${usd(sum(centre, 'USD'))} USD` : ''}{sum(centre, 'USD') && sum(centre, 'SYP') ? ' + ' : ''}{sum(centre, 'SYP') ? `${usd(sum(centre, 'SYP'))} SYP` : ''}</p>}
+      {!rows.length && !only && <p className="muted">{t3('لا أحد مؤمَّن بعد.', 'Nobody insured yet.', 'Personne assuré pour le moment.')}</p>}
+      {centre.length > 0 && !only && <p style={{ marginTop: 10 }}><b>{t3('تدفع المؤسسة سنوياً', 'The centre pays yearly', 'Le centre paie par an')}:</b> {sum(centre, 'USD') ? `${usd(sum(centre, 'USD'))} USD` : ''}{sum(centre, 'USD') && sum(centre, 'SYP') ? ' + ' : ''}{sum(centre, 'SYP') ? `${usd(sum(centre, 'SYP'))} SYP` : ''}</p>}
       {edit && <InsModal s={s} people={hr.people.filter((p) => p.active)} row={edit.row} personId={edit.personId} family={edit.family} onClose={() => setEdit(null)} onDone={async () => { setEdit(null); await load(); }} />}
     </>
   );

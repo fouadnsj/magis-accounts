@@ -956,10 +956,14 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!src || (config.inactive ?? []).includes(src.slug) || ((await getMeta(src.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, src.slug)))
         throw new HttpError(404, { ar: 'قاعدة المصدر غير موجودة', en: 'Source database not found' });
       const org = (await getMeta(src.handle.db, 'organisation')) ?? src.slug;
+      const centreKey = (await getMeta(src.handle.db, 'centre')) ?? guessCentre(org);
+      const CITY: Record<string, [string, string]> = { aleppo: ['حلب', 'Aleppo'], homs: ['حمص', 'Homs'], jaramana: ['جرمانا', 'Jaramana'] };
       const accounts = await src.handle.db.query<{ name: string }>('SELECT name FROM account WHERE active = 1 ORDER BY sort, name');
       const lines = await src.handle.db.query<{ name: string; code: string; heading: string }>('SELECT l.name, l.code, h.name AS heading FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.active = 1 ORDER BY h.sort, l.code');
       const stmts: Stmt[] = [
-        { sql: "INSERT OR IGNORE INTO hr_list (kind, name, source) VALUES ('centre', ?, ?)", params: [org, src.slug] },
+        // the centre with its mark and city; the first party and who signs are filled for Aleppo from Fouad's agreement
+        // (the others are written by hand in the Lists page)
+        { sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, source, city_ar, city_en, party_ar, rep_ar) VALUES ('centre', ?, ?, ?, ?, ?, ?, ?)", params: [org, centreKey, src.slug, CITY[centreKey]?.[0] ?? null, CITY[centreKey]?.[1] ?? null, centreKey === 'aleppo' ? 'دير الآباء اليسوعيين في حلب' : null, centreKey === 'aleppo' ? 'الأب فؤاد نخلة اليسوعي' : null] },
         ...accounts.map((a) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, source) VALUES ('account', ?, ?)", params: [a.name, src.slug] })),
         ...lines.map((l) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source) VALUES ('line', ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug] })),
       ];

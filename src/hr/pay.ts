@@ -31,22 +31,17 @@ export function hourlyWithThirteenth(monthly: number, weekly: number | null | un
 export const yearlyCost = (monthly: number, payments = 13) => monthly * payments;
 
 // ---- what a person is paid on a date (shared by the server and the screens)
-export interface ScaleGrade { id: number; name: string; rates: Record<number, number> }
-export interface ScalePay { id: number; person_id: number; valid_from: string; grade_id: number | null; weekly_hours: number | null; monthly_usd: number | null }
-export interface ScaleData { grades: ScaleGrade[]; pays: ScalePay[]; settings: PaySettings }
+// The stipend is fixed by the agreement at its beginning (a pay line made by the agreement), and can change from a date
+// in the middle of the year (a pay line of its own). The latest line that has begun is the one paid. A position's
+// reference amount is only a suggestion when an agreement is made; it is used for a line that has no amount of its own.
+export interface ScaleGrade { id: number; name: string; monthly_usd: number | null }
+export interface ScalePay { id: number; person_id: number; valid_from: string; grade_id: number | null; weekly_hours: number | null; monthly_usd: number | null; paper_id?: number | null }
 
-/** The monthly amount of a position for a year: that year's, else the latest earlier one. */
-export function rateFor(g: ScaleGrade, year: number): number | null {
-  const ys = Object.keys(g.rates).map(Number).filter((y) => y <= year).sort((a, b) => b - a);
-  return ys.length ? g.rates[ys[0]] : null;
-}
-
-/** What a person is paid on a date: from the latest pay that has begun. */
-export function payOn<G extends ScaleGrade, P extends ScalePay>(d: { grades: G[]; pays: P[]; settings: PaySettings }, personId: number, today: string) {
-  const p = d.pays.filter((x) => x.person_id === personId && x.valid_from <= today).sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
+/** What a person is paid on a date: from the latest pay line that has begun. */
+export function payOn<G extends ScaleGrade, P extends ScalePay>(d: { grades: G[]; pays: P[] }, personId: number, today: string) {
+  const p = d.pays.filter((x) => x.person_id === personId && x.valid_from <= today).sort((a, b) => b.valid_from.localeCompare(a.valid_from) || b.id - a.id)[0];
   if (!p) return null;
   const g = p.grade_id ? d.grades.find((x) => x.id === p.grade_id) ?? null : null;
-  const rate = g ? rateFor(g, Number(today.slice(0, 4))) : null;
-  const monthly = p.monthly_usd ?? rate;
-  return { pay: p, grade: g, rate, monthly, weekly: p.weekly_hours };
+  const monthly = p.monthly_usd ?? g?.monthly_usd ?? null;
+  return { pay: p, grade: g, monthly, weekly: p.weekly_hours, hourly: monthly != null ? hourlyFromMonthly(monthly, p.weekly_hours) : null };
 }

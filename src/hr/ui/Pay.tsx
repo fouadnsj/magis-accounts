@@ -1,18 +1,16 @@
-// HR stage 2 screens: the salary scale (grades with an hourly rate per year), the pay of each person
-// (grade + weekly hours, or an agreed monthly amount) with the true hourly rate, and the hours of each month.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+// The salary scale (Fouad, 30 October 2026): each position has ONE reference monthly amount, a suggestion when an
+// agreement is made. The stipend itself is fixed in each person's agreement at its beginning, and can change from a
+// date in the middle of the year. The cost of an hour is calculated from each person's own amount and weekly hours.
+import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '../../state';
-import { errText, Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../../ui/kit';
+import { Field, Modal, confirmBox, toast, todayIso } from '../../ui/kit';
 import { t3 } from '../../community/ui/text';
 import type { HrData, HrPerson } from '../hr';
-import type { HrGrade, HrPay, HrPayData } from '../payOps';
-import { SplitModal } from './Stage4';
-import { hourlyFromMonthly, hourlyWithThirteenth, monthlyHours, payOn, rateFor, yearlyCost } from '../pay';
+import type { HrGrade, HrPayData } from '../payOps';
+import { hourlyWithThirteenth, monthlyHours, payOn, yearlyCost } from '../pay';
+import { TwoNames, centreOf, centreVars, fail, markOf, usd } from './common';
 
-const fail = (e: unknown) => toast(errText(e), true);
-const usd = (n: number | null | undefined) => (n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
-
-export { payOn, rateFor };
+export { payOn };
 
 function usePayData(s: Session) {
   const [d, setD] = useState<HrPayData | null>(null);
@@ -21,83 +19,68 @@ function usePayData(s: Session) {
   return [d, reload] as const;
 }
 
-export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
-  const [d, reload] = usePayData(s);
+export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData; pd: HrPayData; reload: () => Promise<void>; open: (p: HrPerson) => void }) {
   const [grade, setGrade] = useState<HrGrade | 'new' | null>(null);
-  const [editPay, setEditPay] = useState<HrPerson | null>(null);
-  const [split, setSplit] = useState<HrPerson | null>(null);
   const today = todayIso();
-  const year = Number(today.slice(0, 4));
-  if (!d) return <p className="muted">…</p>;
   const people = hr.people.filter((p) => p.active);
-  const rows = people.map((p) => ({ p, c: payOn(d, p.id, today) }));
-  const monthlyTotal = rows.reduce((a, r) => a + (r.c?.monthly ?? 0), 0);
-  const typical = [30, 40, 48];
+  const rows = people.map((p) => ({ p, c: payOn(pd, p.id, today) }));
+  const total = rows.reduce((a, r) => a + (r.c?.monthly ?? 0), 0);
+  const on = (g: HrGrade) => rows.filter((r) => (r.c?.pay.grade_id ?? null) === g.id || (!r.c && r.p.role === g.name));
   return (
     <>
-      <div className="desk-head"><h1>{t3('سلّم الرواتب والمكافآت', 'Salary scale and stipends', 'Échelle et gratifications')}</h1></div>
-
-      <div className="cty-card">
-        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <b>{t3('الوظائف: المبلغ الشهري بالدولار', 'Positions: monthly amount in USD', 'Postes : montant mensuel en USD')}</b>
-          <button className="btn small" onClick={() => setGrade('new')}>＋ {t3('وظيفة', 'Add a position', 'Ajouter un poste')}</button>
-        </div>
-        <p className="muted small">{t3('المبلغ الشهري هو المحدَّد. تكلفة الساعة تُحسب بعد تثبيت ساعات الأسبوع لكل شخص: شهري × 12 ÷ (ساعات الأسبوع × 52).', 'The monthly amount is the fixed one. The hourly cost is calculated once the weekly hours are fixed for each person: monthly × 12 ÷ (weekly hours × 52).', 'Le montant mensuel est fixé. Le coût horaire est calculé une fois les heures par semaine fixées pour chaque personne : mensuel × 12 ÷ (heures par semaine × 52).')}</p>
-        {!d.grades.length ? (
-          <div>
-            <p>{t3('لا وظائف بعد.', 'No positions yet.', 'Aucun poste pour le moment.')}</p>
-            <button className="btn primary" onClick={async () => { try { await s.api.call('hr.grade.seed', { year }); await reload(); } catch (e) { fail(e); } }}>{t3('حمّل سلّمك من جدول الرواتب لتعدّله', 'Load your scale from the salary sheet, to edit', 'Charger votre échelle depuis la feuille de salaires, à modifier')}</button>
-          </div>
-        ) : (
-          <div className="desk-scroll">
-            <table className="desk-table">
-              <thead><tr><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th>{t3('ملاحظة', 'Note', 'Note')}</th><th className="n">{year - 1}</th><th className="n">{year} · {t3('شهرياً', 'monthly', 'mensuel')}</th><th className="n">{year + 1}</th>{typical.map((h) => <th key={h} className="n">{t3('الساعة عند', 'hourly at', 'horaire à')} {h} {t3('س', 'h/week', 'h/sem')}</th>)}<th /></tr></thead>
-              <tbody>
-                {d.grades.map((g) => {
-                  const r = rateFor(g, year);
-                  return (
-                    <tr key={g.id}>
-                      <td><b>{g.name}</b></td><td className="small">{g.note ?? ''}</td><td className="n">{usd(g.rates[year - 1])}</td><td className="n"><b>{usd(r)}</b></td><td className="n">{usd(g.rates[year + 1])}</td>
-                      {typical.map((h) => <td key={h} className="n">{r != null ? usd(hourlyFromMonthly(r, h)) : '—'}</td>)}
-                      <td className="right"><button className="btn small" onClick={() => setGrade(g)}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="hr-head">
+        <div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')}</div><h1>{t3('سلّم الرواتب', 'Salary scale', 'Échelle des gratifications')}</h1></div>
+        <button className="btn gold" onClick={() => setGrade('new')}>＋ {t3('وظيفة', 'Add a position', 'Ajouter un poste')}</button>
       </div>
-
-      <div className="cty-card" style={{ marginTop: 12 }}>
-        <b>{t3('ما يُعطى لكل شخص اليوم', 'What each person gets today', "Ce que reçoit chaque personne aujourd'hui")}</b>
-        <div className="desk-scroll">
+      <div className="hr-panel" style={{ marginBottom: 14 }}>
+        <p className="muted small" style={{ marginTop: 0 }}>{t3('المبلغ المرجعي اقتراح عند كتابة اتفاقية. المكافأة نفسها تُثبَّت في اتفاقية كل شخص عند بدايتها، ويمكن تغييرها ابتداءً من تاريخ. تكلفة الساعة = شهري × 12 ÷ (ساعات الأسبوع × 52).', "The reference amount is a suggestion when an agreement is written. The stipend itself is fixed in each person's agreement at its beginning, and can be changed from a date. Cost of an hour = monthly × 12 ÷ (hours a week × 52).", "Le montant de référence est une suggestion quand un accord est rédigé. La gratification est fixée dans l'accord de chaque personne à son début, et peut changer à partir d'une date. Coût horaire = mensuel × 12 ÷ (heures par semaine × 52).")}</p>
+        {!pd.grades.length ? (
+          <button className="btn primary" onClick={async () => { try { await s.api.call('hr.grade.seed', {}); await reload(); } catch (e) { fail(e); } }}>{t3('حمّل الوظائف من جدول الرواتب', 'Load the positions from the salary sheet', 'Charger les postes depuis la feuille de salaires')}</button>
+        ) : (
           <table className="desk-table">
-            <thead><tr><th>{t3('الاسم', 'Name', 'Nom')}</th><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th className="n">{t3('س/أسبوع', 'h/week', 'h/sem')}</th><th className="n">{t3('شهرياً', 'Monthly', 'Mensuel')}</th><th className="n">{t3('الساعة', 'Hourly', 'Horaire')}</th><th className="n">{t3(`سنوياً (×${d.settings.paymentsPerYear})`, `Yearly (×${d.settings.paymentsPerYear})`, `Annuel (×${d.settings.paymentsPerYear})`)}</th><th /></tr></thead>
+            <thead><tr><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th className="n">{t3('المرجع شهرياً', 'Reference, monthly', 'Référence, mensuel')}</th><th>{t3('من يشغلها اليوم', 'Who holds it today', "Qui l'occupe aujourd'hui")}</th><th /></tr></thead>
             <tbody>
-              {rows.map(({ p, c }) => (
-                <tr key={p.id}>
-                  <td><b>{p.name}</b><div className="muted small">{p.role ?? ''}</div></td>
-                  <td>{c ? (c.grade?.name ?? t3('مبلغ خاص', 'own amount', 'montant propre')) : '—'}</td>
-                  <td className="n">{c?.weekly ?? '—'}{c?.weekly && c.weekly > d.settings.maxWeekly ? <span className="desk-alert" title={t3(`أكثر من ${d.settings.maxWeekly} ساعة (حد الاتفاقية)`, `Above ${d.settings.maxWeekly} h (the agreement's maximum)`, `Au-dessus de ${d.settings.maxWeekly} h (maximum de l'accord)`)}> ⚠</span> : null}</td>
-                  <td className="n"><b>{usd(c?.monthly)}</b></td>
-                  <td className="n" title={c?.monthly != null ? t3(`مع الدفعة الثالثة عشرة: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, d.settings.paymentsPerYear))}`, `With the 13th payment: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, d.settings.paymentsPerYear))}`, `Avec le 13e paiement : ${usd(hourlyWithThirteenth(c.monthly, c.weekly, d.settings.paymentsPerYear))}`) : ''}>{c?.monthly != null ? usd(hourlyFromMonthly(c.monthly, c.weekly)) : '—'}</td>
-                  <td className="n">{c?.monthly != null ? usd(yearlyCost(c.monthly, d.settings.paymentsPerYear)) : '—'}</td>
-                  <td className="right"><button className="btn small" onClick={() => setEditPay(p)}>{t3('الراتب', 'Pay', 'Paie')}</button>{' '}<button className="btn small" title={t3('توزيع التكلفة بين المانحين', 'Split the cost between donors or projects', 'Répartir le coût entre bailleurs ou projets')} onClick={() => setSplit(p)}>%</button></td>
+              {pd.grades.map((g) => (
+                <tr key={g.id}>
+                  <td><b>{g.name}</b>{g.note ? <div className="muted small">{g.note}</div> : null}</td>
+                  <td className="n"><b>{usd(g.monthly_usd)}</b> $</td>
+                  <td className="small">{on(g).map((r) => r.p.name_ar || r.p.name).join('، ') || '—'}</td>
+                  <td className="right"><button className="btn small" onClick={() => setGrade(g)}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
                 </tr>
               ))}
-              {!rows.length && <tr><td colSpan={7} className="muted">{t3('أضف الأشخاص أولاً.', 'Add the people first.', "Ajoutez d'abord les personnes.")}</td></tr>}
-              {rows.length > 0 && <tr><td colSpan={3}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(monthlyTotal)}</b></td><td /><td className="n"><b>{usd(yearlyCost(monthlyTotal, d.settings.paymentsPerYear))}</b></td><td /></tr>}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div className="hr-panel">
+        <b>{t3('مكافأة كل شخص اليوم', "Each person's stipend today", "La gratification de chacun aujourd'hui")}</b>
+        <div className="desk-scroll">
+          <table className="desk-table" style={{ marginTop: 6 }}>
+            <thead><tr><th /><th>{t3('الاسم', 'Name', 'Nom')}</th><th>{t3('الوظيفة', 'Position', 'Poste')}</th><th className="n">{t3('شهرياً', 'Monthly', 'Mensuel')}</th><th className="n">{t3('س/أسبوع', 'h/week', 'h/sem')}</th><th className="n">{t3('تكلفة الساعة', 'Cost of an hour', 'Coût horaire')}</th><th className="n">{t3(`سنوياً (×${pd.settings.paymentsPerYear})`, `Yearly (×${pd.settings.paymentsPerYear})`, `Annuel (×${pd.settings.paymentsPerYear})`)}</th></tr></thead>
+            <tbody>
+              {rows.map(({ p, c }) => {
+                const { key } = centreOf(hr, p);
+                const ref = c?.grade?.monthly_usd;
+                return (
+                  <tr key={p.id} className="click" onClick={() => open(p)} style={centreVars(key)}>
+                    <td style={{ width: 30 }}><img src={markOf(key)} alt="" style={{ height: 22 }} /></td>
+                    <td><TwoNames p={p} /></td>
+                    <td>{c?.grade?.name ?? p.role ?? '—'}{c?.monthly != null && ref != null && c.monthly !== ref ? <div className="muted small">{t3('المرجع', 'reference', 'référence')} {usd(ref)}</div> : null}</td>
+                    <td className="n"><b>{usd(c?.monthly)}</b></td>
+                    <td className="n">{c?.weekly ?? '—'}{c?.weekly && c.weekly > pd.settings.maxWeekly ? <span className="desk-alert" title={t3('أكثر من حد الاتفاقية', "Above the agreement's maximum", "Au-dessus du maximum de l'accord")}> ⚠</span> : null}</td>
+                    <td className="n" title={c?.monthly != null ? t3(`مع الدفعة الثالثة عشرة: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `With the 13th payment: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `Avec le 13e : ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`) : ''}>{usd(c?.hourly)}</td>
+                    <td className="n">{c?.monthly != null ? usd(yearlyCost(c.monthly, pd.settings.paymentsPerYear)) : '—'}</td>
+                  </tr>
+                );
+              })}
+              {rows.length > 0 && <tr><td /><td colSpan={2}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(total)}</b></td><td /><td /><td className="n"><b>{usd(yearlyCost(total, pd.settings.paymentsPerYear))}</b></td></tr>}
             </tbody>
           </table>
         </div>
-        <p className="muted small">{t3('الدفعة الثالثة عشرة مكافأة بدل الضمان الاجتماعي. مرّر المؤشر على أجر الساعة لتراه معها.', 'The 13th payment is a bonus instead of social security. Hover the hourly rate to see it with the 13th.', 'Le 13e paiement est une gratification à la place de la sécurité sociale. Survolez le taux horaire pour le voir avec le 13e.')}</p>
+        <p className="muted small">{t3('الدفعة الثالثة عشرة مكافأة بدل الضمان الاجتماعي. مرّر المؤشر على تكلفة الساعة لتراها معها. اضغط على شخص لتغيير مكافأته.', 'The 13th payment is a bonus instead of social security. Hover the cost of an hour to see it with the 13th. Click a person to change their stipend.', 'Le 13e paiement remplace la sécurité sociale. Survolez le coût horaire pour le voir avec le 13e. Cliquez une personne pour changer sa gratification.')}</p>
       </div>
-
-      <Settings s={s} d={d} reload={reload} />
+      <Settings s={s} d={pd} reload={reload} />
       {grade && <GradeModal s={s} grade={grade === 'new' ? null : grade} onClose={() => setGrade(null)} reload={reload} />}
-      {split && <SplitModal s={s} person={split} onClose={() => setSplit(null)} />}
-      {editPay && <PayModal s={s} d={d} person={editPay} onClose={() => setEditPay(null)} reload={reload} />}
     </>
   );
 }
@@ -105,7 +88,7 @@ export function ScalePage({ s, hr }: { s: Session; hr: HrData }) {
 function Settings({ s, d, reload }: { s: Session; d: HrPayData; reload: () => Promise<void> }) {
   const [f, setF] = useState({ paymentsPerYear: String(d.settings.paymentsPerYear), maxWeekly: String(d.settings.maxWeekly) });
   return (
-    <div className="cty-card" style={{ marginTop: 12 }}>
+    <div className="hr-panel" style={{ marginTop: 14 }}>
       <b>{t3('الإعدادات', 'Settings', 'Réglages')}</b>
       <div className="grid2" style={{ marginTop: 6 }}>
         <Field label={t3('عدد الدفعات في السنة (الثالثة عشرة = بدل الضمان)', 'Payments a year (the 13th = instead of social security)', 'Paiements par an (le 13e = à la place de la sécurité sociale)')}><input inputMode="decimal" value={f.paymentsPerYear} onChange={(e) => setF({ ...f, paymentsPerYear: e.target.value })} /></Field>
@@ -119,76 +102,19 @@ function Settings({ s, d, reload }: { s: Session; d: HrPayData; reload: () => Pr
 }
 
 function GradeModal({ s, grade, onClose, reload }: { s: Session; grade: HrGrade | null; onClose: () => void; reload: () => Promise<void> }) {
-  const y = new Date().getFullYear();
-  const years = useMemo(() => [...new Set([y, y + 1, y + 2, ...Object.keys(grade?.rates ?? {}).map(Number)])].sort(), [grade, y]);
   const [name, setName] = useState(grade?.name ?? '');
   const [note, setNote] = useState(grade?.note ?? '');
-  const [rates, setRates] = useState<Record<number, string>>(() => Object.fromEntries(years.map((yr) => [yr, grade?.rates[yr] != null ? String(grade.rates[yr]) : ''])));
+  const [amount, setAmount] = useState(grade?.monthly_usd != null ? String(grade.monthly_usd) : '');
   return (
     <Modal title={grade?.name ?? t3('وظيفة جديدة', 'New position', 'Nouveau poste')} onClose={onClose} narrow>
-      <Field label={t3('الاسم', 'Name', 'Nom')}><input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label={t3('الوظيفة', 'Position', 'Poste')}><input autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label={t3('المبلغ المرجعي الشهري (USD)', 'Reference monthly amount (USD)', 'Montant mensuel de référence (USD)')}><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
       <Field label={t3('ملاحظة', 'Note', 'Note')}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-      <h3>{t3('المبلغ الشهري (دولار)', 'Monthly amount (USD)', 'Montant mensuel (USD)')}</h3>
-      <div className="grid2">
-        {years.map((yr) => <Field key={yr} label={String(yr)}><input inputMode="decimal" value={rates[yr] ?? ''} onChange={(e) => setRates({ ...rates, [yr]: e.target.value })} /></Field>)}
-      </div>
+      <p className="muted small">{t3('تغيير المرجع لا يغيّر مكافأة أحد: المكافأة مثبّتة في الاتفاقية.', "Changing the reference does not change anyone's stipend: it is fixed in the agreement.", "Changer la référence ne change la gratification de personne : elle est fixée dans l'accord.")}</p>
       <div className="modal-foot">
-        {grade && <button className="btn danger" onClick={async () => {
-          if (!(await confirmBox(t3('حذف هذه الوظيفة؟', 'Delete this position?', 'Supprimer ce poste ?'), true))) return;
-          try { await s.api.call('hr.grade.delete', { id: grade.id }); await reload(); onClose(); } catch (e) { fail(e); }
-        }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
+        {grade && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('حذف هذه الوظيفة؟', 'Delete this position?', 'Supprimer ce poste ?'), true)) { try { await s.api.call('hr.grade.delete', { id: grade.id }); await reload(); onClose(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
         <button className="btn primary" disabled={!name.trim()} onClick={async () => {
-          try {
-            await s.api.call('hr.grade.save', { id: grade?.id ?? null, name, note, rates: Object.fromEntries(Object.entries(rates).map(([k, v]) => [k, v === '' ? null : Number(v)])) });
-            await reload(); onClose();
-          } catch (e) { fail(e); }
-        }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
-      </div>
-    </Modal>
-  );
-}
-
-function PayModal({ s, d, person, onClose, reload }: { s: Session; d: HrPayData; person: HrPerson; onClose: () => void; reload: () => Promise<void> }) {
-  const mine = d.pays.filter((x) => x.person_id === person.id).sort((a, b) => b.valid_from.localeCompare(a.valid_from));
-  const cur = payOn(d, person.id, todayIso());
-  const [f, setF] = useState({ validFrom: todayIso(), gradeId: String(cur?.pay.grade_id ?? ''), weekly: String(cur?.weekly ?? ''), monthly: '', note: '' });
-  const rate = f.gradeId ? rateFor(d.grades.find((g) => g.id === Number(f.gradeId))!, Number(f.validFrom.slice(0, 4))) : null;
-  const preview = f.monthly !== '' ? Number(f.monthly) : rate;
-  const label = (p: HrPay) => `${fmtDate(p.valid_from)} · ${p.grade_id ? d.grades.find((g) => g.id === p.grade_id)?.name : t3('مبلغ خاص', 'own amount', 'montant propre')} · ${p.weekly_hours ?? '—'} ${t3('س/أسبوع', 'h/week', 'h/sem')}${p.monthly_usd != null ? ` · ${usd(p.monthly_usd)}` : ''}`;
-  return (
-    <Modal title={`${t3('الراتب', 'Pay', 'Paie')} · ${person.name}`} onClose={onClose}>
-      <table className="desk-table">
-        <tbody>
-          {mine.map((p) => (
-            <tr key={p.id}><td>{label(p)}</td><td className="right"><button className="btn small danger" onClick={async () => {
-              if (!(await confirmBox(t3('حذف هذا السطر؟', 'Delete this line?', 'Supprimer cette ligne ?'), true))) return;
-              try { await s.api.call('hr.pay.delete', { id: p.id }); await reload(); } catch (e) { fail(e); }
-            }}>✕</button></td></tr>
-          ))}
-          {!mine.length && <tr><td className="muted">{t3('لا شيء بعد.', 'Nothing yet.', 'Rien pour le moment.')}</td></tr>}
-        </tbody>
-      </table>
-      <h3 style={{ marginTop: 12 }}>{t3('سطر جديد (يبقى القديم كتاريخ)', 'A new line (the old ones stay as history)', "Une nouvelle ligne (les anciennes restent comme historique)")}</h3>
-      <div className="grid2">
-        <Field label={t3('ابتداءً من', 'From', 'À partir du')}><input type="date" value={f.validFrom} onChange={(e) => setF({ ...f, validFrom: e.target.value })} /></Field>
-        <Field label={t3('ساعات الأسبوع', 'Weekly hours', 'Heures par semaine')}><input inputMode="decimal" value={f.weekly} onChange={(e) => setF({ ...f, weekly: e.target.value })} /></Field>
-        <Field label={t3('الوظيفة', 'Position', 'Poste')}>
-          <select value={f.gradeId} onChange={(e) => setF({ ...f, gradeId: e.target.value })}>
-            <option value="">{t3('— بلا وظيفة (مبلغ خاص) —', '— no position (own amount) —', '— sans poste (montant propre) —')}</option>
-            {d.grades.map((g) => <option key={g.id} value={g.id}>{g.name}{g.note ? ` · ${g.note}` : ''}</option>)}
-          </select>
-        </Field>
-        <Field label={t3('أو مبلغ شهري خاص بهذا الشخص (دولار)', 'Or a monthly amount of their own (USD)', 'Ou un montant mensuel propre à cette personne (USD)')}><input inputMode="decimal" value={f.monthly} onChange={(e) => setF({ ...f, monthly: e.target.value })} /></Field>
-      </div>
-      <Field label={t3('ملاحظة', 'Note', 'Note')}><input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
-      {preview != null && <p className="ok">{t3('شهرياً', 'Monthly', 'Mensuel')}: <b>{usd(preview)}</b> · {t3('الساعة', 'hourly', 'horaire')} {usd(hourlyFromMonthly(preview, Number(f.weekly)))} · {t3('سنوياً', 'yearly', 'annuel')} {usd(yearlyCost(preview, d.settings.paymentsPerYear))}</p>}
-      <div className="modal-foot">
-        <button className="btn" onClick={onClose}>{t3('إغلاق', 'Close', 'Fermer')}</button>
-        <button className="btn primary" disabled={!f.validFrom || (!f.gradeId && f.monthly === '')} onClick={async () => {
-          try {
-            await s.api.call('hr.pay.save', { personId: person.id, validFrom: f.validFrom, gradeId: f.gradeId ? Number(f.gradeId) : null, weeklyHours: f.weekly === '' ? null : Number(f.weekly), monthlyUsd: f.monthly === '' ? null : Number(f.monthly), note: f.note || null });
-            toast(t3('حُفظ', 'Saved', 'Enregistré')); await reload(); onClose();
-          } catch (e) { fail(e); }
+          try { await s.api.call('hr.grade.save', { id: grade?.id ?? null, name, note, monthlyUsd: amount === '' ? null : Number(amount) }); await reload(); onClose(); } catch (e) { fail(e); }
         }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
       </div>
     </Modal>

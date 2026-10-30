@@ -1303,4 +1303,31 @@ ALTER TABLE hr_insurance ADD COLUMN paid_by TEXT NOT NULL DEFAULT 'centre';
 UPDATE hr_insurance SET paid_by = 'staff' WHERE member_name IS NOT NULL;
 `,
   },
+  {
+    n: 34,
+    name: 'HR review: names and address in Arabic and English, document details per centre, the agreement fixes the stipend, one reference amount per position',
+    sql: `
+-- Fouad, 30 October 2026 (second test). The agreement is filled in two languages: names and address in Arabic and English.
+ALTER TABLE hr_person ADD COLUMN first_name_ar TEXT;
+ALTER TABLE hr_person ADD COLUMN last_name_ar TEXT;
+ALTER TABLE hr_person ADD COLUMN father_name_ar TEXT;
+ALTER TABLE hr_person ADD COLUMN address_ar TEXT;
+-- Each centre has its own heading on the documents: its mark (code = jaramana | aleppo | homs | other), the first party
+-- and who signs, in both languages.
+ALTER TABLE hr_list ADD COLUMN party_ar TEXT;
+ALTER TABLE hr_list ADD COLUMN party_en TEXT;
+ALTER TABLE hr_list ADD COLUMN rep_ar TEXT;
+ALTER TABLE hr_list ADD COLUMN rep_en TEXT;
+ALTER TABLE hr_list ADD COLUMN city_ar TEXT;
+ALTER TABLE hr_list ADD COLUMN city_en TEXT;
+-- The stipend is fixed at the beginning of the agreement (position, monthly amount, weekly hours); it can change from a
+-- date in the middle of the year (a pay line of its own). A pay line made by an agreement points to it.
+ALTER TABLE hr_paper ADD COLUMN position TEXT;
+ALTER TABLE hr_paper ADD COLUMN weekly_hours REAL;
+ALTER TABLE hr_pay ADD COLUMN paper_id INTEGER REFERENCES hr_paper(id);
+-- A position has ONE reference monthly amount (a suggestion when an agreement is made), not one per year.
+ALTER TABLE hr_grade ADD COLUMN monthly_usd REAL;
+UPDATE hr_grade SET monthly_usd = (SELECT r.monthly_usd FROM hr_grade_rate r WHERE r.grade_id = hr_grade.id ORDER BY r.year DESC LIMIT 1);
+`,
+  },
 ];

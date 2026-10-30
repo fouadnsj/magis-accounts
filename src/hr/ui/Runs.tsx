@@ -6,7 +6,8 @@ import { has } from '../../auth';
 import type { Session } from '../../state';
 import { errText, Field, Modal, confirmBox, fmtDate, toast, todayIso } from '../../ui/kit';
 import { saveFile } from '../../platform';
-import { payslipsDoc } from '../docs';
+import { payslipsDoc, type DocHead } from '../docs';
+import { TwoNames, headOf } from './common';
 import { t3 } from '../../community/ui/text';
 import type { HrData } from '../hr';
 import type { HrRun, HrRunLine, HrVoucherRow } from '../runOps';
@@ -110,7 +111,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
           <tbody>
             {lines.map((l) => (
               <tr key={l.id}>
-                <td><b>{l.person_name}</b>{l.label ? <div className="muted small">{l.label}</div> : null}</td>
+                <td>{(() => { const p = hr.people.find((x) => x.id === l.person_id); return p ? <TwoNames p={p} /> : <b>{l.person_name}</b>; })()}{l.label ? <div className="muted small">{l.label}</div> : null}</td>
                 <td className="n">{l.hours_worked ?? '—'}</td>
                 <td className="n">{draft ? <input style={{ width: 70 }} inputMode="decimal" defaultValue={l.base_usd} onBlur={(e) => { if (num(e.target.value) !== l.base_usd) void saveLine(l, { baseUsd: num(e.target.value) }); }} /> : usd(l.base_usd)}</td>
                 <td className="n">{draft ? <input style={{ width: 70 }} inputMode="decimal" defaultValue={l.bonus_usd || ''} onBlur={(e) => { if (num(e.target.value) !== l.bonus_usd) void saveLine(l, { bonusUsd: num(e.target.value) }); }} /> : l.bonus_usd ? usd(l.bonus_usd) : ''}</td>
@@ -118,7 +119,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
                 <td className="n"><b>{usd(l.total_usd)}</b></td>
                 <td>{draft && !l.paper_id ? <select value={l.paid_in} onChange={(e) => void saveLine(l, { paidIn: e.target.value })}><option value="USD">USD</option><option value="SYP">SYP</option></select> : l.paid_in}</td>
                 <td className="n">{usd(l.amount_paid)} {l.paid_in}</td>
-                <td className="right nowrap"><button className="btn small" onClick={() => saveSlips(s, hr, run, lines.filter((x) => x.person_id === l.person_id))}>📄</button>{draft && <>{' '}<button className="btn small danger" onClick={async () => { try { await s.api.call('hr.run.line.delete', { id: l.id }); await load(); } catch (e) { fail(e); } }}>✕</button></>}</td>
+                <td className="right nowrap"><button className="btn small" onClick={() => saveSlips(hr, run, lines.filter((x) => x.person_id === l.person_id))}>📄</button>{draft && <>{' '}<button className="btn small danger" onClick={async () => { try { await s.api.call('hr.run.line.delete', { id: l.id }); await load(); } catch (e) { fail(e); } }}>✕</button></>}</td>
               </tr>
             ))}
             <tr><td colSpan={5}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(total)}</b></td><td colSpan={3} /></tr>
@@ -127,7 +128,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
       </div>
       <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         {draft && <button className="btn" onClick={() => setAdd(true)}>＋ {t3('سطر (مكافأة من حين لآخر…)', 'Add a line (an occasional bonus…)', 'Ajouter une ligne (prime ponctuelle…)')}</button>}
-        <button className="btn" onClick={() => saveSlips(s, hr, run, lines)}>📄 {t3('كل قسائم الدفع (Word)', 'All payslips (Word)', 'Toutes les fiches (Word)')}</button>
+        <button className="btn" onClick={() => saveSlips(hr, run, lines)}>📄 {t3('كل قسائم الدفع (Word)', 'All payslips (Word)', 'Toutes les fiches (Word)')}</button>
         {!draft && <button className="btn" onClick={async () => { try { setVoucher(await s.api.call('hr.run.voucher', { id })); } catch (e) { fail(e); } }}>{t3('قسيمة للمحاسبة (مجاميع فقط)', 'Voucher for Accounts (totals only)', 'Bon pour la comptabilité (totaux seulement)')}</button>}
       </div>
       {add && <AddLine s={s} hr={hr} runId={id} onClose={() => setAdd(false)} onDone={async () => { setAdd(false); await load(); }} />}
@@ -189,9 +190,11 @@ function Voucher({ org, v, onClose }: { org: string; v: { run: { ym: string; kin
 }
 
 /** The payslips as a Word file (one per person, one per page), like the agreement. */
-async function saveSlips(s: Session, hr: HrData, run: HrRun, lines: HrRunLine[]) {
+async function saveSlips(hr: HrData, run: HrRun, lines: HrRunLine[]) {
   try {
-    const bytes = await payslipsDoc(s.organisation, run, lines, hr.people);
+    const heads = new Map<number, DocHead>();
+    for (const id of new Set(lines.map((l) => l.person_id))) heads.set(id, await headOf(hr, hr.people.find((p) => p.id === id)));
+    const bytes = await payslipsDoc(run, lines, hr.people, (p) => heads.get(p?.id ?? -1) ?? { centre: null, mark: null, jesuit: null });
     await saveFile(`Payslips-${run.ym}-${run.kind}.docx`, ['docx'], bytes, 'Word');
   } catch (e) { fail(e); }
 }

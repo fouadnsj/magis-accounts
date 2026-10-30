@@ -44,13 +44,14 @@ export async function createHr(db: Db, s: HrSetup): Promise<void> {
 
 // ---------------------------------------------------------------- reading
 
-export interface HrPerson { id: number; name: string; first_name: string | null; last_name: string | null; father_name: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; account: string | null; budget_line: string | null; started: string | null; ended: string | null; active: number; note: string | null }
-export interface HrPaper { id: number; person_id: number; kind: 'agreement' | 'stipend'; start_date: string | null; end_date: string | null; service: string | null; amount: number | null; currency: 'USD' | 'SYP'; paid_on: string | null; note: string | null; file_name: string | null; size: number | null; created_at: string }
+export interface HrPerson { id: number; name: string; name_ar: string | null; first_name: string | null; last_name: string | null; father_name: string | null; first_name_ar: string | null; last_name_ar: string | null; father_name_ar: string | null; address_ar: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; account: string | null; budget_line: string | null; started: string | null; ended: string | null; active: number; note: string | null }
+export interface HrPaper { id: number; person_id: number; kind: 'agreement' | 'stipend'; start_date: string | null; end_date: string | null; service: string | null; amount: number | null; currency: 'USD' | 'SYP'; paid_on: string | null; note: string | null; file_name: string | null; size: number | null; created_at: string; position: string | null; weekly_hours: number | null }
 export interface HrConduct { id: number; version: string; valid_from: string; note: string | null; file_name: string | null; size: number | null }
 export interface HrSign { id: number; conduct_id: number; person_id: number; signed_on: string; file_name: string | null; size: number | null }
 export interface HrDoc { id: number; person_id: number; label: string; expires_on: string | null; file_name: string; mime: string; size: number; created_at: string }
 export interface HrAlert { kind: 'agreement_ending' | 'agreement_missing' | 'doc_expiring' | 'conduct_unsigned' | 'unsigned_paper' | 'insurance_ending'; person_id: number; item_id: number | null; date: string | null; days: number | null }
-export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; name: string; code: string | null; heading: string | null; source: string | null }
+/** an item of the lists; a centre also carries its heading on the documents (code = its mark: jaramana | aleppo | homs | other) */
+export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; name: string; code: string | null; heading: string | null; source: string | null; party_ar: string | null; party_en: string | null; rep_ar: string | null; rep_en: string | null; city_ar: string | null; city_en: string | null }
 export interface HrData {
   /** the stored lists the person's centre, account and budget line are chosen from (filled from the budgets) */
   lists: HrListItem[];
@@ -68,7 +69,7 @@ export interface HrData {
   alerts: HrAlert[];
 }
 
-const PAPER_COLS = 'id, person_id, kind, start_date, end_date, service, amount, currency, paid_on, note, file_name, size, created_at';
+const PAPER_COLS = 'id, person_id, kind, start_date, end_date, service, amount, currency, paid_on, note, file_name, size, created_at, position, weekly_hours';
 const SOON = 60;
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -76,7 +77,7 @@ const daysTo = (date: string, today: string) => Math.round((Date.parse(date) - D
 
 export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrData> {
   await requireHr(c.db);
-  const people = await c.db.query<HrPerson>('SELECT id, name, first_name, last_name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note FROM hr_person ORDER BY active DESC, name');
+  const people = (await c.db.query<HrPerson>('SELECT id, name, first_name, last_name, father_name, first_name_ar, last_name_ar, father_name_ar, address_ar, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note FROM hr_person ORDER BY active DESC, name')).map((p) => ({ ...p, name_ar: [p.first_name_ar, p.last_name_ar].filter(Boolean).join(' ') || null }));
   const papers = await c.db.query<HrPaper>(`SELECT ${PAPER_COLS} FROM hr_paper WHERE deleted_at IS NULL ORDER BY COALESCE(start_date, paid_on, created_at) DESC, id DESC`);
   const conducts = await c.db.query<HrConduct>('SELECT id, version, valid_from, note, file_name, size FROM hr_conduct ORDER BY valid_from DESC, id DESC');
   const signs = await c.db.query<HrSign>('SELECT id, conduct_id, person_id, signed_on, file_name, size FROM hr_conduct_sign WHERE deleted_at IS NULL');
@@ -100,7 +101,7 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
   if (has(c.profile, 'hr.pay'))
     for (const x of await c.db.query<{ id: number; person_id: number; end_date: string }>('SELECT id, person_id, end_date FROM hr_insurance WHERE deleted_at IS NULL AND end_date IS NOT NULL'))
       if (daysTo(x.end_date, today) <= SOON && people.find((p) => p.id === x.person_id)?.active) alerts.push({ kind: 'insurance_ending', person_id: x.person_id, item_id: x.id, date: x.end_date, days: daysTo(x.end_date, today) });
-  const lists = await c.db.query<HrListItem>('SELECT id, kind, name, code, heading, source FROM hr_list ORDER BY kind, code, name');
+  const lists = await c.db.query<HrListItem>('SELECT id, kind, name, code, heading, source, party_ar, party_en, rep_ar, rep_en, city_ar, city_en FROM hr_list ORDER BY kind, code, name');
   const positions = (await c.db.query<{ name: string }>('SELECT name FROM hr_grade WHERE active = 1 ORDER BY sort, id')).map((g) => g.name);
   const setting = async (k: string, d: string) => (await one<{ value: string | null }>(c.db, 'SELECT value FROM setting WHERE key = ?', [k]))?.value ?? d;
   const docSettings = { repAr: await setting('hr_rep_ar', 'الأب فؤاد نخلة اليسوعي'), repEn: await setting('hr_rep_en', '') };
@@ -170,31 +171,33 @@ export const HR_OPS = {
     check: needManage,
     run: async (c: OpCtx, a: Partial<HrPerson> & { name: string }) => {
       await requireHr(c.db);
-      const first = txt(a.first_name ?? a.name), last = txt(a.last_name);
-      if (!first) throw new UserError(m('اكتب الاسم', 'Write the first name', 'Écrivez le prénom'));
-      const name = [first, last].filter(Boolean).join(' ');
+      // the names in Arabic and in English (the agreement is filled in both); at least one first name
+      const first = txt(a.first_name ?? (a.first_name_ar === undefined ? a.name : null)), last = txt(a.last_name);
+      const firstAr = txt(a.first_name_ar), lastAr = txt(a.last_name_ar);
+      if (!first && !firstAr) throw new UserError(m('اكتب الاسم', 'Write the first name', 'Écrivez le prénom'));
+      const name = [first, last].filter(Boolean).join(' ') || [firstAr, lastAr].filter(Boolean).join(' ');
       // the role, centre, account and budget line are chosen from stored lists (when the list has something)
       const pick = async (kind: 'centre' | 'account' | 'line', value: string | null) => {
         if (!value) return null;
         const items = await c.db.query<{ name: string; code: string | null }>('SELECT name, code FROM hr_list WHERE kind = ?', [kind]);
-        if (items.length && !items.some((i) => (i.code ? `${i.code} · ${i.name}` : i.name) === value)) throw new UserError(m('اختر من القائمة', `Choose from the list: ${value}`, `Choisissez dans la liste : ${value}`));
+        if (items.length && !items.some((i) => (kind === 'line' && i.code ? `${i.code} · ${i.name}` : i.name) === value)) throw new UserError(m('اختر من القائمة', `Choose from the list: ${value}`, `Choisissez dans la liste : ${value}`));
         return value;
       };
       const role = txt(a.role);
       if (role && (await one(c.db, 'SELECT 1 AS x FROM hr_grade LIMIT 1')) && !(await one(c.db, 'SELECT 1 AS x FROM hr_grade WHERE name = ?', [role]))) throw new UserError(m('الدور من سلّم الرواتب', `The role must be a position of the scale: ${role}`, `Le rôle doit être un poste de l'échelle : ${role}`));
-      const v = [name, txt(a.father_name), txt(a.national_id), txt(a.birth_place), day(a.birth_date, 'birth'), txt(a.address), txt(a.phone), role, await pick('centre', txt(a.centre)), await pick('account', txt(a.account)), await pick('line', txt(a.budget_line)), day(a.started, 'start'), day(a.ended, 'end'), a.ended ? 0 : a.active === 0 ? 0 : 1, txt(a.note), first, last];
+      const v = [name, txt(a.father_name), txt(a.national_id), txt(a.birth_place), day(a.birth_date, 'birth'), txt(a.address), txt(a.phone), role, await pick('centre', txt(a.centre)), await pick('account', txt(a.account)), await pick('line', txt(a.budget_line)), day(a.started, 'start'), day(a.ended, 'end'), a.ended ? 0 : a.active === 0 ? 0 : 1, txt(a.note), first, last, firstAr, lastAr, txt(a.father_name_ar), txt(a.address_ar)];
       const ACT = 13;
       if (a.id) {
         const before = await one<HrPerson>(c.db, 'SELECT * FROM hr_person WHERE id = ?', [a.id]);
         if (!before) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
         await c.db.batch([
-          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=?, first_name=?, last_name=? WHERE id=?', params: [...v, a.id] },
+          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=?, first_name=?, last_name=?, first_name_ar=?, last_name_ar=?, father_name_ar=?, address_ar=? WHERE id=?', params: [...v, a.id] },
           auditStmt(c.who, 'update', 'hr_person', String(a.id), { name: before.name, active: before.active }, { name, active: v[ACT] }),
         ]);
         return { id: a.id };
       }
       await c.db.batch([
-        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, first_name, last_name, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
+        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, first_name, last_name, first_name_ar, last_name_ar, father_name_ar, address_ar, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
         auditStmt(c.who, 'add', 'hr_person', null, null, { name }),
       ]);
       return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_person'))!.id };
@@ -204,11 +207,25 @@ export const HR_OPS = {
   // the lists can also be added to by hand, or cleaned
   'hr.list.save': {
     check: needManage,
-    run: async (c: OpCtx, a: { kind: 'centre' | 'account' | 'line'; name: string; code?: string | null; heading?: string | null }) => {
+    run: async (c: OpCtx, a: { id?: number | null; kind: 'centre' | 'account' | 'line'; name: string; code?: string | null; heading?: string | null; party_ar?: string | null; party_en?: string | null; rep_ar?: string | null; rep_en?: string | null; city_ar?: string | null; city_en?: string | null }) => {
       if (!['centre', 'account', 'line'].includes(a.kind)) throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
-      await c.db.batch([{ sql: 'INSERT OR IGNORE INTO hr_list (kind, name, code, heading) VALUES (?,?,?,?)', params: [a.kind, name, txt(a.code), txt(a.heading)] }]);
+      if (a.kind === 'centre' && a.code && !['jaramana', 'aleppo', 'homs', 'other'].includes(a.code)) throw new UserError(m('مركز غير معروف', 'Unknown centre', 'Centre inconnu'));
+      const doc = [txt(a.party_ar), txt(a.party_en), txt(a.rep_ar), txt(a.rep_en), txt(a.city_ar), txt(a.city_en)];
+      if (a.id) {
+        const before = await one<{ kind: string; name: string; code: string | null }>(c.db, 'SELECT kind, name, code FROM hr_list WHERE id = ?', [a.id]);
+        if (!before) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+        const label = (n: string, code: string | null) => (before.kind === 'line' && code ? `${code} · ${n}` : n);
+        const field = before.kind === 'centre' ? 'centre' : before.kind === 'account' ? 'account' : 'budget_line';
+        await c.db.batch([
+          { sql: 'UPDATE hr_list SET name = ?, code = ?, heading = ?, party_ar = ?, party_en = ?, rep_ar = ?, rep_en = ?, city_ar = ?, city_en = ? WHERE id = ?', params: [name, txt(a.code), txt(a.heading), ...doc, a.id] },
+          // the people keep their choice when its name changes
+          { sql: `UPDATE hr_person SET ${field} = ? WHERE ${field} = ?`, params: [label(name, txt(a.code)), label(before.name, before.code)] },
+        ]);
+        return { id: a.id };
+      }
+      await c.db.batch([{ sql: 'INSERT OR IGNORE INTO hr_list (kind, name, code, heading, party_ar, party_en, rep_ar, rep_en, city_ar, city_en) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [a.kind, name, txt(a.code), txt(a.heading), ...doc] }]);
       return { ok: true };
     },
   },
@@ -230,7 +247,7 @@ export const HR_OPS = {
 
   'hr.paper.save': {
     check: needManage,
-    run: async (c: OpCtx, a: { id?: number | null; personId: number; kind: 'agreement' | 'stipend'; start?: string | null; end?: string | null; service?: string | null; amount?: number | null; currency?: 'USD' | 'SYP'; paidOn?: string | null; note?: string | null }) => {
+    run: async (c: OpCtx, a: { id?: number | null; personId: number; kind: 'agreement' | 'stipend'; start?: string | null; end?: string | null; service?: string | null; amount?: number | null; currency?: 'USD' | 'SYP'; paidOn?: string | null; note?: string | null; position?: string | null; weeklyHours?: number | null }) => {
       await requireHr(c.db);
       if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
       if (a.kind !== 'agreement' && a.kind !== 'stipend') throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
@@ -240,18 +257,38 @@ export const HR_OPS = {
       if (amount != null && !(amount >= 0)) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
       if (a.kind === 'stipend' && !txt(a.service)) throw new UserError(m('اكتب الخدمة التي تخصها المكافأة', 'Write the service this stipend is for', 'Écrivez le service concerné'));
       const cur = a.currency === 'SYP' ? 'SYP' : 'USD';
-      const v = [a.personId, a.kind, start, a.kind === 'stipend' ? null : end, txt(a.service), amount, cur, a.kind === 'stipend' ? paidOn : null, txt(a.note)];
-      if (a.id) {
-        const row = await one<{ id: number }>(c.db, 'SELECT id FROM hr_paper WHERE id = ? AND deleted_at IS NULL', [a.id]);
+      const agreement = a.kind === 'agreement';
+      const position = agreement ? txt(a.position) : null;
+      const weekly = agreement && a.weeklyHours != null && (a.weeklyHours as unknown) !== '' ? Number(a.weeklyHours) : null;
+      if (weekly != null && !(weekly > 0 && weekly <= 84)) throw new UserError(m('ساعات الأسبوع غير صالحة', 'Not valid weekly hours', 'Heures par semaine non valides'));
+      const grade = position ? await one<{ id: number }>(c.db, 'SELECT id FROM hr_grade WHERE name = ?', [position]) : null;
+      if (position && !grade && (await one(c.db, 'SELECT 1 AS x FROM hr_grade LIMIT 1'))) throw new UserError(m('الوظيفة من سلّم الرواتب', `The position must be one of the scale: ${position}`, `Le poste doit être un poste de l'échelle : ${position}`));
+      const v = [a.personId, a.kind, start, agreement ? end : null, txt(a.service), amount, cur, agreement ? null : paidOn, txt(a.note), position, weekly];
+      let id = a.id ?? null;
+      if (id) {
+        const row = await one<{ id: number }>(c.db, 'SELECT id FROM hr_paper WHERE id = ? AND deleted_at IS NULL', [id]);
         if (!row) throw new UserError(m('الورقة غير موجودة', 'Paper not found', 'Document introuvable'));
-        await c.db.batch([{ sql: 'UPDATE hr_paper SET person_id=?, kind=?, start_date=?, end_date=?, service=?, amount=?, currency=?, paid_on=?, note=? WHERE id=?', params: [...v, a.id] }, auditStmt(c.who, 'update', 'hr_paper', String(a.id), null, { kind: a.kind })]);
-        return { id: a.id };
+        await c.db.batch([{ sql: 'UPDATE hr_paper SET person_id=?, kind=?, start_date=?, end_date=?, service=?, amount=?, currency=?, paid_on=?, note=?, position=?, weekly_hours=? WHERE id=?', params: [...v, id] }, auditStmt(c.who, 'update', 'hr_paper', String(id), null, { kind: a.kind, amount })]);
+      } else {
+        await c.db.batch([
+          { sql: 'INSERT INTO hr_paper (person_id, kind, start_date, end_date, service, amount, currency, paid_on, note, position, weekly_hours, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
+          auditStmt(c.who, 'add', 'hr_paper', null, null, { kind: a.kind, person: a.personId, amount }),
+        ]);
+        id = (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_paper'))!.id;
       }
-      await c.db.batch([
-        { sql: 'INSERT INTO hr_paper (person_id, kind, start_date, end_date, service, amount, currency, paid_on, note, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
-        auditStmt(c.who, 'add', 'hr_paper', null, null, { kind: a.kind, person: a.personId }),
-      ]);
-      return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_paper'))!.id };
+      // the agreement fixes the stipend from its first day: its own pay line (kept in step with the agreement)
+      if (agreement) {
+        const usd = amount != null && cur === 'SYP' ? null : amount;
+        const line = await one<{ id: number }>(c.db, 'SELECT id FROM hr_pay WHERE paper_id = ? AND deleted_at IS NULL', [id]);
+        if (start && (usd != null || grade)) {
+          const pv = [a.personId, start, grade?.id ?? null, weekly, usd];
+          await c.db.batch([line
+            ? { sql: 'UPDATE hr_pay SET person_id=?, valid_from=?, grade_id=?, weekly_hours=?, monthly_usd=? WHERE id = ?', params: [...pv, line.id] }
+            : { sql: "INSERT INTO hr_pay (person_id, valid_from, grade_id, weekly_hours, monthly_usd, note, paper_id, created_at, created_by) VALUES (?,?,?,?,?,'agreement',?,?,?)", params: [...pv, id, nowIso(), c.who] }]);
+        } else if (line) await c.db.batch([{ sql: 'UPDATE hr_pay SET deleted_at = ? WHERE id = ?', params: [nowIso(), line.id] }]);
+        if (position) await c.db.batch([{ sql: 'UPDATE hr_person SET role = ? WHERE id = ?', params: [position, a.personId] }]);
+      }
+      return { id };
     },
   },
   'hr.paper.delete': {
@@ -259,7 +296,11 @@ export const HR_OPS = {
     run: async (c: OpCtx, a: { id: number }) => {
       const p = await one<{ person_id: number }>(c.db, 'SELECT person_id FROM hr_paper WHERE id = ? AND deleted_at IS NULL', [a.id]);
       if (!p) throw new UserError(m('الورقة غير موجودة', 'Paper not found', 'Document introuvable'));
-      await c.db.batch([{ sql: 'UPDATE hr_paper SET deleted_at = ? WHERE id = ?', params: [nowIso(), a.id] }, logStmt(c, 'delete', 'paper', p.person_id, a.id), auditStmt(c.who, 'delete', 'hr_paper', String(a.id), null, null)]);
+      await c.db.batch([
+        { sql: 'UPDATE hr_paper SET deleted_at = ? WHERE id = ?', params: [nowIso(), a.id] },
+        { sql: 'UPDATE hr_pay SET deleted_at = ? WHERE paper_id = ? AND deleted_at IS NULL', params: [nowIso(), a.id] },
+        logStmt(c, 'delete', 'paper', p.person_id, a.id), auditStmt(c.who, 'delete', 'hr_paper', String(a.id), null, null),
+      ]);
       return { ok: true };
     },
   },

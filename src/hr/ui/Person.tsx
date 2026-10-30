@@ -10,7 +10,7 @@ import type { HrData, HrPaper, HrPerson } from '../hr';
 import type { HrPay, HrPayData } from '../payOps';
 import { hourlyFromMonthly, payOn, yearlyCost } from '../pay';
 import { agreementDoc, stipendDoc } from '../docs';
-import { InsurancePage } from './Stage4';
+import { InsurancePage, SplitModal } from './Stage4';
 import { TwoNames, centreOf, centreVars, chooseScan, fail, headOf, markOf, openScan, usd } from './common';
 import { accountFor, centreAccounts, lineFor, lineLabel, salaryLines } from '../link';
 
@@ -97,10 +97,7 @@ function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { 
         <Field label={t3('تاريخ الولادة', 'Date of birth', 'Date de naissance')}>{inp('birth_date', { type: 'date' })}</Field>
         <Pick label={t3('المركز (شعاره على الوثائق)', 'Centre (its mark on the documents)', 'Centre (son logo sur les documents)')} value={f.centre ?? ''} options={list('centre')} onChange={(v) => setF({ ...f, centre: v, budget_line: null, account: null })} disabled={!manage} />
         <Pick label={t3('الوظيفة (من سلّم الرواتب)', 'Position (from the scale)', "Poste (de l'échelle)")} value={f.role ?? ''} options={d.positions.map((p) => ({ value: p, label: d.positionsAr[p] ? `${d.positionsAr[p]} · ${p}` : p }))} onChange={(v) => setF({ ...f, role: v })} disabled={!manage} />
-        <Pick label={t3('خط الموازنة في حسابات المركز', "Budget line in the centre's accounts", 'Ligne budgétaire dans la comptabilité du centre')} value={f.budget_line ?? ''} options={salaryLines(d.lists, f).map((l) => ({ value: lineLabel(l), label: lineLabel(l) }))} onChange={(v) => setF({ ...f, budget_line: v })} disabled={!manage}
-          empty={!f.centre ? t3('— اختر المركز أولاً —', '— choose the centre first —', "— choisissez d'abord le centre —") : (() => { const g = lineFor(d.lists, { ...f, budget_line: null } as HrPerson).line; return g ? t3(`تلقائياً: ${lineLabel(g)}`, `automatic: ${lineLabel(g)}`, `automatique : ${lineLabel(g)}`) : t3('— لا خط مناسب: اختر —', '— no matching line: choose —', '— aucune ligne : choisissez —'); })()} />
-        <Pick label={t3('الحساب (من يدفع)', 'Account (who pays)', 'Compte (qui paie)')} value={f.account ?? ''} options={centreAccounts(d.lists, f).map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, account: v })} disabled={!manage}
-          empty={(() => { const a = accountFor(d.lists, { ...f, account: null } as HrPerson); return a ? t3(`حساب المركز: ${a}`, `the centre's: ${a}`, `celui du centre : ${a}`) : '—'; })()} />
+        <GoesTo d={d} f={f} setF={setF} manage={manage} />
         <Field label={t3('بدأ في', 'Started', 'Début')}>{inp('started', { type: 'date' })}</Field>
         <Field label={t3('غادر في (فارغ إن كان مستمراً)', 'Left on (empty if still here)', 'Parti le (vide si toujours là)')}>{inp('ended', { type: 'date' })}</Field>
         <Field label={t3('ملاحظة', 'Note', 'Note')} className="span2">{inp('note')}</Field>
@@ -109,6 +106,39 @@ function Identity({ s, d, reload, manage, person, onCreated, onDeleted }: P & { 
         if (!(await confirmBox(t3(`حذف ${person.name_ar || person.name} نهائياً، مع اتفاقياته ومكافآته وتأمينه ووثائقه؟`, `Delete ${person.name || person.name_ar} for good, with their agreements, stipend, insurance and documents?`, `Supprimer définitivement ${person.name || person.name_ar}, avec ses accords, gratifications, assurance et documents ?`), true))) return;
         try { await s.api.call('hr.person.delete', { id: person.id }); toast(t3('حُذف', 'Deleted', 'Supprimé')); await reload(); onDeleted(); } catch (e) { fail(e); }
       }}>{t3('حذف الشخص', 'Delete the person', 'Supprimer la personne')}</button>}<button className="btn primary" disabled={!(f.first_name?.trim() || f.first_name_ar?.trim())} onClick={save}>{person ? t3('حفظ', 'Save', 'Enregistrer') : t3('إنشاء', 'Create', 'Créer')}</button></div>}
+    </div>
+  );
+}
+
+/**
+ * Where the stipend goes in the centre's accounts, found by the program: the line of the person's position in their
+ * centre's salary heading, and the centre's usual account. Changed here only for an exception; a person paid by a
+ * project or a donor is split between accounts on the Agreement tab.
+ */
+function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF: (f: Partial<HrPerson>) => void; manage: boolean }) {
+  const [open, setOpen] = useState(false);
+  const line = lineFor(d.lists, f as HrPerson);
+  const acc = accountFor(d.lists, f as HrPerson);
+  const own = !line.guessed && !!line.line;
+  const centreName = f.centre ?? '';
+  return (
+    <div className="span2 hr-panel" style={{ background: '#FBF7EE', padding: '10px 14px' }}>
+      <div className="row" style={{ justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <span>
+          <span className="muted small">{t3('تذهب المكافأة في الحسابات إلى', 'In the accounts, the stipend goes to', 'Dans la comptabilité, la gratification va à')}: </span>
+          {!f.centre ? <span className="desk-alert">{t3('اختر المركز', 'choose the centre', 'choisissez le centre')}</span>
+            : line.line ? <b>{lineLabel(line.line)}{acc ? ` · ${acc}` : ''}</b>
+            : <span className="desk-alert">⚠ {t3(`لا خط لهذه الوظيفة في موازنة ${centreName}: أضفه في الحسابات، أو اختر خطاً`, `no line for this position in the budget of ${centreName}: add it in the accounts, or choose one`, `pas de ligne pour ce poste dans le budget de ${centreName} : ajoutez-la en comptabilité, ou choisissez-en une`)}</span>}
+          {line.line && <span className="muted small"> {own ? t3('(مختار باليد)', '(chosen by hand)', '(choisi à la main)') : t3('(تلقائياً)', '(automatic)', '(automatique)')}</span>}
+        </span>
+        {manage && f.centre && <button type="button" className="link" onClick={() => setOpen(!open)}>{open ? t3('إغلاق', 'close', 'fermer') : t3('تغيير (استثناء)', 'change (exception)', 'changer (exception)')}</button>}
+      </div>
+      {(open || (!line.line && !!f.centre && manage)) && (
+        <div className="grid2" style={{ marginTop: 8 }}>
+          <Pick label={t3('خط الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={salaryLines(d.lists, f).map((l) => ({ value: lineLabel(l), label: lineLabel(l) }))} onChange={(v) => setF({ ...f, budget_line: v || null })} empty={t3('— تلقائياً حسب الوظيفة —', '— automatic, from the position —', '— automatique, selon le poste —')} />
+          <Pick label={t3('الحساب', 'Account', 'Compte')} value={f.account ?? ''} options={centreAccounts(d.lists, f).map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, account: v || null })} empty={t3('— حساب المركز المعتاد —', "— the centre's usual account —", '— le compte habituel du centre —')} />
+        </div>
+      )}
     </div>
   );
 }
@@ -142,6 +172,7 @@ async function makeDoc(d: HrData, pd: HrPayData | null, person: HrPerson, p: HrP
 function Agreement({ s, d, pd, reload, manage, pay, person }: P & { person: HrPerson }) {
   const [form, setForm] = useState<HrPaper | 'new' | null>(null);
   const [change, setChange] = useState(false);
+  const [split, setSplit] = useState(false);
   const today = todayIso();
   const agreements = d.papers.filter((x) => x.person_id === person.id && x.kind === 'agreement');
   const now = pd ? payOn(pd, person.id, today) : null;
@@ -154,7 +185,10 @@ function Agreement({ s, d, pd, reload, manage, pay, person }: P & { person: HrPe
         <div className="hr-panel" style={{ marginBottom: 14 }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <b>{t3('المكافأة اليوم', 'The stipend today', "La gratification aujourd'hui")}</b>
-            {manage && now && <button className="btn" onClick={() => setChange(true)}>{t3('تغيير المكافأة ابتداءً من تاريخ…', 'Change the stipend from a date…', 'Changer la gratification à partir d’une date…')}</button>}
+            <span className="row" style={{ gap: 6 }}>
+              {manage && now && <button className="btn" onClick={() => setChange(true)}>{t3('تغيير المكافأة ابتداءً من تاريخ…', 'Change the stipend from a date…', 'Changer la gratification à partir d’une date…')}</button>}
+              <button className="btn" title={t3('حين يدفع مشروع أو مانح جزءاً من المكافأة', 'When a project or a donor pays part of the stipend', 'Quand un projet ou un bailleur paie une partie')} onClick={() => setSplit(true)}>{t3('توزيع بين الحسابات (المانحين)…', 'Split between accounts (donors)…', 'Répartir entre comptes (bailleurs)…')}</button>
+            </span>
           </div>
           {now?.monthly != null ? (
             <div className="hr-stats">
@@ -203,6 +237,7 @@ function Agreement({ s, d, pd, reload, manage, pay, person }: P & { person: HrPe
         </table>
       </div>
       {form && <AgreementModal s={s} d={d} pd={pd} person={person} paper={form === 'new' ? null : form} onClose={() => setForm(null)} reload={reload} />}
+      {split && <SplitModal s={s} person={person} accounts={centreAccounts(d.lists, person).map((x) => x.name)} onClose={() => setSplit(false)} />}
       {change && pd && now && <ChangeModal s={s} pd={pd} person={person} now={now} onClose={() => setChange(false)} reload={reload} />}
     </>
   );

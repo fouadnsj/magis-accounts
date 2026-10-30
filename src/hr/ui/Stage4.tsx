@@ -82,7 +82,7 @@ function InsModal({ s, people, row, personId, family: fam, onClose, onDone }: { 
 }
 
 /** The split of one person's cost by donor or project, from a date (the earlier ones stay as history). */
-export function SplitModal({ s, person, onClose }: { s: Session; person: HrPerson; onClose: () => void }) {
+export function SplitModal({ s, person, accounts = [], onClose }: { s: Session; person: HrPerson; /** the accounts of the person's centre: the split chooses among them (and the accounts receive it) */ accounts?: string[]; onClose: () => void }) {
   const [all, setAll] = useState<HrAlloc[] | null>(null);
   const load = useCallback(async () => { try { setAll((await s.api.call('hr.alloc.list', {})).filter((a) => a.person_id === person.id)); } catch (e) { fail(e); } }, [s, person.id]);
   useEffect(() => { void load(); }, [load]);
@@ -101,7 +101,9 @@ export function SplitModal({ s, person, onClose }: { s: Session; person: HrPerso
       <Field label={t3('ابتداءً من', 'From', 'À partir du')}><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
       {parts.map((p, i) => (
         <div key={i} className="row" style={{ gap: 6, marginBottom: 4 }}>
-          <input style={{ flex: 1 }} placeholder={t3('المانح أو المشروع', 'Donor or project', 'Bailleur ou projet')} value={p.target} onChange={(e) => setParts(parts.map((x, j) => (j === i ? { ...x, target: e.target.value } : x)))} />
+          {accounts.length
+            ? <select style={{ flex: 1 }} value={p.target} onChange={(e) => setParts(parts.map((x, j) => (j === i ? { ...x, target: e.target.value } : x)))}><option value="">{t3('— الحساب —', '— account —', '— compte —')}</option>{[...new Set([...(p.target && !accounts.includes(p.target) ? [p.target] : []), ...accounts])].map((a) => <option key={a} value={a}>{a}</option>)}</select>
+            : <input style={{ flex: 1 }} placeholder={t3('المانح أو المشروع', 'Donor or project', 'Bailleur ou projet')} value={p.target} onChange={(e) => setParts(parts.map((x, j) => (j === i ? { ...x, target: e.target.value } : x)))} />}
           <input style={{ width: 80 }} inputMode="decimal" value={p.pct} onChange={(e) => setParts(parts.map((x, j) => (j === i ? { ...x, pct: e.target.value } : x)))} /> %
           {parts.length > 1 && <button className="btn small" onClick={() => setParts(parts.filter((_, j) => j !== i))}>✕</button>}
         </div>

@@ -13,7 +13,9 @@ export const centreItem = (lists: HrListItem[], p: { centre?: string | null }) =
 export function salaryLines(lists: HrListItem[], p: { centre?: string | null }): HrListItem[] {
   const c = centreItem(lists, p);
   if (!c) return [];
-  return lists.filter((x) => x.kind === 'line' && x.source === c.source && (!c.salary_heading || x.heading === c.salary_heading));
+  // (a centre may keep salaries under several headings, e.g. "Implementation staff | Operational staff")
+  const heads = (c.salary_heading ?? '').split('|').map((h) => h.trim()).filter(Boolean);
+  return lists.filter((x) => x.kind === 'line' && x.source === c.source && (!heads.length || heads.includes(x.heading ?? '')));
 }
 
 /** the accounts of a person's centre */
@@ -33,7 +35,10 @@ export function lineFor(lists: HrListItem[], p: Pick<HrPerson, 'centre' | 'budge
     if (own) return { line: own, guessed: false };
   }
   const role = norm(p.role);
-  const byRole = role ? lines.find((l) => norm(l.name) === role) ?? lines.find((l) => norm(l.name).includes(role) || (role.length > 3 && role.includes(norm(l.name)))) : undefined;
+  const words = (x: string) => x.split(' ').filter(Boolean);
+  // the same name, else the shortest line holding every word of the position ("IT" → "IT person"); never an insurance line
+  const byRole = role ? lines.find((l) => norm(l.name) === role)
+    ?? lines.filter((l) => !/insurance|تأمين/i.test(l.name) && words(role).every((w) => words(norm(l.name)).includes(w))).sort((a, b) => words(norm(a.name)).length - words(norm(b.name)).length)[0] : undefined;
   if (byRole) return { line: byRole, guessed: true };
   for (const n of [p.first_name, p.first_name_ar, p.name?.split(' ')[0]].map(norm).filter((x) => x.length > 2)) {
     const byName = lines.find((l) => norm(l.name).split(' ').includes(n));

@@ -524,6 +524,17 @@ describe('HR database', () => {
     const lists = (await op('hr.data', {}, ck)).body.lists;
     const stray = { centre: 'MAGIS Nine', budget_line: 'E99.1 · Somewhere else', account: 'Other centre', role: 'Cleaner', first_name: 'X', first_name_ar: null, name: 'X' };
     expect(lineFor(lists, stray).line?.name).toBe('Cleaner');
+    // several salary headings; the position found word by word, the shortest line first
+    const two = [
+      { id: 1, kind: 'centre', name: 'C', code: 'aleppo', heading: null, source: 'c', salary_heading: 'Implementation staff | Operational staff', account: 'CEI' },
+      { id: 2, kind: 'line', name: 'Health insurance (IT and media staff)', code: 'E02.8', heading: 'Implementation staff', source: 'c' },
+      { id: 3, kind: 'line', name: 'IT person', code: 'E02.6', heading: 'Implementation staff', source: 'c' },
+      { id: 4, kind: 'line', name: 'Centre Director', code: 'E03.1', heading: 'Operational staff', source: 'c' },
+      { id: 5, kind: 'line', name: 'English courses', code: 'E04.1', heading: 'Activities', source: 'c' },
+    ] as never;
+    expect(lineFor(two, { centre: 'C', role: 'IT', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E02.6');
+    expect(lineFor(two, { centre: 'C', role: 'Centre Director', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E03.1');
+    expect(lineFor(two, { centre: 'C', role: 'Media', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line).toBeNull(); // no "Media person" line here, and never the insurance line
     expect(accountFor(lists, stray)).toBe('Center');
     // a person without a line that fits says what is missing
     await mk('Odd', 'Cook', 200);

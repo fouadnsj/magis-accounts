@@ -88,8 +88,10 @@ function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; i
       </div>
       {item?.source && (
         <div className="grid2" style={{ marginTop: 12 }}>
-          <Field label={t3('بند الرواتب في موازنة المركز', "The salary heading of the centre's budget", 'La rubrique des salaires du budget du centre')}>
-            <select value={f.salary_heading} onChange={(e) => setF({ ...f, salary_heading: e.target.value })}><option value="">—</option>{headings.map((h) => <option key={h} value={h}>{h}</option>)}</select>
+          <Field label={t3('بنود الرواتب في موازنة المركز', "The salary heading(s) of the centre's budget", 'Les rubriques des salaires du budget du centre')}>
+            <div>{headings.map((h) => { const on = f.salary_heading.split('|').map((x) => x.trim()).includes(h); return (
+              <label key={h} className="row" style={{ gap: 6 }}><input type="checkbox" checked={on} onChange={() => { const cur = f.salary_heading.split('|').map((x) => x.trim()).filter(Boolean); setF({ ...f, salary_heading: (on ? cur.filter((x) => x !== h) : [...cur, h]).join(' | ') }); }} /> {h}</label>
+            ); })}</div>
           </Field>
           <Field label={t3('الحساب المعتاد (من يدفع)', 'The usual account (who pays)', 'Le compte habituel (qui paie)')}>
             <select value={f.account} onChange={(e) => setF({ ...f, account: e.target.value })}><option value="">—</option>{accounts.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}</select>

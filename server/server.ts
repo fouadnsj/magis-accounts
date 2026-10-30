@@ -36,7 +36,7 @@ import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx } from '../src/domain/types';
 
-export const SERVER_VERSION = '0.8.0';
+export const SERVER_VERSION = '0.8.1';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -976,7 +976,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       );
       // the heading that holds the salaries, and the centre's usual account (its default in the accounts), when not set yet
       const hs = lines.map((l) => l.heading);
-      const salaryHeading = hs.find((h) => /staff/i.test(h) && /salar/i.test(h)) ?? hs.find((h) => /salar|رات/i.test(h)) ?? hs.find((h) => /staff/i.test(h)) ?? null;
+      // the staff heading(s): one with both words, else those with "salary", else those with "staff" (e.g. Implementation staff | Operational staff)
+      const uniq = [...new Set(hs)];
+      const both = uniq.filter((h) => /staff/i.test(h) && /salar/i.test(h)), sal = uniq.filter((h) => /salar|رات/i.test(h)), staff = uniq.filter((h) => /staff/i.test(h) && !/care/i.test(h));
+      const salaryHeading = (both.length ? both : sal.length ? sal : staff).join(' | ') || null;
       const defAcc = await one<{ name: string }>(src.handle.db, "SELECT a.name FROM account a JOIN setting s ON s.key = 'def_account_id' AND CAST(s.value AS INTEGER) = a.id");
       stmts.push({ sql: "UPDATE hr_list SET salary_heading = COALESCE(salary_heading, ?), account = COALESCE(account, ?) WHERE kind = 'centre' AND source = ?", params: [salaryHeading, defAcc?.name ?? accounts[0]?.name ?? null, src.slug] });
       await found[2].handle.db.batch(stmts);

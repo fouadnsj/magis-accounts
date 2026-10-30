@@ -12,7 +12,7 @@ import { centreOf, centreVars, fail, markOf, usd } from './common';
 
 export function BudgetListPage({ s, hr }: { s: Session; hr: HrData }) {
   const [year, setYear] = useState(new Date().getFullYear() + 1);
-  const [data, setData] = useState<{ rows: HrBudgetRow[]; paymentsPerYear: number } | null>(null);
+  const [data, setData] = useState<{ rows: HrBudgetRow[]; paymentsPerYear: number; needRate: number } | null>(null);
   useEffect(() => { setData(null); s.api.call('hr.budget.staff', { year }).then(setData).catch(fail); }, [s, year]);
   const centres = [...new Set((data?.rows ?? []).map((r) => r.centre ?? ''))];
   const download = async () => {
@@ -49,6 +49,7 @@ export function BudgetListPage({ s, hr }: { s: Session; hr: HrData }) {
         </div>
       </div>
       <p className="muted small">{t3('تُبنى من الاتفاقيات وتغييرات السنة، بأعمدة جدول الرواتب. لا أسماء: الوظيفة، عدد الأشخاص، عدد المرات في السنة (الأشهر والدفعة الثالثة عشرة بالنسبة)، المبلغ الشهري، المجموع.', 'Built from the agreements and the changes of the year, in the columns of the salary sheet. No names: the position, how many people, how many times a year (the months, and the 13th payment in proportion), the monthly amount, the total.', "Construite à partir des accords et des changements de l'année, avec les colonnes de la feuille des salaires. Sans noms : le poste, combien de personnes, combien de fois par an (les mois, et le 13e au prorata), le montant mensuel, le total.")}</p>
+      {data && data.needRate > 0 && <p className="desk-alert">{t3(`${data.needRate} أشخاص مكافأتهم بالليرة ولم يُحسبوا: اكتب سعر الدولار في «سلّم الرواتب ← الإعدادات».`, `${data.needRate} people are paid in pounds and are not counted: write the dollar rate in Salary scale, Settings.`, `${data.needRate} personnes sont payées en livres et ne sont pas comptées : écrivez le taux du dollar dans Échelle, Réglages.`)}</p>}
       {!data ? <p className="muted">…</p> : !data.rows.length ? <p className="muted">{t3('لا اتفاقيات في هذه السنة.', 'No agreements in this year.', "Pas d'accords cette année.")}</p> : centres.map((c) => {
         const { key } = centreOf(hr, { centre: c || null });
         const rows = data.rows.filter((x) => (x.centre ?? '') === c);

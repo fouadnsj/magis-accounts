@@ -46,11 +46,12 @@ export async function payData(c: OpCtx): Promise<HrPayData> {
  * month by month (from the agreements and the changes), grouped by centre, position and monthly amount, as in the
  * salary sheet: quantity of people, times a year (the months, and the 13th payment in proportion), total. No names.
  */
-export async function budgetStaff(c: OpCtx, year: number): Promise<{ rows: HrBudgetRow[]; paymentsPerYear: number }> {
+export async function budgetStaff(c: OpCtx, year: number): Promise<{ rows: HrBudgetRow[]; paymentsPerYear: number; /** people agreed in pounds, left out because the dollar rate is not known */ needRate: number }> {
   const d = await payData(c);
   const people = await c.db.query<{ id: number; centre: string | null; role: string | null; started: string | null; ended: string | null }>('SELECT id, centre, role, started, ended FROM hr_person');
   const per = d.settings.paymentsPerYear;
   const groups = new Map<string, HrBudgetRow & { ids: Set<number> }>();
+  const unpriced = new Set<number>();
   for (const p of people) {
     // the months of the year this person is paid, and how much each month
     const months = new Map<number, number>();
@@ -60,6 +61,7 @@ export async function budgetStaff(c: OpCtx, year: number): Promise<{ rows: HrBud
       if ((p.started && p.started > last) || (p.ended && p.ended < first)) continue;
       const now = payOn(d, p.id, last);
       if (now?.monthly) months.set(mth, now.monthly);
+      else if (now?.needsRate) unpriced.add(p.id);
     }
     const byAmount = new Map<number, number>();
     for (const v of months.values()) byAmount.set(v, (byAmount.get(v) ?? 0) + 1);
@@ -74,7 +76,7 @@ export async function budgetStaff(c: OpCtx, year: number): Promise<{ rows: HrBud
     }
   }
   const rows = [...groups.values()].map(({ ids: _ids, ...r }) => r).sort((a, b) => (a.centre ?? '').localeCompare(b.centre ?? '') || b.monthly - a.monthly || a.position.localeCompare(b.position));
-  return { rows, paymentsPerYear: per };
+  return { rows, paymentsPerYear: per, needRate: unpriced.size };
 }
 
 export const HR_PAY_OPS = {

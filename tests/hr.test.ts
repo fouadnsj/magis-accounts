@@ -576,6 +576,15 @@ describe('HR database', () => {
     const run = (await op('hr.run.create', { ym: '2027-03', kind: 'monthly', rateSyp: 14000 }, ck)).body.id;
     const line = (await op('hr.run.get', { id: run }, ck)).body.lines[0];
     expect([line.paid_in, line.amount_paid, line.total_usd]).toEqual(['SYP', 1300000, 92.86]);
+    // the staff list for the budget counts the pounds in dollars at the rate (and says when it cannot)
+    const bl = (await op('hr.budget.staff', { year: 2027 }, ck)).body;
+    expect([bl.needRate, bl.rows.map((x: { monthly: number; months: number; total: number }) => [x.monthly, x.months, x.total])]).toEqual([0, [[100, 12, 1300]]]);
+    await op('hr.pay.settings', { rateSyp: 0 }, ck);
+    await op('hr.run.delete', { id: run }, ck);
+    expect((await op('hr.budget.staff', { year: 2027 }, ck)).body).toMatchObject({ needRate: 1, rows: [] });
+    await op('hr.pay.settings', { rateSyp: 13000 }, ck);
+    const run2 = (await op('hr.run.create', { ym: '2027-03', kind: 'monthly', rateSyp: 14000 }, ck)).body.id;
+    expect(run2).toBeGreaterThan(0);
     // a change from a date, in dollars this time, replaces the pounds
     await op('hr.pay.save', { personId: id, validFrom: '2027-07-01', monthlyUsd: 120, weeklyHours: 30 }, ck);
     pd = (await op('hr.pay.data', {}, ck)).body;

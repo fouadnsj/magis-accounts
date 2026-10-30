@@ -70,7 +70,7 @@ export function ScalePage({ s, hr, pd, reload, open }: { s: Session; hr: HrData;
                     <td style={{ width: 30 }}><img src={markOf(key)} alt="" style={{ height: 22 }} /></td>
                     <td><TwoNames p={p} /></td>
                     <td>{(() => { const n = c?.grade?.name ?? p.role; return n ? (hr.positionsAr[n] ? `${hr.positionsAr[n]} · ${n}` : n) : '—'; })()}{c?.monthly != null && ref != null && c.monthly !== ref ? <div className="muted small">{t3('المرجع', 'reference', 'référence')} {usd(ref)}</div> : null}</td>
-                    <td className="n"><b>{usd(c?.monthly)}</b></td>
+                    <td className="n">{c?.syp != null ? <><b>{usd(c.syp)}</b> SYP<div className="muted small">{c.monthly != null ? `≈ ${usd(c.monthly)} USD` : t3('بلا سعر دولار', 'no dollar rate', 'pas de taux')}</div></> : <b>{usd(c?.monthly)}</b>}</td>
                     <td className="n">{c?.weekly ?? '—'}{c?.weekly && c.weekly > pd.settings.maxWeekly ? <span className="desk-alert" title={t3('أكثر من حد الاتفاقية', "Above the agreement's maximum", "Au-dessus du maximum de l'accord")}> ⚠</span> : null}</td>
                     <td className="n" title={c?.monthly != null ? t3(`مع الدفعة الثالثة عشرة: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `With the 13th payment: ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`, `Avec le 13e : ${usd(hourlyWithThirteenth(c.monthly, c.weekly, pd.settings.paymentsPerYear))}`) : ''}>{usd(c?.hourly)}</td>
                     <td className="n">{c?.monthly != null ? usd(yearlyCost(c.monthly, pd.settings.paymentsPerYear)) : '—'}</td>

@@ -12,7 +12,7 @@ import { t3 } from '../../community/ui/text';
 import type { HrAlert, HrData, HrPerson } from '../hr';
 import type { HrPayData } from '../payOps';
 import { payOn } from '../pay';
-import { HoursPage, ScalePage } from './Pay';
+import { ScalePage } from './Pay';
 import { RunsPage } from './Runs';
 import { DonorsPage, InsurancePage } from './Stage4';
 import { ListsPage } from './Lists';
@@ -21,7 +21,7 @@ import { BudgetListPage } from './BudgetList';
 import { TwoNames, centreOf, centreVars, chooseScan, fail, markOf, openScan, usd } from './common';
 import './hr.css';
 
-type Page = 'home' | 'people' | 'person' | 'scale' | 'hours' | 'runs' | 'budget' | 'insurance' | 'donors' | 'lists' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'budget' | 'insurance' | 'donors' | 'lists' | 'conduct' | 'log';
 
 interface Ctx { s: Session; d: HrData; reload: () => Promise<void>; open: (p: HrPerson) => void }
 
@@ -70,7 +70,6 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         <div className="group">{t3('أخرى', 'More', 'Plus')}</div>
         {item('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'))}
         {manage && item('lists', t3('القوائم والمراكز', 'Lists & centres', 'Listes et centres'))}
-        {pay && item('hours', t3('ساعات العمل', 'Hours worked', 'Heures travaillées'))}
         {vault && item('log', t3('سجل فتح الوثائق', 'Document log', 'Journal des documents'))}
         <div className="spacer" />
         <div className="sun"><img src="/brand/magis-sun.png" alt="" /></div>
@@ -84,7 +83,6 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
           <PersonPage key={personId ?? 'x'} s={session} d={d} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} person={person} onBack={() => go('people')} onCreated={(id) => setPersonId(id)} />
         )}
         {page === 'scale' && pd && <ScalePage s={session} hr={d} pd={pd} reload={reload} open={open} />}
-        {page === 'hours' && <HoursPage s={session} hr={d} />}
         {page === 'runs' && <RunsPage s={session} hr={d} />}
         {page === 'budget' && <BudgetListPage s={session} hr={d} />}
         {page === 'insurance' && <InsurancePage s={session} hr={d} />}

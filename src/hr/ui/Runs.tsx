@@ -9,7 +9,9 @@ import { saveFile } from '../../platform';
 import { tx, type Msg } from '../../i18n';
 const getLangText = (m?: Msg) => (m ? tx(m) : 'Error');
 import { payslipsDoc, type DocHead } from '../docs';
-import { TwoNames, headOf } from './common';
+import { TwoNames, centreVars, headOf, markOf } from './common';
+import { accountFor, centreItem, lineFor, lineLabel } from '../link';
+import type { CentreKey } from '../../brand';
 import { t3 } from '../../community/ui/text';
 import type { HrData } from '../hr';
 import type { HrRun, HrRunLine, HrVoucherRow } from '../runOps';
@@ -140,19 +142,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
         <button className="btn" onClick={() => saveSlips(hr, run, lines)}>📄 {t3('كل قسائم الدفع (Word)', 'All payslips (Word)', 'Toutes les fiches (Word)')}</button>
         {!draft && <button className="btn" onClick={async () => { try { setVoucher(await s.api.call('hr.run.voucher', { id })); } catch (e) { fail(e); } }}>{t3('قسيمة للمحاسبة (مجاميع فقط)', 'Voucher for Accounts (totals only)', 'Bon pour la comptabilité (totaux seulement)')}</button>}
       </div>
-      {!draft && approver && (
-        <div className="hr-panel" style={{ marginTop: 14, background: '#FBF7EE' }}>
-          <b>{t3('إلى حسابات المراكز', "Into the centres' accounts", 'Vers la comptabilité des centres')}</b>
-          <p className="muted small" style={{ margin: '4px 0 8px' }}>{t3('يُكتب في الدفتر الرئيسي لكل مركز نفقة واحدة لكل حساب وخط موازنة وعملة: مجاميع فقط، بلا أسماء. لا يكتبه أحد مرة ثانية.', "Written in each centre's Main book: one expense per account, budget line and currency — totals only, no names. Nobody types it a second time.", 'Écrit dans le livre principal de chaque centre : une dépense par compte, ligne budgétaire et devise — totaux seulement, sans noms. Personne ne la retape.')}</p>
-          {sent.map((x) => (
-            <div key={x.centre} className="row" style={{ gap: 8, marginBottom: 4 }}>
-              <span className="ok">✓ {x.centre} · {usd(x.total_usd)} USD · {fmtDate(x.sent_at.slice(0, 10))} · {x.sent_by}</span>
-              <button className="btn small" disabled={busy} onClick={async () => { if (!(await confirmBox(t3('سحب هذه النفقات من حسابات المركز؟', "Take these expenses back out of the centre's accounts?", 'Retirer ces dépenses de la comptabilité du centre ?'), true))) return; setBusy(true); try { await post('/api/hr/take-back', { runId: id, centre: x.centre }); toast(t3('سُحب', 'Taken back', 'Retiré')); await load(); } catch (e) { fail(e); } finally { setBusy(false); } }}>{t3('سحب', 'Take back', 'Retirer')}</button>
-            </div>
-          ))}
-          <button className="btn gold" disabled={busy} onClick={async () => { setBusy(true); try { const r = await post('/api/hr/send-run', { runId: id }); toast(r.sent.length ? t3(`أُرسل إلى ${r.sent.length} مركز`, `Sent to ${r.sent.length} centre(s)`, `Envoyé à ${r.sent.length} centre(s)`) : t3('أُرسل من قبل', 'Already sent', 'Déjà envoyé')); await load(); } catch (e) { fail(e); } finally { setBusy(false); } }}>{t3('إرسال إلى الحسابات', 'Send to the accounts', 'Envoyer à la comptabilité')}</button>
-        </div>
-      )}
+      {!draft && approver && <ToAccounts hr={hr} runId={id} lines={lines} sent={sent} busy={busy} setBusy={setBusy} post={post} reload={load} />}
       {add && <AddLine s={s} hr={hr} runId={id} onClose={() => setAdd(false)} onDone={async () => { setAdd(false); await load(); }} />}
       {voucher && <Voucher org={s.organisation} v={voucher} onClose={() => setVoucher(null)} />}
     </>
@@ -219,4 +209,54 @@ async function saveSlips(hr: HrData, run: HrRun, lines: HrRunLine[]) {
     const bytes = await payslipsDoc(run, lines, hr.people, (p) => heads.get(p?.id ?? -1) ?? { centre: null, mark: null, jesuit: null });
     await saveFile(`Payslips-${run.ym}-${run.kind}.docx`, ['docx'], bytes, 'Word');
   } catch (e) { fail(e); }
+}
+
+/**
+ * Into the accounts of each centre (Fouad, 30 October 2026): one line per centre with its total, what is still missing
+ * (a person with no budget line or account in that centre) and its own button. Sent, it shows who sent it and when,
+ * and can be taken back.
+ */
+function ToAccounts({ hr, runId, lines, sent, busy, setBusy, post, reload }: { hr: HrData; runId: number; lines: HrRunLine[]; sent: { centre: string; sent_at: string; sent_by: string | null; total_usd: number }[]; busy: boolean; setBusy: (b: boolean) => void; post: (url: string, body: object) => Promise<{ sent?: { centre: string }[] }>; reload: () => Promise<void> }) {
+  const groups = new Map<string, { item: ReturnType<typeof centreItem>; usd: number; people: Set<number>; missing: string[]; lines: string[] }>();
+  for (const l of lines) {
+    const p = hr.people.find((x) => x.id === l.person_id);
+    const c = p ? centreItem(hr.lists, p) : null;
+    const key = c?.source ?? '';
+    const g = groups.get(key) ?? { item: c, usd: 0, people: new Set<number>(), missing: [], lines: [] };
+    g.usd += l.total_usd;
+    g.people.add(l.person_id);
+    const who = p ? p.name_ar || p.name : l.person_name;
+    if (p && c?.source) {
+      const line = lineFor(hr.lists, p).line;
+      if (!line) g.missing.push(t3(`${who}: خط الموازنة`, `${who}: budget line`, `${who} : ligne budgétaire`));
+      else if (!g.lines.includes(lineLabel(line))) g.lines.push(lineLabel(line));
+      if (!accountFor(hr.lists, p)) g.missing.push(t3(`${who}: الحساب`, `${who}: account`, `${who} : compte`));
+    } else g.missing.push(t3(`${who}: المركز`, `${who}: centre`, `${who} : centre`));
+    groups.set(key, g);
+  }
+  return (
+    <div className="hr-panel" style={{ marginTop: 14 }}>
+      <b>{t3('إلى المحاسب: حسابات كل مركز', "To the accountant: each centre's accounts", 'Au comptable : la comptabilité de chaque centre')}</b>
+      <p className="muted small" style={{ margin: '4px 0 10px' }}>{t3('يُكتب في الدفتر الرئيسي للمركز نفقة لكل حساب وخط موازنة وعملة: مجاميع فقط، بلا أسماء. يراها المحاسب في السجل كأي نفقة، ولا يكتبها أحد مرة ثانية.', "Written in the centre's Main book: one expense per account, budget line and currency — totals only, no names. The accountant sees them in the register like any expense; nobody types them again.", 'Écrit dans le livre principal du centre : une dépense par compte, ligne budgétaire et devise — totaux seulement, sans noms. Le comptable les voit dans le registre comme toute dépense ; personne ne les retape.')}</p>
+      {[...groups.entries()].map(([slug, g]) => {
+        const key = ((g.item?.code ?? 'other') as CentreKey);
+        const done = sent.find((x) => x.centre === slug);
+        return (
+          <div key={slug || 'none'} className="hr-card" style={{ ...centreVars(key), cursor: 'default', marginBottom: 8 }}>
+            <div className="mark"><img src={markOf(key)} alt="" /></div>
+            <div className="body">
+              <b>{g.item?.name ?? t3('بلا مركز', 'No centre', 'Sans centre')}</b>
+              <div className="meta">{g.people.size} {t3('شخصاً', 'people', 'personnes')} · {usd(g.usd)} USD{g.lines.length ? ` · ${g.lines.join(', ')}` : ''}</div>
+              {done ? <div className="ok small">✓ {t3('أُرسل', 'sent', 'envoyé')} {fmtDate(done.sent_at.slice(0, 10))} · {done.sent_by}</div>
+                : g.missing.length ? <div className="desk-alert small">{t3('ينقص', 'Missing', 'Manque')}: {g.missing.join(' · ')}</div>
+                : <div className="ok small">{t3('جاهز', 'Ready', 'Prêt')}</div>}
+            </div>
+            {slug && (done
+              ? <button className="btn small" disabled={busy} onClick={async () => { if (!(await confirmBox(t3('سحب هذه النفقات من حسابات المركز؟', "Take these expenses back out of the centre's accounts?", 'Retirer ces dépenses de la comptabilité du centre ?'), true))) return; setBusy(true); try { await post('/api/hr/take-back', { runId, centre: slug }); toast(t3('سُحب', 'Taken back', 'Retiré')); await reload(); } catch (e) { fail(e); } finally { setBusy(false); } }}>{t3('سحب', 'Take back', 'Retirer')}</button>
+              : <button className="btn gold" disabled={busy || g.missing.length > 0} onClick={async () => { setBusy(true); try { await post('/api/hr/send-run', { runId, centre: slug }); toast(t3('أُرسل إلى الحسابات', 'Sent to the accounts', 'Envoyé à la comptabilité')); await reload(); } catch (e) { fail(e); } finally { setBusy(false); } }}>{t3('إرسال', 'Send', 'Envoyer')}</button>)}
+          </div>
+        );
+      })}
+    </div>
+  );
 }

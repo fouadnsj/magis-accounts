@@ -989,7 +989,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (url === '/api/hr/send-run' && method === 'POST') {
       const [, hs, hc] = await hrApprover();
       const hdb = hc.handle.db;
-      const body = (await readBody(req)) as { runId?: number };
+      // one centre at a time (body.centre), so a centre that is ready is not held back by another
+      const body = (await readBody(req)) as { runId?: number; centre?: string };
       const run = await one<{ id: number; ym: string; kind: string; status: string; paid_on: string | null }>(hdb, 'SELECT id, ym, kind, status, paid_on FROM hr_run WHERE id = ?', [Number(body.runId)]);
       if (!run) throw new HttpError(404, { ar: 'الكشف غير موجود', en: 'Run not found' });
       if (run.status === 'draft') throw new HttpError(400, { ar: 'اعتمد الكشف أولاً', en: 'Approve the run first' });
@@ -1007,7 +1008,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const p = people.find((x) => x.id === l.person_id);
         const who = p ? p.name : `#${l.person_id}`;
         const c = p ? centreItem(lists, p) : null;
-        if (!p || !c?.source) { missing.push(`${who}: ${'centre'}`); continue; }
+        if (body.centre && c?.source !== body.centre) continue;
+        if (!p || !c?.source) { missing.push(`${who}: centre`); continue; }
         const line = lineFor(lists, p).line;
         const own = accountFor(lists, p);
         if (!line) missing.push(`${who}: budget line`);

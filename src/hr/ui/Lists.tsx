@@ -14,19 +14,17 @@ export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () 
   const [sources, setSources] = useState<{ slug: string; organisation: string }[]>([]);
   const [from, setFrom] = useState('');
   const [edit, setEdit] = useState<HrListItem | 'new' | null>(null);
-  const [add, setAdd] = useState({ kind: 'line' as 'account' | 'line', name: '', code: '' });
   useEffect(() => {
     fetch('/api/hr/sources', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : [])).then(setSources).catch(() => setSources([]));
   }, []);
   const centres = d.lists.filter((x) => x.kind === 'centre');
-  const kinds = [['account', t3('الحسابات', 'Accounts', 'Comptes')], ['line', t3('بنود الموازنة', 'Budget lines', 'Lignes budgétaires')]] as const;
   return (
     <>
       <div className="hr-head"><div><div className="hr-eyebrow">{t3('من الموازنات', 'From the budgets', 'Depuis les budgets')}</div><h1>{t3('القوائم والمراكز', 'Lists & centres', 'Listes et centres')}</h1></div></div>
 
       <div className="hr-panel">
         <b>{t3('ملء القوائم من موازنة مركز', 'Fill the lists from the budget of a centre', "Remplir les listes depuis le budget d'un centre")}</b>
-        <p className="muted small">{t3('تُنسخ الأسماء والرموز فقط (المركز، الحسابات، بنود الموازنة)، لا المبالغ. يمكن تكراره بعد تغيير الموازنة.', 'Only names and codes are copied (the centre, the accounts, the budget lines), never amounts. It can be repeated after the budget changes.', 'Seuls les noms et codes sont copiés (le centre, les comptes, les lignes budgétaires), jamais les montants. On peut le refaire après un changement du budget.')}</p>
+        <p className="muted small">{t3('تُنسخ الأسماء والرموز فقط، لا المبالغ. أعد النسخ بعد تغيير موازنة المركز. ثم اضغط على المركز لتختار بند الرواتب والحساب المعتاد.', "Only names and codes are copied, never amounts. Copy again after the centre's budget changes. Then click the centre to choose its salary heading and usual account.", "Seuls les noms et codes sont copiés, jamais les montants. Recopiez après un changement du budget du centre. Puis cliquez le centre pour choisir sa rubrique des salaires et son compte habituel.")}</p>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <select value={from} onChange={(e) => setFrom(e.target.value)}><option value="">{t3('— اختر المركز —', '— choose the centre —', '— choisissez le centre —')}</option>{sources.map((x) => <option key={x.slug} value={x.slug}>{x.organisation}</option>)}</select>
           <button className="btn primary" disabled={!from} onClick={async () => {
@@ -50,38 +48,13 @@ export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () 
           return (
             <button key={c.id} className="hr-card" style={centreVars(key)} onClick={() => setEdit(c)}>
               <div className="mark"><img src={markOf(key)} alt="" /></div>
-              <div className="body"><b>{c.name}</b><div className="meta" dir="rtl">{p.partyAr}</div><div className="meta">{c.salary_heading ? `💼 ${c.salary_heading}${c.account ? ` · ${c.account}` : ''}` : ''}</div><div className="meta">{c.rep_ar || c.rep_en ? `✍ ${[c.rep_ar, c.rep_en].filter(Boolean).join(' · ')}` : <span className="desk-alert">{t3('من يوقّع؟', 'Who signs?', 'Qui signe ?')}</span>}</div></div>
+              <div className="body"><b>{c.name}</b><div className="meta" dir="rtl">{p.partyAr}</div><div className="meta">{c.salary_heading ? `💼 ${c.salary_heading} (${d.lists.filter((x) => x.kind === 'line' && x.source === c.source && x.heading === c.salary_heading).length})${c.account ? ` · ${c.account}` : ''}` : c.source ? <span className="desk-alert">{t3('أي بند للرواتب؟', 'Which salary heading?', 'Quelle rubrique des salaires ?')}</span> : ''}</div><div className="meta">{c.rep_ar || c.rep_en ? `✍ ${[c.rep_ar, c.rep_en].filter(Boolean).join(' · ')}` : <span className="desk-alert">{t3('من يوقّع؟', 'Who signs?', 'Qui signe ?')}</span>}</div></div>
             </button>
           );
         })}
         {!centres.length && <p className="muted">{t3('انسخ من موازنة مركز أو أضف مركزاً.', 'Copy from the budget of a centre, or add a centre.', "Copiez depuis le budget d'un centre ou ajoutez un centre.")}</p>}
       </div>
 
-      {kinds.map(([kind, title]) => (
-        <div key={kind} className="hr-panel" style={{ marginTop: 14 }}>
-          <b>{title}</b>
-          <table className="desk-table">
-            <tbody>
-              {d.lists.filter((x) => x.kind === kind).map((x) => (
-                <tr key={x.id}>
-                  <td>{x.code ? <b>{x.code}</b> : null} {x.name}{x.heading ? <span className="muted small"> · {x.heading}</span> : null}</td>
-                  <td className="right"><button className="btn small danger" onClick={async () => { if (await confirmBox(t3('إزالة من القائمة؟', 'Remove from the list?', 'Retirer de la liste ?'), true)) { try { await s.api.call('hr.list.delete', { id: x.id }); await reload(); } catch (e) { fail(e); } } }}>✕</button></td>
-                </tr>
-              ))}
-              {!d.lists.some((x) => x.kind === kind) && <tr><td className="muted">{t3('فارغة.', 'Empty.', 'Vide.')}</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      ))}
-      <div className="hr-panel" style={{ marginTop: 14 }}>
-        <b>{t3('إضافة يدوية', 'Add by hand', 'Ajouter à la main')}</b>
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
-          <select value={add.kind} onChange={(e) => setAdd({ ...add, kind: e.target.value as 'account' | 'line' })}>{kinds.map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select>
-          {add.kind === 'line' && <input style={{ width: 90 }} placeholder={t3('الرمز', 'Code', 'Code')} value={add.code} onChange={(e) => setAdd({ ...add, code: e.target.value })} />}
-          <input placeholder={t3('الاسم', 'Name', 'Nom')} value={add.name} onChange={(e) => setAdd({ ...add, name: e.target.value })} />
-          <button className="btn" disabled={!add.name.trim()} onClick={async () => { try { await s.api.call('hr.list.save', { kind: add.kind, name: add.name, code: add.code || null }); setAdd({ ...add, name: '', code: '' }); await reload(); } catch (e) { fail(e); } }}>＋</button>
-        </div>
-      </div>
       {edit && <CentreModal s={s} d={d} item={edit === 'new' ? null : edit} onClose={() => setEdit(null)} reload={reload} />}
     </>
   );

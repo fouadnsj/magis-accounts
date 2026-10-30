@@ -525,5 +525,7 @@ describe('HR database', () => {
     const bad = await post('/api/hr/send-run', { runId: run2 });
     expect(bad.status).toBe(400);
     expect(bad.body.error.en).toContain('Odd: budget line');
+    // one centre at a time: a centre with nobody in this run sends nothing
+    expect((await post('/api/hr/send-run', { runId: run2, centre: 'no-such-centre' })).body.sent).toEqual([]);
   });
 });

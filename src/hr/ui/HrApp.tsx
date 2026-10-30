@@ -9,10 +9,11 @@ import { pickFile, toBase64 } from '../../platform';
 import { WhoIs } from '../../community/ui/CtyApp';
 import { t3 } from '../../community/ui/text';
 import type { HrAlert, HrData, HrPaper, HrPerson } from '../hr';
+import { HoursPage, ScalePage } from './Pay';
 import '../../community/ui/cty.css';
 import '../../community/ui/desk/desk.css';
 
-type Page = 'home' | 'people' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'scale' | 'hours' | 'conduct' | 'log';
 const MIME: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 const fail = (e: unknown) => toast(errText(e), true);
 
@@ -47,11 +48,13 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
   useEffect(() => { void reload(); }, [reload]);
   const manage = has(session.profile, 'hr.manage');
   const vault = has(session.profile, 'hr.vault');
+  const pay = has(session.profile, 'hr.pay');
   if (!d) return <div className="cty"><div className="cty-page">{err ? <div className="alert err">{err}</div> : '…'}</div></div>;
   const ctx: Ctx = { s: session, d, reload, open: (p) => setPerson(p) };
   const items: { p: Page; label: string; badge?: number }[] = [
     { p: 'home', label: t3('البداية: ما يحتاج انتباهاً', 'Home: what needs attention', 'Accueil : à surveiller'), badge: d.alerts.length },
     { p: 'people', label: t3('الأشخاص', 'People', 'Personnes') },
+    ...(pay ? [{ p: 'scale' as Page, label: t3('سلّم الرواتب والمكافآت', 'Salary scale & stipends', 'Échelle et gratifications') }, { p: 'hours' as Page, label: t3('ساعات العمل', 'Hours worked', 'Heures travaillées') }] : []),
     { p: 'conduct', label: t3('مدونة السلوك', 'Code of conduct', 'Code de conduite') },
     ...(vault ? [{ p: 'log' as Page, label: t3('سجل فتح الوثائق', 'Log of document openings', "Journal d'ouverture des documents") }] : []),
   ];
@@ -69,6 +72,8 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {err && <div className="alert err">{err}</div>}
         {page === 'home' && <Home {...ctx} />}
         {page === 'people' && <People {...ctx} manage={manage} add={() => setPerson('new')} />}
+        {page === 'scale' && <ScalePage s={session} hr={d} />}
+        {page === 'hours' && <HoursPage s={session} hr={d} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'log' && <Log s={session} d={d} />}
         {person && <PersonModal {...ctx} manage={manage} vault={vault} person={person === 'new' ? null : person} onClose={() => setPerson(null)} />}

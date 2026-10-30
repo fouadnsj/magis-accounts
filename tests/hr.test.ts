@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer, type Running } from '../server/server';
+import { hourlyFromMonthly, hourlyWithThirteenth, monthlyFromRate, monthlyHours, yearlyCost } from '../src/hr/pay';
 
 let srv: Running;
 let base: string;
@@ -97,5 +98,64 @@ describe('HR database', () => {
     // the person leaves: inactive, no longer in the alerts
     await op('hr.person.save', { id: pid, name: 'Salma', ended: '2026-10-31' });
     expect((await op('hr.data', { today: '2026-12-05' })).body.alerts).toEqual([]);
+  });
+
+  it('pay rules: true hourly rate, grades give a monthly stipend, weekly hours differ per person', async () => {
+    // the Director of the scale: 300 a month for 42 hours a week is 1.65 an hour (not 7.14)
+    expect(hourlyFromMonthly(300, 42)).toBe(1.65);
+    expect(hourlyFromMonthly(180, 30)).toBe(1.38);
+    expect(hourlyFromMonthly(250, null)).toBeNull();
+    expect(hourlyWithThirteenth(300, 42, 13)).toBe(1.79);
+    expect(monthlyHours(40)).toBeCloseTo(173.33, 2);
+    // grade 1 (1.15) for a guard of 48 hours: 239 rounded to 240; the cleaner of 36 hours: 179 rounded to 180
+    expect(monthlyFromRate(1.15, 48, 5)).toBe(240);
+    expect(monthlyFromRate(1.15, 36, 5)).toBe(180);
+    expect(monthlyFromRate(1.4, 30, 5)).toBe(180);
+    expect(yearlyCost(180, 13)).toBe(2340);
+
+    const made = await call('/api/dbs/create', { organisation: 'HR pay', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR pay', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
+    const profiles = (await call(`/api/profiles?db=${slug}`)).body;
+    const login = await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '');
+    const ck = login.set!;
+    const pid = (await op('hr.person.save', { name: 'Guard One' }, ck)).body.id;
+
+    expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(200);
+    expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(400); // only into an empty scale
+    let d = (await op('hr.pay.data', {}, ck)).body;
+    expect(d.grades.map((g: { name: string; rates: Record<string, number> }) => [g.name, g.rates['2027']])).toEqual([['Grade 1', 1.15], ['Grade 2', 1.3], ['Grade 3', 1.4], ['Grade 4', 1.65]]);
+    expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40 });
+
+    // a pay needs a grade or an amount; a grade needs weekly hours
+    expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01' }, ck)).status).toBe(400);
+    expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01', gradeId: 1 }, ck)).status).toBe(400);
+    expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01', gradeId: 1, weeklyHours: 48 }, ck)).status).toBe(200);
+    // a change of hours later keeps the history
+    expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-07-01', gradeId: 1, weeklyHours: 40 }, ck)).status).toBe(200);
+    d = (await op('hr.pay.data', {}, ck)).body;
+    expect(d.pays.map((p: { valid_from: string; weekly_hours: number }) => [p.valid_from, p.weekly_hours])).toEqual([['2027-01-01', 48], ['2027-07-01', 40]]);
+
+    // a grade in use cannot be deleted; an unused one can
+    expect((await op('hr.grade.delete', { id: 1 }, ck)).status).toBe(400);
+    expect((await op('hr.grade.delete', { id: 4 }, ck)).status).toBe(200);
+    // a new year's rate on an existing grade
+    expect((await op('hr.grade.save', { id: 1, name: 'Grade 1', rates: { '2028': 1.2 } }, ck)).status).toBe(200);
+    expect((await op('hr.grade.save', { id: 1, name: 'Grade 1', rates: { '2028': 0 } }, ck)).status).toBe(400);
+
+    // hours of a month, then removed
+    expect((await op('hr.hours.save', { personId: pid, ym: '2027-03', hours: 190 }, ck)).status).toBe(200);
+    expect((await op('hr.hours.save', { personId: pid, ym: '2027-03', hours: 200, note: 'extra week' }, ck)).status).toBe(200);
+    expect((await op('hr.pay.data', {}, ck)).body.hours).toEqual([expect.objectContaining({ ym: '2027-03', hours: 200, note: 'extra week' })]);
+    expect((await op('hr.hours.save', { personId: pid, ym: '2027-03', hours: null }, ck)).status).toBe(200);
+    expect((await op('hr.pay.data', {}, ck)).body.hours).toEqual([]);
+
+    // a reader never sees pay
+    expect((await op('user.save', { name: 'Reader', access_id: 2, books: [], pin: 'reader-pass-1' }, ck)).status).toBe(200);
+    const rp = (await call(`/api/profiles?db=${slug}`)).body.find((p: { name: string }) => p.name === 'Reader');
+    const rl = await call('/api/login', { db: slug, profileId: rp.id, password: 'reader-pass-1' }, '');
+    await op('profile.setPin', { id: rp.id, pin: 'reader-own-2' }, rl.set!);
+    expect((await op('hr.pay.data', {}, rl.set!)).status).toBe(400);
+    expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01', monthlyUsd: 99 }, rl.set!)).status).toBe(400);
   });
 });

@@ -1151,4 +1151,51 @@ CREATE TABLE hr_access_log (
 );
 `,
   },
+  {
+    n: 30,
+    name: 'HR stage 2: salary scale (grades with an hourly rate per year), pay of each person, hours worked each month',
+    sql: `
+-- Fouad, 30 October 2026. A grade has a BASE hourly rate (12 months of the year) for each year; the monthly
+-- stipend of a person = hourly rate x weekly hours x 52 / 12 (rounded). Weekly hours differ from person to person.
+CREATE TABLE hr_grade (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  name      TEXT NOT NULL,
+  sort      INTEGER NOT NULL DEFAULT 0,
+  note      TEXT,
+  active    INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE hr_grade_rate (
+  grade_id   INTEGER NOT NULL REFERENCES hr_grade(id),
+  year       INTEGER NOT NULL,
+  hourly_usd REAL NOT NULL,
+  PRIMARY KEY (grade_id, year)
+);
+-- The pay of a person from a date: a grade and weekly hours, or an agreed monthly amount of one's own.
+CREATE TABLE hr_pay (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id   INTEGER NOT NULL REFERENCES hr_person(id),
+  valid_from  TEXT NOT NULL,
+  grade_id    INTEGER REFERENCES hr_grade(id),
+  weekly_hours REAL,
+  monthly_usd REAL,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  deleted_at  TEXT
+);
+CREATE INDEX hr_pay_person ON hr_pay(person_id, valid_from);
+-- The hours really worked in a month (normal hours only).
+CREATE TABLE hr_hours (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id INTEGER NOT NULL REFERENCES hr_person(id),
+  ym        TEXT NOT NULL,
+  hours     REAL NOT NULL,
+  note      TEXT,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT,
+  UNIQUE (person_id, ym)
+);
+INSERT OR IGNORE INTO setting (key, value) VALUES ('hr_payments_per_year', '13'), ('hr_round_to', '5'), ('hr_max_weekly', '40');
+`,
+  },
 ];

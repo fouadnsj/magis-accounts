@@ -11,7 +11,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import type { Perm } from '../perms';
 
-export const HR_PERMS: Perm[] = ['hr.view', 'hr.manage', 'hr.vault', 'users.manage', 'data.backup', 'data.restore', 'data.export', 'audit.view'];
+export const HR_PERMS: Perm[] = ['hr.view', 'hr.manage', 'hr.pay', 'hr.vault', 'users.manage', 'data.backup', 'data.restore', 'data.export', 'audit.view'];
 
 export interface HrSetup {
   organisation: string;

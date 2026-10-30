@@ -35,6 +35,7 @@ import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
 import { COUNTRY_OPS, COUNTRY_READ_ONLY } from './community/country';
 import { PEOPLE_OPS, PEOPLE_READ_ONLY } from './community/people';
 import { HR_OPS, HR_READ_ONLY } from './hr/hr';
+import { HR_PAY_OPS, HR_PAY_READ_ONLY } from './hr/payOps';
 import { STYLE_OPS } from './community/style';
 
 export type Install = 'office' | 'holder';
@@ -1135,6 +1136,7 @@ export const OPS = {
   ...PEOPLE_OPS,
   // the HR database: src/hr/hr.ts
   ...HR_OPS,
+  ...HR_PAY_OPS,
   // the look of a community or country database: src/community/style.ts
   ...STYLE_OPS,
   // ---------------------------------------------------------------- reading
@@ -1679,7 +1681,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

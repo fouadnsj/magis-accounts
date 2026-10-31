@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import zlib from 'node:zlib';
 import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
@@ -539,13 +540,22 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return res.end('Web files missing: ' + root);
     }
     const ext = path.extname(file);
-    res.writeHead(200, {
+    const headers = {
       ...SEC_HEADERS,
       'Content-Type': MIME[ext] ?? 'application/octet-stream',
       'Cache-Control': url.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
-    });
+    };
+    // the big script (2.7 MB) and the wasm go through the network once per browser: compress them (once, kept in memory)
+    if (['.js', '.css', '.wasm', '.html', '.svg', '.json'].includes(ext) && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+      let z = gzipCache.get(file);
+      if (!z) { z = zlib.gzipSync(fs.readFileSync(file), { level: 9 }); gzipCache.set(file, z); }
+      res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip', 'Content-Length': z.length, Vary: 'Accept-Encoding' });
+      return res.end(z);
+    }
+    res.writeHead(200, headers);
     fs.createReadStream(file).pipe(res);
   };
+  const gzipCache = new Map<string, Buffer>();
 
   const secure = () => config.httpsPort > 0;
 

@@ -2,7 +2,7 @@
 // the Jesuit mark and the MAGIS sun, and one card per database in its centre's colour.
 import { useState, type ReactNode } from 'react';
 import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
-import { m, tx } from '../i18n';
+import { getLang, m, tx } from '../i18n';
 import type { DbInfo, DirInfo } from '../net';
 import { serverCreateDb } from '../net';
 import { paletteOf } from '../community/style';
@@ -11,43 +11,108 @@ import { Field, errText, t } from './kit';
 import { ManageDbs } from './ManageDbs';
 import { DirAdmin, DirSetup } from './Directory';
 
-/** The page around every welcome, login and setup screen. */
+/** The MAGIS Charter, in its three languages (Reference/MAGIS-charter.md): shown on the welcome page. */
+const CHARTER = m(
+  'فإنّنا نحلم بخلق مِساحاتٍ يستطيع فيها الجميع المضيّ أبعدَ وأعمق، فنجدَ معًا الشجاعة ونُحيي الرجاءَ لنكون فاعلين في حياتنا ومجتمعنا.',
+  'We dream of a space in which everyone can go further, deeper, so that, together, we can find the courage to be actors of our lives and the hope to build our society.',
+  "Nous rêvons d'espaces dans lesquels chacun puisse aller plus loin, davantage en profondeur, afin que, ensemble, nous puissions retrouver le courage d'être acteurs de nos vies et l'espérance pour bâtir notre société.",
+);
+const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
+
+function Charter() {
+  const l = getLang();
+  return (
+    <blockquote className="mg-quote">
+      {(l === 'ar' || l === 'both') && <p dir="rtl" className="ar">«{CHARTER.ar}»</p>}
+      {l !== 'ar' && <p dir="ltr">“{l === 'fr' ? CHARTER.fr : CHARTER.en}”</p>}
+      <cite>— {tx(m('ميثاق ماجيس', 'The MAGIS Charter', 'La Charte MAGIS'))}</cite>
+    </blockquote>
+  );
+}
+
+/** The three houses: their marks, in their colours. */
+function Houses({ small }: { small?: boolean }) {
+  return (
+    <div className={`mg-houses ${small ? 'small' : ''}`}>
+      {HOUSES.map((k) => (
+        <div key={k} className="mg-house" style={{ '--centre': CENTRES[k].color } as React.CSSProperties}>
+          <img src={CENTRES[k].mark!} alt="" />
+          <span>{tx(CENTRES[k].name)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The heading of the welcome: the MAGIS sun in its light, the name, the three houses, the charter. */
+function Hero({ compact, mark }: { compact?: boolean; /** a centre's own mark (its sign-in page) */ mark?: string | null }) {
+  return (
+    <div className={`mg-hero ${compact ? 'compact' : ''}`}>
+      <div className="mg-sun">
+        <div className="mg-rays" />
+        <img src={mark ?? '/brand/magis-sun.png'} alt="" />
+      </div>
+      <div className="mg-eyebrow">{t('الرهبنة اليسوعية · مراكز ماجيس في سوريا', 'Society of Jesus · MAGIS centres in Syria')}</div>
+      <h1 className="mg-word"><span>MAGIS</span><span className="ar" dir="rtl">ماجيس</span></h1>
+      <div className="mg-sub">{tx(m('شبكة رجاء: جرمانا · حلب · حمص', 'A network of hope: Jaramana · Aleppo · Homs', "Un réseau d'espérance : Jaramana · Alep · Homs"))}</div>
+      {!compact && <Houses />}
+      <Charter />
+      {compact && <Houses small />}
+    </div>
+  );
+}
+
+const VALUES = () => t('الضيافة والمشاركة · الحرية والإبداع · الشجاعة والانفتاح · البساطة والجمال · الثقة والمسؤولية', 'Hospitality & sharing · Freedom & creativity · Courage & openness · Simplicity & beauty · Trust & responsibility');
+
+/**
+ * The page around every welcome, login and setup screen (Fouad, 31 October 2026: "beautiful, with the logos, and an
+ * invitation to sign in"): the MAGIS Charter look — warm off-white, the gold, the sun in its light, the three houses and
+ * the charter. The list of databases opens under the heading; a sign-in page puts the heading beside the card.
+ */
 export function BrandFrame({ children, brand, wide, jesuit, title }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string }) {
   const st = brand ? brandStyle(brand) : null;
   // the Jesuit communities: only the Jesuit logo, no centres (Fouad, 18 October 2026)
   if (jesuit)
     return (
-      <div className="brand-page jesuit">
+      <div className="brand-page jesuit mg-page">
         <div className="brand-spine" />
-        <header className="brand-head jesuit">
-          <img src="/brand/jesuits.png" alt="" className="brand-jesuits" />
-          <div className="brand-title">
-            <div className="brand-eyebrow">{tx(m('الرهبنة اليسوعية', 'Society of Jesus', 'Compagnie de Jésus'))}</div>
-            <h1>{title ?? tx(m('حسابات الجماعات', "Communities' accounts", 'Comptes des communautés'))}</h1>
-          </div>
+        <header className="mg-jhead">
+          <div className="mg-sun small"><div className="mg-rays" /><img src="/brand/jesuits.png" alt="" /></div>
+          <div className="mg-eyebrow">{tx(m('الرهبنة اليسوعية · إقليم الشرق الأدنى', 'Society of Jesus · Province of the Near East', 'Compagnie de Jésus · Province du Proche-Orient'))}</div>
+          <h1 className="mg-title">{title ?? tx(m('حسابات الجماعات', "Communities' accounts", 'Comptes des communautés'))}</h1>
         </header>
         <main className={`brand-main ${wide ? 'wide' : ''}`}>{children}</main>
       </div>
     );
-  return (
-    <div className="brand-page">
-      <div className="brand-spine" />
-      <header className="brand-head">
-        <img src="/brand/jesuits.png" alt="" className="brand-jesuits" />
-        <div className="brand-title">
-          <div className="brand-eyebrow">{t('الرهبنة اليسوعية · مراكز ماجيس في سوريا', 'Society of Jesus · MAGIS centres in Syria')}</div>
-          <h1>{t('حسابات ماجيس', 'MAGIS Accounts')}</h1>
-          <div className="brand-cities">{t('جرمانا · حلب · حمص', 'Jaramana · Aleppo · Homs')}</div>
+  const vars = st ? ({ '--centre': st.color, '--centre-deep': st.deep } as React.CSSProperties) : undefined;
+  if (!wide)
+    // a sign-in (or a setup): the heading beside, the card in the colour of its centre
+    return (
+      <div className="brand-page mg-page">
+        <div className="brand-spine" />
+        <div className="mg-split">
+          <aside className="mg-aside"><Hero compact /></aside>
+          <main className="mg-signin" style={vars}>
+            {st?.mark && <img className="mg-card-mark" src={st.mark} alt="" />}
+            {children}
+          </main>
         </div>
-        {st?.mark ? <img src={st.mark} alt="" className="brand-sun" /> : <img src="/brand/magis-sun.png" alt="" className="brand-sun" />}
-      </header>
-      <main className={`brand-main ${wide ? 'wide' : ''}`} style={st ? ({ '--centre': st.color, '--centre-deep': st.deep } as React.CSSProperties) : undefined}>
+        <footer className="brand-foot"><img src="/brand/marks-combined.png" alt="" /><span>{VALUES()}</span></footer>
+      </div>
+    );
+  return (
+    <div className="brand-page mg-page">
+      <div className="brand-spine" />
+      <img src="/brand/jesuits.png" alt="" className="mg-jesuits" />
+      <Hero />
+      <main className="brand-main wide" style={vars}>
+        <div className="mg-invite">
+          <b>{tx(m('أهلاً وسهلاً', 'Welcome', 'Bienvenue'))}</b>
+          <span>{tx(m('اختر مكانك، ثم ادخل باسمك وكلمة سرّك.', 'Choose your place, then sign in with your name and password.', 'Choisissez votre lieu, puis entrez avec votre nom et votre mot de passe.'))}</span>
+        </div>
         {children}
       </main>
-      <footer className="brand-foot">
-        <img src="/brand/marks-combined.png" alt="" />
-        <span>{t('الضيافة والمشاركة · الحرية والإبداع · الشجاعة والانفتاح · البساطة والجمال · الثقة والمسؤولية', 'Hospitality & sharing · Freedom & creativity · Courage & openness · Simplicity & beauty · Trust & responsibility')}</span>
-      </footer>
+      <footer className="brand-foot"><img src="/brand/marks-combined.png" alt="" /><span>{VALUES()}</span></footer>
     </div>
   );
 }
@@ -120,12 +185,16 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   if (choosing)
     return (
       <BrandFrame wide jesuit title={tx(m('حسابات اليسوعيين', 'Jesuit accounts', 'Comptes jésuites'))}>
-        <h2 className="brand-h2">{tx(m('ماذا تريد أن تفتح؟', 'What do you want to open?', 'Que voulez-vous ouvrir ?'))}</h2>
+        <div className="mg-invite">
+          <b>{tx(m('أهلاً وسهلاً', 'Welcome', 'Bienvenue'))}</b>
+          <span>{tx(m('ماذا تريد أن تفتح؟', 'What do you want to open?', 'Que voulez-vous ouvrir ?'))}</span>
+        </div>
         <div className="area-grid">
           <button className="area-card" onClick={() => setArea('centres')}>
             <img src="/brand/magis-sun.png" alt="" />
             <b>{tx(m('مراكز ماجيس', 'MAGIS centres', 'Centres MAGIS'))}</b>
             <span>{tx(m('جرمانا · حلب · حمص', 'Jaramana · Aleppo · Homs', 'Jaramana · Alep · Homs'))}</span>
+            <Houses small />
           </button>
           <button className="area-card" onClick={() => setArea('cty')}>
             <img src="/brand/jesuits.png" alt="" />
@@ -152,7 +221,6 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
             </div>
           )}
           {both && area && <button className="cty-back" onClick={() => setArea(null)}>‹ {tx(m('رجوع', 'Back', 'Retour'))}</button>}
-          <h2 className="brand-h2">{t('اختر قاعدة البيانات', 'Choose a database')}</h2>
           <div className="db-grid">
             {shown.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
             <button className="db-card db-new" onClick={() => (canCreate ? setCreating(true) : setHowTo((x) => !x))}>

@@ -163,7 +163,12 @@ export const serverDbRestore = (folder: string) => post<{ ok: true; slug: string
 export const serverLogout = () => post('/api/logout', {}).catch(() => undefined);
 
 /** Already logged in (cookie still valid)? */
-export const serverMe = () => get<{ profile: Profile; mustChange: boolean; db: string } | null>('/api/me').catch(() => null);
+export const serverMe = () => get<{ profile: Profile; mustChange: boolean; db: string; as?: SignedAs | null } | null>('/api/me').catch(() => null);
+
+/** "sign in as" (Fouad, 31 October 2026): who really is there, and whether they may act */
+export interface SignedAs { by: string; mode: 'view' | 'act' }
+export const serverSignAs = (profileId: number, mode: 'view' | 'act') => post<{ ok: true }>('/api/as', { profileId, mode });
+export const serverSignAsBack = () => post<{ ok: true }>('/api/as/back', {});
 
 /** Asked every 15 s by the screen: an automatic check, never counted as activity. */
 export const serverVersion = async () => (await call<{ v: number }>('GET', '/api/version', undefined, true)).v;

@@ -33,6 +33,8 @@ export interface Session {
   kind?: string;
   /** server mode: asks the server whether data changed since `v` */
   version?: () => Promise<number>;
+  /** signed in as this person by someone who manages the users (null: themself) */
+  as?: { by: string; mode: 'view' | 'act' } | null;
 }
 
 export interface Data {

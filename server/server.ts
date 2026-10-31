@@ -24,7 +24,7 @@ import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigrations } from '../src/db/db';
-import { blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
+import { auditStmt, blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type FileOps, type OpCtx } from '../src/ops';
 import { createOffice } from '../src/setup';
@@ -200,7 +200,12 @@ interface Session {
   mustChange: boolean;
   last: number;
   ip: string;
+  /** "sign in as" (Fouad, 31 October 2026): someone who manages the users sees the program as another person; 'view'
+   *  saves nothing, 'act' acts as them, written "Fouad as Salim" */
+  as?: { byId: number; by: string; mode: 'view' | 'act' };
 }
+/** who did it, as written in the history */
+const whoOf = (s: Session) => (s.as ? `${s.as.by} as ${s.profile.name}` : s.profile.name);
 
 /** The sign-in directory (Fouad, 30 October 2026): one person, one password, and the list of databases that person may enter. */
 interface DirPerson {
@@ -600,6 +605,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const method = req.method ?? 'GET';
     const ip = ipOf(req);
     const found = await sessionOf(req);
+    // signed in as someone else, to see only: nothing is saved (reading stays possible)
+    if (found?.[1].as?.mode === 'view' && method === 'POST' && !['/api/logout', '/api/as', '/api/as/back', '/api/me'].includes(url)) {
+      const name = /^\/api\/op\/([\w.]+)$/.exec(url)?.[1];
+      if (!name || !READ_ONLY.has(name)) throw new HttpError(403, { ar: 'تشاهد بحساب شخص آخر: لا يُحفظ شيء', en: "You are seeing as someone else: nothing can be saved", fr: "Vous voyez avec le compte d'un autre : rien ne peut être enregistré" });
+    }
     const dirPerson = dirPersonOf(req);
     /** may this directory person enter this database? (the administrator: all) */
     const dirSees = (p: DirPerson, slug: string) => p.admin || Object.prototype.hasOwnProperty.call(p.grants, slug);
@@ -1104,11 +1114,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
           return { ...blankTrx(), date: run.paid_on ?? last, type: 'Exp' as const, book_id: book, city_id: city, account_id: acc.id, heading_id: bl.heading_id, line_id: bl.id,
             explanation: `${what} · HR (${g.people.size})`, exp_syp: g.cur === 'SYP' ? Math.round(g.amount) : 0, exp_usd: g.cur === 'USD' ? Math.round(g.amount * 100) / 100 : 0, source_file: `hr-run:${run.id}` };
         });
-        const ctx: OpCtx = { db: cc.handle.db, profile: { id: 0, name: `HR · ${hs.profile.name}`, role: 'com', book_id: null, active: 1, access_id: null, access_name: 'HR', perms: ['register.edit', 'register.view'], books: [] }, who: `HR · ${hs.profile.name}`, install: 'office', files: cc.files };
+        const ctx: OpCtx = { db: cc.handle.db, profile: { id: 0, name: `HR · ${hs.profile.name}`, role: 'com', book_id: null, active: 1, access_id: null, access_name: 'HR', perms: ['register.edit', 'register.view'], books: [] }, who: `HR · ${whoOf(hs)}`, install: 'office', files: cc.files };
         await runOp(ctx, 'trx.save', { rows });
         cc.version++;
         const total = Math.round(parts.reduce((a, x) => a + x.usd, 0) * 100) / 100;
-        await hdb.batch([{ sql: 'INSERT INTO hr_run_sent (run_id, centre, sent_at, sent_by, trx_ids, total_usd) VALUES (?,?,?,?,?,?)', params: [run.id, slug, new Date().toISOString(), hs.profile.name, JSON.stringify(rows.map((r) => r.id)), total] }]);
+        await hdb.batch([{ sql: 'INSERT INTO hr_run_sent (run_id, centre, sent_at, sent_by, trx_ids, total_usd) VALUES (?,?,?,?,?,?)', params: [run.id, slug, new Date().toISOString(), whoOf(hs), JSON.stringify(rows.map((r) => r.id)), total] }]);
         hc.version++;
         log(`HR run ${run.id} (${run.ym}) sent to ${slug}: ${rows.length} rows by ${hs.profile.name}`);
         done.push({ centre: slug, rows: rows.length, total_usd: total });
@@ -1126,7 +1136,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!row || !cc) throw new HttpError(404, { ar: 'لم يُرسل', en: 'Not sent' });
       const ids = (JSON.parse(row.trx_ids) as string[]).filter(Boolean);
       const still = (await cc.handle.db.query<{ id: string }>(`SELECT id FROM trx WHERE id IN (${ids.map(() => '?').join(',') || "''"})`, ids)).map((x) => x.id);
-      const ctx: OpCtx = { db: cc.handle.db, profile: { id: 0, name: `HR · ${hs.profile.name}`, role: 'com', book_id: null, active: 1, access_id: null, access_name: 'HR', perms: ['register.edit', 'register.view'], books: [] }, who: `HR · ${hs.profile.name}`, install: 'office', files: cc.files };
+      const ctx: OpCtx = { db: cc.handle.db, profile: { id: 0, name: `HR · ${hs.profile.name}`, role: 'com', book_id: null, active: 1, access_id: null, access_name: 'HR', perms: ['register.edit', 'register.view'], books: [] }, who: `HR · ${whoOf(hs)}`, install: 'office', files: cc.files };
       if (still.length) await runOp(ctx, 'trx.delete', { ids: still, reason: 'payroll taken back by HR · سحبته الموارد البشرية' });
       cc.version++;
       await hc.handle.db.batch([{ sql: 'DELETE FROM hr_run_sent WHERE run_id = ? AND centre = ?', params: [Number(body.runId), String(body.centre)] }]);
@@ -1266,7 +1276,37 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     if (url === '/api/me')
       // idleMs: how long since the person last did something (in any tab of this browser); read by a background check
-      return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange, db: found[1].db, idleMs: Date.now() - found[1].last } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
+      return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange, db: found[1].db, idleMs: Date.now() - found[1].last, as: found[1].as ? { by: found[1].as.by, mode: found[1].as.mode } : null } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
+    // "sign in as": only someone who manages the users of this database; the way back is always open
+    if (url === '/api/as' && method === 'POST') {
+      if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
+      const [, s, c] = found;
+      const real = await loadProfile(c.handle.db, s.as?.byId ?? s.profile.id);
+      if (!real || !has(real, 'users.manage')) throw new HttpError(403, { ar: 'لمن يدير المستخدمين فقط', en: 'Only for someone who manages the users', fr: 'Seulement pour qui gère les utilisateurs' });
+      const body = (await readBody(req)) as { profileId?: number; mode?: string };
+      const target = await loadProfile(c.handle.db, Number(body.profileId));
+      if (!target) throw new HttpError(400, { ar: 'المستخدم غير موجود أو موقوف', en: 'This user does not exist or is switched off', fr: "Cet utilisateur n'existe pas ou est désactivé" });
+      const mode = body.mode === 'act' ? 'act' : 'view';
+      if (target.id === real.id) { s.profile = real; s.as = undefined; return send(res, 200, { ok: true }); }
+      s.profile = target;
+      s.as = { byId: real.id, by: real.name, mode };
+      s.mustChange = false;
+      await c.handle.db.batch([auditStmt(real.name, 'sign-as', 'profile', String(target.id), null, { as: target.name, mode })]);
+      log(`${c.slug}: ${real.name} signed in as ${target.name} (${mode === 'act' ? 'see and act' : 'see only'})`);
+      return send(res, 200, { ok: true });
+    }
+    if (url === '/api/as/back' && method === 'POST') {
+      if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
+      const [, s, c] = found;
+      if (s.as) {
+        const real = await loadProfile(c.handle.db, s.as.byId);
+        if (!real) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
+        log(`${c.slug}: ${real.name} back from ${s.profile.name}`);
+        s.profile = real;
+        s.as = undefined;
+      }
+      return send(res, 200, { ok: true });
+    }
     if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
     const [, s, c] = found;
 
@@ -1321,7 +1361,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (s.mustChange && op !== 'profile.setPin')
         throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
       const args = await readBody(req);
-      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: s.profile.name, install: 'office', files: c.files };
+      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files };
       const result = await runOp(ctx, op, args);
       if (op === 'profile.setPin' && (args as { id?: number }).id === s.profile.id) s.mustChange = false;
       if (!READ_ONLY.has(op)) c.version++;

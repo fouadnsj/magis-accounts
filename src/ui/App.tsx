@@ -16,6 +16,7 @@ import { connectRemote, dirEnter, dirLogout, disconnectRemote, hello, httpApi, r
 import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { m, tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
+import { SignAsBanner } from './SignAs';
 import { AppProvider, type Install, type Session } from '../state';
 import { getLang } from '../i18n';
 import type { Role } from '../domain/types';
@@ -91,9 +92,9 @@ export function App() {
     setOpened({ db: tauriDb, dbPath, install, organisation, centre, brandColor: await getMeta(tauriDb, 'brand_color'), brandLogo: await getMeta(tauriDb, 'brand_logo'), kind: (await getMeta(tauriDb, 'kind')) ?? 'centre' });
   }, []);
 
-  const serverSession = useCallback((db: DbInfo, profile: Profile): Session => ({
+  const serverSession = useCallback((db: DbInfo, profile: Profile, as?: Session['as']): Session => ({
     api: httpApi, mode: 'server', dbPath: null, install: 'office', organisation: db.organisation, centre: db.centre,
-    brandColor: db.color ?? null, brandLogo: db.logo ?? null, profile, version: serverVersion, kind: db.kind,
+    brandColor: db.color ?? null, brandLogo: db.logo ?? null, profile, version: serverVersion, kind: db.kind, as: as ?? null,
   }), []);
 
   /** Asks the server again for its databases (after a creation or a setup). */
@@ -148,7 +149,7 @@ export function App() {
           if (me?.profile && db) {
             setServerDb(db);
             setMustChange(me.mustChange);
-            setSession(serverSession(db, me.profile));
+            setSession(serverSession(db, me.profile, me.as));
           }
         }
       } catch (e) {
@@ -406,6 +407,7 @@ export function App() {
 
   return (
     <>
+      {session?.as && <SignAsBanner name={session.profile.name} as={session.as} />}
       {!isDesktop() && !server && <div className="preview-banner">{t('معاينة في المتصفح — لا يُحفظ شيء', 'Browser preview — nothing is saved')}</div>}
       {body}
       <ConfirmHost />

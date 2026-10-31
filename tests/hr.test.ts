@@ -707,6 +707,40 @@ describe('HR database', () => {
     expect((await bg()).idleMs).toBeLessThan(a.idleMs);
   });
 
+  it('sign in as: only who manages the users; see only saves nothing; see and act is written "X as Y"; and back', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR as', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR as', people: [{ name: 'Manager', password: 'manager-hr-1' }], mustChange: false });
+    const mid = (await call(`/api/profiles?db=${slug}`)).body[0].id;
+    const ck = (await call('/api/login', { db: slug, profileId: mid, password: 'manager-hr-1' }, '')).set!;
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Homs', code: 'homs' }, ck);
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Aleppo', code: 'aleppo' }, ck);
+    await op('hr.person.save', { first_name: 'Adel', centre: 'MAGIS Aleppo' }, ck);
+    const keeper = (await op('hr.users.list', {}, ck)).body.access.find((a: { name: string }) => a.name.includes('HR keeper of a centre'));
+    const kid = (await op('hr.user.save', { name: 'Homs HR', accessId: keeper.id, centres: ['homs'], password: 'homs-hr-12' }, ck)).body.id;
+    const post = (url: string, body: unknown, c: string) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: c }, body: JSON.stringify(body) });
+    const me = async (c: string) => (await (await fetch(`${base}/api/me`, { headers: { Cookie: c } })).json()) as { profile: { name: string }; as: { by: string; mode: string } | null };
+    // the Homs keeper may not
+    const hk = (await call('/api/login', { db: slug, profileId: kid, password: 'homs-hr-12' }, '')).set!;
+    expect((await post('/api/as', { profileId: mid, mode: 'act' }, hk)).status).toBe(403);
+    // see only: their screens (Homs only), nothing saved
+    expect((await post('/api/as', { profileId: kid, mode: 'view' }, ck)).status).toBe(200);
+    expect(await me(ck)).toMatchObject({ profile: { name: 'Homs HR' }, as: { by: 'Manager', mode: 'view' } });
+    expect((await op('hr.data', {}, ck)).body.scope).toEqual(['homs']);
+    expect((await op('hr.data', {}, ck)).body.people).toEqual([]);
+    expect((await op('hr.person.save', { first_name: 'Hala', centre: 'MAGIS Homs' }, ck)).status).toBe(403);
+    // see and act: done as them, written "Manager as Homs HR"
+    expect((await post('/api/as', { profileId: kid, mode: 'act' }, ck)).status).toBe(200);
+    expect((await op('hr.person.save', { first_name: 'Hala', centre: 'MAGIS Homs' }, ck)).status).toBe(200);
+    expect((await op('hr.person.save', { first_name: 'Nour', centre: 'MAGIS Aleppo' }, ck)).status).toBe(400); // their limits, not mine
+    // back: myself again, every centre
+    expect((await post('/api/as/back', {}, ck)).status).toBe(200);
+    expect(await me(ck)).toMatchObject({ profile: { name: 'Manager' }, as: null });
+    const audit = (await op('audit.list', {}, ck)).body as { who: string; action: string; tbl: string }[];
+    expect(audit.some((a) => a.who === 'Manager as Homs HR' && a.tbl === 'hr_person')).toBe(true);
+    expect(audit.some((a) => a.who === 'Manager' && a.action === 'sign-as')).toBe(true);
+  });
+
   it('tutors paid by session: one price in the settings, sessions by date, a line per tutor in the centre payroll', async () => {
     const made = await call('/api/dbs/create', { organisation: 'HR tutors', centre: 'other', kind: 'hr' });
     const slug = made.body.slug;

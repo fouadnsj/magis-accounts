@@ -11,6 +11,7 @@ import type { HrCheckItem, HrData, HrLeaveType, HrListItem } from '../hr';
 import { centreChoices, centreLabel, centreVars, fail, markOf } from './common';
 import { partyOf } from '../docs';
 import { SessionPriceTab } from './Sessions';
+import { SignAsButton } from '../../ui/SignAs';
 
 type Tab = 'lists' | 'checks' | 'price' | 'leave' | 'users';
 
@@ -247,7 +248,7 @@ function UsersTab({ s, d }: { s: Session; d: HrData }) {
                 <td><b>{u.name}</b>{!u.active ? <span className="muted small"> · {t3('موقوف', 'off', 'désactivé')}</span> : null}</td>
                 <td className="small">{u.access_name ?? '—'}</td>
                 <td>{u.centres ? u.centres.map((c) => <span key={c} className="row" style={{ gap: 4, display: 'inline-flex', marginInlineEnd: 8 }}><img src={markOf(c as CentreKey)} alt="" style={{ height: 18 }} />{nameOf(c)}</span>) : <b>{t3('كل المراكز', 'Every centre', 'Tous les centres')}</b>}</td>
-                <td className="right"><button className="btn small" onClick={() => setEdit(u)}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
+                <td className="right nowrap">{u.active ? <SignAsButton s={s} profileId={u.id} name={u.name} small /> : null} <button className="btn small" onClick={() => setEdit(u)}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
               </tr>
             ))}
           </tbody>

@@ -1,4 +1,5 @@
 // Month closing (two steps), backups, users, permission profiles, audit log, server.
+import { SignAsButton } from './SignAs';
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
 import type { Profile } from '../auth';
@@ -455,6 +456,7 @@ function Users() {
             <tr key={u.id}>
               <td><b>{u.name}</b></td><td>{biName(u.access_name)}</td><td>{u.books.map(bookName).join('، ') || '—'}</td>
               <td className="right nowrap">
+                <SignAsButton s={s} profileId={u.id} name={u.name} small />{' '}
                 {manage && <button className="btn small" onClick={() => setEdit(u)}>✎</button>}{' '}
                 <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>{' '}
                 {manage && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)}>✕</button>}

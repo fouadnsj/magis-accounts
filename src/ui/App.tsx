@@ -12,7 +12,7 @@ import { dailyBackup, desktopFiles } from '../db/backup';
 import { listProfiles, login, type LoginPerson, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
-import { connectRemote, dirEnter, dirLogout, disconnectRemote, hello, httpApi, remoteBase, serverCheck, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
+import { connectRemote, dirEnter, dirLogout, disconnectRemote, hello, httpApi, remoteBase, serverCheck, serverEnter, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
 import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { m, tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
@@ -21,7 +21,8 @@ import { AppProvider, type Install, type Session } from '../state';
 import { getLang } from '../i18n';
 import type { Role } from '../domain/types';
 import { ConfirmHost, PromptHost, ToastHost, biName, errText, t, toast } from './kit';
-import { DirMustChange, DirSignIn } from './Directory';
+import { DirMustChange } from './Directory';
+import { FirstPage } from './FirstPage';
 import { Welcome } from './Welcome';
 import { ICON, PersonIcon } from './icons';
 import { Shell } from './Shell';
@@ -52,14 +53,16 @@ export function App() {
   const [settingUp, setSettingUp] = useState(false);
   /** logged in, but looking at the list of databases (to create one, or change) */
   const [browsing, setBrowsing] = useState(false);
+  /** server: from the first page to the communities' side (their own password, then their people) */
+  const [ctySide, setCtySide] = useState(false);
   /** signed out for inactivity: said on the login page */
   const [idleOut, setIdleOut] = useState(false);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const sessionRef = useRef<Session | null>(null);
-  const dirOn = useRef(false);
+  const onServer = useRef(false);
   useEffect(() => {
-    dirOn.current = !!server?.dir?.on;
+    onServer.current = !!server;
   }, [server]);
   useEffect(() => {
     sessionRef.current = session;
@@ -166,7 +169,7 @@ export function App() {
     const out = () => {
       if (sessionRef.current) setIdleOut(true);
       setSession(null);
-      if (dirOn.current) { setServerDb(null); void refreshServer(); }
+      if (onServer.current) { setServerDb(null); setCtySide(false); void refreshServer(); }
     };
     window.addEventListener('magis-logged-out', out);
     return () => window.removeEventListener('magis-logged-out', out);
@@ -191,16 +194,16 @@ export function App() {
     }
   }, []);
 
+  /** Signing out is complete (Fouad, 31 October 2026): out of the database and of the directory, back to the first page. */
   const logout = useCallback(() => {
-    if (server) {
-      void serverLogout();
-      void refreshServer();
-    }
+    if (server) void (async () => { await serverLogout(); await dirLogout(); await refreshServer(); })();
     dropDraft();
     setIdleOut(false);
     setSession(null);
     setMustChange(false);
-    if (server?.dir?.person) setServerDb(null); // signed in to the directory: back to my list of databases
+    setServerDb(null);
+    setBrowsing(false);
+    setCtySide(false);
   }, [server, refreshServer]);
 
   /** No activity for too long: out, but a half-typed entry is kept for the same person. Several tabs of one browser share
@@ -219,7 +222,7 @@ export function App() {
     setSession(null);
     setMustChange(false);
     setIdleOut(true);
-    if (server?.dir?.on) { setServerDb(null); void refreshServer(); }
+    if (server) { setServerDb(null); setCtySide(false); void refreshServer(); }
     return false;
   }, [server, refreshServer, serverDb]);
 
@@ -240,10 +243,25 @@ export function App() {
 
   let body;
   if (booting) body = <div className="center-page muted">…</div>;
-  else if (server?.dir?.on && !session && !server.dir.person && !serverDb)
-    body = <DirSignIn local={server.local} onDone={async () => { await refreshServer(); }} />;
   else if (server?.dir?.person?.mustChange && !session)
     body = <DirMustChange name={server.dir.person.name} onDone={async () => { await refreshServer(); }} onLogout={async () => { await dirLogout(); await refreshServer(); }} />;
+  else if (server && !session && !serverDb && !server.dir?.person && !ctySide)
+    // the first page: no database before someone signs in
+    body = (
+      <FirstPage
+        hello={server}
+        notice={idleOut}
+        refresh={refreshServer}
+        onEnter={(db, profile, must) => {
+          setServerDb(db);
+          setMustChange(must);
+          setIdleOut(false);
+          setSession(serverSession(db, profile));
+        }}
+        onDir={async () => { setIdleOut(false); await refreshServer(); }}
+        onCommunities={server.ctyGate || server.dbs.some((d) => d.kind === 'community' || d.kind === 'country') ? () => setCtySide(true) : undefined}
+      />
+    );
   else if (server && ((!session && !serverDb) || (session && browsing)))
     body = (
       <Landing
@@ -255,16 +273,10 @@ export function App() {
         dir={server.dir}
         isLocal={server.local}
         onDirChanged={async () => { await refreshServer(); }}
-        onDirSignOut={async () => {
-          await dirLogout();
-          setSession(null);
-          setServerDb(null);
-          setBrowsing(false);
-          setMustChange(false);
-          await refreshServer();
-        }}
+        onDirSignOut={logout}
+        onHome={!session && !server.dir?.person ? () => setCtySide(false) : undefined}
         signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
-        startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : null}
+        startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : ctySide ? 'cty' : null}
         ctyLocked={!!server.ctyGate && !server.ctyOpen}
         onCtyUnlocked={async () => { await refreshServer(); }}
         address={remoteBase}
@@ -272,6 +284,19 @@ export function App() {
         onBackIn={session ? () => setBrowsing(false) : undefined}
         onOpen={async (db) => {
           if (session && db.slug === serverDb?.slug && !db.setupNeeded) return setBrowsing(false);
+          // signed in from the first page: another of this person's databases, without signing in again
+          if (server.ring?.includes(db.slug)) {
+            try {
+              const r = await serverEnter(db.slug);
+              setServerDb(db);
+              setMustChange(r.mustChange);
+              setBrowsing(false);
+              setSession(serverSession(db, r.profile));
+            } catch (e) {
+              toast(errText(e), true);
+            }
+            return;
+          }
           // signed in to the directory: straight in, as the account given to this person
           if (server.dir?.person && !db.setupNeeded) {
             try {
@@ -380,7 +405,7 @@ export function App() {
     body = (
       <>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <HrApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} />
+        <HrApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} />
       </>
     );
   else if (session?.kind === 'country')

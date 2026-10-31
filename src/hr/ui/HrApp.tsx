@@ -37,7 +37,7 @@ function onlyCentre(d: HrData, code: string | null): HrData {
   return { ...d, people, papers: mine(d.papers), signs: mine(d.signs), docs: d.docs ? mine(d.docs) : null, alerts: mine(d.alerts), checksDone: mine(d.checksDone) };
 }
 
-export function HrApp({ session, onLogout }: { session: Session; onLogout: () => void; onLang?: () => void }) {
+export function HrApp({ session, onLogout, onDatabases }: { session: Session; onLogout: () => void; onLang?: () => void; /** the other databases of this person (server) */ onDatabases?: () => void }) {
   const [all, setAll] = useState<HrData | null>(null);
   const [pd, setPd] = useState<HrPayData | null>(null);
   const [page, setPage] = useState<Page>('home');
@@ -95,6 +95,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {vault && item('log', t3('سجل فتح الوثائق', 'Document log', 'Journal des documents'))}
         <div className="spacer" />
         <div className="sun"><img src="/brand/magis-sun.png" alt="" /></div>
+        {onDatabases && <button onClick={onDatabases}>{t3('قواعد البيانات', 'Databases', 'Bases de données')}</button>}
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </nav>
       <main className="hr-main">

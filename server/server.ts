@@ -203,6 +203,9 @@ interface Session {
   /** "sign in as" (Fouad, 31 October 2026): someone who manages the users sees the program as another person; 'view'
    *  saves nothing, 'act' acts as them, written "Fouad as Salim" */
   as?: { byId: number; by: string; mode: 'view' | 'act' };
+  /** signed in from the first page with a house, a name and a password (Fouad, 31 October 2026): every database of
+   *  that house (and HR) where this name has this password; the person goes from one to another without signing in again */
+  ring?: { db: string; profileId: number; mustChange: boolean }[];
 }
 /** who did it, as written in the history */
 const whoOf = (s: Session) => (s.as ? `${s.as.by} as ${s.profile.name}` : s.profile.name);
@@ -400,10 +403,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   }
 
   const setupNeeded = async (c: Centre) => !(await one(c.handle.db, 'SELECT 1 FROM profile WHERE active = 1 LIMIT 1'));
-  const describe = async (c: Centre) => ({
+  const describe = async (c: Centre) => {
+    const organisation = (await getMeta(c.handle.db, 'organisation')) ?? c.slug;
+    return {
     slug: c.slug,
-    organisation: (await getMeta(c.handle.db, 'organisation')) ?? c.slug,
-    centre: ((await getMeta(c.handle.db, 'centre')) ?? 'other') as CentreKey,
+    organisation,
+    // a database made before centres existed has none written: guessed from its name (MAGIS Aleppo had the colour of "Other")
+    centre: ((await getMeta(c.handle.db, 'centre')) ?? guessCentre(organisation)) as CentreKey,
     color: await getMeta(c.handle.db, 'brand_color'),
     logo: await getMeta(c.handle.db, 'brand_logo'),
     /** a community's set of colours (JSON), if it chose one */
@@ -412,7 +418,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     setupNeeded: await setupNeeded(c),
     /** community = a Jesuit community's accounts; otherwise a MAGIS centre */
     kind: (await getMeta(c.handle.db, 'kind')) ?? 'centre',
-  });
+    };
+  };
   const centreOf = (slug: unknown): Centre => {
     const c = typeof slug === 'string' ? centres.get(slug) : undefined;
     if (!c || (config.inactive ?? []).includes(c.slug)) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
@@ -647,9 +654,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       let dbs = (await Promise.all([...centres.values()].filter((x) => !(config.inactive ?? []).includes(x.slug)).map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
       // the directory: a signed-in person sees only what was given to them; when it is enforced, nobody else sees anything
       if (dirPerson) dbs = dbs.filter((d) => dirSees(dirPerson, d.slug));
+      else if (found?.[1].ring) dbs = dbs.filter((d) => found[1].ring!.some((r) => r.db === d.slug));
       else if (directory.enforced && !isLocal(req)) dbs = [];
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, ring: found?.[1].ring?.map((r) => r.db) ?? null, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
     }
 
     // ---- the communities' password: give it (unlock), or set / change it
@@ -1233,6 +1241,79 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const oldSignInClosed = () => {
       if (directory.enforced && !isLocal(req)) throw new HttpError(403, { ar: 'الدخول من الدليل: اكتب اسمك وكلمة سرك في الصفحة الأولى', en: 'Sign in through the directory: your name and password on the first page' });
     };
+    // ---- the first page (Fouad, 31 October 2026): a house, a name and a password. A person of the sign-in directory
+    // enters with it (and sees what was given to them); otherwise every database of that house, and HR, where this name
+    // has this password. Several: the person chooses, then goes from one to another without signing in again.
+    if (url === '/api/signin' && method === 'POST') {
+      const f = failures.get(ip);
+      if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes', fr: 'Trop de tentatives — attendez 5 minutes' });
+      const body = (await readBody(req)) as { centre?: string; name?: string; password?: string };
+      const name = String(body.name ?? '').trim().toLowerCase();
+      const password = String(body.password ?? '');
+      const wrong = () => {
+        const n = f && f.until > 0 && f.until <= Date.now() ? 1 : (f?.n ?? 0) + 1;
+        failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
+        log(`failed sign-in from ${ip}`);
+        return new HttpError(403, { ar: 'الاسم أو كلمة السر غير صحيحة', en: 'The name or the password is not right', fr: "Le nom ou le mot de passe n'est pas juste" });
+      };
+      const person = directory.people.find((q) => q.active && q.name.toLowerCase() === name);
+      if (person && (await verifySecret(person.salt, password, person.hash)).ok) {
+        failures.delete(ip);
+        if (found) sessions.delete(found[0]);
+        const token = randomBytes(32).toString('base64url');
+        dirSessions.set(token, { id: person.id, last: Date.now() });
+        log(`directory sign-in: ${person.name} from ${ip}`);
+        return send(res, 200, { dir: true }, { 'Set-Cookie': dirCookieSet(token, viaHttps) });
+      }
+      if (body.centre === 'admin') throw wrong(); // "the administrator": the directory only
+      if (directory.enforced && !isLocal(req)) throw wrong();
+      const house = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? body.centre : null;
+      const ring: NonNullable<Session['ring']> = [];
+      let first: Profile | null = null;
+      for (const c of centres.values()) {
+        if ((config.inactive ?? []).includes(c.slug) || (await setupNeeded(c))) continue;
+        const d = await describe(c);
+        if (!(d.kind === 'hr' || (d.kind === 'centre' && d.centre === house))) continue;
+        for (const q of await listProfiles(c.handle.db)) {
+          if (q.name.trim().toLowerCase() !== name) continue;
+          try {
+            const r = await login(c.handle.db, q.id, password);
+            // the house's own accounts first, HR after
+            const item = { db: c.slug, profileId: r.profile.id, mustChange: r.weak || r.given };
+            if (d.kind === 'hr') ring.push(item);
+            else ring.unshift(item);
+            if (d.kind !== 'hr' || !first) first = r.profile;
+            break;
+          } catch { /* not this one */ }
+        }
+      }
+      if (!ring.length) throw wrong();
+      failures.delete(ip);
+      if (found) sessions.delete(found[0]);
+      const sid = randomBytes(32).toString('base64url');
+      const profile = (await loadProfile(centres.get(ring[0].db)!.handle.db, ring[0].profileId)) ?? first!;
+      sessions.set(sid, { db: ring[0].db, profile, mustChange: ring[0].mustChange, last: Date.now(), ip, ring });
+      log(`sign-in ${ring.map((r) => r.db).join(', ')}: ${profile.name} from ${ip}`);
+      return send(res, 200, { places: ring.map((r) => r.db), db: ring[0].db, profile, mustChange: ring[0].mustChange }, {
+        'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}`,
+      });
+    }
+    if (url === '/api/signin/enter' && method === 'POST') {
+      if (!found?.[1].ring) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in', fr: 'Connectez-vous' });
+      const body = (await readBody(req)) as { db?: string };
+      const ring = found[1].ring;
+      const r = ring.find((x) => x.db === body.db);
+      if (!r) throw new HttpError(403, { ar: 'لا إذن لك في قاعدة البيانات هذه', en: 'You have no access to this database', fr: "Vous n'avez pas accès à cette base" });
+      const c = centreOf(r.db);
+      const profile = await loadProfile(c.handle.db, r.profileId);
+      if (!profile) throw new HttpError(403, { ar: 'هذا الحساب موقوف', en: 'This account is switched off', fr: 'Ce compte est désactivé' });
+      sessions.delete(found[0]);
+      const sid = randomBytes(32).toString('base64url');
+      sessions.set(sid, { db: c.slug, profile, mustChange: r.mustChange, last: Date.now(), ip, ring });
+      log(`sign-in ${c.slug}: ${profile.name} from ${ip}`);
+      return send(res, 200, { profile, mustChange: r.mustChange }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
+    }
+
     if (url === '/api/profiles' && method === 'GET') {
       oldSignInClosed();
       const c = centreOf(query.get('db'));

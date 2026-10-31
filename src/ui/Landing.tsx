@@ -19,7 +19,7 @@ const CHARTER = m(
 );
 const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
 
-function Charter() {
+export function Charter() {
   const l = getLang();
   return (
     <blockquote className="mg-quote">
@@ -62,14 +62,14 @@ function Hero({ compact, mark }: { compact?: boolean; /** a centre's own mark (i
   );
 }
 
-const VALUES = () => t('الضيافة والمشاركة · الحرية والإبداع · الشجاعة والانفتاح · البساطة والجمال · الثقة والمسؤولية', 'Hospitality & sharing · Freedom & creativity · Courage & openness · Simplicity & beauty · Trust & responsibility');
+export const VALUES = () => t('الضيافة والمشاركة · الحرية والإبداع · الشجاعة والانفتاح · البساطة والجمال · الثقة والمسؤولية', 'Hospitality & sharing · Freedom & creativity · Courage & openness · Simplicity & beauty · Trust & responsibility');
 
 /**
  * The page around every welcome, login and setup screen (Fouad, 31 October 2026: "beautiful, with the logos, and an
  * invitation to sign in"): the MAGIS Charter look — warm off-white, the gold, the sun in its light, the three houses and
  * the charter. The list of databases opens under the heading; a sign-in page puts the heading beside the card.
  */
-export function BrandFrame({ children, brand, wide, jesuit, title }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string }) {
+export function BrandFrame({ children, brand, wide, jesuit, title, invite = true }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string; /** "choose your place, then sign in" (not once signed in) */ invite?: boolean }) {
   const st = brand ? brandStyle(brand) : null;
   // the Jesuit communities: only the Jesuit logo, no centres (Fouad, 18 October 2026)
   if (jesuit)
@@ -106,10 +106,12 @@ export function BrandFrame({ children, brand, wide, jesuit, title }: { children:
       <img src="/brand/jesuits.png" alt="" className="mg-jesuits" />
       <Hero />
       <main className="brand-main wide" style={vars}>
-        <div className="mg-invite">
-          <b>{tx(m('أهلاً وسهلاً', 'Welcome', 'Bienvenue'))}</b>
-          <span>{tx(m('اختر مكانك، ثم ادخل باسمك وكلمة سرّك.', 'Choose your place, then sign in with your name and password.', 'Choisissez votre lieu, puis entrez avec votre nom et votre mot de passe.'))}</span>
-        </div>
+        {invite && (
+          <div className="mg-invite">
+            <b>{tx(m('أهلاً وسهلاً', 'Welcome', 'Bienvenue'))}</b>
+            <span>{tx(m('اختر مكانك، ثم ادخل باسمك وكلمة سرّك.', 'Choose your place, then sign in with your name and password.', 'Choisissez votre lieu, puis entrez avec votre nom et votre mot de passe.'))}</span>
+          </div>
+        )}
         {children}
       </main>
       <footer className="brand-foot"><img src="/brand/marks-combined.png" alt="" /><span>{VALUES()}</span></footer>
@@ -135,7 +137,7 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, dir, isLocal, onDirChanged, onDirSignOut, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked }: {
+export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, dir, isLocal, onDirChanged, onDirSignOut, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked, onHome }: {
   dbs: DbInfo[];
   canCreate: boolean;
   canCreateCty?: boolean;
@@ -160,6 +162,8 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   /** the communities' side has a password not given yet in this browser */
   ctyLocked?: boolean;
   onCtyUnlocked?: () => Promise<void>;
+  /** came from the first page (the communities' side): "Back" goes there */
+  onHome?: () => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [howTo, setHowTo] = useState(false);
@@ -179,7 +183,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   if (area === 'cty' && ctyLocked)
     return (
       <BrandFrame wide jesuit>
-        <CtyUnlock check={serverGateCheck} onBack={() => setArea(null)} onOpen={() => { void onCtyUnlocked?.(); }} />
+        <CtyUnlock check={serverGateCheck} onBack={() => (onHome ? onHome() : setArea(null))} onOpen={() => { void onCtyUnlocked?.(); }} />
       </BrandFrame>
     );
   if (choosing)
@@ -202,10 +206,15 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
             <span>{tx(m('اليسوعيون وبيتهم، والقيم', 'The Jesuits, their house, the econome', "Les jésuites, leur maison, l'économe"))}</span>
           </button>
         </div>
+        {dir?.person && (
+          <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+            <button className="btn small ghost" onClick={onDirSignOut}>{dir.person.name} · {tx(m('خروج', 'Sign out', 'Se déconnecter'))}</button>
+          </div>
+        )}
       </BrandFrame>
     );
   return (
-    <BrandFrame wide jesuit={area === 'cty' || (shown.length > 0 && shown.every(isCty))}>
+    <BrandFrame wide jesuit={area === 'cty' || (shown.length > 0 && shown.every(isCty))} invite={!signedIn && !dir?.person}>
       {address && (
         <div className="row muted small" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
           <span>{t('متصل بخادم المركز', "Connected to the centre's server")} · <span className="ltr">{address}</span></span>
@@ -220,7 +229,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
               {onBackIn && <button className="btn small" onClick={onBackIn}>{t('رجوع إلى', 'Back to')} {signedIn.db}</button>}
             </div>
           )}
-          {both && area && <button className="cty-back" onClick={() => setArea(null)}>‹ {tx(m('رجوع', 'Back', 'Retour'))}</button>}
+          {((both && area) || onHome) && <button className="cty-back" onClick={() => (onHome ? onHome() : setArea(null))}>‹ {tx(m('رجوع', 'Back', 'Retour'))}</button>}
           <div className="db-grid">
             {shown.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
             <button className="db-card db-new" onClick={() => (canCreate ? setCreating(true) : setHowTo((x) => !x))}>
@@ -230,12 +239,12 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
                 : <><b>{t('قاعدة بيانات جديدة', 'New database')}</b><span>{t('مركز، تجربة، سنة جديدة…', 'a centre, a test, a new year…')}</span></>}</div>
             </button>
           </div>
-          {(canManage || dir?.person || (isLocal && dir && !dir.on)) && (
+          {(canManage || dir?.person || signedIn || (isLocal && dir && !dir.on)) && (
             <div className="row" style={{ justifyContent: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
               {dir?.person?.admin && <button className="btn small ghost" onClick={() => setDirAdmin(true)}>👥 {tx(m('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès'))}</button>}
               {isLocal && dir && !dir.on && <button className="btn small ghost" onClick={() => setDirSetup(true)}>🔑 {tx(m('تفعيل دليل الدخول', 'Set up the sign-in directory', "Mettre en place l'annuaire de connexion"))}</button>}
               {canManage && <button className="btn small ghost" onClick={() => setManaging(true)}>⚙ {tx(m('إدارة قواعد البيانات', 'Manage databases', 'Gérer les bases de données'))}</button>}
-              {dir?.person && <button className="btn small ghost" onClick={onDirSignOut}>{dir.person.name} · {tx(m('خروج', 'Sign out', 'Se déconnecter'))}</button>}
+              {(dir?.person || signedIn) && <button className="btn small ghost" onClick={onDirSignOut}>{dir?.person?.name ?? signedIn?.name} · {tx(m('خروج', 'Sign out', 'Se déconnecter'))}</button>}
             </div>
           )}
           {managing && <ManageDbs onClose={() => setManaging(false)} onChanged={async () => { await onManaged?.(); }} />}

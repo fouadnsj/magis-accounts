@@ -39,6 +39,8 @@ export interface Hello {
   dbs: DbInfo[];
   /** the database of the session already open in this browser, if any */
   current: string | null;
+  /** signed in from the first page: the databases this person may go to without signing in again */
+  ring?: string[] | null;
   /** signed out after this many minutes without activity */
   idleMinutes?: number;
   /** the communities' side has a password; and whether it was given in this browser */
@@ -161,6 +163,13 @@ export const serverDbDelete = (db: string, name: string, password: string) => po
 export const serverDbRestore = (folder: string) => post<{ ok: true; slug: string }>('/api/dbs/restore', { folder });
 
 export const serverLogout = () => post('/api/logout', {}).catch(() => undefined);
+
+/** The first page: a house (or 'admin'), a name and a password. dir: a person of the sign-in directory; otherwise the
+ *  databases of that house (and HR) where this name has this password, the first one already open. */
+export const serverSignIn = (centre: string, name: string, password: string) =>
+  post<{ dir?: true; places?: string[]; db?: string; profile?: Profile; mustChange?: boolean }>('/api/signin', { centre, name, password });
+/** another of those databases, without signing in again */
+export const serverEnter = (db: string) => post<{ profile: Profile; mustChange: boolean }>('/api/signin/enter', { db });
 
 /** Already logged in (cookie still valid)? */
 export const serverMe = () => get<{ profile: Profile; mustChange: boolean; db: string; as?: SignedAs | null } | null>('/api/me').catch(() => null);

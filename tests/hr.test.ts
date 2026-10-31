@@ -741,6 +741,45 @@ describe('HR database', () => {
     expect(audit.some((a) => a.who === 'Manager' && a.action === 'sign-as')).toBe(true);
   });
 
+  it('the first page: a house, a name and a password open that house and HR; one to the other without signing in again', async () => {
+    const hrMade = (await call('/api/dbs/create', { organisation: 'HR first', centre: 'other', kind: 'hr' })).body.slug as string;
+    await call('/api/setup/hr', { db: hrMade, organisation: 'HR first', people: [{ name: 'Mona', password: 'mona-first-1' }], mustChange: false });
+    const made = await call('/api/dbs/create', { organisation: 'MAGIS Homs first', centre: 'homs' });
+    const homs = made.body.slug as string;
+    // the same person, the same password, as in that HR database
+    expect((await call('/api/setup/new', { db: homs, organisation: 'MAGIS Homs first', supName: 'Mona', supPin: 'mona-first-1', comName: 'Roula', comPin: 'roula-homs-1' })).status).toBe(200);
+    const post = (url: string, body: unknown, c = '') => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: c }, body: JSON.stringify(body) });
+    const sid = (r: Response) => r.headers.getSetCookie().find((c) => c.startsWith('magis_sid='))!.split(';')[0];
+    expect((await post('/api/signin', { centre: 'homs', name: 'Mona', password: 'wrong-pass-1' })).status).toBe(403);
+    const r = await post('/api/signin', { centre: 'homs', name: ' mona ', password: 'mona-first-1' });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { places: string[]; db: string; profile: { name: string } };
+    expect(body.places[0]).toBe(homs); // the house first, HR after
+    expect(body.places).toHaveLength(2);
+    expect(body).toMatchObject({ db: homs, profile: { name: 'Mona' } });
+    const ck = sid(r);
+    const hello = async (c: string) => (await (await fetch(`${base}/api/hello`, { headers: { Cookie: c } })).json()) as { dbs: { slug: string }[]; ring: string[] | null };
+    // only their places in the list
+    expect((await hello(ck)).dbs.map((d) => d.slug).sort()).toEqual([...body.places].sort());
+    // to HR without a password; not to a database that is not theirs
+    const hr = body.places[1];
+    expect(hr).toBe(hrMade);
+    const e = await post('/api/signin/enter', { db: hr }, ck);
+    expect(e.status).toBe(200);
+    const ck2 = sid(e);
+    expect(((await (await fetch(`${base}/api/me`, { headers: { Cookie: ck2 } })).json()) as { db: string }).db).toBe(hr);
+    expect((await hello(ck2)).ring).toEqual(body.places);
+    const other = (await call('/api/dbs/create', { organisation: 'MAGIS Aleppo first', centre: 'aleppo' })).body.slug;
+    expect((await post('/api/signin/enter', { db: other }, ck2)).status).toBe(403);
+    // another house: only HR (no Mona in Aleppo); Roula of Homs is not in HR
+    const a = (await (await post('/api/signin', { centre: 'aleppo', name: 'Mona', password: 'mona-first-1' })).json()) as { places: string[] };
+    expect(a.places).toEqual([hr]);
+    expect(((await (await post('/api/signin', { centre: 'homs', name: 'Roula', password: 'roula-homs-1' })).json()) as { places: string[] }).places).toEqual([homs]);
+    // out: completely
+    await post('/api/logout', {}, ck2);
+    expect((await fetch(`${base}/api/me`, { headers: { Cookie: ck2 } })).status).toBe(401);
+  });
+
   it('tutors paid by session: one price in the settings, sessions by date, a line per tutor in the centre payroll', async () => {
     const made = await call('/api/dbs/create', { organisation: 'HR tutors', centre: 'other', kind: 'hr' });
     const slug = made.body.slug;

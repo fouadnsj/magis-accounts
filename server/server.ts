@@ -1265,7 +1265,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'magis_sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
     }
     if (url === '/api/me')
-      return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange, db: found[1].db } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
+      // idleMs: how long since the person last did something (in any tab of this browser); read by a background check
+      return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange, db: found[1].db, idleMs: Date.now() - found[1].last } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
     if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
     const [, s, c] = found;
 

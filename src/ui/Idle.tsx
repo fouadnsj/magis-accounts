@@ -8,11 +8,13 @@ const EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'] as co
 
 export function IdleGuard({ minutes, onTimeout, touch }: {
   minutes: number;
-  onTimeout: () => void;
+  /** true: the person is still active elsewhere (another tab): the count starts again */
+  onTimeout: () => void | boolean | Promise<void | boolean>;
   /** server: tells the server the person is still there */
   touch?: () => Promise<unknown>;
 }) {
   const last = useRef(Date.now());
+  const asking = useRef(false);
   const lastTouch = useRef(Date.now());
   const [left, setLeft] = useState<number | null>(null); // seconds before sign-out, while warning
   const limit = Math.max(1, minutes) * 60e3;
@@ -31,7 +33,11 @@ export function IdleGuard({ minutes, onTimeout, touch }: {
     for (const e of EVENTS) window.addEventListener(e, active, { capture: true, passive: true });
     const timer = window.setInterval(() => {
       const idle = Date.now() - last.current;
-      if (idle >= limit) onTimeout();
+      if (idle >= limit) {
+        if (asking.current) return;
+        asking.current = true;
+        void Promise.resolve(onTimeout()).then((stay) => { if (stay) { last.current = Date.now(); setLeft(null); } }).finally(() => { asking.current = false; });
+      }
       else if (idle >= limit - 60e3) setLeft(Math.ceil((limit - idle) / 1000));
       else setLeft(null);
     }, 1000);

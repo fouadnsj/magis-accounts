@@ -170,6 +170,8 @@ export const serverVersion = async () => (await call<{ v: number }>('GET', '/api
 
 /** Something the person did: keeps the session open on the server. */
 export const serverTouch = () => get<unknown>('/api/me');
+/** who is signed in in this browser and how long since they last did something; an automatic check (not activity) */
+export const serverCheck = () => call<{ profile: Profile; db: string; idleMs: number }>('GET', '/api/me', undefined, true).catch(() => null);
 
 export const httpApi: Api = {
   call: (name, args, opts) => call('POST', `/api/op/${encodeURIComponent(name)}`, args ?? {}, opts?.background) as never,

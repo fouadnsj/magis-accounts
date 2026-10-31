@@ -691,6 +691,22 @@ describe('HR database', () => {
     expect((await op('hr.user.save', { id: mid, name: 'Manager', accessId: keeper.id, centres: ['homs'] }, ck)).status).toBe(400);
   });
 
+  it('a tab can ask how long since the person did something, without that check counting as activity', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR idle', centre: 'other', kind: 'hr' });
+    await call('/api/setup/hr', { db: made.body.slug, organisation: 'HR idle', people: [{ name: 'Manager', password: 'manager-hr-1' }], mustChange: false });
+    const mid = (await call(`/api/profiles?db=${made.body.slug}`)).body[0].id;
+    const ck = (await call('/api/login', { db: made.body.slug, profileId: mid, password: 'manager-hr-1' }, '')).set!;
+    await new Promise((r) => setTimeout(r, 60));
+    const bg = async () => (await (await fetch(`${base}/api/me`, { headers: { Cookie: ck, 'X-Magis-Background': '1' } })).json()) as { db: string; idleMs: number };
+    const a = await bg();
+    expect(a.db).toBe(made.body.slug);
+    expect(a.idleMs).toBeGreaterThanOrEqual(50);
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await bg()).idleMs).toBeGreaterThan(a.idleMs); // the background check did not count
+    await op('hr.data', {}, ck); // the person did something
+    expect((await bg()).idleMs).toBeLessThan(a.idleMs);
+  });
+
   it('tutors paid by session: one price in the settings, sessions by date, a line per tutor in the centre payroll', async () => {
     const made = await call('/api/dbs/create', { organisation: 'HR tutors', centre: 'other', kind: 'hr' });
     const slug = made.body.slug;

@@ -12,7 +12,7 @@ import { dailyBackup, desktopFiles } from '../db/backup';
 import { listProfiles, login, type LoginPerson, type Profile } from '../auth';
 import { localApi } from '../ops';
 import { getConfig, isDesktop, setConfig } from '../platform';
-import { connectRemote, dirEnter, dirLogout, disconnectRemote, hello, httpApi, remoteBase, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
+import { connectRemote, dirEnter, dirLogout, disconnectRemote, hello, httpApi, remoteBase, serverCheck, serverTouch, serverLogin, serverLogout, serverMe, serverProfiles, serverVersion, type DbInfo, type Hello } from '../net';
 import { centreStyle, guessCentre, type BrandInfo } from '../brand';
 import { m, tx } from '../i18n';
 import { BrandFrame, Landing } from './Landing';
@@ -202,16 +202,25 @@ export function App() {
     if (server?.dir?.person) setServerDb(null); // signed in to the directory: back to my list of databases
   }, [server, refreshServer]);
 
-  /** No activity for too long: out, but a half-typed entry is kept for the same person. */
-  const idleLogout = useCallback(() => {
-    if (server) void serverLogout();
+  /** No activity for too long: out, but a half-typed entry is kept for the same person. Several tabs of one browser share
+   *  one sign-in: a tab left alone must not end it while the person works in another tab, nor end the sign-in of
+   *  someone (or another database) signed in since in this browser. */
+  const idleLogout = useCallback(async (): Promise<boolean> => {
+    if (server) {
+      const me = await serverCheck();
+      const mine = sessionRef.current;
+      const same = !!me && !!mine && me.profile.id === mine.profile.id && me.db === serverDb?.slug;
+      if (same && me.idleMs < Math.max(1, server.idleMinutes ?? 15) * 60e3) return true;
+      if (same) void serverLogout();
+    }
     setBrowsing(false);
     setSettingUp(false);
     setSession(null);
     setMustChange(false);
     setIdleOut(true);
     if (server?.dir?.on) { setServerDb(null); void refreshServer(); }
-  }, [server, refreshServer]);
+    return false;
+  }, [server, refreshServer, serverDb]);
 
   /** the language was chosen (Shell, phone): draw everything again */
   const toggleLang = () => force((x) => x + 1);

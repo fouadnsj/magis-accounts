@@ -548,6 +548,11 @@ describe('HR database', () => {
     expect(lineFor(two, { centre: 'C', role: 'IT', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E02.6');
     expect(lineFor(two, { centre: 'C', role: 'Centre Director', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E03.1');
     expect(lineFor(two, { centre: 'C', role: 'Media', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line).toBeNull(); // no "Media person" line here, and never the insurance line
+    // a tutor: any line of the centre, chosen on the card (an activities line too); never guessed; staff keep the salary lines
+    const tutor = { centre: 'C', role: null, first_name: 'English', first_name_ar: null, name: 'x', category: 'tutor' };
+    expect(lineFor(two, { ...tutor, budget_line: 'E04.1 · English courses' }).line?.code).toBe('E04.1');
+    expect(lineFor(two, { ...tutor, budget_line: null }).line).toBeNull();
+    expect(lineFor(two, { ...tutor, category: 'staff', budget_line: 'E04.1 · English courses' }).line).toBeNull();
     expect(accountFor(lists, stray)).toBe('Center');
     // a person without a line that fits says what is missing
     await mk('Odd', 'Cook', 200);

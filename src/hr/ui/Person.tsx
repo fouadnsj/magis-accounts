@@ -15,7 +15,7 @@ import { allocOn, type HrAlloc } from '../stage4';
 import { agreementDoc, stipendDoc } from '../docs';
 import { FundingPanel, InsurancePage } from './Stage4';
 import { TwoNames, centreOf, centreVars, chooseScan, codeOf, fail, headOf, markOf, openScan, positionsFor, seenCentres, centreChoices, mainCentreName, usd } from './common';
-import { accountFor, centreAccounts, lineFor, lineLabel, salaryLines } from '../link';
+import { accountFor, centreAccounts, lineFor, lineLabel, linesFor } from '../link';
 import { TutorSessions } from './Sessions';
 import { priceOn, type HrSession, type HrSessionPrice } from '../sessions';
 
@@ -432,13 +432,15 @@ function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF:
   const acc = accountFor(d.lists, f as HrPerson);
   const own = !line.guessed && !!line.line;
   const centreName = f.centre ?? '';
+  const tutor = f.category === 'tutor';
   return (
     <div className="span2 hr-panel" style={{ background: '#FBF7EE', padding: '10px 14px' }}>
       <div className="row" style={{ justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <span>
-          <span className="muted small">{t3('تذهب المكافأة في الحسابات إلى', 'In the accounts, the stipend goes to', 'Dans la comptabilité, la gratification va à')}: </span>
+          <span className="muted small">{tutor ? t3('تذهب الجلسات في الحسابات إلى', 'In the accounts, the sessions go to', 'Dans la comptabilité, les séances vont à') : t3('تذهب المكافأة في الحسابات إلى', 'In the accounts, the stipend goes to', 'Dans la comptabilité, la gratification va à')}: </span>
           {!f.centre ? <span className="desk-alert">{t3('اختر المركز', 'choose the centre', 'choisissez le centre')}</span>
             : line.line ? <b>{lineLabel(line.line)}{acc ? ` · ${acc}` : ''}</b>
+            : tutor ? <span className="desk-alert">⚠ {t3('اختر خط الموازنة (مثلاً الورشات أو الجلسات الأكاديمية)', 'choose the budget line (e.g. workshops, or academic sessions)', 'choisissez la ligne budgétaire (ex. ateliers, ou séances académiques)')}</span>
             : <span className="desk-alert">⚠ {t3(`لا خط لهذه الوظيفة في موازنة ${centreName}: أضفه في الحسابات، أو اختر خطاً`, `no line for this position in the budget of ${centreName}: add it in the accounts, or choose one`, `pas de ligne pour ce poste dans le budget de ${centreName} : ajoutez-la en comptabilité, ou choisissez-en une`)}</span>}
           {line.line && <span className="muted small"> {own ? t3('(مختار باليد)', '(chosen by hand)', '(choisi à la main)') : t3('(تلقائياً)', '(automatic)', '(automatique)')}</span>}
         </span>
@@ -446,7 +448,7 @@ function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF:
       </div>
       {(open || (!line.line && !!f.centre && manage)) && (
         <div className="grid2" style={{ marginTop: 8 }}>
-          <Pick label={t3('خط الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={salaryLines(d.lists, f).map((l) => ({ value: lineLabel(l), label: lineLabel(l) }))} onChange={(v) => setF({ ...f, budget_line: v || null })} empty={t3('— تلقائياً حسب الوظيفة —', '— automatic, from the position —', '— automatique, selon le poste —')} />
+          <Pick label={t3('خط الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={linesFor(d.lists, f).map((l) => ({ value: lineLabel(l), label: [lineLabel(l), l.heading].filter(Boolean).join(' · ') }))} onChange={(v) => setF({ ...f, budget_line: v || null })} empty={tutor ? t3('— اختر —', '— choose —', '— choisir —') : t3('— تلقائياً حسب الوظيفة —', '— automatic, from the position —', '— automatique, selon le poste —')} />
           <Pick label={t3('الحساب', 'Account', 'Compte')} value={f.account ?? ''} options={centreAccounts(d.lists, f).map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, account: v || null })} empty={t3('— حساب المركز المعتاد —', "— the centre's usual account —", '— le compte habituel du centre —')} />
         </div>
       )}

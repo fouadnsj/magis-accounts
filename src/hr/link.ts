@@ -18,6 +18,16 @@ export function salaryLines(lists: HrListItem[], p: { centre?: string | null }):
   return lists.filter((x) => x.kind === 'line' && x.source === c.source && (!heads.length || heads.includes(x.heading ?? '')));
 }
 
+/** every line of a person's centre budget: a tutor's sessions may be paid on any of them (Fouad, 31 October 2026: the
+ *  workshops from the workshops' line, English from the academic sessions' line), chosen on their card */
+export function centreLines(lists: HrListItem[], p: { centre?: string | null }): HrListItem[] {
+  const c = centreItem(lists, p);
+  return c ? lists.filter((x) => x.kind === 'line' && x.source === c.source) : [];
+}
+
+/** the lines a person may be chosen on: a tutor, any line of the centre; staff, the salary lines */
+export const linesFor = (lists: HrListItem[], p: { centre?: string | null; category?: string | null }) => (p.category === 'tutor' ? centreLines(lists, p) : salaryLines(lists, p));
+
 /** the accounts of a person's centre */
 export function centreAccounts(lists: HrListItem[], p: { centre?: string | null }): HrListItem[] {
   const c = centreItem(lists, p);
@@ -27,13 +37,14 @@ export function centreAccounts(lists: HrListItem[], p: { centre?: string | null 
 const norm = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, ' ').trim();
 
 /** the line for a person: theirs if chosen; else the line named like their position, or like their first name */
-export function lineFor(lists: HrListItem[], p: Pick<HrPerson, 'centre' | 'budget_line' | 'role' | 'first_name' | 'first_name_ar' | 'name'>): { line: HrListItem | null; guessed: boolean } {
-  const lines = salaryLines(lists, p);
+export function lineFor(lists: HrListItem[], p: Pick<HrPerson, 'centre' | 'budget_line' | 'role' | 'first_name' | 'first_name_ar' | 'name'> & { category?: string | null }): { line: HrListItem | null; guessed: boolean } {
+  const lines = linesFor(lists, p);
   // the line chosen on the card counts only if it is a salary line of the person's own centre
   if (p.budget_line) {
     const own = lines.find((x) => lineLabel(x) === p.budget_line);
     if (own) return { line: own, guessed: false };
   }
+  if (p.category === 'tutor') return { line: null, guessed: false };
   const role = norm(p.role);
   const words = (x: string) => x.split(' ').filter(Boolean);
   // the same name, else the shortest line holding every word of the position ("IT" → "IT person"); never an insurance line

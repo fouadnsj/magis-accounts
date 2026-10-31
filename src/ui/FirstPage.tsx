@@ -1,9 +1,10 @@
-// The first page of the server (Fouad, 31 October 2026): no database is shown before someone signs in. The MAGIS
-// animation, the charter, and an invitation: choose your house, then your name and your password; or the administrator.
+// The first page of the server (Fouad, 31 October 2026): no database is shown before someone signs in. The marks come
+// in, with the sentence of hope; each house shows its own sentence (on the mouse, and beside its sign-in), as in the
+// MAGIS animation of July. Then: choose your house, your name and your password; or the administrator.
 // Then the person sees only the databases where that name has that password (their house's accounts, HR).
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { CENTRES, type CentreKey } from '../brand';
-import { m, tx } from '../i18n';
+import { getLang, m, tx, type Msg } from '../i18n';
 import { serverEnter, serverSignIn, type DbInfo, type Hello } from '../net';
 import type { Profile } from '../auth';
 import { BrandFrame, Charter, DbCard, VALUES } from './Landing';
@@ -21,17 +22,47 @@ const remember = (house: CentreKey, name: string) => {
   try { localStorage.setItem('magis.signin', JSON.stringify({ house, name })); } catch { /* private window */ }
 };
 
-/** The MAGIS animation (the bumper made in July): plays once and stays on the three houses. Still, without motion. */
-function Bumper() {
-  const ref = useRef<HTMLVideoElement>(null);
-  const [ended, setEnded] = useState(false);
-  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const toEnd = () => { const v = ref.current; if (v && v.duration) v.currentTime = Math.max(0, v.duration - 0.05); };
+/** The sentences of the MAGIS animation (July 2026): one for each house, and the hope that holds them together. */
+const HOPE = m('رغم كلِّ شيء، الرجاء ممكن', 'Despite everything, hope is possible', "Malgré tout, l'espérance est possible");
+const SENTENCE: Record<'jaramana' | 'aleppo' | 'homs', Msg> = {
+  jaramana: m('في هذا البيت، البابُ مفتوحٌ قبل أن تصل', 'In this house the door is open before you arrive', 'Dans cette maison, la porte est ouverte avant que tu arrives'),
+  aleppo: m('كلُّ إنسانٍ يدخل من هنا هو بداية', 'Everyone who comes through here is a beginning', 'Chaque personne qui entre ici est un commencement'),
+  homs: m('أيدٍ مفتوحة، بعد كلِّ ما فُقد', 'Open hands, after everything that was lost', 'Des mains ouvertes, après tout ce qui a été perdu'),
+};
+const houseVars = (k: CentreKey) => ({ '--centre': CENTRES[k].color, '--centre-deep': CENTRES[k].deep } as CSSProperties);
+
+/** A sentence in Arabic and, under it, in English or French (Arabic alone when the program is in Arabic). */
+function Said({ msg, className }: { msg: Msg; className?: string }) {
+  const l = getLang();
   return (
-    <div className="mg-stage">
-      <video ref={ref} src="/brand/magis-bumper.mp4" muted playsInline preload="auto" autoPlay={!still}
-        onLoadedMetadata={() => { if (still) toEnd(); }} onEnded={() => setEnded(true)} aria-label="MAGIS" />
-      {ended && <button type="button" className="mg-replay" title={t3('مرة أخرى', 'Play again', 'Revoir')} onClick={() => { const v = ref.current; if (v) { setEnded(false); v.currentTime = 0; void v.play(); } }}>↻</button>}
+    <div className={`mg-said ${className ?? ''}`}>
+      <p className="ar" dir="rtl">{msg.ar}</p>
+      {l !== 'ar' && <p className="tr" dir="ltr">{l === 'fr' ? msg.fr ?? msg.en : msg.en}</p>}
+    </div>
+  );
+}
+
+/** The opening: the Jesuit sun, then the three houses one after the other, then the sentence of hope. */
+function Opening() {
+  return (
+    <div className="mg-opening">
+      <div className="mg-o-sun"><span className="mg-rays" /><img src="/brand/jesuits.png" alt="" /></div>
+      <div className="mg-o-houses">
+        {HOUSES.map((k, i) => <img key={k} src={CENTRES[k].mark!} alt="" style={{ animationDelay: `${0.7 + i * 0.35}s` }} />)}
+      </div>
+      <Said msg={HOPE} className="mg-o-hope" />
+    </div>
+  );
+}
+
+/** Beside a house's sign-in: its mark in its light, its name, its sentence. */
+function HouseHero({ house }: { house: CentreKey }) {
+  return (
+    <div className="mg-househero" style={houseVars(house)} key={house}>
+      <div className="mg-hh-mark"><span className="mg-hh-halo" /><img src={CENTRES[house].mark!} alt="" /></div>
+      <div className="mg-eyebrow">MAGIS · {tx(CENTRES[house].name)}</div>
+      <Said msg={SENTENCE[house as keyof typeof SENTENCE]} className="mg-hh-said" />
+      <div className="mg-hh-hope">{tx(HOPE)}</div>
     </div>
   );
 }
@@ -91,7 +122,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   // several databases for this name: where to go first (the others stay one click away, in the menu "Databases")
   if (places)
     return (
-      <BrandFrame brand={step && step !== 'admin' ? { centre: step } : null}>
+      <BrandFrame brand={step && step !== 'admin' ? { centre: step } : null} aside={step && step !== 'admin' ? <HouseHero house={step} /> : undefined}>
         <div className="panel login-panel">
           <h2 style={{ marginBottom: 2 }}>{t3(`أهلاً ${name.trim()}`, `Welcome, ${name.trim()}`, `Bienvenue, ${name.trim()}`)}</h2>
           <p className="muted small" style={{ marginTop: 0 }}>{t3('إلى أين تريد أن تذهب؟ تنتقل من واحدة إلى أخرى دون كلمة سر جديدة.', 'Where do you want to go? You can move from one to the other without signing in again.', "Où voulez-vous aller ? Vous passerez de l'une à l'autre sans vous reconnecter.")}</p>
@@ -105,7 +136,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
     const admin = step === 'admin';
     const noAdmin = admin && !hello.dir?.on;
     return (
-      <BrandFrame brand={admin ? null : { centre: step }}>
+      <BrandFrame brand={admin ? null : { centre: step }} aside={admin ? undefined : <HouseHero house={step} />}>
         <div className="panel login-panel">
           <h2 style={{ marginBottom: 2 }}>{admin ? t3('المدير', 'Administrator', 'Administrateur') : `MAGIS ${tx(CENTRES[step].name)}`}</h2>
           <p className="muted small" style={{ marginTop: 0 }}>{admin
@@ -140,9 +171,8 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   return (
     <div className="brand-page mg-page mg-home">
       <div className="brand-spine" />
-      <img src="/brand/jesuits.png" alt="" className="mg-jesuits" />
       <div className="mg-hero">
-        <Bumper />
+        <Opening />
         <div className="mg-eyebrow">{t3('الرهبنة اليسوعية · مراكز ماجيس في سوريا', 'Society of Jesus · MAGIS centres in Syria', 'Compagnie de Jésus · Centres MAGIS en Syrie')}</div>
         <Charter />
       </div>
@@ -153,10 +183,11 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
         </div>
         <div className="mg-doors">
           {HOUSES.map((k) => (
-            <button key={k} type="button" className="mg-door" style={{ '--centre': CENTRES[k].color, '--centre-deep': CENTRES[k].deep } as React.CSSProperties} onClick={() => setStep(k)}>
-              <img src={CENTRES[k].mark!} alt="" />
+            <button key={k} type="button" className="mg-door" style={houseVars(k)} onClick={() => setStep(k)} aria-label={`${tx(CENTRES[k].name)} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
+              <div className="mg-door-mark"><span className="mg-hh-halo" /><img src={CENTRES[k].mark!} alt="" /></div>
               <b>{tx(CENTRES[k].name)}</b>
-              <span>{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+              <Said msg={SENTENCE[k as keyof typeof SENTENCE]} className="mg-door-said" />
+              <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
             </button>
           ))}
         </div>

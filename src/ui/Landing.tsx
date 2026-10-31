@@ -69,7 +69,7 @@ export const VALUES = () => t('الضيافة والمشاركة · الحرية
  * invitation to sign in"): the MAGIS Charter look — warm off-white, the gold, the sun in its light, the three houses and
  * the charter. The list of databases opens under the heading; a sign-in page puts the heading beside the card.
  */
-export function BrandFrame({ children, brand, wide, jesuit, title, invite = true }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string; /** "choose your place, then sign in" (not once signed in) */ invite?: boolean }) {
+export function BrandFrame({ children, brand, wide, jesuit, title, invite = true, aside }: { children: ReactNode; brand?: BrandInfo | null; wide?: boolean; jesuit?: boolean; title?: string; /** "choose your place, then sign in" (not once signed in) */ invite?: boolean; /** a sign-in page: what stands beside the card (a house and its sentence), instead of the MAGIS heading */ aside?: ReactNode }) {
   const st = brand ? brandStyle(brand) : null;
   // the Jesuit communities: only the Jesuit logo, no centres (Fouad, 18 October 2026)
   if (jesuit)
@@ -91,9 +91,9 @@ export function BrandFrame({ children, brand, wide, jesuit, title, invite = true
       <div className="brand-page mg-page">
         <div className="brand-spine" />
         <div className="mg-split">
-          <aside className="mg-aside"><Hero compact /></aside>
+          <aside className="mg-aside">{aside ?? <Hero compact />}</aside>
           <main className="mg-signin" style={vars}>
-            {st?.mark && <img className="mg-card-mark" src={st.mark} alt="" />}
+            {st?.mark && !aside && <img className="mg-card-mark" src={st.mark} alt="" />}
             {children}
           </main>
         </div>

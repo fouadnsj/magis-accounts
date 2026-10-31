@@ -745,3 +745,20 @@ table.t.rep td, table.t.rep td.n { font-size: 11.5px; padding: 3px 5px; }
   .mg-door-said .ar { font-size: 13px; }
   .mg-door-said .tr { display: none; }
 }
+
+/* the charter's dream in Arabic, the translation small under it; the five values the same way (Fouad, 31 October 2026) */
+.mg-quote p.ar { font-size: clamp(20px, 2.6vw, 25px); line-height: 1.75; color: var(--gold-d); }
+.mg-quote p.tr { font-size: 14px; line-height: 1.5; color: var(--soft); max-width: 560px; margin: 4px auto 6px; }
+.mg-aside .mg-quote p.ar { font-size: 20px; }
+.mg-aside .mg-quote p.tr { font-size: 13px; }
+.brand-foot.mg-values { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; align-items: start; padding: 22px 0 26px; max-width: 1040px; }
+.mg-value { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; padding: 0 6px; position: relative; }
+.mg-value + .mg-value::before { content: ''; position: absolute; inset-inline-start: -4px; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--gold); opacity: .6; }
+.mg-value b { font-family: var(--serif-ar); font-weight: 400; font-size: 21px; color: var(--ink); line-height: 1.5; }
+.mg-value span { font-size: 12px; color: var(--soft); letter-spacing: .02em; }
+@media (max-width: 700px) {
+  .brand-foot.mg-values { grid-template-columns: repeat(3, 1fr); row-gap: 14px; }
+  .mg-value + .mg-value::before { display: none; }
+  .mg-value b { font-size: 17px; }
+  .mg-value span { display: block; font-size: 11px; }
+}

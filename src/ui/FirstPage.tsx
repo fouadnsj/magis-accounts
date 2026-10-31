@@ -7,7 +7,7 @@ import { CENTRES, type CentreKey } from '../brand';
 import { getLang, m, tx, type Msg } from '../i18n';
 import { serverEnter, serverSignIn, type DbInfo, type Hello } from '../net';
 import type { Profile } from '../auth';
-import { BrandFrame, Charter, DbCard, VALUES } from './Landing';
+import { BrandFrame, Charter, DbCard, ValuesFoot } from './Landing';
 import { DirSetup } from './Directory';
 import { Field, errText } from './kit';
 
@@ -196,7 +196,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
           <button type="button" className="btn ghost" onClick={() => setStep('admin')}>🔑 {t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}</button>
         </div>
       </main>
-      <footer className="brand-foot"><img src="/brand/marks-combined.png" alt="" /><span>{VALUES()}</span></footer>
+      <ValuesFoot />
     </div>
   );
 }

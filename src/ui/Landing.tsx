@@ -19,12 +19,13 @@ const CHARTER = m(
 );
 const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
 
+/** The charter's dream: in Arabic, and smaller under it in English or French (Fouad, 31 October 2026). */
 export function Charter() {
   const l = getLang();
   return (
     <blockquote className="mg-quote">
-      {(l === 'ar' || l === 'both') && <p dir="rtl" className="ar">«{CHARTER.ar}»</p>}
-      {l !== 'ar' && <p dir="ltr">“{l === 'fr' ? CHARTER.fr : CHARTER.en}”</p>}
+      <p dir="rtl" className="ar">«{CHARTER.ar}»</p>
+      {l !== 'ar' && <p dir="ltr" className="tr">“{l === 'fr' ? CHARTER.fr : CHARTER.en}”</p>}
       <cite>— {tx(m('ميثاق ماجيس', 'The MAGIS Charter', 'La Charte MAGIS'))}</cite>
     </blockquote>
   );
@@ -62,7 +63,27 @@ function Hero({ compact, mark }: { compact?: boolean; /** a centre's own mark (i
   );
 }
 
-export const VALUES = () => t('الضيافة والمشاركة · الحرية والإبداع · الشجاعة والانفتاح · البساطة والجمال · الثقة والمسؤولية', 'Hospitality & sharing · Freedom & creativity · Courage & openness · Simplicity & beauty · Trust & responsibility');
+/** The five values of the charter, at the foot of the welcome pages: in Arabic, the English small under each. */
+const VALUE_LIST = [
+  m('الضيافة والمشاركة', 'Hospitality & sharing', 'Hospitalité et partage'),
+  m('الحرية والإبداع', 'Freedom & creativity', 'Liberté et créativité'),
+  m('الشجاعة والانفتاح', 'Courage & openness', 'Courage et ouverture'),
+  m('البساطة والجمال', 'Simplicity & beauty', 'Simplicité et beauté'),
+  m('الثقة والمسؤولية', 'Trust & responsibility', 'Confiance et responsabilité'),
+];
+export function ValuesFoot() {
+  const l = getLang();
+  return (
+    <footer className="brand-foot mg-values">
+      {VALUE_LIST.map((v) => (
+        <div key={v.en} className="mg-value">
+          <b dir="rtl">{v.ar}</b>
+          {l !== 'ar' && <span>{l === 'fr' ? v.fr : v.en}</span>}
+        </div>
+      ))}
+    </footer>
+  );
+}
 
 /**
  * The page around every welcome, login and setup screen (Fouad, 31 October 2026: "beautiful, with the logos, and an
@@ -97,7 +118,7 @@ export function BrandFrame({ children, brand, wide, jesuit, title, invite = true
             {children}
           </main>
         </div>
-        <footer className="brand-foot"><img src="/brand/marks-combined.png" alt="" /><span>{VALUES()}</span></footer>
+        <ValuesFoot />
       </div>
     );
   return (
@@ -114,7 +135,7 @@ export function BrandFrame({ children, brand, wide, jesuit, title, invite = true
         )}
         {children}
       </main>
-      <footer className="brand-foot"><img src="/brand/marks-combined.png" alt="" /><span>{VALUES()}</span></footer>
+      <ValuesFoot />
     </div>
   );
 }

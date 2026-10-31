@@ -140,6 +140,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
       <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         {draft && <button className="btn" onClick={() => setAdd(true)}>＋ {t3('سطر (مكافأة من حين لآخر…)', 'Add a line (an occasional bonus…)', 'Ajouter une ligne (prime ponctuelle…)')}</button>}
         <button className="btn" onClick={() => saveSlips(hr, run, lines)}>📄 {t3('كل قسائم الدفع (Word)', 'All payslips (Word)', 'Toutes les fiches (Word)')}</button>
+        <button className="btn" onClick={() => void saveNames(hr, run, lines)}>📊 {t3('كشف بالأسماء (Excel)', 'List with names (Excel)', 'Liste avec noms (Excel)')}</button>
         {!draft && <button className="btn" onClick={async () => { try { setVoucher(await s.api.call('hr.run.voucher', { id })); } catch (e) { fail(e); } }}>{t3('قسيمة للمحاسبة (مجاميع فقط)', 'Voucher for Accounts (totals only)', 'Bon pour la comptabilité (totaux seulement)')}</button>}
       </div>
       {!draft && approver && <ToAccounts hr={hr} runId={id} lines={lines} sent={sent} busy={busy} setBusy={setBusy} post={post} reload={load} />}
@@ -199,6 +200,35 @@ function Voucher({ org, v, onClose }: { org: string; v: { run: { ym: string; kin
       <div className="modal-foot"><button className="btn" onClick={onClose}>{t3('إغلاق', 'Close', 'Fermer')}</button><button className="btn primary" onClick={download}>{t3('تنزيل Excel', 'Download Excel', 'Télécharger Excel')}</button></div>
     </Modal>
   );
+}
+
+/** The month's pay with the names (for the Superior, who approves): one row per line, with the totals in USD and in the currency paid. */
+async function saveNames(hr: HrData, run: HrRun, lines: HrRunLine[]) {
+  try {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Pay');
+    ws.addRow([`${run.kind === 'thirteenth' ? '13th payment' : 'Monthly stipends'} · ${run.ym}`]).font = { bold: true, size: 13 };
+    ws.addRow(['With names. Do not send to Accounts (use the voucher, totals only).']).font = { italic: true, color: { argb: 'FF8A8577' } };
+    ws.addRow([]);
+    const head = ws.addRow(['Centre', 'Name (Arabic)', 'Name', 'Position', 'Note', 'Base USD', 'Bonus USD', 'Deduction USD', 'Total USD', 'Paid in', 'Amount paid']);
+    head.font = { bold: true };
+    head.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEAE0' } }; });
+    const first = ws.rowCount + 1;
+    for (const l of lines) {
+      const p = hr.people.find((x) => x.id === l.person_id);
+      ws.addRow([p?.centre ?? '', p?.name_ar ?? '', [p?.first_name, p?.last_name].filter(Boolean).join(' ') || l.person_name, l.role ?? '', l.label ?? l.note ?? '', l.base_usd, l.bonus_usd, l.deduction_usd, l.total_usd, l.paid_in, l.amount_paid]);
+    }
+    const last = ws.rowCount;
+    const usdTotal = lines.reduce((a, l) => a + l.total_usd, 0);
+    ws.addRow(['Total (USD)', '', '', '', '', '', '', '', { formula: `SUM(I${first}:I${last})`, result: usdTotal }]).font = { bold: true };
+    for (const cur of ['USD', 'SYP'] as const) {
+      const t = lines.filter((l) => l.paid_in === cur).reduce((a, l) => a + l.amount_paid, 0);
+      if (t) ws.addRow([`Paid in ${cur}`, '', '', '', '', '', '', '', '', cur, t]).font = { bold: true };
+    }
+    ws.columns = [{ width: 16 }, { width: 24 }, { width: 24 }, { width: 22 }, { width: 18 }, { width: 11 }, { width: 11 }, { width: 13 }, { width: 11 }, { width: 8 }, { width: 14 }];
+    for (const i of [6, 7, 8, 9, 11]) ws.getColumn(i).numFmt = '#,##0.00';
+    await saveFile(`Pay-with-names-${run.ym}-${run.kind}.xlsx`, ['xlsx'], new Uint8Array(await wb.xlsx.writeBuffer()), 'Excel');
+  } catch (e) { fail(e); }
 }
 
 /** The payslips as a Word file (one per person, one per page), like the agreement. */

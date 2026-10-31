@@ -89,7 +89,8 @@ describe('server: logins', () => {
   it('logs in with an HttpOnly cookie', async () => {
     const ps = (await call(`/api/profiles?db=${DB}`)).body as { id: number; name: string }[];
     const r = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db: DB, profileId: ps.find((p) => p.name === 'Comptable')!.id, password: 'com-secret' }) });
-    expect(r.headers.get('set-cookie')).toMatch(/HttpOnly; SameSite=Strict/);
+    // Lax, not Strict: Safari dropped a Strict cookie when the page was opened from a link in another app (Fouad, 31 October 2026)
+    expect(r.headers.get('set-cookie')).toMatch(/HttpOnly; SameSite=Lax/);
   });
 });
 

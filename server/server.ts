@@ -466,7 +466,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const ctyPassCookie = (viaHttps: boolean) => {
     const t = randomBytes(32).toString('base64url');
     ctyPasses.set(t, Date.now() + 12 * 3600e3);
-    return `magis_cty=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${viaHttps ? '; Secure' : ''}`;
+    return `magis_cty=${t}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${viaHttps ? '; Secure' : ''}`;
   };
 
   const dirCookie = (req: http.IncomingMessage) => /(?:^|;\s*)magis_dir=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1] ?? null;
@@ -780,7 +780,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
 
     // ---- the sign-in directory: one name and password, then the databases given to that person
-    const dirCookieSet = (token: string, viaHttps: boolean) => `magis_dir=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200${viaHttps ? '; Secure' : ''}`;
+    const dirCookieSet = (token: string, viaHttps: boolean) => `magis_dir=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${viaHttps ? '; Secure' : ''}`;
     const dirTooMany = () => {
       const f = failures.get(ip);
       if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
@@ -843,7 +843,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const t = dirCookie(req);
       if (t) dirSessions.delete(t);
       if (found) sessions.delete(found[0]);
-      return send(res, 200, { ok: true }, { 'Set-Cookie': 'magis_dir=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
+      return send(res, 200, { ok: true }, { 'Set-Cookie': 'magis_dir=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
     }
     if (url === '/api/dir/password' && method === 'POST') {
       if (!dirPerson) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
@@ -875,7 +875,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const sid = randomBytes(32).toString('base64url');
       sessions.set(sid, { db: c.slug, profile, mustChange: false, last: Date.now(), ip });
       log(`directory entry ${c.slug}: ${dirPerson.name} as ${profile.name} from ${ip}`);
-      return send(res, 200, { profile, mustChange: false, install: 'office' }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Strict; Path=/${viaHttps ? '; Secure' : ''}` });
+      return send(res, 200, { profile, mustChange: false, install: 'office' }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
     }
     if (url === '/api/dir/people' && method === 'GET') {
       needDirAdmin();
@@ -1249,7 +1249,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         sessions.set(sid, { db: c.slug, profile, mustChange, last: Date.now(), ip });
         log(`login ${c.slug}: ${profile.name} (${profile.access_name}) from ${ip}`);
         return send(res, 200, { profile, mustChange, install: 'office' }, {
-          'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Strict; Path=/${viaHttps ? '; Secure' : ''}`,
+          'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}`,
         });
       } catch (e) {
         // count again from zero only once a past 5-minute block is over
@@ -1262,7 +1262,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     if (url === '/api/logout') {
       if (found) sessions.delete(found[0]);
-      return send(res, 200, { ok: true }, { 'Set-Cookie': 'magis_sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' });
+      return send(res, 200, { ok: true }, { 'Set-Cookie': 'magis_sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
     }
     if (url === '/api/me')
       // idleMs: how long since the person last did something (in any tab of this browser); read by a background check

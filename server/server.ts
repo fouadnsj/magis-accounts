@@ -957,7 +957,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         if ((config.inactive ?? []).includes(x.slug)) continue;
         const k = (await getMeta(x.handle.db, 'kind')) ?? 'centre';
         if (k !== 'centre' || (dirPerson && !dirSees(dirPerson, x.slug))) continue;
-        out.push({ slug: x.slug, organisation: (await getMeta(x.handle.db, 'organisation')) ?? x.slug });
+        const org = (await getMeta(x.handle.db, 'organisation')) ?? x.slug;
+        const sc = found[1].profile.hrCentres;
+        if (sc?.length && !sc.includes((await getMeta(x.handle.db, 'centre')) ?? guessCentre(org))) continue;
+        out.push({ slug: x.slug, organisation: org });
       }
       return send(res, 200, out);
     }
@@ -969,14 +972,23 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         throw new HttpError(404, { ar: 'قاعدة المصدر غير موجودة', en: 'Source database not found' });
       const org = (await getMeta(src.handle.db, 'organisation')) ?? src.slug;
       const centreKey = (await getMeta(src.handle.db, 'centre')) ?? guessCentre(org);
+      // an HR keeper of some centres fills the lists of those centres only
+      const hrScope = found[1].profile.hrCentres;
+      if (hrScope?.length && !hrScope.includes(centreKey)) throw new HttpError(403, { ar: 'خارج مراكزك', en: 'Outside your centres' });
       const CITY: Record<string, [string, string]> = { aleppo: ['حلب', 'Aleppo'], homs: ['حمص', 'Homs'], jaramana: ['جرمانا', 'Jaramana'] };
       const accounts = await src.handle.db.query<{ name: string }>('SELECT name FROM account WHERE active = 1 ORDER BY sort, name');
+      // the donors of each account (a project): those whose grants are for it, or for the whole centre (Fouad, 31 October
+      // 2026: the donors are the same as in the accounts and the budgets)
+      const grants = await src.handle.db.query<{ donor: string; account: string | null }>('SELECT DISTINCT d.name AS donor, a.name AS account FROM grant_card g JOIN donor d ON d.id = g.donor_id LEFT JOIN grant_part p ON p.grant_id = g.id LEFT JOIN account a ON a.id = p.account_id');
+      const donorsOf = (acc: string) => [...new Set(grants.filter((g) => g.account == null || g.account.toLowerCase() === acc.toLowerCase()).map((g) => g.donor))].sort().join(' | ') || null;
       const lines = await src.handle.db.query<{ name: string; code: string; heading: string }>('SELECT l.name, l.code, h.name AS heading FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.active = 1 ORDER BY h.sort, l.code');
       const stmts: Stmt[] = [
         // the centre with its mark and city; the first party and who signs are filled for Aleppo from Fouad's agreement
         // (the others are written by hand in the Lists page)
         { sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, source, city_ar, city_en, party_ar, rep_ar) VALUES ('centre', ?, ?, ?, ?, ?, ?, ?)", params: [org, centreKey, src.slug, CITY[centreKey]?.[0] ?? null, CITY[centreKey]?.[1] ?? null, centreKey === 'aleppo' ? 'دير الآباء اليسوعيين في حلب' : null, centreKey === 'aleppo' ? 'الأب فؤاد نخلة اليسوعي' : null] },
-        ...accounts.map((a) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, source) VALUES ('account', ?, ?)", params: [a.name, src.slug] })),
+        // (an account has no code, and NULL codes are all different for UNIQUE: so a copy again checks by name and source)
+        ...accounts.map((a) => ({ sql: "INSERT INTO hr_list (kind, name, source) SELECT 'account', ?, ? WHERE NOT EXISTS (SELECT 1 FROM hr_list WHERE kind = 'account' AND name = ? AND source = ?)", params: [a.name, src.slug, a.name, src.slug] })),
+        ...accounts.map((a) => ({ sql: "UPDATE hr_list SET donors = ? WHERE kind = 'account' AND name = ? AND source = ?", params: [donorsOf(a.name), a.name, src.slug] })),
         ...lines.map((l) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source) VALUES ('line', ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug] })),
       ];
       // what the centre no longer has (a line or an account switched off or removed) leaves the HR lists too
@@ -1005,7 +1017,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const hdb = found[2].handle.db;
       const have = new Set((await hdb.query<{ name: string }>('SELECT name FROM hr_grade')).map((x) => x.name.toLowerCase()));
       const out = new Map<string, { name: string; centres: string[]; amount: number | null; exists: boolean }>();
-      for (const c of await hdb.query<{ name: string; source: string; salary_heading: string | null }>("SELECT name, source, salary_heading FROM hr_list WHERE kind = 'centre' AND source IS NOT NULL AND salary_heading IS NOT NULL")) {
+      const hrScope = found[1].profile.hrCentres;
+      for (const c of await hdb.query<{ name: string; source: string; salary_heading: string | null; code: string | null }>("SELECT name, source, salary_heading, code FROM hr_list WHERE kind = 'centre' AND source IS NOT NULL AND salary_heading IS NOT NULL")) {
+        if (hrScope?.length && (!c.code || !hrScope.includes(c.code))) continue;
         const src = centres.get(c.source);
         if (!src || (config.inactive ?? []).includes(src.slug) || (dirPerson && !dirSees(dirPerson, src.slug))) continue;
         const heads = c.salary_heading!.split('|').map((h) => h.trim()).filter(Boolean);
@@ -1034,8 +1048,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const hdb = hc.handle.db;
       // one centre at a time (body.centre), so a centre that is ready is not held back by another
       const body = (await readBody(req)) as { runId?: number; centre?: string };
-      const run = await one<{ id: number; ym: string; kind: string; status: string; paid_on: string | null }>(hdb, 'SELECT id, ym, kind, status, paid_on FROM hr_run WHERE id = ?', [Number(body.runId)]);
+      const run = await one<{ id: number; ym: string; kind: string; status: string; paid_on: string | null; centre: string | null }>(hdb, 'SELECT id, ym, kind, status, paid_on, centre FROM hr_run WHERE id = ?', [Number(body.runId)]);
       if (!run) throw new HttpError(404, { ar: 'الكشف غير موجود', en: 'Run not found' });
+      const hrScope = hs.profile.hrCentres;
+      if (hrScope?.length && (!run.centre || !hrScope.includes(run.centre))) throw new HttpError(403, { ar: 'خارج مراكزك', en: 'Outside your centres' });
       if (run.status === 'draft') throw new HttpError(400, { ar: 'اعتمد الكشف أولاً', en: 'Approve the run first' });
       const lists = await hdb.query<HrListItem>('SELECT * FROM hr_list');
       const people = await hdb.query<HrPerson>('SELECT * FROM hr_person');
@@ -1102,6 +1118,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (url === '/api/hr/take-back' && method === 'POST') {
       const [, hs, hc] = await hrApprover();
       const body = (await readBody(req)) as { runId?: number; centre?: string };
+      const hrScope = hs.profile.hrCentres;
+      const runCentre = (await one<{ centre: string | null }>(hc.handle.db, 'SELECT centre FROM hr_run WHERE id = ?', [Number(body.runId)]))?.centre;
+      if (hrScope?.length && (!runCentre || !hrScope.includes(runCentre))) throw new HttpError(403, { ar: 'خارج مراكزك', en: 'Outside your centres' });
       const row = await one<{ trx_ids: string }>(hc.handle.db, 'SELECT trx_ids FROM hr_run_sent WHERE run_id = ? AND centre = ?', [Number(body.runId), String(body.centre)]);
       const cc = centres.get(String(body.centre));
       if (!row || !cc) throw new HttpError(404, { ar: 'لم يُرسل', en: 'Not sent' });

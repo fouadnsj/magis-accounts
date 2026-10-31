@@ -9,7 +9,9 @@ import { saveFile } from '../../platform';
 import { tx, type Msg } from '../../i18n';
 const getLangText = (m?: Msg) => (m ? tx(m) : 'Error');
 import { payslipsDoc, type DocHead } from '../docs';
-import { TwoNames, centreVars, headOf, markOf } from './common';
+import { SortTh, TwoNames, centreLabel, centreVars, headOf, markOf, centreChoices, sortRows, useSort } from './common';
+import type { HrPayData } from '../payOps';
+import { rateOf } from '../pay';
 import { accountFor, centreItem, lineFor, lineLabel } from '../link';
 import type { CentreKey } from '../../brand';
 import { t3 } from '../../community/ui/text';
@@ -22,52 +24,69 @@ const KIND = (k: string) => (k === 'thirteenth' ? t3('الدفعة الثالث�
 const STATUS = (s: string) => (s === 'paid' ? t3('مدفوع', 'Paid', 'Payée') : s === 'approved' ? t3('معتمد', 'Approved', 'Approuvée') : t3('مسودة', 'Draft', 'Brouillon'));
 const monthName = (ym: string) => new Date(`${ym}-01T12:00:00`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
-export function RunsPage({ s, hr }: { s: Session; hr: HrData }) {
+type RunSort = 'month' | 'centre' | 'kind' | 'lines' | 'total' | 'status';
+
+/** The payroll runs (Fouad, 31 October 2026: one run per centre and per month, each with its own dollar rate). */
+export function RunsPage({ s, hr, centre, pd }: { s: Session; hr: HrData; /** the centre chosen at the top (null = all the user sees) */ centre: string | null; pd: HrPayData | null }) {
   const [runs, setRuns] = useState<HrRun[] | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [form, setForm] = useState(false);
+  const sort = useSort<RunSort>('month', -1);
   const load = useCallback(async () => { try { setRuns(await s.api.call('hr.run.list', {})); } catch (e) { fail(e); } }, [s]);
   useEffect(() => { void load(); }, [load]);
   if (open != null) return <RunView s={s} hr={hr} id={open} onBack={() => { setOpen(null); void load(); }} />;
+  const shown = sortRows((runs ?? []).filter((r) => !centre || r.centre === centre || r.centre == null), (r) => (sort.key === 'month' ? r.ym : sort.key === 'centre' ? centreLabel(hr, r.centre) : sort.key === 'kind' ? r.kind : sort.key === 'lines' ? r.lines : sort.key === 'total' ? r.total_usd : r.status), sort.dir);
   return (
     <>
-      <div className="desk-head"><h1>{t3('كشوف الرواتب', 'Payroll runs', 'Paies')}</h1><button className="btn primary" onClick={() => setForm(true)}>＋ {t3('كشف جديد', 'New run', 'Nouvelle paie')}</button></div>
+      <div className="desk-head"><h1>{t3('كشوف الرواتب', 'Payroll runs', 'Paies')}{centre ? ` · ${centreLabel(hr, centre)}` : ''}</h1><button className="btn primary" onClick={() => setForm(true)}>＋ {t3('كشف جديد', 'New run', 'Nouvelle paie')}</button></div>
+      <p className="muted small">{t3('لكل مركز كشفه في كل شهر، بسعر الدولار الخاص به، ويعتمده الرئيس.', 'Each centre has its own run every month, with its own dollar rate; the Superior approves it.', "Chaque centre a sa paie chaque mois, avec son propre taux du dollar ; le Supérieur l'approuve.")}</p>
       <div className="cty-card desk-scroll">
         <table className="desk-table">
-          <thead><tr><th>{t3('الشهر', 'Month', 'Mois')}</th><th>{t3('النوع', 'Kind', 'Type')}</th><th className="n">{t3('الأسطر', 'Lines', 'Lignes')}</th><th className="n">USD</th><th>{t3('الحالة', 'Status', 'État')}</th></tr></thead>
+          <thead><tr><SortTh k="month" sort={sort}>{t3('الشهر', 'Month', 'Mois')}</SortTh><SortTh k="centre" sort={sort}>{t3('المركز', 'Centre', 'Centre')}</SortTh><SortTh k="kind" sort={sort}>{t3('النوع', 'Kind', 'Type')}</SortTh><SortTh k="lines" sort={sort} n>{t3('الأسطر', 'Lines', 'Lignes')}</SortTh><SortTh k="total" sort={sort} n>USD</SortTh><th className="n">{t3('السعر', 'Rate', 'Taux')}</th><SortTh k="status" sort={sort}>{t3('الحالة', 'Status', 'État')}</SortTh></tr></thead>
           <tbody>
-            {(runs ?? []).map((r) => (
-              <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setOpen(r.id)}>
-                <td><b>{monthName(r.ym)}</b></td><td>{KIND(r.kind)}</td><td className="n">{r.lines}</td><td className="n">{usd(r.total_usd)}</td>
-                <td className={r.status === 'paid' ? 'ok' : ''}>{STATUS(r.status)}{r.paid_on ? ` · ${fmtDate(r.paid_on)}` : ''}</td>
-              </tr>
-            ))}
-            {runs && !runs.length && <tr><td colSpan={5} className="muted">{t3('لا كشوف بعد.', 'No runs yet.', 'Aucune paie pour le moment.')}</td></tr>}
+            {shown.map((r) => {
+              const k = (r.centre ?? 'other') as CentreKey;
+              return (
+                <tr key={r.id} className="click" style={centreVars(k)} onClick={() => setOpen(r.id)}>
+                  <td><b>{monthName(r.ym)}</b></td>
+                  <td>{r.centre ? <span className="row" style={{ gap: 6 }}><img src={markOf(k)} alt="" style={{ height: 20 }} />{centreLabel(hr, r.centre)}</span> : <span className="muted">{t3('كل المراكز (قديم)', 'Every centre (older)', 'Tous les centres (ancien)')}</span>}</td>
+                  <td>{KIND(r.kind)}</td><td className="n">{r.lines}</td><td className="n">{usd(r.total_usd)}</td><td className="n">{usd(r.rate_syp)}</td>
+                  <td className={r.status === 'paid' ? 'ok' : ''}>{STATUS(r.status)}{r.paid_on ? ` · ${fmtDate(r.paid_on)}` : ''}</td>
+                </tr>
+              );
+            })}
+            {runs && !shown.length && <tr><td colSpan={7} className="muted">{t3('لا كشوف بعد.', 'No runs yet.', 'Aucune paie pour le moment.')}</td></tr>}
           </tbody>
         </table>
       </div>
-      {form && <NewRun s={s} onClose={() => setForm(false)} onDone={async (id) => { setForm(false); await load(); setOpen(id); }} />}
+      {form && <NewRun s={s} hr={hr} pd={pd} centre={centre} onClose={() => setForm(false)} onDone={async (id) => { setForm(false); await load(); setOpen(id); }} />}
     </>
   );
 }
 
-function NewRun({ s, onClose, onDone }: { s: Session; onClose: () => void; onDone: (id: number) => Promise<void> }) {
+function NewRun({ s, hr, pd, centre, onClose, onDone }: { s: Session; hr: HrData; pd: HrPayData | null; centre: string | null; onClose: () => void; onDone: (id: number) => Promise<void> }) {
+  const centres = centreChoices(hr);
+  const [code, setCode] = useState<string>(centre ?? (centres.length === 1 ? centres[0].code : ''));
   const [ym, setYm] = useState(todayIso().slice(0, 7));
   const [kind, setKind] = useState<'monthly' | 'thirteenth'>('monthly');
-  const [rate, setRate] = useState('');
+  const [rate, setRate] = useState(() => { const r = rateOf(pd?.settings, centre); return r ? String(r) : ''; });
+  const pickCentre = (c: string) => { setCode(c); const r = rateOf(pd?.settings, c); if (r) setRate(String(r)); };
   return (
     <Modal title={t3('كشف جديد', 'New run', 'Nouvelle paie')} onClose={onClose} narrow>
+      <Field label={t3('المركز', 'Centre', 'Centre')}>
+        <select value={code} onChange={(e) => pickCentre(e.target.value)} disabled={!!centre && centres.length <= 1}><option value="">—</option>{centres.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}</select>
+      </Field>
       <Field label={t3('الشهر', 'Month', 'Mois')}><input type="month" value={ym} onChange={(e) => setYm(e.target.value)} /></Field>
       <Field label={t3('النوع', 'Kind', 'Type')}>
         <select value={kind} onChange={(e) => setKind(e.target.value as 'monthly' | 'thirteenth')}><option value="monthly">{KIND('monthly')}</option><option value="thirteenth">{KIND('thirteenth')}</option></select>
       </Field>
-      <Field label={t3('سعر الدولار بالليرة السورية', 'Dollar rate in Syrian pounds', 'Taux du dollar en livres syriennes')}><input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
-      <p className="muted small">{t3('يُملأ الكشف من رواتب الأشخاص النشطين، ومن رسائل المكافأة المدفوعة في هذا الشهر. تعدّل الأسطر قبل الاعتماد.', 'The run is filled from the pay of the people who are active, and from the stipend letters paid in this month. You edit the lines before approval.', 'La paie est remplie avec la paie des personnes actives et les lettres de gratification payées ce mois. Vous modifiez les lignes avant approbation.')}</p>
+      <Field label={t3('سعر الدولار بالليرة السورية في هذا المركز', 'Dollar rate in Syrian pounds in this centre', 'Taux du dollar en livres syriennes dans ce centre')}><input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+      <p className="muted small">{t3('يُملأ الكشف من رواتب أشخاص هذا المركز النشطين، ومن رسائل المكافأة المدفوعة في هذا الشهر. تعدّل الأسطر قبل الاعتماد.', "The run is filled from the pay of this centre's active people, and from the stipend letters paid in this month. You edit the lines before approval.", 'La paie est remplie avec la paie des personnes actives de ce centre et les lettres de gratification payées ce mois. Vous modifiez les lignes avant approbation.')}</p>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t3('إلغاء', 'Cancel', 'Annuler')}</button>
-        <button className="btn primary" disabled={!ym || !(Number(rate) > 0)} onClick={async () => {
+        <button className="btn primary" disabled={!code || !ym || !(Number(rate) > 0)} onClick={async () => {
           try {
-            const r = await s.api.call('hr.run.create', { ym, kind, rateSyp: Number(rate) });
+            const r = await s.api.call('hr.run.create', { ym, kind, centre: code, rateSyp: Number(rate) });
             if (r.skipped.length) toast(t3(`${r.skipped.length} أشخاص بلا راتب محدد، لم يُدرجوا`, `${r.skipped.length} people have no pay set and were left out`, `${r.skipped.length} personnes sans paie définie ont été laissées de côté`));
             await onDone(r.id);
           } catch (e) { fail(e); }
@@ -103,7 +122,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
   return (
     <>
       <div className="desk-head">
-        <div><button className="link" onClick={onBack}>‹ {t3('الكشوف', 'Runs', 'Paies')}</button><h1>{KIND(run.kind)} · {monthName(run.ym)}</h1></div>
+        <div><button className="link" onClick={onBack}>‹ {t3('الكشوف', 'Runs', 'Paies')}</button><h1>{KIND(run.kind)} · {monthName(run.ym)}{run.centre ? ` · ${centreLabel(hr, run.centre)}` : ''}</h1></div>
         <div className="desk-filters">
           <span className="pill">{STATUS(run.status)}</span>
           {draft && approver && <button className="btn primary" onClick={act('hr.run.approve', t3('اعتُمد', 'Approved', 'Approuvée'))}>{t3('اعتماد', 'Approve', 'Approuver')}</button>}

@@ -6,6 +6,13 @@ import { auditStmt, UserError } from '../db/repo';
 import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
+import { needPerson, seenPeople } from './scope';
+
+/** only the rows of the people the user sees */
+async function mine<T extends { person_id: number }>(c: OpCtx, rows: T[]): Promise<T[]> {
+  const seen = await seenPeople(c);
+  return seen ? rows.filter((r) => seen.has(r.person_id)) : rows;
+}
 
 export interface HrInsurance { id: number; person_id: number; member_name: string | null; relation: string | null; amount_usd: number; currency: 'USD' | 'SYP'; paid_by: 'centre' | 'staff'; end_date: string | null; paid_on: string | null; note: string | null }
 export interface HrAlloc { person_id: number; valid_from: string; target: string; pct: number }
@@ -39,11 +46,13 @@ export function splitAmount(total: number, parts: { pct: number }[], decimals = 
 }
 
 export const HR_STAGE4_OPS = {
-  'hr.ins.list': { check: needPay, run: (c: OpCtx) => c.db.query<HrInsurance>('SELECT id, person_id, member_name, relation, amount_usd, currency, paid_by, end_date, paid_on, note FROM hr_insurance WHERE deleted_at IS NULL ORDER BY person_id, member_name IS NOT NULL, member_name') },
+  'hr.ins.list': { check: needPay, run: async (c: OpCtx) => mine(c, await c.db.query<HrInsurance>('SELECT id, person_id, member_name, relation, amount_usd, currency, paid_by, end_date, paid_on, note FROM hr_insurance WHERE deleted_at IS NULL ORDER BY person_id, member_name IS NOT NULL, member_name')) },
   'hr.ins.save': {
     check: needPay,
     run: async (c: OpCtx, a: { id?: number | null; personId: number; memberName?: string | null; relation?: string | null; amountUsd: number; currency?: 'USD' | 'SYP'; paidBy?: 'centre' | 'staff'; endDate?: string | null; paidOn?: string | null; note?: string | null }) => {
       if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
+      await needPerson(c, a.personId);
+      if (a.id) await needPerson(c, (await one<{ person_id: number }>(c.db, 'SELECT person_id FROM hr_insurance WHERE id = ?', [a.id]))?.person_id);
       const amount = Number(a.amountUsd);
       if (!(amount >= 0)) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
       // the staff member's own insurance is usually paid by the centre; a family member's by the staff member
@@ -61,17 +70,19 @@ export const HR_STAGE4_OPS = {
   'hr.ins.delete': {
     check: needPay,
     run: async (c: OpCtx, a: { id: number }) => {
+      await needPerson(c, (await one<{ person_id: number }>(c.db, 'SELECT person_id FROM hr_insurance WHERE id = ?', [a.id]))?.person_id);
       await c.db.batch([{ sql: 'UPDATE hr_insurance SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL', params: [nowIso(), a.id] }, auditStmt(c.who, 'delete', 'hr_insurance', String(a.id), null, null)]);
       return { ok: true };
     },
   },
 
-  'hr.alloc.list': { check: needPay, run: (c: OpCtx) => c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc ORDER BY person_id, valid_from DESC, pct DESC') },
+  'hr.alloc.list': { check: needPay, run: async (c: OpCtx) => mine(c, await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc ORDER BY person_id, valid_from DESC, pct DESC')) },
   // the whole split of a person from a date (replaces the one of the same date); it must make 100%
   'hr.alloc.save': {
     check: needPay,
     run: async (c: OpCtx, a: { personId: number; validFrom: string; parts: { target: string; pct: number }[] }) => {
       if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
+      await needPerson(c, a.personId);
       const from = day(a.validFrom);
       if (!from) throw new UserError(m('اكتب التاريخ', 'Write the date', 'Écrivez la date'));
       const parts = (a.parts ?? []).map((p) => ({ target: String(p.target ?? '').trim(), pct: Number(p.pct) })).filter((p) => p.target || p.pct);
@@ -89,6 +100,7 @@ export const HR_STAGE4_OPS = {
   'hr.alloc.delete': {
     check: needPay,
     run: async (c: OpCtx, a: { personId: number; validFrom: string }) => {
+      await needPerson(c, a.personId);
       await c.db.batch([{ sql: 'DELETE FROM hr_alloc WHERE person_id = ? AND valid_from = ?', params: [a.personId, a.validFrom] }, auditStmt(c.who, 'delete', 'hr_alloc', `${a.personId}/${a.validFrom}`, null, null)]);
       return { ok: true };
     },
@@ -100,7 +112,7 @@ export const HR_STAGE4_OPS = {
     run: async (c: OpCtx, a: { year: number }) => {
       const y = Number(a.year);
       if (!(y >= 2000 && y <= 2100)) throw new UserError(m('سنة غير صالحة', 'Not a valid year', 'Année non valide'));
-      const lines = await c.db.query<{ ym: string; person_id: number; total_usd: number }>("SELECT r.ym, l.person_id, l.total_usd FROM hr_run_line l JOIN hr_run r ON r.id = l.run_id WHERE r.status IN ('approved','paid') AND r.ym LIKE ?", [`${y}-%`]);
+      const lines = await mine(c, await c.db.query<{ ym: string; person_id: number; total_usd: number }>("SELECT r.ym, l.person_id, l.total_usd FROM hr_run_line l JOIN hr_run r ON r.id = l.run_id WHERE r.status IN ('approved','paid') AND r.ym LIKE ?", [`${y}-%`]));
       const all = await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc');
       const acc = new Map<string, number>();
       for (const l of lines) {

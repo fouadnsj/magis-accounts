@@ -1078,6 +1078,11 @@ async function keepAManager(c: OpCtx) {
   if (!r?.c) throw new UserError(m('يجب أن يبقى مستخدم واحد على الأقل يدير المستخدمين', 'At least one active user must keep "Users and permission profiles"'));
 }
 
+/** refuses a user of the HR database who sees only some centres (they manage users on the HR users page) */
+function wholeHr(c: OpCtx) {
+  if (c.profile.hrCentres?.length) throw new UserError(m('من صفحة المستخدمين في الموارد البشرية', 'From the users page of HR', 'Depuis la page des utilisateurs des RH'));
+}
+
 async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) {
   need(c, 'users.manage');
   const name = a.name.trim();
@@ -1525,10 +1530,11 @@ export const OPS = {
   },
 
   // ---------------------------------------------------------------- users and permission profiles
-  'user.save': { check: (c: OpCtx) => need(c, 'users.manage'), run: (c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) => saveUser(c, a) },
-  'users.createKeepers': { check: (c: OpCtx) => need(c, 'users.manage'), run: (c: OpCtx) => createKeepers(c) },
+  // (in the HR database, someone who sees some centres only manages users on the HR users page, within their centres)
+  'user.save': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) => saveUser(c, a) },
+  'users.createKeepers': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx) => createKeepers(c) },
   'user.deactivate': {
-    check: (c: OpCtx) => need(c, 'users.manage'),
+    check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); },
     run: async (c: OpCtx, a: { id: number }) => {
       if (a.id === c.profile.id) throw new UserError(m('لا توقف نفسك', 'You cannot deactivate yourself'));
       await c.db.batch([{ sql: 'UPDATE profile SET active = 0 WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'deactivate', 'profile', String(a.id), null, null)]);
@@ -1539,6 +1545,7 @@ export const OPS = {
     run: async (c: OpCtx, a: { id: number; pin: string }) => {
       // someone else's password: who manages users, or who may reset passwords — but only
       // who manages users resets the password of another who manages users (Fouad, 19 October 2026)
+      if (a.id !== c.profile.id) wholeHr(c);
       if (a.id !== c.profile.id && !can(c, 'users.manage')) {
         need(c, 'users.passwords');
         const target = await one<{ perms: string | null }>(c.db, 'SELECT a.perms FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.id = ?', [a.id]);
@@ -1548,9 +1555,9 @@ export const OPS = {
       return changePin(c.db, a.id, a.pin, c.who, a.id !== c.profile.id);
     },
   },
-  'access.save': { check: (c: OpCtx) => need(c, 'users.manage'), run: (c: OpCtx, a: { id?: number; name: string; perms: string[] }) => saveAccess(c, a) },
+  'access.save': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; perms: string[] }) => saveAccess(c, a) },
   'access.delete': {
-    check: (c: OpCtx) => need(c, 'users.manage'),
+    check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); },
     run: async (c: OpCtx, a: { id: number }) => {
       if (await one(c.db, 'SELECT 1 FROM profile WHERE access_id = ?', [a.id])) throw new UserError(m('مستعمل لمستخدمين', 'Some users have this profile'));
       await c.db.batch([{ sql: 'DELETE FROM access_profile WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'access_profile', String(a.id), null, null)]);

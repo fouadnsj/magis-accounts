@@ -8,13 +8,14 @@ import { saveFile } from '../../platform';
 import { t3 } from '../../community/ui/text';
 import type { HrData } from '../hr';
 import type { HrBudgetRow } from '../payOps';
-import { centreOf, centreVars, fail, markOf, usd } from './common';
+import { centreLabel, centreOf, centreVars, fail, markOf, usd } from './common';
 
-export function BudgetListPage({ s, hr }: { s: Session; hr: HrData }) {
+export function BudgetListPage({ s, hr, centre }: { s: Session; hr: HrData; /** the centre chosen at the top */ centre?: string | null }) {
   const [year, setYear] = useState(new Date().getFullYear() + 1);
   const [data, setData] = useState<{ rows: HrBudgetRow[]; paymentsPerYear: number; needRate: number } | null>(null);
   useEffect(() => { setData(null); s.api.call('hr.budget.staff', { year }).then(setData).catch(fail); }, [s, year]);
-  const centres = [...new Set((data?.rows ?? []).map((r) => r.centre ?? ''))];
+  const only = centre ? centreLabel(hr, centre) : null;
+  const centres = [...new Set((data?.rows ?? []).map((r) => r.centre ?? ''))].filter((c) => !only || c === only);
   const download = async () => {
     if (!data) return;
     const wb = new ExcelJS.Workbook();

@@ -1366,4 +1366,108 @@ CREATE TABLE hr_run_sent (
 ALTER TABLE hr_pay ADD COLUMN monthly_syp REAL;
 `,
   },
+  {
+    n: 37,
+    name: 'HR by centre: each user sees their centres, a scale and a payroll per centre, donors of the accounts, arrival and leaving checklists, leave prepared',
+    sql: `
+-- Fouad, 31 October 2026. There is an HR keeper for every centre, who sees only that centre; the MAGIS manager sees the
+-- three. The centres a user of the HR database sees (a JSON list of centre codes: jaramana, aleppo, homs, other).
+-- Empty (NULL) = every centre.
+ALTER TABLE profile ADD COLUMN hr_centres TEXT;
+-- A position of the scale belongs to a centre (NULL = shared by every centre, as before).
+ALTER TABLE hr_grade ADD COLUMN centre TEXT;
+-- An account of a centre (a project) and the donors who fund it (from the grants in the accounts), names joined by " | ".
+ALTER TABLE hr_list ADD COLUMN donors TEXT;
+-- Copying a centre's lists again had added its accounts once more (an account has no code): one of each is kept.
+DELETE FROM hr_list WHERE kind = 'account' AND id NOT IN (SELECT MIN(id) FROM hr_list WHERE kind = 'account' GROUP BY name, source);
+-- A payroll run belongs to one centre (the run of each centre is prepared and approved on its own). The older runs
+-- take the centre of their people when they all have the same one (else NULL: "every centre").
+PRAGMA defer_foreign_keys = ON;
+CREATE TABLE hr_run_tmp AS SELECT * FROM hr_run;
+DROP TABLE hr_run;
+CREATE TABLE hr_run (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ym          TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('monthly','thirteenth')),
+  centre      TEXT,
+  rate_syp    REAL NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved','paid')),
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  approved_at TEXT,
+  approved_by TEXT,
+  paid_on     TEXT,
+  paid_by     TEXT,
+  UNIQUE (ym, kind, centre)
+);
+INSERT INTO hr_run (id, ym, kind, centre, rate_syp, status, note, created_at, created_by, approved_at, approved_by, paid_on, paid_by)
+  SELECT t.id, t.ym, t.kind,
+    (SELECT CASE WHEN COUNT(DISTINCT c.code) = 1 THEN MAX(c.code) END FROM hr_run_line l JOIN hr_person p ON p.id = l.person_id JOIN hr_list c ON c.kind = 'centre' AND c.name = p.centre WHERE l.run_id = t.id),
+    t.rate_syp, t.status, t.note, t.created_at, t.created_by, t.approved_at, t.approved_by, t.paid_on, t.paid_by FROM hr_run_tmp t;
+DROP TABLE hr_run_tmp;
+-- What is done when someone arrives and when someone leaves: a list kept in the settings, ticked on each person's card.
+CREATE TABLE hr_check_item (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind     TEXT NOT NULL CHECK (kind IN ('arrival','leaving')),
+  label_ar TEXT,
+  label_en TEXT NOT NULL,
+  sort     INTEGER NOT NULL DEFAULT 0,
+  active   INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE hr_check_done (
+  person_id  INTEGER NOT NULL REFERENCES hr_person(id),
+  item_id    INTEGER NOT NULL REFERENCES hr_check_item(id),
+  done_on    TEXT NOT NULL,
+  done_by    TEXT,
+  note       TEXT,
+  PRIMARY KEY (person_id, item_id)
+);
+INSERT INTO hr_check_item (kind, label_ar, label_en, sort) VALUES
+  ('arrival', 'توقيع اتفاقية التطوع', 'Volunteer agreement signed', 1),
+  ('arrival', 'توقيع مدونة السلوك', 'Code of conduct signed', 2),
+  ('arrival', 'صورة الهوية في خزانة الوثائق', 'Copy of the ID card in the vault', 3),
+  ('arrival', 'الهاتف والعنوان مكتوبان', 'Phone and address written', 4),
+  ('arrival', 'التأمين الصحي', 'Health insurance', 5),
+  ('arrival', 'التعريف بالفريق وبالمركز', 'Introduced to the team and the centre', 6),
+  ('arrival', 'المفاتيح والأدوات المسلّمة مكتوبة', 'Keys and equipment handed over are written down', 7),
+  ('leaving', 'رسالة إنهاء الاتفاقية موقّعة (براءة ذمة)', 'End-of-agreement letter signed (clearance)', 1),
+  ('leaving', 'إعادة المفاتيح والأدوات والبطاقة', 'Keys, equipment and badge returned', 2),
+  ('leaving', 'دفع آخر مكافأة والثالثة عشرة بالنسبة', 'Last stipend paid, and the 13th in proportion', 3),
+  ('leaving', 'إيقاف التأمين الصحي', 'Health insurance stopped', 4),
+  ('leaving', 'إغلاق الحسابات وكلمات السر (الحاسوب، البريد…)', 'Computer, e-mail and other accesses closed', 5),
+  ('leaving', 'تسليم العمل الجاري لشخص آخر', 'Ongoing work handed over to someone', 6),
+  ('leaving', 'حديث المغادرة', 'Leaving conversation', 7),
+  ('leaving', 'شهادة خدمة إن طُلبت', 'Certificate of service, if asked', 8);
+-- Leave and holidays: prepared for later (not used yet). The kinds (the agreement gives 10 days of annual leave and
+-- 12 days of sick leave) and each leave taken.
+CREATE TABLE hr_leave_type (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  name_ar       TEXT,
+  name_en       TEXT NOT NULL,
+  days_per_year REAL,
+  paid          INTEGER NOT NULL DEFAULT 1,
+  active        INTEGER NOT NULL DEFAULT 1,
+  sort          INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO hr_leave_type (name_ar, name_en, days_per_year, sort) VALUES ('إجازة سنوية', 'Annual leave', 10, 1), ('إجازة مرضية', 'Sick leave', 12, 2);
+CREATE TABLE hr_leave (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id  INTEGER NOT NULL REFERENCES hr_person(id),
+  type_id    INTEGER NOT NULL REFERENCES hr_leave_type(id),
+  from_date  TEXT NOT NULL,
+  to_date    TEXT NOT NULL,
+  days       REAL NOT NULL,
+  note       TEXT,
+  created_at TEXT NOT NULL,
+  created_by TEXT,
+  deleted_at TEXT
+);
+CREATE INDEX hr_leave_person ON hr_leave(person_id);
+-- The usual permission profiles of an HR database: the HR keeper of a centre, the Superior, the MAGIS manager.
+INSERT OR IGNORE INTO access_profile (name, perms, sort) SELECT 'مسؤول الموارد البشرية في مركز · HR keeper of a centre · Responsable RH d''un centre', '["hr.view","hr.manage","hr.pay","hr.vault"]', 3 WHERE EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'hr');
+INSERT OR IGNORE INTO access_profile (name, perms, sort) SELECT 'الرئيس · Superior · Supérieur', '["hr.view","hr.manage","hr.pay","hr.approve","hr.vault","audit.view"]', 4 WHERE EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'hr');
+INSERT OR IGNORE INTO access_profile (name, perms, sort) SELECT 'مدير ماجيس · MAGIS manager · Directeur MAGIS', '["hr.view","hr.manage","hr.pay","hr.approve","hr.vault","users.manage","data.backup","data.restore","data.export","audit.view"]', 5 WHERE EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'hr');
+`,
+  },
 ];

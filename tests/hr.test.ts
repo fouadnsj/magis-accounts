@@ -125,7 +125,7 @@ describe('HR database', () => {
     expect((await op('hr.grade.seed', { year: 2027 }, ck)).status).toBe(400); // only into an empty scale
     let d = (await op('hr.pay.data', {}, ck)).body;
     expect(d.grades.map((g: { name: string; monthly_usd: number }) => [g.name, g.monthly_usd])).toEqual([['Centre Director', 300], ['Workshop Coordinator', 250], ['Guard & logistics', 230], ['Accountant', 250], ['Reception', 180], ['IT', 180], ['Cleaner', 180], ['Cook', 200], ['Academic Coordinator', 250], ['Media', 200]]);
-    expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40, rateSyp: 0 });
+    expect(d.settings).toEqual({ paymentsPerYear: 13, roundTo: 5, maxWeekly: 40, rateSyp: 0, rates: {} });
 
     // a pay needs a position or an amount; the weekly hours only give the hourly cost
     expect((await op('hr.pay.save', { personId: pid, validFrom: '2027-01-01' }, ck)).status).toBe(400);
@@ -165,7 +165,8 @@ describe('HR database', () => {
     await call('/api/setup/hr', { db: slug, organisation: 'HR run', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
     const profiles = (await call(`/api/profiles?db=${slug}`)).body;
     const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
-    const mk = async (name: string, extra: object) => (await op('hr.person.save', { name, started: '2026-01-01', ...extra }, ck)).body.id as number;
+    await op('hr.list.save', { kind: 'centre', name: 'Test centre', code: 'other' }, ck); // a run is made for one centre
+    const mk = async (name: string, extra: object) => (await op('hr.person.save', { name, started: '2026-01-01', centre: 'Test centre', ...extra }, ck)).body.id as number;
     const g = await mk('Guard One', { account: 'CJF', budget_line: 'Staff - Guards' });
     const r = await mk('Reception One', { account: 'CJF', budget_line: 'Staff - Reception' });
     const l = await mk('Left Long Ago', { ended: '2026-02-01' });
@@ -177,10 +178,10 @@ describe('HR database', () => {
     // a stipend letter paid in November, in pounds
     await op('hr.paper.save', { personId: r, kind: 'stipend', service: 'Workshop', amount: 650000, currency: 'SYP', paidOn: '2026-11-12' }, ck);
 
-    expect((await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 0 }, ck)).status).toBe(400);
-    const created = await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck);
+    expect((await op('hr.run.create', { centre: 'other', ym: '2026-11', kind: 'monthly', rateSyp: 0 }, ck)).status).toBe(400);
+    const created = await op('hr.run.create', { centre: 'other', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck);
     expect(created.status).toBe(200);
-    expect((await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).status).toBe(400); // one per month and kind
+    expect((await op('hr.run.create', { centre: 'other', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).status).toBe(400); // one per month and kind
     const runId = created.body.id;
     let got = (await op('hr.run.get', { id: runId }, ck)).body;
     // the person who left in February is not in November's run; the letter is a line of its own
@@ -213,7 +214,7 @@ describe('HR database', () => {
     expect(v.total_usd).toBe(495);
 
     // the 13th payment is a run of its own
-    expect((await op('hr.run.create', { ym: '2026-12', kind: 'thirteenth', rateSyp: 13000 }, ck)).status).toBe(200);
+    expect((await op('hr.run.create', { centre: 'other', ym: '2026-12', kind: 'thirteenth', rateSyp: 13000 }, ck)).status).toBe(200);
     const th = (await op('hr.run.list', {}, ck)).body;
     expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 410], ['2026-11', 'monthly', 'paid', 495]]);
   });
@@ -230,7 +231,8 @@ describe('HR database', () => {
     await call('/api/setup/hr', { db: slug, organisation: 'HR four', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
     const profiles = (await call(`/api/profiles?db=${slug}`)).body;
     const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
-    const pid = (await op('hr.person.save', { name: 'Salma', started: '2026-01-01', account: 'CJF', budget_line: 'Staff' }, ck)).body.id;
+    await op('hr.list.save', { kind: 'centre', name: 'Test centre', code: 'other' }, ck); // a run is made for one centre
+    const pid = (await op('hr.person.save', { name: 'Salma', started: '2026-01-01', account: 'CJF', budget_line: 'Staff', centre: 'Test centre' }, ck)).body.id;
     await op('hr.pay.save', { personId: pid, validFrom: '2026-01-01', monthlyUsd: 200, weeklyHours: 40 }, ck);
 
     // insurance: the person and a family member; the end date raises a reminder
@@ -248,7 +250,7 @@ describe('HR database', () => {
     expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'donor a', pct: 40 }] }, ck)).status).toBe(400);
     expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'Project B', pct: 40 }] }, ck)).status).toBe(200);
 
-    const run = (await op('hr.run.create', { ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const run = (await op('hr.run.create', { centre: 'other', ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     await op('hr.run.approve', { id: run }, ck);
     const v = (await op('hr.run.voucher', { id: run }, ck)).body;
     expect(v.rows.map((r: { target: string; total_usd: number; amount_paid: number }) => [r.target, r.total_usd, r.amount_paid])).toEqual([['Donor A', 120, 120], ['Project B', 80, 80]]);
@@ -257,7 +259,7 @@ describe('HR database', () => {
 
     // from July the split changes; the report follows the date of each month
     await op('hr.alloc.save', { personId: pid, validFrom: '2026-11-01', parts: [{ target: 'Donor A', pct: 100 }] }, ck);
-    const run2 = (await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const run2 = (await op('hr.run.create', { centre: 'other', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     await op('hr.run.approve', { id: run2 }, ck);
     expect((await op('hr.alloc.report', { year: 2026 }, ck)).body).toEqual([
       { ym: '2026-10', target: 'Donor A', total_usd: 120 }, { ym: '2026-10', target: 'Project B', total_usd: 80 }, { ym: '2026-11', target: 'Donor A', total_usd: 200 },
@@ -347,7 +349,7 @@ describe('HR database', () => {
     expect(letter).toContain('رسالة مكافأة لمرة واحدة');
     expect(letter).toContain('Workshop animation');
     expect(letter).toContain('650,000 SYP');
-    const run = { id: 1, ym: '2026-11', kind: 'monthly', rate_syp: 13000, status: 'approved', note: null, created_by: null, approved_at: null, approved_by: null, paid_on: null, paid_by: null, lines: 1, total_usd: 180 } as const;
+    const run = { id: 1, ym: '2026-11', kind: 'monthly', centre: 'aleppo', rate_syp: 13000, status: 'approved', note: null, created_by: null, approved_at: null, approved_by: null, paid_on: null, paid_by: null, lines: 1, total_usd: 180 } as const;
     const slips = await textOf(await payslipsDoc(run, [{ id: 1, run_id: 1, person_id: id, person_name: 'Salma Haddad', national_id: '01234567890', role: 'Reception', label: null, paper_id: null, weekly_hours: 30, hours_worked: null, base_usd: 180, bonus_usd: 0, deduction_usd: 0, total_usd: 180, paid_in: 'USD', amount_paid: 180, account: null, budget_line: null, note: null }], [person], () => head));
     expect(slips).toContain('سلمى حداد');
     expect(slips).toContain('Salma Haddad');
@@ -370,7 +372,8 @@ describe('HR database', () => {
     const profiles = (await call(`/api/profiles?db=${slug}`)).body;
     const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
     await op('hr.grade.seed', {}, ck);
-    const pid = (await op('hr.person.save', { first_name_ar: 'ريم', last_name_ar: 'خوري', started: '2027-01-01' }, ck)).body.id;
+    await op('hr.list.save', { kind: 'centre', name: 'Test centre', code: 'other' }, ck); // a run is made for one centre
+    const pid = (await op('hr.person.save', { first_name_ar: 'ريم', last_name_ar: 'خوري', started: '2027-01-01', centre: 'Test centre' }, ck)).body.id;
     expect((await op('hr.data', {}, ck)).body.people.find((p: { id: number }) => p.id === pid).name).toBe('ريم خوري'); // an Arabic name only is enough
 
     // the agreement: position Reception (reference 180), but this person is agreed at 170 for 25 hours a week
@@ -394,8 +397,8 @@ describe('HR database', () => {
     expect([march.monthly, march.weekly, march.hourly]).toEqual([175, 25, 1.62]); // 175 x 12 / (25 x 52)
     expect([august.monthly, august.weekly, august.hourly]).toEqual([190, 30, 1.46]);
     // the payroll of each month takes the stipend of that month
-    const r3 = (await op('hr.run.create', { ym: '2027-03', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
-    const r8 = (await op('hr.run.create', { ym: '2027-08', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const r3 = (await op('hr.run.create', { centre: 'other', ym: '2027-03', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const r8 = (await op('hr.run.create', { centre: 'other', ym: '2027-08', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     expect((await op('hr.run.get', { id: r3 }, ck)).body.lines[0].total_usd).toBe(175);
     expect((await op('hr.run.get', { id: r8 }, ck)).body.lines[0].total_usd).toBe(190);
     // deleting the agreement removes its line (the change of July stays)
@@ -435,16 +438,17 @@ describe('HR database', () => {
     await call('/api/setup/hr', { db: slug, organisation: 'HR eight', people: [{ name: 'Fouad', password: 'fouad-hr-1' }], mustChange: false });
     const profiles = (await call(`/api/profiles?db=${slug}`)).body;
     const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
+    await op('hr.list.save', { kind: 'centre', name: 'Test centre', code: 'other' }, ck); // a run is made for one centre
     await op('hr.grade.seed', {}, ck);
     const mk = async (name: string) => {
-      const id = (await op('hr.person.save', { first_name: name, started: '2026-01-01' }, ck)).body.id as number;
+      const id = (await op('hr.person.save', { first_name: name, started: '2026-01-01', centre: 'Test centre' }, ck)).body.id as number;
       await op('hr.paper.save', { personId: id, kind: 'agreement', start: '2026-01-01', end: '2026-12-31', position: 'Cook', amount: 200, weeklyHours: 36 }, ck);
       await op('hr.ins.save', { personId: id, amountUsd: 100 }, ck);
       return id;
     };
     const mistake = await mk('Typed by mistake');
     const paid = await mk('Already paid');
-    const run = (await op('hr.run.create', { ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const run = (await op('hr.run.create', { centre: 'other', ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     expect((await op('hr.run.get', { id: run }, ck)).body.lines).toHaveLength(2);
     // in a draft run: the person goes, with their line
     expect((await op('hr.person.delete', { id: mistake }, ck)).status).toBe(200);
@@ -487,6 +491,9 @@ describe('HR database', () => {
     await op('list.setActive', { table: 'budget_line', id: oldLine.id, active: false }, boss);
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
     expect((await op('hr.data', {}, ck)).body.lists.some((x: { name: string }) => x.name === 'Old line by name')).toBe(false);
+    // copied twice: each account once
+    const accs = (await op('hr.data', {}, ck)).body.lists.filter((x: { kind: string }) => x.kind === 'account').map((x: { name: string }) => x.name);
+    expect(accs.length).toBe(new Set(accs).size);
     const c = (await op('hr.data', {}, ck)).body.lists.find((x: { kind: string; name: string }) => x.kind === 'centre' && x.name === 'MAGIS Nine');
     expect([c.salary_heading, c.account]).toEqual(['Salary', 'Center']); // found by itself
     // the positions can come from the salary lines of the budget (never an insurance line)
@@ -504,7 +511,7 @@ describe('HR database', () => {
     await mk('Nadia', 'Reception', 180);
     await mk('Rami', 'Reception', 170);
     const cl = await mk('Hanan', 'Cleaner', 150);
-    const run = (await op('hr.run.create', { ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const run = (await op('hr.run.create', { centre: 'homs', ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     const lines = (await op('hr.run.get', { id: run }, ck)).body.lines;
     await op('hr.run.line.save', { id: lines.find((l: { person_id: number }) => l.person_id === cl).id, paidIn: 'SYP' }, ck);
     expect((await post('/api/hr/send-run', { runId: run })).status).toBe(400); // approve first
@@ -544,7 +551,7 @@ describe('HR database', () => {
     expect(accountFor(lists, stray)).toBe('Center');
     // a person without a line that fits says what is missing
     await mk('Odd', 'Cook', 200);
-    const run2 = (await op('hr.run.create', { ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
+    const run2 = (await op('hr.run.create', { centre: 'homs', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     await op('hr.run.approve', { id: run2 }, ck);
     const bad = await post('/api/hr/send-run', { runId: run2 });
     expect(bad.status).toBe(400);
@@ -560,7 +567,8 @@ describe('HR database', () => {
     const hrId = (await call(`/api/profiles?db=${slug}`)).body[0].id;
     const ck = (await call('/api/login', { db: slug, profileId: hrId, password: 'fouad-hr-1' }, '')).set!;
     const { payOn } = await import('../src/hr/pay');
-    const id = (await op('hr.person.save', { first_name: 'Layla', started: '2027-01-01' }, ck)).body.id;
+    await op('hr.list.save', { kind: 'centre', name: 'Test centre', code: 'other' }, ck); // a run is made for one centre
+    const id = (await op('hr.person.save', { first_name: 'Layla', started: '2027-01-01', centre: 'Test centre' }, ck)).body.id;
     await op('hr.paper.save', { personId: id, kind: 'agreement', start: '2027-01-01', end: '2027-12-31', amount: 1300000, currency: 'SYP', weeklyHours: 30 }, ck);
     let pd = (await op('hr.pay.data', {}, ck)).body;
     expect(pd.pays.map((p: { monthly_usd: number | null; monthly_syp: number | null }) => [p.monthly_usd, p.monthly_syp])).toEqual([[null, 1300000]]);
@@ -573,17 +581,18 @@ describe('HR database', () => {
     now = payOn(pd, id, '2027-03-31')!;
     expect([now.syp, now.monthly, now.needsRate, now.hourly]).toEqual([1300000, 100, false, 0.77]);
     // payroll: exactly the pounds, the dollars at THIS run's rate
-    const run = (await op('hr.run.create', { ym: '2027-03', kind: 'monthly', rateSyp: 14000 }, ck)).body.id;
+    const run = (await op('hr.run.create', { centre: 'other', ym: '2027-03', kind: 'monthly', rateSyp: 14000 }, ck)).body.id;
     const line = (await op('hr.run.get', { id: run }, ck)).body.lines[0];
     expect([line.paid_in, line.amount_paid, line.total_usd]).toEqual(['SYP', 1300000, 92.86]);
-    // the staff list for the budget counts the pounds in dollars at the rate (and says when it cannot)
+    // the staff list for the budget counts the pounds in dollars at the rate (and says when it cannot): the centre's own
+    // rate first (here its last run's, 14,000), before the shared one
     const bl = (await op('hr.budget.staff', { year: 2027 }, ck)).body;
-    expect([bl.needRate, bl.rows.map((x: { monthly: number; months: number; total: number }) => [x.monthly, x.months, x.total])]).toEqual([0, [[100, 12, 1300]]]);
+    expect([bl.needRate, bl.rows.map((x: { monthly: number; months: number; total: number }) => [x.monthly, x.months, x.total])]).toEqual([0, [[92.86, 12, 1207.18]]]);
     await op('hr.pay.settings', { rateSyp: 0 }, ck);
     await op('hr.run.delete', { id: run }, ck);
     expect((await op('hr.budget.staff', { year: 2027 }, ck)).body).toMatchObject({ needRate: 1, rows: [] });
     await op('hr.pay.settings', { rateSyp: 13000 }, ck);
-    const run2 = (await op('hr.run.create', { ym: '2027-03', kind: 'monthly', rateSyp: 14000 }, ck)).body.id;
+    const run2 = (await op('hr.run.create', { centre: 'other', ym: '2027-03', kind: 'monthly', rateSyp: 14000 }, ck)).body.id;
     expect(run2).toBeGreaterThan(0);
     // a change from a date, in dollars this time, replaces the pounds
     await op('hr.pay.save', { personId: id, validFrom: '2027-07-01', monthlyUsd: 120, weeklyHours: 30 }, ck);
@@ -593,5 +602,87 @@ describe('HR database', () => {
     // the last run's rate is the rate when none is written
     await op('hr.pay.settings', { rateSyp: 0 }, ck);
     expect((await op('hr.pay.data', {}, ck)).body.settings.rateSyp).toBe(14000);
+  });
+  it('by centre: the HR keeper of Homs sees and changes only Homs; the payroll, the scale and the rate are per centre; arrival and leaving lists', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR centres', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR centres', people: [{ name: 'Manager', password: 'manager-hr-1' }], mustChange: false });
+    const mid = (await call(`/api/profiles?db=${slug}`)).body[0].id;
+    const ck = (await call('/api/login', { db: slug, profileId: mid, password: 'manager-hr-1' }, '')).set!;
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Homs', code: 'homs' }, ck);
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Aleppo', code: 'aleppo' }, ck);
+    // the usual profiles of an HR database are there
+    const users = (await op('hr.users.list', {}, ck)).body;
+    const keeper = users.access.find((a: { name: string }) => a.name.includes('HR keeper of a centre'));
+    expect(keeper.perms).toEqual(['hr.view', 'hr.manage', 'hr.pay', 'hr.vault']);
+    // the HR keeper of Homs: sees Homs only
+    const kid = (await op('hr.user.save', { name: 'Homs HR', accessId: keeper.id, centres: ['homs'], password: 'homs-hr-12' }, ck)).body.id;
+    await op('hr.user.save', { id: kid, name: 'Homs HR', accessId: keeper.id, centres: ['homs'] }, ck);
+    const hk = (await call('/api/login', { db: slug, profileId: kid, password: 'homs-hr-12' }, '')).set!;
+    expect((await op('profile.setPin', { id: kid, pin: 'homs-hr-13' }, hk)).status).toBe(200); // a first password is changed first
+    const h = (await op('hr.person.save', { first_name: 'Hala', centre: 'MAGIS Homs', started: '2026-01-01' }, ck)).body.id;
+    const a = (await op('hr.person.save', { first_name: 'Adel', centre: 'MAGIS Aleppo', started: '2026-01-01' }, ck)).body.id;
+    for (const [id, amount] of [[h, 200], [a, 300]]) await op('hr.pay.save', { personId: id, validFrom: '2026-01-01', monthlyUsd: amount, weeklyHours: 30 }, ck);
+    const r0 = await op('hr.data', {}, hk);
+    expect([r0.status, r0.body?.error]).toEqual([200, undefined]);
+    const seen = r0.body;
+    expect(seen.people.map((p: { first_name: string }) => p.first_name)).toEqual(['Hala']);
+    expect(seen.scope).toEqual(['homs']);
+    expect(seen.lists.filter((x: { kind: string }) => x.kind === 'centre').map((x: { name: string }) => x.name)).toEqual(['MAGIS Homs']);
+    expect(Object.keys((await op('hr.pay.data', {}, hk)).body.centreOf).map(Number)).toEqual([h]);
+    // and cannot reach Aleppo, nor move someone there, nor make a person without a centre
+    expect((await op('hr.person.save', { id: a, first_name: 'Adel', centre: 'MAGIS Aleppo' }, hk)).status).toBe(400);
+    expect((await op('hr.person.save', { id: h, first_name: 'Hala', centre: 'MAGIS Aleppo' }, hk)).status).toBe(400);
+    expect((await op('hr.person.save', { first_name: 'Nobody' }, hk)).status).toBe(400);
+    expect((await op('hr.pay.save', { personId: a, validFrom: '2026-06-01', monthlyUsd: 1 }, hk)).status).toBe(400);
+    expect((await op('hr.paper.save', { personId: a, kind: 'stipend', service: 'x', amount: 5 }, hk)).status).toBe(400);
+    expect((await op('hr.check.tick', { personId: a, itemId: 1, done: true }, hk)).status).toBe(400);
+    // nor give themselves more: every centre, another centre, or the generic users page
+    expect((await op('hr.user.save', { id: kid, name: 'Homs HR', accessId: keeper.id, centres: null }, hk)).status).toBe(400);
+    const hkUsers = { name: 'Homs HR', accessId: keeper.id };
+    expect((await op('hr.user.save', { ...hkUsers, id: kid, centres: ['homs', 'aleppo'] }, hk)).status).toBe(400);
+    expect((await op('user.save', { name: 'Sneaky', access_id: 1, books: [], pin: 'sneaky-pin-1' }, hk)).status).not.toBe(200);
+    // the payroll: one run per centre, each with its people only
+    const rh = (await op('hr.run.create', { centre: 'homs', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, hk)).body.id;
+    expect((await op('hr.run.create', { centre: 'aleppo', ym: '2026-11', kind: 'monthly', rateSyp: 13500 }, hk)).status).toBe(400);
+    const ra = (await op('hr.run.create', { centre: 'aleppo', ym: '2026-11', kind: 'monthly', rateSyp: 13500 }, ck)).body.id;
+    expect((await op('hr.run.get', { id: rh }, ck)).body.lines.map((l: { person_id: number }) => l.person_id)).toEqual([h]);
+    expect((await op('hr.run.get', { id: ra }, ck)).body.lines.map((l: { person_id: number }) => l.person_id)).toEqual([a]);
+    expect((await op('hr.run.list', {}, hk)).body.map((r: { id: number }) => r.id)).toEqual([rh]);
+    expect((await op('hr.run.get', { id: ra }, hk)).status).toBe(400);
+    expect((await op('hr.run.line.add', { runId: rh, personId: a, label: 'x', bonusUsd: 5 }, ck)).status).toBe(400); // not of Homs
+    // each centre has its own dollar rate (its last run's, or the one written)
+    expect((await op('hr.pay.data', {}, ck)).body.settings.rates).toEqual({ homs: 13000, aleppo: 13500 });
+    expect((await op('hr.pay.settings', { rates: { aleppo: 14000 } }, hk)).status).toBe(400);
+    expect((await op('hr.pay.settings', { rates: { homs: 12500 } }, hk)).status).toBe(200);
+    expect((await op('hr.pay.settings', { paymentsPerYear: 12 }, hk)).status).toBe(400); // shared: for who sees every centre
+    expect((await op('hr.pay.data', {}, ck)).body.settings.rates.homs).toBe(12500);
+    // the scale of each centre: the same position may have a different amount; a copy brings the missing ones
+    expect((await op('hr.grade.save', { name: 'Reception', monthlyUsd: 180, centre: 'homs' }, hk)).status).toBe(200);
+    expect((await op('hr.grade.save', { name: 'Reception', monthlyUsd: 200, centre: 'aleppo' }, hk)).status).toBe(400);
+    expect((await op('hr.grade.save', { name: 'Reception', monthlyUsd: 200, centre: 'aleppo' }, ck)).status).toBe(200);
+    expect((await op('hr.grade.save', { name: 'Cook', monthlyUsd: 210, centre: 'aleppo' }, ck)).status).toBe(200);
+    expect((await op('hr.grade.copy', { from: 'aleppo', to: 'homs' }, ck)).body.added).toBe(1);
+    const grades = (await op('hr.pay.data', {}, hk)).body.grades;
+    expect(grades.map((g: { name: string; centre: string; monthly_usd: number }) => [g.name, g.centre, g.monthly_usd])).toEqual([['Reception', 'homs', 180], ['Cook', 'homs', 210]]);
+    // the agreement takes the position of the person's centre
+    await op('hr.paper.save', { personId: h, kind: 'agreement', start: '2027-01-01', end: '2027-12-31', position: 'Reception', amount: 190, weeklyHours: 30 }, hk);
+    const pay = (await op('hr.pay.data', {}, hk)).body.pays.find((p: { person_id: number; valid_from: string }) => p.person_id === h && p.valid_from === '2027-01-01');
+    expect(grades.find((g: { id: number }) => g.id === pay.grade_id).centre).toBe('homs');
+    // arrival and leaving: the lists are in the settings; ticked on the card; leaving keeps the person
+    const items = (await op('hr.data', {}, hk)).body.checkItems;
+    expect(items.filter((i: { kind: string }) => i.kind === 'arrival').length).toBeGreaterThan(3);
+    expect(items.filter((i: { kind: string }) => i.kind === 'leaving').length).toBeGreaterThan(3);
+    expect((await op('hr.check.save', { kind: 'arrival', labelEn: 'Keys' }, hk)).status).toBe(400); // the lists: for who sees every centre
+    expect((await op('hr.check.save', { kind: 'arrival', labelEn: 'Keys of the hall', labelAr: 'مفاتيح القاعة' }, ck)).status).toBe(200);
+    expect((await op('hr.check.tick', { personId: h, itemId: items[0].id, done: true }, hk)).status).toBe(200);
+    expect((await op('hr.data', {}, hk)).body.checksDone.map((x: { person_id: number; item_id: number }) => [x.person_id, x.item_id])).toEqual([[h, items[0].id]]);
+    expect((await op('hr.person.leave', { id: h, ended: '2026-12-31', note: 'moved' }, hk)).status).toBe(200);
+    const left = (await op('hr.data', {}, hk)).body.people.find((p: { id: number }) => p.id === h);
+    expect([left.active, left.ended]).toEqual([0, '2026-12-31']);
+    // the leave kinds are ready for later
+    expect((await op('hr.data', {}, hk)).body.leaveTypes.map((x: { name_en: string; days_per_year: number }) => [x.name_en, x.days_per_year])).toEqual([['Annual leave', 10], ['Sick leave', 12]]);
+    // someone must still see every centre and manage the users
+    expect((await op('hr.user.save', { id: mid, name: 'Manager', accessId: keeper.id, centres: ['homs'] }, ck)).status).toBe(400);
   });
 });

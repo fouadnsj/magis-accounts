@@ -9,8 +9,9 @@ import type { OpCtx } from '../ops';
 import { payData } from './payOps';
 import { payOn } from './pay';
 import { allocOn, splitAmount, type HrAlloc } from './stage4';
+import { needCentre, needPerson, scopeOf } from './scope';
 
-export interface HrRun { id: number; ym: string; kind: 'monthly' | 'thirteenth'; rate_syp: number; status: 'draft' | 'approved' | 'paid'; note: string | null; created_by: string | null; approved_at: string | null; approved_by: string | null; paid_on: string | null; paid_by: string | null; lines: number; total_usd: number }
+export interface HrRun { id: number; ym: string; kind: 'monthly' | 'thirteenth'; /** the centre's code (null: an older run of every centre) */ centre: string | null; rate_syp: number; status: 'draft' | 'approved' | 'paid'; note: string | null; created_by: string | null; approved_at: string | null; approved_by: string | null; paid_on: string | null; paid_by: string | null; lines: number; total_usd: number }
 export interface HrRunLine { id: number; run_id: number; person_id: number; person_name: string; national_id: string | null; role: string | null; label: string | null; paper_id: number | null; weekly_hours: number | null; hours_worked: number | null; base_usd: number; bonus_usd: number; deduction_usd: number; total_usd: number; paid_in: 'USD' | 'SYP'; amount_paid: number; account: string | null; budget_line: string | null; note: string | null }
 export interface HrVoucherRow { account: string | null; budget_line: string | null; target: string | null; paid_in: 'USD' | 'SYP'; total_usd: number; amount_paid: number }
 
@@ -33,6 +34,8 @@ export function lineAmounts(base: number, bonus: number, deduction: number, paid
 async function runOf(c: OpCtx, id: number) {
   const r = await one<HrRun>(c.db, 'SELECT * FROM hr_run WHERE id = ?', [id]);
   if (!r) throw new UserError(m('الكشف غير موجود', 'Run not found', 'Paie introuvable'));
+  // a run of a centre the user does not see does not exist for them (an older run of every centre: those who see them all)
+  needCentre(c, r.centre);
   return r;
 }
 const needDraft = (r: HrRun) => {
@@ -42,7 +45,11 @@ const needDraft = (r: HrRun) => {
 export const HR_RUN_OPS = {
   'hr.run.list': {
     check: needPay,
-    run: (c: OpCtx) => c.db.query<HrRun>('SELECT r.*, (SELECT COUNT(*) FROM hr_run_line l WHERE l.run_id = r.id) AS lines, (SELECT COALESCE(SUM(total_usd), 0) FROM hr_run_line l WHERE l.run_id = r.id) AS total_usd FROM hr_run r ORDER BY ym DESC, kind'),
+    run: async (c: OpCtx) => {
+      const sc = scopeOf(c);
+      const rows = await c.db.query<HrRun>('SELECT r.*, (SELECT COUNT(*) FROM hr_run_line l WHERE l.run_id = r.id) AS lines, (SELECT COALESCE(SUM(total_usd), 0) FROM hr_run_line l WHERE l.run_id = r.id) AS total_usd FROM hr_run r ORDER BY ym DESC, kind, centre');
+      return sc ? rows.filter((r) => r.centre && sc.includes(r.centre)) : rows;
+    },
   },
   'hr.run.get': {
     check: needPay,
@@ -57,17 +64,22 @@ export const HR_RUN_OPS = {
 
   'hr.run.create': {
     check: needPay,
-    run: async (c: OpCtx, a: { ym: string; kind: 'monthly' | 'thirteenth'; rateSyp: number; note?: string | null }) => {
+    run: async (c: OpCtx, a: { ym: string; kind: 'monthly' | 'thirteenth'; centre: string; rateSyp: number; note?: string | null }) => {
       if (!/^\d{4}-\d{2}$/.test(a.ym ?? '')) throw new UserError(m('شهر غير صالح', 'Not a valid month', 'Mois non valide'));
       if (a.kind !== 'monthly' && a.kind !== 'thirteenth') throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
+      // one run per centre (Fouad, 31 October 2026): each centre prepares its own, with its own dollar rate
+      const centre = txt(a.centre);
+      if (!centre) throw new UserError(m('اختر المركز', 'Choose the centre', 'Choisissez le centre'));
+      needCentre(c, centre);
       const rate = Number(a.rateSyp);
       if (!(rate > 0)) throw new UserError(m('اكتب سعر الدولار بالليرة', 'Write the dollar rate in pounds', 'Écrivez le taux du dollar en livres'));
-      if (await one(c.db, 'SELECT 1 AS x FROM hr_run WHERE ym = ? AND kind = ?', [a.ym, a.kind])) throw new UserError(m('يوجد كشف لهذا الشهر', 'There is already a run for this month', 'Il y a déjà une paie pour ce mois'));
+      if (await one(c.db, 'SELECT 1 AS x FROM hr_run WHERE ym = ? AND kind = ? AND (centre = ? OR centre IS NULL)', [a.ym, a.kind, centre])) throw new UserError(m('يوجد كشف لهذا الشهر في هذا المركز (أو كشف قديم لكل المراكز)', 'There is already a run for this month in this centre (or an older run of every centre)', 'Il y a déjà une paie pour ce mois dans ce centre (ou une ancienne paie de tous les centres)'));
       const d = await payData(c);
       const first = `${a.ym}-01`, last = lastDay(a.ym);
-      const people = await c.db.query<{ id: number; account: string | null; budget_line: string | null }>('SELECT id, account, budget_line FROM hr_person WHERE (started IS NULL OR started <= ?) AND (ended IS NULL OR ended >= ?) ORDER BY name', [last, first]);
+      const inCentre = "centre IN (SELECT name FROM hr_list WHERE kind = 'centre' AND code = ?)";
+      const people = await c.db.query<{ id: number; account: string | null; budget_line: string | null }>(`SELECT id, account, budget_line FROM hr_person WHERE (started IS NULL OR started <= ?) AND (ended IS NULL OR ended >= ?) AND ${inCentre} ORDER BY name`, [last, first, centre]);
       const hours = await c.db.query<{ person_id: number; hours: number }>('SELECT person_id, hours FROM hr_hours WHERE ym = ?', [a.ym]);
-      const stmts = [{ sql: 'INSERT INTO hr_run (ym, kind, rate_syp, note, created_at, created_by) VALUES (?,?,?,?,?,?)', params: [a.ym, a.kind, rate, txt(a.note), nowIso(), c.who] }];
+      const stmts = [{ sql: 'INSERT INTO hr_run (ym, kind, centre, rate_syp, note, created_at, created_by) VALUES (?,?,?,?,?,?,?)', params: [a.ym, a.kind, centre, rate, txt(a.note), nowIso(), c.who] }];
       await c.db.batch([...stmts]);
       const runId = (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_run'))!.id;
       const lines = [];
@@ -85,7 +97,7 @@ export const HR_RUN_OPS = {
       if (a.kind === 'monthly') {
         const letters = await c.db.query<{ id: number; person_id: number; service: string | null; amount: number; currency: 'USD' | 'SYP'; account: string | null; budget_line: string | null }>(
           `SELECT s.id, s.person_id, s.service, s.amount, s.currency, p.account, p.budget_line FROM hr_paper s JOIN hr_person p ON p.id = s.person_id
-            WHERE s.kind = 'stipend' AND s.deleted_at IS NULL AND s.amount IS NOT NULL AND s.paid_on >= ? AND s.paid_on <= ? AND s.id NOT IN (SELECT paper_id FROM hr_run_line WHERE paper_id IS NOT NULL)`, [first, last]);
+            WHERE s.kind = 'stipend' AND s.deleted_at IS NULL AND s.amount IS NOT NULL AND s.paid_on >= ? AND s.paid_on <= ? AND s.id NOT IN (SELECT paper_id FROM hr_run_line WHERE paper_id IS NOT NULL) AND p.${inCentre}`, [first, last, centre]);
         for (const s of letters) {
           const usd = s.currency === 'USD' ? s.amount : r2(s.amount / rate);
           lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, paper_id, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [runId, s.person_id, `Stipend: ${s.service ?? ''}`, s.id, usd, usd, s.currency, s.amount, s.account, s.budget_line] });
@@ -120,8 +132,10 @@ export const HR_RUN_OPS = {
     run: async (c: OpCtx, a: { runId: number; personId: number; label: string; baseUsd?: number; bonusUsd?: number }) => {
       const run = await runOf(c, a.runId);
       needDraft(run);
-      const p = await one<{ account: string | null; budget_line: string | null }>(c.db, 'SELECT account, budget_line FROM hr_person WHERE id = ?', [a.personId]);
+      const p = await one<{ account: string | null; budget_line: string | null; code: string | null }>(c.db, "SELECT p.account, p.budget_line, l.code FROM hr_person p LEFT JOIN hr_list l ON l.kind = 'centre' AND l.name = p.centre WHERE p.id = ?", [a.personId]);
       if (!p) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
+      await needPerson(c, a.personId);
+      if (run.centre && p.code !== run.centre) throw new UserError(m('هذا الشخص من مركز آخر', 'This person belongs to another centre', 'Cette personne est d’un autre centre'));
       const label = txt(a.label);
       if (!label) throw new UserError(m('اكتب سبب السطر', 'Write what the line is for', 'Écrivez à quoi sert la ligne'));
       const base = num(a.baseUsd), bonus = num(a.bonusUsd);

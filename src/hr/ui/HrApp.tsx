@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { has } from '../../auth';
 import type { Session } from '../../state';
-import { CENTRES, type CentreKey } from '../../brand';
+import type { CentreKey } from '../../brand';
 import { getLang } from '../../i18n';
 import { Field, Modal, fmtDate, todayIso, errText } from '../../ui/kit';
 import { WhoIs } from '../../community/ui/CtyApp';
@@ -19,46 +19,61 @@ import { ListsPage } from './Lists';
 import { PersonPage } from './Person';
 import { BudgetListPage } from './BudgetList';
 import { ReportsPage } from './Reports';
-import { TwoNames, centreOf, centreVars, chooseScan, fail, markOf, openScan, usd } from './common';
+import { SortTh, TwoNames, centreLabel, centreOf, centreVars, chooseScan, codeOf, fail, markOf, openScan, centreChoices, sortRows, usd, useSort } from './common';
 import './hr.css';
 
 type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log';
 
 interface Ctx { s: Session; d: HrData; reload: () => Promise<void>; open: (p: HrPerson) => void }
 
-const KEYS: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
-const centreName = (k: CentreKey) => { const n = CENTRES[k].name; const l = getLang(); return l === 'ar' ? n.ar : l === 'en' || l === 'fr' ? n.en : `${n.ar} · ${n.en}`; };
+
+/** What a user sees when one centre is chosen at the top: its people and what is theirs. */
+function onlyCentre(d: HrData, code: string | null): HrData {
+  if (!code) return d;
+  const people = d.people.filter((p) => codeOf(d, p) === code);
+  const ids = new Set(people.map((p) => p.id));
+  const mine = <T extends { person_id: number }>(xs: T[]) => xs.filter((x) => ids.has(x.person_id));
+  return { ...d, people, papers: mine(d.papers), signs: mine(d.signs), docs: d.docs ? mine(d.docs) : null, alerts: mine(d.alerts), checksDone: mine(d.checksDone) };
+}
 
 export function HrApp({ session, onLogout }: { session: Session; onLogout: () => void; onLang?: () => void }) {
-  const [d, setD] = useState<HrData | null>(null);
+  const [all, setAll] = useState<HrData | null>(null);
   const [pd, setPd] = useState<HrPayData | null>(null);
   const [page, setPage] = useState<Page>('home');
   const [err, setErr] = useState<string | null>(null);
   const [personId, setPersonId] = useState<number | 'new' | null>(null);
+  // the centre chosen at the top (null = every centre the user sees); kept for the next visit
+  const [cx, setCx] = useState<string | null>(() => { try { return localStorage.getItem('hr-centre') || null; } catch { return null; } });
   const manage = has(session.profile, 'hr.manage');
   const vault = has(session.profile, 'hr.vault');
   const pay = has(session.profile, 'hr.pay');
   const sup = pay && has(session.profile, 'hr.approve');
   const reload = useCallback(async () => {
     try {
-      setD(await session.api.call('hr.data', {}));
+      setAll(await session.api.call('hr.data', {}));
       if (has(session.profile, 'hr.pay')) setPd(await session.api.call('hr.pay.data', {}));
       setErr(null);
     } catch (e) { setErr(errText(e)); }
   }, [session]);
   useEffect(() => { void reload(); }, [reload]);
-  if (!d) return <div className="hr"><div /><main className="hr-main">{err ? <div className="alert err">{err}</div> : '…'}</main></div>;
+  if (!all) return <div className="hr"><div /><main className="hr-main">{err ? <div className="alert err">{err}</div> : '…'}</main></div>;
+  // the centres this user sees; one only: it is always that one, and there is nothing to choose
+  const mineCentres = centreChoices(all);
+  const single = all.scope?.length === 1 ? all.scope[0] : null;
+  const centre = single ?? (cx && mineCentres.some((x) => x.code === cx) ? cx : null);
+  const choose = (c: string | null) => { setCx(c); try { localStorage.setItem('hr-centre', c ?? ''); } catch { /* private window */ } };
+  const d = onlyCentre(all, centre);
   const open = (p: HrPerson) => { setPersonId(p.id); setPage('person'); };
   const ctx: Ctx = { s: session, d, reload, open };
   const go = (p: Page) => { setPage(p); setPersonId(null); };
   const item = (p: Page, label: string, badge?: number) => <button key={p} className={page === p || (p === 'people' && page === 'person') ? 'on' : ''} onClick={() => go(p)}><span>{label}</span>{badge ? <i className="hr-badge">{badge}</i> : null}</button>;
-  const person = typeof personId === 'number' ? d.people.find((p) => p.id === personId) ?? null : null;
+  const person = typeof personId === 'number' ? all.people.find((p) => p.id === personId) ?? null : null;
   return (
     <div className="hr">
       <nav className="hr-side">
         <div className="hr-side-top">
           <div className="tile"><img src="/brand/jesuits.png" alt="" /></div>
-          <div><b>{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</b><span>{session.organisation}</span></div>
+          <div><b>{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</b><span>{single ? centreLabel(all, single) : session.organisation}</span></div>
         </div>
         <div style={{ padding: '0 10px 8px' }}><WhoIs profile={session.profile} light /></div>
         {item('home', t3('البداية', 'Home', 'Accueil'), d.alerts.length)}
@@ -66,13 +81,13 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {pay && <div className="group">{t3('المكافآت', 'Stipends', 'Gratifications')}</div>}
         {pay && item('scale', t3('سلّم الرواتب', 'Salary scale', 'Échelle'))}
         {pay && item('runs', t3('كشوف الدفع', 'Payroll', 'Paies'))}
-        {pay && item('budget', t3('القائمة للموازنة', 'List for the budget', 'Liste pour le budget'))}
+        {pay && item('donors', t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement'))}
         {pay && item('insurance', t3('التأمين الصحي', 'Health insurance', 'Assurance maladie'))}
-        {pay && item('donors', t3('حسب المانح', 'By donor', 'Par bailleur'))}
-        {sup && item('reports', t3('التقارير', 'Reports', 'Rapports'))}
+        {pay && item('budget', t3('القائمة للموازنة', 'List for the budget', 'Liste pour le budget'))}
+        {pay && item('reports', t3('التقارير و Excel', 'Reports & Excel', 'Rapports et Excel'))}
         <div className="group">{t3('أخرى', 'More', 'Plus')}</div>
         {item('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'))}
-        {manage && item('lists', t3('القوائم والمراكز', 'Lists & centres', 'Listes et centres'))}
+        {manage && item('lists', t3('الإعدادات', 'Settings', 'Réglages'))}
         {vault && item('log', t3('سجل فتح الوثائق', 'Document log', 'Journal des documents'))}
         <div className="spacer" />
         <div className="sun"><img src="/brand/magis-sun.png" alt="" /></div>
@@ -80,20 +95,28 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
       </nav>
       <main className="hr-main">
         {err && <div className="alert err">{err}</div>}
-        {page === 'home' && <Home {...ctx} pd={pd} go={go} />}
+        {!single && mineCentres.length > 1 && page !== 'person' && (
+          <div className="hr-centrebar">
+            <div className="hr-chips">
+              <button className={centre === null ? 'on' : ''} onClick={() => choose(null)}><img src="/brand/magis-sun.png" alt="" />{t3('كل المراكز', 'All centres', 'Tous les centres')}</button>
+              {mineCentres.map((c) => { const k = c.code as CentreKey; return <button key={c.code} className={centre === c.code ? 'on' : ''} style={centreVars(k)} onClick={() => choose(c.code)}><img src={markOf(k)} alt="" />{c.name}</button>; })}
+            </div>
+          </div>
+        )}
+        {page === 'home' && <Home {...ctx} pd={pd} go={go} centres={mineCentres} choose={choose} />}
         {page === 'people' && <People {...ctx} pd={pd} manage={manage} add={() => { setPersonId('new'); setPage('person'); }} />}
         {page === 'person' && (personId === 'new' || person) && (
-          <PersonPage key={personId ?? 'x'} s={session} d={d} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} person={person} onBack={() => go('people')} onCreated={(id) => setPersonId(id)} />
+          <PersonPage key={personId ?? 'x'} s={session} d={all} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} person={person} preset={centre} onBack={() => go('people')} onOpen={(id) => { setPersonId(id); setPage('person'); }} />
         )}
-        {page === 'scale' && pd && <ScalePage s={session} hr={d} pd={pd} reload={reload} open={open} />}
-        {page === 'runs' && <RunsPage s={session} hr={d} />}
-        {page === 'budget' && <BudgetListPage s={session} hr={d} />}
+        {page === 'scale' && pd && <ScalePage s={session} hr={d} pd={pd} reload={reload} open={open} centre={centre} />}
+        {page === 'runs' && <RunsPage s={session} hr={d} centre={centre} pd={pd} />}
+        {page === 'budget' && <BudgetListPage s={session} hr={d} centre={centre} />}
         {page === 'insurance' && <InsurancePage s={session} hr={d} />}
-        {page === 'donors' && <DonorsPage s={session} />}
-        {page === 'reports' && pd && sup && <ReportsPage s={session} hr={d} pd={pd} open={open} />}
+        {page === 'donors' && pd && <DonorsPage s={session} hr={d} pd={pd} open={open} />}
+        {page === 'reports' && pd && <ReportsPage s={session} hr={d} pd={pd} open={open} sup={sup} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
-        {page === 'lists' && <ListsPage s={session} d={d} reload={reload} />}
-        {page === 'log' && <Log s={session} d={d} />}
+        {page === 'lists' && <ListsPage s={session} d={all} reload={reload} />}
+        {page === 'log' && <Log s={session} d={all} />}
       </main>
     </div>
   );
@@ -101,25 +124,29 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
 
 const nameOf = (d: HrData, id: number) => { const p = d.people.find((x) => x.id === id); return p ? p.name_ar || p.name : '?'; };
 
-function Home({ d, pd, open, go }: Ctx & { pd: HrPayData | null; go: (p: Page) => void }) {
+function Home({ d, pd, open, go, centres, choose }: Ctx & { pd: HrPayData | null; go: (p: Page) => void; centres: { code: string; name: string }[]; choose: (c: string | null) => void }) {
   const active = d.people.filter((p) => p.active);
   const today = todayIso();
-  const by = (k: CentreKey) => active.filter((p) => centreOf(d, p).key === k);
+  const by = (code: string | null) => active.filter((p) => codeOf(d, p) === code);
   const monthly = (ps: HrPerson[]) => (pd ? ps.reduce((a, p) => a + (payOn(pd, p.id, today)?.monthly ?? 0), 0) : null);
   const hour = new Date().getHours();
+  const shown = centres.filter((c) => by(c.code).length || centres.length === 1);
   return (
     <>
       <div className="hr-head">
         <div><div className="hr-eyebrow">{t3('الرهبانية اليسوعية · مراكز ماجيس', 'Society of Jesus · MAGIS centres', 'Compagnie de Jésus · centres MAGIS')}</div><h1>{hour < 12 ? t3('صباح الخير', 'Good morning', 'Bonjour') : t3('مساء الخير', 'Good evening', 'Bonsoir')}</h1></div>
       </div>
       <div className="hr-people" style={{ marginBottom: 16 }}>
-        {KEYS.map((k) => (
-          <button key={k} className="hr-card" style={centreVars(k)} onClick={() => go('people')}>
-            <div className="mark"><img src={markOf(k)} alt="" /></div>
-            <div className="body"><b>{centreName(k)}</b><div className="meta">{by(k).length} {t3('شخصاً', 'people', 'personnes')}</div></div>
-            {pd && <div className="amount">{usd(monthly(by(k)))} $</div>}
-          </button>
-        ))}
+        {(shown.length ? shown : centres).map((c) => {
+          const k = (c.code ?? 'other') as CentreKey;
+          return (
+            <button key={c.code} className="hr-card" style={centreVars(k)} onClick={() => { if (centres.length > 1) choose(c.code); go('people'); }}>
+              <div className="mark"><img src={markOf(k)} alt="" /></div>
+              <div className="body"><b>{c.name}</b><div className="meta">{by(c.code).length} {t3('شخصاً', 'people', 'personnes')}</div></div>
+              {pd && <div className="amount">{usd(monthly(by(c.code)))} $</div>}
+            </button>
+          );
+        })}
       </div>
       <div className="hr-panel">
         <b>{t3('ما يحتاج انتباهاً', 'What needs attention', 'À surveiller')}</b>
@@ -159,41 +186,83 @@ function Attention({ d, open }: { d: HrData; open: (p: HrPerson) => void }) {
   );
 }
 
+type PeopleSort = 'name' | 'position' | 'stipend' | 'started' | 'centre';
+
 function People({ d, pd, open, manage, add }: Ctx & { pd: HrPayData | null; manage: boolean; add: () => void }) {
   const [q, setQ] = useState('');
   const [all, setAll] = useState(false);
-  const [only, setOnly] = useState<CentreKey | null>(null);
+  const [view, setView] = useState<'cards' | 'table'>(() => { try { return (localStorage.getItem('hr-people-view') as 'cards' | 'table') || 'cards'; } catch { return 'cards'; } });
+  const sort = useSort<PeopleSort>('name');
   const today = todayIso();
-  const rows = useMemo(() => d.people.filter((p) => (all || p.active) && (!only || centreOf(d, p).key === only)
-    && (!q || `${p.name} ${p.name_ar ?? ''} ${p.role ?? ''} ${p.centre ?? ''}`.toLowerCase().includes(q.toLowerCase()))), [d, all, only, q]);
+  const pos = (p: HrPerson) => (p.role ? (d.positionsAr[p.role] ? `${d.positionsAr[p.role]} · ${p.role}` : p.role) : '');
+  const pay = (p: HrPerson) => (pd ? payOn(pd, p.id, today) : null);
+  const val = (p: HrPerson, k: PeopleSort) => (k === 'name' ? (getLang() === 'ar' ? p.name_ar || p.name : p.name || p.name_ar) : k === 'position' ? p.role : k === 'stipend' ? pay(p)?.monthly ?? null : k === 'started' ? p.started : p.centre);
+  const rows = useMemo(() => sortRows(d.people.filter((p) => (all || p.active)
+    && (!q || `${p.name} ${p.name_ar ?? ''} ${p.role ?? ''} ${d.positionsAr[p.role ?? ''] ?? ''} ${p.centre ?? ''} ${p.phone ?? ''}`.toLowerCase().includes(q.toLowerCase()))), (p) => val(p, sort.key), sort.dir), [d, all, q, sort.key, sort.dir, pd]);
+  const groups = [...new Set(rows.map((p) => p.centre ?? ''))].sort((a, b) => a.localeCompare(b));
+  const setV = (v: 'cards' | 'table') => { setView(v); try { localStorage.setItem('hr-people-view', v); } catch { /* */ } };
+  const amount = (p: HrPerson) => { const now = pay(p); return now?.syp != null ? <div className="amount" style={{ textAlign: 'end' }}>{usd(now.syp)} SYP<div className="meta" style={{ fontWeight: 400 }}>{now.monthly != null ? `≈ ${usd(now.monthly)} $` : t3('بلا سعر دولار', 'no dollar rate', 'pas de taux')}</div></div> : now?.monthly != null ? <div className="amount">{usd(now.monthly)} $</div> : null; };
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('المتطوعون والفريق', 'Volunteers and team', 'Bénévoles et équipe')}</div><h1>{t3('الأشخاص', 'People', 'Personnes')}</h1></div>
+        <div><div className="hr-eyebrow">{t3('المتطوعون والفريق', 'Volunteers and team', 'Bénévoles et équipe')}</div><h1>{t3('الأشخاص', 'People', 'Personnes')} <span className="muted" style={{ fontSize: 15, fontWeight: 400 }}>· {rows.length}</span></h1></div>
         <div className="desk-filters">
           <input placeholder={t3('بحث…', 'Search…', 'Chercher…')} value={q} onChange={(e) => setQ(e.target.value)} />
+          <select value={sort.key} onChange={(e) => sort.by(e.target.value as PeopleSort)} title={t3('الترتيب', 'Order', 'Ordre')}>
+            <option value="name">{t3('حسب الاسم', 'By name', 'Par nom')}</option>
+            <option value="position">{t3('حسب الوظيفة', 'By position', 'Par poste')}</option>
+            {pd && <option value="stipend">{t3('حسب المكافأة', 'By stipend', 'Par gratification')}</option>}
+            <option value="started">{t3('حسب تاريخ البدء', 'By start date', 'Par date de début')}</option>
+          </select>
+          <button className="btn small" onClick={() => sort.by(sort.key)} title={t3('عكس الترتيب', 'Reverse the order', "Inverser l'ordre")}>{sort.dir === 1 ? '▲' : '▼'}</button>
+          <span className="row" style={{ gap: 0 }}>
+            <button className={`btn small ${view === 'cards' ? 'primary' : ''}`} onClick={() => setV('cards')}>▦ {t3('بطاقات', 'Cards', 'Cartes')}</button>
+            <button className={`btn small ${view === 'table' ? 'primary' : ''}`} onClick={() => setV('table')}>☰ {t3('جدول', 'Table', 'Tableau')}</button>
+          </span>
           <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> {t3('مع من غادروا', 'With those who left', 'Avec ceux partis')}</label>
+          {manage && <button className="btn gold" onClick={add}>＋ {t3('شخص جديد', 'New person', 'Nouvelle personne')}</button>}
         </div>
       </div>
-      <div className="hr-chips">
-        <button className={only === null ? 'on' : ''} onClick={() => setOnly(null)}><img src="/brand/magis-sun.png" alt="" />{t3('كل المراكز', 'All centres', 'Tous les centres')}</button>
-        {KEYS.map((k) => <button key={k} className={only === k ? 'on' : ''} style={centreVars(k)} onClick={() => setOnly(k)}><img src={markOf(k)} alt="" />{centreName(k)}</button>)}
-      </div>
-      <div className="hr-people">
-        {rows.map((p) => {
-          const { key } = centreOf(d, p);
-          const now = pd ? payOn(pd, p.id, today) : null;
-          return (
-            <button key={p.id} className={`hr-card ${p.active ? '' : 'off'}`} style={centreVars(key)} onClick={() => open(p)}>
-              <div className="mark"><img src={markOf(key)} alt="" /></div>
-              <div className="body"><TwoNames p={p} /><div className="meta">{p.role ? (d.positionsAr[p.role] ? `${d.positionsAr[p.role]} · ${p.role}` : p.role) : '—'}</div></div>
-              {now?.syp != null ? <div className="amount" style={{ textAlign: 'end' }}>{usd(now.syp)} SYP<div className="meta" style={{ fontWeight: 400 }}>{now.monthly != null ? `≈ ${usd(now.monthly)} $` : t3('بلا سعر دولار', 'no dollar rate', 'pas de taux')}</div></div> : now?.monthly != null && <div className="amount">{usd(now.monthly)} $</div>}
-            </button>
-          );
-        })}
-        {manage && <button className="hr-card new" onClick={add}>＋ {t3('شخص جديد', 'New person', 'Nouvelle personne')}</button>}
-      </div>
-      {!rows.length && !manage && <p className="muted">{t3('لا أحد.', 'Nobody.', 'Personne.')}</p>}
+      {view === 'table' ? (
+        <div className="hr-panel desk-scroll">
+          <table className="desk-table">
+            <thead><tr><th /><SortTh k="name" sort={sort}>{t3('الاسم', 'Name', 'Nom')}</SortTh><SortTh k="centre" sort={sort}>{t3('المركز', 'Centre', 'Centre')}</SortTh><SortTh k="position" sort={sort}>{t3('الوظيفة', 'Position', 'Poste')}</SortTh>{pd && <SortTh k="stipend" sort={sort} n>{t3('المكافأة', 'Stipend', 'Gratification')}</SortTh>}<SortTh k="started" sort={sort}>{t3('بدأ', 'Started', 'Début')}</SortTh><th>{t3('الهاتف', 'Phone', 'Téléphone')}</th></tr></thead>
+            <tbody>
+              {rows.map((p) => {
+                const { key } = centreOf(d, p);
+                const now = pay(p);
+                return (
+                  <tr key={p.id} className="click" style={{ ...centreVars(key), opacity: p.active ? 1 : 0.55 }} onClick={() => open(p)}>
+                    <td style={{ width: 30 }}><img src={markOf(key)} alt="" style={{ height: 22 }} /></td>
+                    <td><TwoNames p={p} /></td><td>{p.centre ?? '—'}</td><td>{pos(p) || '—'}</td>
+                    {pd && <td className="n">{now?.syp != null ? <>{usd(now.syp)} SYP<div className="muted small">{now.monthly != null ? `≈ ${usd(now.monthly)} $` : ''}</div></> : now?.monthly != null ? `${usd(now.monthly)} $` : '—'}</td>}
+                    <td>{fmtDate(p.started)}{!p.active ? <div className="muted small">{t3('غادر', 'left', 'parti')} {fmtDate(p.ended)}</div> : null}</td>
+                    <td className="ltr">{p.phone ?? ''}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : groups.map((g) => {
+        const xs = rows.filter((p) => (p.centre ?? '') === g);
+        const key = xs[0] ? centreOf(d, xs[0]).key : 'other';
+        return (
+          <section key={g} className="hr-group" style={centreVars(key)}>
+            {groups.length > 1 && <h3><img src={markOf(key)} alt="" />{g || t3('بلا مركز', 'No centre', 'Sans centre')} <span className="n">· {xs.length}</span></h3>}
+            <div className="hr-people">
+              {xs.map((p) => (
+                <button key={p.id} className={`hr-card ${p.active ? '' : 'off'}`} style={centreVars(centreOf(d, p).key)} onClick={() => open(p)}>
+                  <div className="mark"><img src={markOf(centreOf(d, p).key)} alt="" /></div>
+                  <div className="body"><TwoNames p={p} /><div className="meta">{pos(p) || '—'}</div></div>
+                  {amount(p)}
+                </button>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+      {!rows.length && <p className="muted">{t3('لا أحد.', 'Nobody.', 'Personne.')}</p>}
     </>
   );
 }

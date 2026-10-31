@@ -23,21 +23,25 @@ export interface Profile {
   office?: string | null;
   /** the person who holds the office now */
   held_by?: string | null;
+  /** in the HR database: the centres this person sees (codes: jaramana, aleppo, homs, other); null = every centre */
+  hrCentres?: string[] | null;
 }
 
 export const has = (p: Pick<Profile, 'perms'>, perm: Perm) => p.perms.includes(perm);
 
 /** Reads a person with his permissions and books; null if unknown or deactivated. */
 export async function loadProfile(db: Db, id: number): Promise<Profile | null> {
-  const r = await one<{ id: number; name: string; role: Role; book_id: number | null; active: number; access_id: number | null; access_name: string | null; perms: string | null; office: string | null; held_by: string | null }>(
+  const r = await one<{ id: number; name: string; role: Role; book_id: number | null; active: number; access_id: number | null; access_name: string | null; perms: string | null; office: string | null; held_by: string | null; hr_centres: string | null }>(
     db,
-    `SELECT p.id, p.name, p.role, p.book_id, p.active, p.access_id, a.name AS access_name, a.perms, p.cty_office AS office, p.held_by
+    `SELECT p.id, p.name, p.role, p.book_id, p.active, p.access_id, a.name AS access_name, a.perms, p.cty_office AS office, p.held_by, p.hr_centres
        FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.id = ? AND p.active = 1`,
     [id],
   );
   if (!r) return null;
   const books = (await db.query<{ book_id: number }>('SELECT book_id FROM user_book WHERE profile_id = ? ORDER BY book_id', [id])).map((b) => b.book_id);
-  return { ...r, access_name: r.access_name ?? '', perms: cleanPerms(r.perms ? JSON.parse(r.perms) : []), books, book_id: books[0] ?? r.book_id };
+  const { hr_centres, ...rest } = r;
+  const hrCentres = hr_centres ? (JSON.parse(hr_centres) as string[]).filter((x) => typeof x === 'string') : null;
+  return { ...rest, access_name: r.access_name ?? '', perms: cleanPerms(r.perms ? JSON.parse(r.perms) : []), books, book_id: books[0] ?? r.book_id, hrCentres: hrCentres?.length ? hrCentres : null };
 }
 
 /** The old role column, guessed from the ticks (only older parts of the program read it). */

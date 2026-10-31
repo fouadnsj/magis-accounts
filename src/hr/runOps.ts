@@ -10,9 +10,10 @@ import { payData } from './payOps';
 import { payOn } from './pay';
 import { allocOn, splitAmount, type HrAlloc } from './stage4';
 import { needCentre, needPerson, scopeOf } from './scope';
+import { pendingSessions, sessionLineStmts } from './sessions';
 
 export interface HrRun { id: number; ym: string; kind: 'monthly' | 'thirteenth'; /** the centre's code (null: an older run of every centre) */ centre: string | null; rate_syp: number; status: 'draft' | 'approved' | 'paid'; note: string | null; created_by: string | null; approved_at: string | null; approved_by: string | null; paid_on: string | null; paid_by: string | null; lines: number; total_usd: number }
-export interface HrRunLine { id: number; run_id: number; person_id: number; person_name: string; national_id: string | null; role: string | null; label: string | null; paper_id: number | null; weekly_hours: number | null; hours_worked: number | null; base_usd: number; bonus_usd: number; deduction_usd: number; total_usd: number; paid_in: 'USD' | 'SYP'; amount_paid: number; account: string | null; budget_line: string | null; note: string | null }
+export interface HrRunLine { id: number; run_id: number; person_id: number; person_name: string; national_id: string | null; role: string | null; label: string | null; paper_id: number | null; weekly_hours: number | null; hours_worked: number | null; base_usd: number; bonus_usd: number; deduction_usd: number; total_usd: number; paid_in: 'USD' | 'SYP'; amount_paid: number; account: string | null; budget_line: string | null; note: string | null; /** a line paying sessions: how many */ sessions: number | null }
 export interface HrVoucherRow { account: string | null; budget_line: string | null; target: string | null; paid_in: 'USD' | 'SYP'; total_usd: number; amount_paid: number }
 
 const SYP_STEP = 1000;
@@ -58,7 +59,7 @@ export const HR_RUN_OPS = {
       const lines = await c.db.query<HrRunLine>('SELECT l.*, p.name AS person_name, p.national_id, p.role FROM hr_run_line l JOIN hr_person p ON p.id = l.person_id WHERE l.run_id = ? ORDER BY p.name, l.id', [a.id]);
       // the centres whose accounts already received it
       const sent = await c.db.query<{ centre: string; sent_at: string; sent_by: string | null; total_usd: number }>('SELECT centre, sent_at, sent_by, total_usd FROM hr_run_sent WHERE run_id = ?', [a.id]);
-      return { run, lines, sent };
+      return { run, lines, sent, pendingSessions: run.status === 'draft' && run.kind === 'monthly' ? await pendingSessions(c, run.ym, run.centre) : 0 };
     },
   },
 
@@ -77,8 +78,11 @@ export const HR_RUN_OPS = {
       const d = await payData(c);
       const first = `${a.ym}-01`, last = lastDay(a.ym);
       const inCentre = "centre IN (SELECT name FROM hr_list WHERE kind = 'centre' AND code = ?)";
-      const people = await c.db.query<{ id: number; account: string | null; budget_line: string | null }>(`SELECT id, account, budget_line FROM hr_person WHERE (started IS NULL OR started <= ?) AND (ended IS NULL OR ended >= ?) AND ${inCentre} ORDER BY name`, [last, first, centre]);
+      const people = await c.db.query<{ id: number; account: string | null; budget_line: string | null }>(`SELECT id, account, budget_line FROM hr_person WHERE category = 'staff' AND (started IS NULL OR started <= ?) AND (ended IS NULL OR ended >= ?) AND ${inCentre} ORDER BY name`, [last, first, centre]);
       const hours = await c.db.query<{ person_id: number; hours: number }>('SELECT person_id, hours FROM hr_hours WHERE ym = ?', [a.ym]);
+      // the tutors' sessions not paid yet (Fouad, 31 October 2026), one line per tutor: worked out first, so that a
+      // missing price stops before anything is written
+      const ses = a.kind === 'monthly' ? await sessionLineStmts(c, { id: null, ym: a.ym, centre, rate_syp: rate }) : { stmts: [], lines: 0 };
       const stmts = [{ sql: 'INSERT INTO hr_run (ym, kind, centre, rate_syp, note, created_at, created_by) VALUES (?,?,?,?,?,?,?)', params: [a.ym, a.kind, centre, rate, txt(a.note), nowIso(), c.who] }];
       await c.db.batch([...stmts]);
       const runId = (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_run'))!.id;
@@ -103,7 +107,7 @@ export const HR_RUN_OPS = {
           lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, paper_id, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [runId, s.person_id, `Stipend: ${s.service ?? ''}`, s.id, usd, usd, s.currency, s.amount, s.account, s.budget_line] });
         }
       }
-      await c.db.batch([...lines, auditStmt(c.who, 'add', 'hr_run', String(runId), null, { ym: a.ym, kind: a.kind, lines: lines.length })]);
+      await c.db.batch([...lines, ...ses.stmts, auditStmt(c.who, 'add', 'hr_run', String(runId), null, { ym: a.ym, kind: a.kind, lines: lines.length + ses.lines })]);
       return { id: runId, skipped };
     },
   },
@@ -118,7 +122,7 @@ export const HR_RUN_OPS = {
       const base = a.baseUsd != null ? num(a.baseUsd) : l.base_usd, bonus = a.bonusUsd != null ? num(a.bonusUsd) : l.bonus_usd, ded = a.deductionUsd != null ? num(a.deductionUsd) : l.deduction_usd;
       if (base < 0 || bonus < 0 || ded < 0) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
       const paidIn = a.paidIn === 'SYP' ? 'SYP' : a.paidIn === 'USD' ? 'USD' : l.paid_in;
-      const { total, paid } = lineAmounts(base, bonus, ded, paidIn, run.rate_syp, !!l.paper_id);
+      const { total, paid } = lineAmounts(base, bonus, ded, paidIn, run.rate_syp, !!l.paper_id || l.sessions != null);
       await c.db.batch([
         { sql: 'UPDATE hr_run_line SET base_usd=?, bonus_usd=?, deduction_usd=?, total_usd=?, paid_in=?, amount_paid=?, hours_worked=?, note=? WHERE id=?', params: [base, bonus, ded, total, paidIn, paid, a.hoursWorked === undefined ? l.hours_worked : a.hoursWorked, a.note === undefined ? l.note : txt(a.note), a.id] },
         auditStmt(c.who, 'update', 'hr_run_line', String(a.id), { total: l.total_usd }, { total }),
@@ -151,7 +155,8 @@ export const HR_RUN_OPS = {
       const l = await one<{ run_id: number }>(c.db, 'SELECT run_id FROM hr_run_line WHERE id = ?', [a.id]);
       if (!l) throw new UserError(m('السطر غير موجود', 'Line not found', 'Ligne introuvable'));
       needDraft(await runOf(c, l.run_id));
-      await c.db.batch([{ sql: 'DELETE FROM hr_run_line WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'hr_run_line', String(a.id), null, null)]);
+      // its sessions are free again (paid in a later run)
+      await c.db.batch([{ sql: 'UPDATE hr_session SET run_line_id = NULL WHERE run_line_id = ?', params: [a.id] }, { sql: 'DELETE FROM hr_run_line WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'hr_run_line', String(a.id), null, null)]);
       return { ok: true };
     },
   },
@@ -190,7 +195,7 @@ export const HR_RUN_OPS = {
     check: needPay,
     run: async (c: OpCtx, a: { id: number }) => {
       needDraft(await runOf(c, a.id));
-      await c.db.batch([{ sql: 'DELETE FROM hr_run_line WHERE run_id = ?', params: [a.id] }, { sql: 'DELETE FROM hr_run WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'hr_run', String(a.id), null, null)]);
+      await c.db.batch([{ sql: 'UPDATE hr_session SET run_line_id = NULL WHERE run_line_id IN (SELECT id FROM hr_run_line WHERE run_id = ?)', params: [a.id] }, { sql: 'DELETE FROM hr_run_line WHERE run_id = ?', params: [a.id] }, { sql: 'DELETE FROM hr_run WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'hr_run', String(a.id), null, null)]);
       return { ok: true };
     },
   },

@@ -10,8 +10,9 @@ import { t3 } from '../../community/ui/text';
 import type { HrCheckItem, HrData, HrLeaveType, HrListItem } from '../hr';
 import { centreChoices, centreLabel, centreVars, fail, markOf } from './common';
 import { partyOf } from '../docs';
+import { SessionPriceTab } from './Sessions';
 
-type Tab = 'lists' | 'checks' | 'leave' | 'users';
+type Tab = 'lists' | 'checks' | 'price' | 'leave' | 'users';
 
 /** The settings of HR (Fouad, 31 October 2026): the lists and the centres, what is done when someone arrives or leaves, the
  *  kinds of leave (prepared for later), and the users with the centres each one sees. */
@@ -21,6 +22,7 @@ export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () 
   const tabs: [Tab, string][] = [
     ['lists', t3('القوائم والمراكز', 'Lists & centres', 'Listes et centres')],
     ['checks', t3('الوصول والمغادرة', 'Arrival & leaving', 'Arrivée et départ')],
+    ['price', t3('سعر الجلسة', 'Session price', 'Prix de la séance')],
     ['leave', t3('الإجازات (لاحقاً)', 'Leave (later)', 'Congés (plus tard)')],
     ...(users ? [['users', t3('المستخدمون والمراكز', 'Users & centres', 'Utilisateurs et centres')] as [Tab, string]] : []),
   ];
@@ -30,6 +32,7 @@ export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () 
       <div className="hr-sheet" style={{ padding: '0 12px', borderTopWidth: 1, marginBottom: 14 }}><div className="hr-tabs">{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div></div>
       {tab === 'lists' && <ListsTab s={s} d={d} reload={reload} />}
       {tab === 'checks' && <ChecksTab s={s} d={d} reload={reload} />}
+      {tab === 'price' && <SessionPriceTab s={s} d={d} />}
       {tab === 'leave' && <LeaveTab s={s} d={d} reload={reload} />}
       {tab === 'users' && users && <UsersTab s={s} d={d} />}
     </>

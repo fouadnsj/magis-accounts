@@ -19,10 +19,11 @@ import { ListsPage } from './Lists';
 import { PersonPage } from './Person';
 import { BudgetListPage } from './BudgetList';
 import { ReportsPage } from './Reports';
+import { SessionsPage } from './Sessions';
 import { SortTh, TwoNames, centreLabel, centreOf, centreVars, chooseScan, codeOf, fail, markOf, openScan, centreChoices, sortRows, usd, useSort } from './common';
 import './hr.css';
 
-type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'sessions' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log';
 
 interface Ctx { s: Session; d: HrData; reload: () => Promise<void>; open: (p: HrPerson) => void }
 
@@ -42,6 +43,8 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
   const [page, setPage] = useState<Page>('home');
   const [err, setErr] = useState<string | null>(null);
   const [personId, setPersonId] = useState<number | 'new' | null>(null);
+  // a new person: staff (with an agreement) or tutor (paid by session)
+  const [newKind, setNewKind] = useState<'staff' | 'tutor'>('staff');
   // the centre chosen at the top (null = every centre the user sees); kept for the next visit
   const [cx, setCx] = useState<string | null>(() => { try { return localStorage.getItem('hr-centre') || null; } catch { return null; } });
   const manage = has(session.profile, 'hr.manage');
@@ -80,6 +83,7 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
         {item('people', t3('الأشخاص', 'People', 'Personnes'))}
         {pay && <div className="group">{t3('المكافآت', 'Stipends', 'Gratifications')}</div>}
         {pay && item('scale', t3('سلّم الرواتب', 'Salary scale', 'Échelle'))}
+        {pay && item('sessions', t3('جلسات المدرّبين', "Tutors' sessions", 'Séances des animateurs'))}
         {pay && item('runs', t3('كشوف الدفع', 'Payroll', 'Paies'))}
         {pay && item('donors', t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement'))}
         {pay && item('insurance', t3('التأمين الصحي', 'Health insurance', 'Assurance maladie'))}
@@ -104,11 +108,12 @@ export function HrApp({ session, onLogout }: { session: Session; onLogout: () =>
           </div>
         )}
         {page === 'home' && <Home {...ctx} pd={pd} go={go} centres={mineCentres} choose={choose} />}
-        {page === 'people' && <People {...ctx} pd={pd} manage={manage} add={() => { setPersonId('new'); setPage('person'); }} />}
+        {page === 'people' && <People {...ctx} pd={pd} manage={manage} add={() => { setNewKind('staff'); setPersonId('new'); setPage('person'); }} />}
         {page === 'person' && (personId === 'new' || person) && (
-          <PersonPage key={personId ?? 'x'} s={session} d={all} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} person={person} preset={centre} onBack={() => go('people')} onOpen={(id) => { setPersonId(id); setPage('person'); }} />
+          <PersonPage key={`${personId ?? 'x'}${newKind}`} s={session} d={all} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} person={person} preset={centre} kind={newKind} onBack={() => go('people')} onOpen={(id) => { setPersonId(id); setPage('person'); }} />
         )}
         {page === 'scale' && pd && <ScalePage s={session} hr={d} pd={pd} reload={reload} open={open} centre={centre} />}
+        {page === 'sessions' && <SessionsPage s={session} hr={d} pd={pd} open={open} addTutor={() => { setNewKind('tutor'); setPersonId('new'); setPage('person'); }} />}
         {page === 'runs' && <RunsPage s={session} hr={d} centre={centre} pd={pd} />}
         {page === 'budget' && <BudgetListPage s={session} hr={d} centre={centre} />}
         {page === 'insurance' && <InsurancePage s={session} hr={d} />}
@@ -194,7 +199,7 @@ function People({ d, pd, open, manage, add }: Ctx & { pd: HrPayData | null; mana
   const [view, setView] = useState<'cards' | 'table'>(() => { try { return (localStorage.getItem('hr-people-view') as 'cards' | 'table') || 'cards'; } catch { return 'cards'; } });
   const sort = useSort<PeopleSort>('name');
   const today = todayIso();
-  const pos = (p: HrPerson) => (p.role ? (d.positionsAr[p.role] ? `${d.positionsAr[p.role]} · ${p.role}` : p.role) : '');
+  const pos = (p: HrPerson) => (p.category === 'tutor' ? `🎓 ${t3('مدرّب', 'Tutor', 'Animateur')}${p.activity ? ` · ${p.activity}` : ''}` : p.role ? (d.positionsAr[p.role] ? `${d.positionsAr[p.role]} · ${p.role}` : p.role) : '');
   const pay = (p: HrPerson) => (pd ? payOn(pd, p.id, today) : null);
   const val = (p: HrPerson, k: PeopleSort) => (k === 'name' ? (getLang() === 'ar' ? p.name_ar || p.name : p.name || p.name_ar) : k === 'position' ? p.role : k === 'stipend' ? pay(p)?.monthly ?? null : k === 'started' ? p.started : p.centre);
   const rows = useMemo(() => sortRows(d.people.filter((p) => (all || p.active)
@@ -247,18 +252,24 @@ function People({ d, pd, open, manage, add }: Ctx & { pd: HrPayData | null; mana
       ) : groups.map((g) => {
         const xs = rows.filter((p) => (p.centre ?? '') === g);
         const key = xs[0] ? centreOf(d, xs[0]).key : 'other';
+        const card = (p: HrPerson) => (
+          <button key={p.id} className={`hr-card ${p.active ? '' : 'off'}`} style={centreVars(centreOf(d, p).key)} onClick={() => open(p)}>
+            <div className="mark"><img src={markOf(centreOf(d, p).key)} alt="" /></div>
+            <div className="body"><TwoNames p={p} /><div className="meta">{pos(p) || '—'}</div></div>
+            {amount(p)}
+          </button>
+        );
+        const staff = xs.filter((p) => p.category !== 'tutor'), tutors = xs.filter((p) => p.category === 'tutor');
         return (
           <section key={g} className="hr-group" style={centreVars(key)}>
             {groups.length > 1 && <h3><img src={markOf(key)} alt="" />{g || t3('بلا مركز', 'No centre', 'Sans centre')} <span className="n">· {xs.length}</span></h3>}
-            <div className="hr-people">
-              {xs.map((p) => (
-                <button key={p.id} className={`hr-card ${p.active ? '' : 'off'}`} style={centreVars(centreOf(d, p).key)} onClick={() => open(p)}>
-                  <div className="mark"><img src={markOf(centreOf(d, p).key)} alt="" /></div>
-                  <div className="body"><TwoNames p={p} /><div className="meta">{pos(p) || '—'}</div></div>
-                  {amount(p)}
-                </button>
-              ))}
-            </div>
+            {staff.length > 0 && <div className="hr-people">{staff.map(card)}</div>}
+            {tutors.length > 0 && (
+              <>
+                <div className="hr-subgroup">🎓 {t3('المدرّبون (بالجلسة)', 'Tutors (paid by session)', 'Animateurs (à la séance)')} · {tutors.length}</div>
+                <div className="hr-people">{tutors.map(card)}</div>
+              </>
+            )}
           </section>
         );
       })}

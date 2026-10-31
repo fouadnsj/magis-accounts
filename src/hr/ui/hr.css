@@ -190,3 +190,27 @@
 .hr-bars .v { font-variant-numeric: tabular-nums; font-weight: 650; direction: ltr; }
 .hr-diff.up { color: #a3341f; }
 .hr-diff.down { color: #2f6b3a; }
+
+/* the sessions register: one line per tutor, one column per day (Fouad, 31 October 2026) */
+.hr-reg-wrap { padding: 0; overflow-x: auto; }
+.hr-reg { border-collapse: collapse; width: 100%; font-size: 13px; }
+.hr-reg th, .hr-reg td { border-bottom: 1px solid var(--hr-line); padding: 0; text-align: center; }
+.hr-reg thead th { padding: 6px 0; font-weight: 600; color: var(--hr-soft); min-width: 26px; }
+.hr-reg thead th small { display: block; font-size: 10px; font-weight: 400; }
+.hr-reg thead th.today { color: var(--centre-deep, var(--hr-ink)); box-shadow: inset 0 -3px 0 var(--centre, var(--hr-gold)); }
+.hr-reg .who { text-align: start; padding: 6px 10px; min-width: 180px; position: sticky; inset-inline-start: 0; background: #fff; z-index: 1; }
+.hr-reg td.n, .hr-reg th.n { text-align: end; padding: 6px 10px; }
+.hr-reg .fri { background: var(--hr-warm); }
+.hr-reg td button { width: 100%; height: 34px; border: 0; background: transparent; cursor: pointer; font: inherit; color: var(--centre-deep, var(--hr-ink)); }
+.hr-reg td button:hover { background: color-mix(in srgb, var(--centre, var(--hr-gold)) 14%, transparent); }
+.hr-reg td.on button { background: color-mix(in srgb, var(--centre, var(--hr-gold)) 22%, #fff); font-weight: 700; }
+.hr-reg tfoot td { border-bottom: 0; padding: 8px 0; }
+.hr-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.hr-kind button { text-align: start; border: 1px solid var(--hr-line); background: #fff; border-radius: 10px; padding: 12px 14px; cursor: pointer; font: inherit; }
+.hr-kind button b { display: block; font-size: 15px; }
+.hr-kind button span { color: var(--hr-soft); font-size: 13px; }
+.hr-kind button.on { border-color: var(--centre-deep, var(--hr-ink)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--centre, var(--hr-gold)) 35%, transparent); }
+.hr-subgroup { margin: 14px 0 8px; font-size: 13px; color: var(--hr-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+@media (max-width: 700px) { .hr-kind { grid-template-columns: 1fr; } }
+.hr-reg .tot { background: #FBF8F1; border-inline-end: 1px solid var(--hr-line); }
+.hr-reg .who { box-shadow: inset -1px 0 0 var(--hr-line); }

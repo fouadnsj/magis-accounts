@@ -97,7 +97,7 @@ function NewRun({ s, hr, pd, centre, onClose, onDone }: { s: Session; hr: HrData
 }
 
 function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; onBack: () => void }) {
-  const [d, setD] = useState<{ run: HrRun; lines: HrRunLine[]; sent: { centre: string; sent_at: string; sent_by: string | null; total_usd: number }[] } | null>(null);
+  const [d, setD] = useState<{ run: HrRun; lines: HrRunLine[]; sent: { centre: string; sent_at: string; sent_by: string | null; total_usd: number }[]; pendingSessions: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [add, setAdd] = useState(false);
   const [voucher, setVoucher] = useState<{ run: { ym: string; kind: string; rate_syp: number; status: string; approved_by: string | null; paid_on: string | null }; rows: HrVoucherRow[]; total_usd: number } | null>(null);
@@ -133,6 +133,12 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
           {draft && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('حذف هذا الكشف؟', 'Delete this run?', 'Supprimer cette paie ?'), true)) { try { await s.api.call('hr.run.delete', { id }); onBack(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
         </div>
       </div>
+      {draft && d.pendingSessions > 0 && (
+        <div className="hr-panel" style={{ marginBottom: 10, borderColor: 'var(--gold, #C9A24B)' }}>
+          🎓 {t3(`${d.pendingSessions} جلسة لمدرّبين لم تدخل هذا الكشف بعد`, `${d.pendingSessions} tutors' session(s) not in this run yet`, `${d.pendingSessions} séance(s) d'animateurs pas encore dans cette paie`)}{' '}
+          <button className="btn small gold" disabled={busy} onClick={async () => { setBusy(true); try { await s.api.call('hr.run.sessions.add', { runId: id }); await load(); } catch (e) { fail(e); } finally { setBusy(false); } }}>{t3('أضفها', 'Add them', 'Les ajouter')}</button>
+        </div>
+      )}
       {draft && !approver && <p className="muted small">{t3('يعتمدها الرئيس.', 'The Superior approves it.', 'Le Supérieur l’approuve.')}</p>}
       <p className="muted small">{t3('سعر الدولار', 'Dollar rate', 'Taux du dollar')}: {usd(run.rate_syp)} · {run.approved_by ? `${t3('اعتمدها', 'approved by', 'approuvée par')} ${run.approved_by}` : ''}</p>
       <div className="cty-card desk-scroll">

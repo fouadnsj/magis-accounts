@@ -16,8 +16,10 @@ import { agreementDoc, stipendDoc } from '../docs';
 import { FundingPanel, InsurancePage } from './Stage4';
 import { TwoNames, centreOf, centreVars, chooseScan, codeOf, fail, headOf, markOf, openScan, positionsFor, seenCentres, centreChoices, mainCentreName, usd } from './common';
 import { accountFor, centreAccounts, lineFor, lineLabel, salaryLines } from '../link';
+import { TutorSessions } from './Sessions';
+import { priceOn, type HrSession, type HrSessionPrice } from '../sessions';
 
-type Section = 'overview' | 'identity' | 'agreement' | 'funding' | 'letters' | 'insurance' | 'documents' | 'checklist' | 'conduct';
+type Section = 'overview' | 'identity' | 'sessions' | 'agreement' | 'funding' | 'letters' | 'insurance' | 'documents' | 'checklist' | 'conduct';
 
 interface P { s: Session; d: HrData; pd: HrPayData | null; reload: () => Promise<void>; manage: boolean; vault: boolean; pay: boolean }
 
@@ -29,15 +31,24 @@ export const gradeFor = (pd: HrPayData | null, name: string | null | undefined, 
  * on the side (with a dot where something is missing) and the chosen section beside. It opens on an overview that says
  * what is in place and what is missing, each line leading to its section. A new person is made in steps.
  */
-export function PersonPage({ person, preset, onBack, onOpen, ...x }: P & { person: HrPerson | null; /** the centre chosen at the top (a new person's centre) */ preset: string | null; onBack: () => void; onOpen: (id: number) => void }) {
+export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & { person: HrPerson | null; /** the centre chosen at the top (a new person's centre) */ preset: string | null; /** a new person: staff or tutor */ kind?: 'staff' | 'tutor'; onBack: () => void; onOpen: (id: number) => void }) {
   const [sec, setSec] = useState<Section>('overview');
-  if (!person) return <NewPerson {...x} preset={preset} onBack={onBack} onOpen={onOpen} />;
+  if (!person) return <NewPerson {...x} preset={preset} kind={kind ?? 'staff'} onBack={onBack} onOpen={onOpen} />;
   const { key } = centreOf(x.d, person);
   const alerts = x.d.alerts.filter((a) => a.person_id === person.id);
   const has = (...k: HrAlert['kind'][]) => alerts.some((a) => k.includes(a.kind));
   const docs = (x.d.docs ?? []).filter((q) => q.person_id === person.id);
   const check = checkState(x.d, person);
-  const nav: [Section, string, string, ReactNode?][] = [
+  const tutor = person.category === 'tutor';
+  // a tutor (paid by session) has no agreement, stipend letters, insurance or arrival list
+  const nav: [Section, string, string, ReactNode?][] = tutor ? [
+    ['overview', '◎', t3('نظرة عامة', 'Overview', "Vue d'ensemble")],
+    ['identity', '👤', t3('الهوية', 'Identity', 'Identité')],
+    ...(x.pay ? [['sessions', '🎓', t3('الجلسات', 'Sessions', 'Séances')] as [Section, string, string]] : []),
+    ...(x.pay ? [['funding', '🤝', t3('التمويل (المانحون)', 'Funding (donors)', 'Financement (bailleurs)')] as [Section, string, string]] : []),
+    ...(x.vault ? [['documents', '🪪', t3('الوثائق', 'Documents', 'Documents'), has('doc_expiring') ? <i className="dot" /> : <span className="count">{docs.length || ''}</span>] as [Section, string, string, ReactNode]] : []),
+    ['conduct', '🤝', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'), has('conduct_unsigned') ? <i className="dot" /> : null],
+  ] : [
     ['overview', '◎', t3('نظرة عامة', 'Overview', "Vue d'ensemble")],
     ['identity', '👤', t3('الهوية', 'Identity', 'Identité')],
     ['agreement', '📝', t3('الاتفاقية والمكافأة', 'Agreement & stipend', 'Accord et gratification'), has('agreement_missing', 'agreement_ending', 'unsigned_paper') ? <i className="dot" /> : null],
@@ -56,7 +67,7 @@ export function PersonPage({ person, preset, onBack, onOpen, ...x }: P & { perso
           <img src={markOf(key)} alt="" />
           <div className="mid">
             <TwoNames p={person} big />
-            <div className="sub">{[person.role ? (x.d.positionsAr[person.role] ? `${x.d.positionsAr[person.role]} · ${person.role}` : person.role) : null, person.centre].filter(Boolean).join(' · ') || '—'}{!person.active ? ` · ${t3('غادر', 'left', 'parti')} ${fmtDate(person.ended)}` : ''}</div>
+            <div className="sub">{[tutor ? `🎓 ${t3('مدرّب، بالجلسة', 'Tutor, paid by session', 'Animateur, à la séance')}${person.activity ? ` · ${person.activity}` : ''}` : person.role ? (x.d.positionsAr[person.role] ? `${x.d.positionsAr[person.role]} · ${person.role}` : person.role) : null, person.centre].filter(Boolean).join(' · ') || '—'}{!person.active ? ` · ${t3('غادر', 'left', 'parti')} ${fmtDate(person.ended)}` : ''}</div>
           </div>
           <img className="jesuit" src="/brand/jesuits.png" alt="" />
         </div>
@@ -66,7 +77,8 @@ export function PersonPage({ person, preset, onBack, onOpen, ...x }: P & { perso
           {nav.map(([k, ico, label, extra]) => <button key={k} className={sec === k ? 'on' : ''} onClick={() => setSec(k)}><span className="ico">{ico}</span><span className="lbl">{label}</span>{extra}</button>)}
         </nav>
         <div>
-          {sec === 'overview' && <Overview {...x} person={person} go={setSec} />}
+          {sec === 'overview' && (tutor ? <TutorOverview {...x} person={person} go={setSec} /> : <Overview {...x} person={person} go={setSec} />)}
+          {sec === 'sessions' && x.pay && <TutorSessions s={x.s} hr={x.d} pd={x.pd} person={person} manage={x.manage} reload={x.reload} />}
           {sec === 'identity' && <Identity {...x} person={person} onCreated={() => undefined} onDeleted={onBack} />}
           {sec === 'agreement' && <Agreement {...x} person={person} />}
           {sec === 'funding' && x.pay && <FundingPanel s={x.s} hr={x.d} pd={x.pd} person={person} />}
@@ -82,6 +94,47 @@ export function PersonPage({ person, preset, onBack, onOpen, ...x }: P & { perso
 }
 
 // ---------------------------------------------------------------- the overview: what is in place, what is missing
+
+/** a tutor's overview: this month's sessions, their usual activity, the code of conduct, the documents */
+function TutorOverview({ s, d, reload, manage, pay, vault, person, go }: P & { person: HrPerson; go: (s: Section) => void }) {
+  const [leave, setLeave] = useState(false);
+  const ym = todayIso().slice(0, 7);
+  const [m, setM] = useState<{ sessions: HrSession[]; prices: HrSessionPrice[] } | null>(null);
+  useEffect(() => { if (pay) s.api.call('hr.sessions.get', { ym }).then(setM).catch(() => setM({ sessions: [], prices: [] })); }, [s, pay, ym]);
+  const mine = m ? m.sessions.filter((x) => x.person_id === person.id) : [];
+  const by = { USD: 0, SYP: 0 };
+  for (const x of mine) { const p = m ? priceOn(m.prices, x.on_date) : null; if (p) by[p.currency] += p.amount; }
+  const latest = d.conducts[0];
+  const sign = latest ? d.signs.find((q) => q.person_id === person.id && q.conduct_id === latest.id) : null;
+  const docs = (d.docs ?? []).filter((q) => q.person_id === person.id);
+  const tile = (sec: Section, label: string, body: ReactNode, sub?: ReactNode, warn?: boolean) => (
+    <button className="tile" onClick={() => go(sec)} style={warn ? { borderColor: '#e2b4a6', background: '#FFF8F5' } : undefined}>
+      <small>{label}</small>{body}{sub ? <div className="sub">{sub}</div> : null}
+    </button>
+  );
+  return (
+    <>
+      <div className="hr-over">
+        {pay && tile('sessions', t3('جلسات هذا الشهر', 'Sessions this month', 'Séances ce mois-ci'), <b className="big">{m ? mine.length : '…'}</b>,
+          [by.USD ? `${usd(by.USD)} $` : '', by.SYP ? `${usd(by.SYP)} SYP` : ''].filter(Boolean).join(' + ') || null)}
+        {tile('identity', t3('النشاط المعتاد', 'Usual activity', 'Activité habituelle'), <b>{person.activity ?? '—'}</b>, person.phone ?? null)}
+        {tile('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'),
+          !latest ? <b className="muted">—</b> : sign ? <b className="ok">✓ {latest.version}</b> : <b className="desk-alert">{t3('لم يوقّع', 'Not signed', 'Pas signé')} {latest.version}</b>, sign ? fmtDate(sign.signed_on) : null, !!latest && !sign)}
+        {vault && tile('documents', t3('الوثائق', 'Documents', 'Documents'), <b className="big">{docs.length}</b>, docs.map((q) => q.label).join(' · ') || t3('لا وثائق', 'none', 'aucun'))}
+      </div>
+      <div className="hr-panel" style={{ marginTop: 14 }}>
+        <b>{t3('ما يمكن عمله', 'What you can do', 'Ce que vous pouvez faire')}</b>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+          {pay && <button className="btn gold" onClick={() => go('sessions')}>🎓 {t3('تسجيل الجلسات', 'Record sessions', 'Noter des séances')}</button>}
+          <button className="btn" onClick={() => go('identity')}>👤 {t3('تعديل الهوية', 'Edit the identity', "Modifier l'identité")}</button>
+          {manage && person.active ? <button className="btn danger" onClick={() => setLeave(true)}>🚪 {t3('تسجيل المغادرة…', 'Record leaving…', 'Noter le départ…')}</button>
+            : manage && <button className="btn" onClick={async () => { try { await s.api.call('hr.person.leave', { id: person.id, ended: null }); await reload(); } catch (e) { fail(e); } }}>↩ {t3('عاد إلى الفريق', 'Back in the team', "De retour dans l'équipe")}</button>}
+        </div>
+      </div>
+      {leave && <LeaveModal s={s} person={person} onClose={() => setLeave(false)} onDone={async () => { setLeave(false); await reload(); }} />}
+    </>
+  );
+}
 
 function Overview({ s, d, pd, reload, manage, pay, vault, person, go }: P & { person: HrPerson; go: (s: Section) => void }) {
   const today = todayIso();
@@ -203,34 +256,54 @@ function Checklist({ s, d, reload, manage, person }: P & { person: HrPerson }) {
 
 // ---------------------------------------------------------------- a new person, in steps
 
-function NewPerson({ preset, onBack, onOpen, ...x }: P & { preset: string | null; onBack: () => void; onOpen: (id: number) => void }) {
+function NewPerson({ preset, kind: kind0, onBack, onOpen, ...x }: P & { preset: string | null; kind: 'staff' | 'tutor'; onBack: () => void; onOpen: (id: number) => void }) {
+  const [kind, setKind] = useState(kind0);
   const [step, setStep] = useState(1);
   const [made, setMade] = useState<HrPerson | null>(null);
   const [again, setAgain] = useState(0);
   // the newly made person, as the data now holds them
   const person = made ? x.d.people.find((p) => p.id === made.id) ?? made : null;
   const { key } = centreOf(x.d, person ?? (preset ? { centre: mainCentreName(x.d, preset) } : null));
-  const steps = [t3('من هو', 'Who', 'Qui'), t3('الاتفاقية والمكافأة', 'Agreement & stipend', 'Accord et gratification'), ...(x.pay ? [t3('التمويل', 'Funding', 'Financement')] : []), t3('قائمة الوصول', 'Arrival list', "Liste d'arrivée")];
+  // a tutor: who, then funding; no agreement and no arrival list
+  const tutor = kind === 'tutor';
+  const steps = tutor ? [t3('من هو', 'Who', 'Qui'), ...(x.pay ? [t3('التمويل', 'Funding', 'Financement')] : [])]
+    : [t3('من هو', 'Who', 'Qui'), t3('الاتفاقية والمكافأة', 'Agreement & stipend', 'Accord et gratification'), ...(x.pay ? [t3('التمويل', 'Funding', 'Financement')] : []), t3('قائمة الوصول', 'Arrival list', "Liste d'arrivée")];
   const last = steps.length;
   const restart = () => { setMade(null); setStep(1); setAgain(again + 1); window.scrollTo({ top: 0 }); };
   return (
     <div style={centreVars(key)}>
       <button className="link" onClick={onBack}>‹ {t3('الأشخاص', 'People', 'Personnes')}</button>
-      <div className="hr-head" style={{ marginTop: 8 }}><div><div className="hr-eyebrow">{t3('شخص جديد', 'New person', 'Nouvelle personne')}</div><h1>{person ? <TwoNames p={person} /> : t3('شخص جديد', 'New person', 'Nouvelle personne')}</h1></div></div>
+      <div className="hr-head" style={{ marginTop: 8 }}><div><div className="hr-eyebrow">{tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}</div><h1>{person ? <TwoNames p={person} /> : tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}</h1></div></div>
       <div className="hr-steps">{steps.map((t, i) => <span key={t} className={step === i + 1 ? 'on' : step > i + 1 ? 'done' : ''}>{step > i + 1 ? '✓ ' : `${i + 1}. `}{t}</span>)}</div>
-      {step === 1 && <Essentials key={again} {...x} preset={preset} onMade={(p) => { setMade(p); setStep(2); }} />}
-      {step === 2 && person && (
+      {step === 1 && <Essentials key={again} {...x} preset={preset} kind={kind} setKind={setKind} onMade={(p) => { setMade(p); setStep(2); }} />}
+      {tutor && step === 2 && person && x.pay && (
+        <>
+          <FundingPanel s={x.s} hr={x.d} pd={x.pd} person={person} />
+          <div className="modal-foot"><button className="btn primary" onClick={() => setStep(3)}>{t3('التالي', 'Next', 'Suivant')} →</button></div>
+        </>
+      )}
+      {tutor && step > last && person && (
+        <div className="hr-panel" style={{ marginTop: 14 }}>
+          <p className="ok" style={{ marginTop: 0 }}>✓ {t3('أُضيف', 'Added', 'Ajouté')}: <b>{person.name_ar || person.name}</b> · {t3('تُسجَّل جلساته في «جلسات المدرّبين» أو على بطاقته.', "Their sessions are recorded in Tutors' sessions, or on their card.", 'Ses séances se notent dans Séances des animateurs, ou sur sa fiche.')}</p>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn gold" onClick={restart}>＋ {t3('إضافة مدرّب آخر', 'Add another tutor', 'Ajouter un autre animateur')}</button>
+            <button className="btn primary" onClick={() => onOpen(person.id)}>{t3('فتح بطاقته', 'Open the card', 'Ouvrir la fiche')}</button>
+            <button className="btn" onClick={onBack}>{t3('إغلاق', 'Close', 'Fermer')}</button>
+          </div>
+        </div>
+      )}
+      {!tutor && step === 2 && person && (
         <div className="hr-panel">
           <AgreementForm {...x} person={person} paper={null} firstOne onDone={() => setStep(3)} onCancel={() => setStep(3)} cancelLabel={t3('لاحقاً', 'Later', 'Plus tard')} />
         </div>
       )}
-      {x.pay && step === 3 && person && (
+      {!tutor && x.pay && step === 3 && person && (
         <>
           <FundingPanel s={x.s} hr={x.d} pd={x.pd} person={person} />
           <div className="modal-foot"><button className="btn primary" onClick={() => setStep(4)}>{t3('التالي', 'Next', 'Suivant')} →</button></div>
         </>
       )}
-      {step === last && last > 2 && person && (
+      {!tutor && step === last && last > 2 && person && (
         <>
           <Checklist {...x} person={person} />
           <div className="hr-panel" style={{ marginTop: 14 }}>
@@ -248,7 +321,7 @@ function NewPerson({ preset, onBack, onOpen, ...x }: P & { preset: string | null
 }
 
 /** the first step: only what is needed to begin (the rest is written later on the card) */
-function Essentials({ s, d, reload, preset, onMade }: P & { preset: string | null; onMade: (p: HrPerson) => void }) {
+function Essentials({ s, d, reload, preset, kind, setKind, onMade }: P & { preset: string | null; kind: 'staff' | 'tutor'; setKind: (k: 'staff' | 'tutor') => void; onMade: (p: HrPerson) => void }) {
   const only = centreChoices(d);
   const presetName = preset ? mainCentreName(d, preset) : only.length === 1 ? mainCentreName(d, only[0].code) : null;
   const [f, setF] = useState<Partial<HrPerson>>({ active: 1, centre: presetName, started: todayIso() });
@@ -258,21 +331,27 @@ function Essentials({ s, d, reload, preset, onMade }: P & { preset: string | nul
   const save = async () => {
     setBusy(true);
     try {
-      const r = await s.api.call('hr.person.save', { ...(f as HrPerson), name: f.first_name ?? f.first_name_ar ?? '' });
+      const r = await s.api.call('hr.person.save', { ...(f as HrPerson), name: f.first_name ?? f.first_name_ar ?? '', category: kind, role: kind === 'tutor' ? null : f.role });
       await reload();
-      onMade({ ...(f as HrPerson), id: r.id, name: [f.first_name, f.last_name].filter(Boolean).join(' ') || [f.first_name_ar, f.last_name_ar].filter(Boolean).join(' '), name_ar: [f.first_name_ar, f.last_name_ar].filter(Boolean).join(' ') || null });
+      onMade({ ...(f as HrPerson), category: kind, id: r.id, name: [f.first_name, f.last_name].filter(Boolean).join(' ') || [f.first_name_ar, f.last_name_ar].filter(Boolean).join(' '), name_ar: [f.first_name_ar, f.last_name_ar].filter(Boolean).join(' ') || null });
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
   const ok = !!(f.first_name?.trim() || f.first_name_ar?.trim()) && (!d.scope || !!f.centre);
   return (
     <div className="hr-panel">
+      <div className="hr-kind">
+        <button className={kind === 'staff' ? 'on' : ''} onClick={() => setKind('staff')}><b>👥 {t3('فريق العمل', 'Staff', 'Équipe')}</b><span>{t3('باتفاقية سنوية ومكافأة شهرية', 'with a yearly agreement and a monthly stipend', 'avec un accord annuel et une gratification mensuelle')}</span></button>
+        <button className={kind === 'tutor' ? 'on' : ''} onClick={() => setKind('tutor')}><b>🎓 {t3('مدرّب', 'Tutor', 'Animateur')}</b><span>{t3('بلا اتفاقية، يُدفع له بالجلسة', 'no agreement, paid by session', 'sans accord, payé à la séance')}</span></button>
+      </div>
       <div className="hr-two">
         <div dir="rtl"><h4>العربية</h4><div className="grid2"><Field label="الاسم الأول">{inp('first_name_ar', { dir: 'rtl', auto: true })}</Field><Field label="الكنية">{inp('last_name_ar', { dir: 'rtl' })}</Field></div></div>
         <div dir="ltr"><h4>English</h4><div className="grid2"><Field label="First name">{inp('first_name', { dir: 'ltr' })}</Field><Field label="Last name">{inp('last_name', { dir: 'ltr' })}</Field></div></div>
       </div>
       <div className="grid2" style={{ marginTop: 12 }}>
         <Pick label={t3('المركز', 'Centre', 'Centre')} value={f.centre ?? ''} options={seenCentres(d).map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, centre: v || null, role: null })} />
-        <Pick label={t3('الوظيفة (من سلّم مركزه)', "Position (from their centre's scale)", "Poste (de l'échelle de son centre)")} value={f.role ?? ''} options={positionsFor(d, f.centre).map((p) => ({ value: p, label: d.positionsAr[p] ? `${d.positionsAr[p]} · ${p}` : p }))} onChange={(v) => setF({ ...f, role: v || null })} />
+        {kind === 'tutor'
+          ? <Field label={t3('النشاط المعتاد (مثلاً المسرح، الإنكليزية)', 'Usual activity (e.g. Theatre, English)', 'Activité habituelle (ex. Théâtre, Anglais)')}>{inp('activity')}</Field>
+          : <Pick label={t3('الوظيفة (من سلّم مركزه)', "Position (from their centre's scale)", "Poste (de l'échelle de son centre)")} value={f.role ?? ''} options={positionsFor(d, f.centre).map((p) => ({ value: p, label: d.positionsAr[p] ? `${d.positionsAr[p]} · ${p}` : p }))} onChange={(v) => setF({ ...f, role: v || null })} />}
         <Field label={t3('الهاتف', 'Phone', 'Téléphone')}>{inp('phone', { dir: 'ltr' })}</Field>
         <Field label={t3('يبدأ في', 'Starts on', 'Commence le')}>{inp('started', { type: 'date' })}</Field>
       </div>
@@ -325,7 +404,10 @@ function Identity({ s, d, reload, manage, person, preset, onCreated, onDeleted }
         <Field label={t3('الرقم الوطني', 'National number', 'Numéro national')}>{inp('national_id', { dir: 'ltr' })}</Field>
         <Field label={t3('تاريخ الولادة', 'Date of birth', 'Date de naissance')}>{inp('birth_date', { type: 'date' })}</Field>
         <Pick label={t3('المركز (شعاره على الوثائق)', 'Centre (its mark on the documents)', 'Centre (son logo sur les documents)')} value={f.centre ?? ''} options={list('centre')} onChange={(v) => setF({ ...f, centre: v, budget_line: null, account: null })} disabled={!manage} />
-        <Pick label={t3('الوظيفة (من سلّم الرواتب)', 'Position (from the scale)', "Poste (de l'échelle)")} value={f.role ?? ''} options={positionsFor(d, f.centre).map((p) => ({ value: p, label: d.positionsAr[p] ? `${d.positionsAr[p]} · ${p}` : p }))} onChange={(v) => setF({ ...f, role: v })} disabled={!manage} />
+        <Field label={t3('الفئة', 'Category', 'Catégorie')}><select value={f.category ?? 'staff'} disabled={!manage} onChange={(e) => setF({ ...f, category: e.target.value as 'staff' | 'tutor', role: e.target.value === 'tutor' ? null : f.role })}><option value="staff">👥 {t3('فريق العمل (باتفاقية)', 'Staff (with an agreement)', 'Équipe (avec accord)')}</option><option value="tutor">🎓 {t3('مدرّب (بالجلسة)', 'Tutor (paid by session)', 'Animateur (à la séance)')}</option></select></Field>
+        {f.category === 'tutor'
+          ? <Field label={t3('النشاط المعتاد', 'Usual activity', 'Activité habituelle')}>{inp('activity')}</Field>
+          : <Pick label={t3('الوظيفة (من سلّم الرواتب)', 'Position (from the scale)', "Poste (de l'échelle)")} value={f.role ?? ''} options={positionsFor(d, f.centre).map((p) => ({ value: p, label: d.positionsAr[p] ? `${d.positionsAr[p]} · ${p}` : p }))} onChange={(v) => setF({ ...f, role: v })} disabled={!manage} />}
         <GoesTo d={d} f={f} setF={setF} manage={manage} />
         <Field label={t3('بدأ في', 'Started', 'Début')}>{inp('started', { type: 'date' })}</Field>
         <Field label={t3('غادر في (فارغ إن كان مستمراً)', 'Left on (empty if still here)', 'Parti le (vide si toujours là)')}>{inp('ended', { type: 'date' })}</Field>

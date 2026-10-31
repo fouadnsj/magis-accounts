@@ -1470,4 +1470,43 @@ INSERT OR IGNORE INTO access_profile (name, perms, sort) SELECT 'الرئيس ·
 INSERT OR IGNORE INTO access_profile (name, perms, sort) SELECT 'مدير ماجيس · MAGIS manager · Directeur MAGIS', '["hr.view","hr.manage","hr.pay","hr.approve","hr.vault","users.manage","data.backup","data.restore","data.export","audit.view"]', 5 WHERE EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value = 'hr');
 `,
   },
+  {
+    n: 38,
+    name: 'HR tutors paid by session: a category for each person, the price of a session in the settings, the sessions by date',
+    sql: `
+-- Fouad, 31 October 2026. Besides the staff with an agreement, the centres pay tutors (workshop animators, tutors) by
+-- session: no agreement, one price per session (set in the settings), the sessions recorded by date with their activity;
+-- at the end of the month they go into the centre's payroll run.
+ALTER TABLE hr_person ADD COLUMN category TEXT NOT NULL DEFAULT 'staff';
+-- a tutor's usual activity (offered when a session is recorded)
+ALTER TABLE hr_person ADD COLUMN activity TEXT;
+-- the price of one session, from a date (a new price does not change the months before it)
+CREATE TABLE hr_session_price (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  valid_from TEXT NOT NULL,
+  amount     REAL NOT NULL,
+  currency   TEXT NOT NULL DEFAULT 'USD' CHECK (currency IN ('USD','SYP')),
+  created_at TEXT NOT NULL,
+  created_by TEXT
+);
+-- one session led by a tutor. run_line_id: the payroll line that pays it (then it can no longer change).
+-- source/ext_id: where it came from ('hand', or 'calendar' with the calendar's session number, imported later).
+CREATE TABLE hr_session (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id   INTEGER NOT NULL REFERENCES hr_person(id),
+  on_date     TEXT NOT NULL,
+  activity    TEXT,
+  note        TEXT,
+  source      TEXT NOT NULL DEFAULT 'hand',
+  ext_id      TEXT,
+  run_line_id INTEGER REFERENCES hr_run_line(id),
+  created_at  TEXT NOT NULL,
+  created_by  TEXT
+);
+CREATE INDEX hr_session_person ON hr_session(person_id, on_date);
+CREATE UNIQUE INDEX hr_session_ext ON hr_session(source, ext_id) WHERE ext_id IS NOT NULL;
+-- a payroll line for sessions: how many (its pounds are exact, like a stipend letter's)
+ALTER TABLE hr_run_line ADD COLUMN sessions INTEGER;
+`,
+  },
 ];

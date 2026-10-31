@@ -49,7 +49,7 @@ export async function createHr(db: Db, s: HrSetup): Promise<void> {
 
 // ---------------------------------------------------------------- reading
 
-export interface HrPerson { id: number; name: string; name_ar: string | null; first_name: string | null; last_name: string | null; father_name: string | null; first_name_ar: string | null; last_name_ar: string | null; father_name_ar: string | null; address_ar: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; account: string | null; budget_line: string | null; started: string | null; ended: string | null; active: number; note: string | null }
+export interface HrPerson { id: number; name: string; name_ar: string | null; first_name: string | null; last_name: string | null; father_name: string | null; first_name_ar: string | null; last_name_ar: string | null; father_name_ar: string | null; address_ar: string | null; national_id: string | null; birth_place: string | null; birth_date: string | null; address: string | null; phone: string | null; role: string | null; centre: string | null; account: string | null; budget_line: string | null; started: string | null; ended: string | null; active: number; note: string | null; /** staff (with an agreement) or tutor (paid by session) */ category: 'staff' | 'tutor'; /** a tutor's usual activity */ activity: string | null }
 export interface HrPaper { id: number; person_id: number; kind: 'agreement' | 'stipend'; start_date: string | null; end_date: string | null; service: string | null; amount: number | null; currency: 'USD' | 'SYP'; paid_on: string | null; note: string | null; file_name: string | null; size: number | null; created_at: string; position: string | null; weekly_hours: number | null }
 export interface HrConduct { id: number; version: string; valid_from: string; note: string | null; file_name: string | null; size: number | null }
 export interface HrSign { id: number; conduct_id: number; person_id: number; signed_on: string; file_name: string | null; size: number | null }
@@ -98,7 +98,7 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
   // only the people of the user's centres, and what is theirs
   const seen = await seenPeople(c);
   const mine = <T extends { person_id: number }>(xs: T[]) => (seen ? xs.filter((x) => seen.has(x.person_id)) : xs);
-  const people = (await c.db.query<HrPerson>('SELECT id, name, first_name, last_name, father_name, first_name_ar, last_name_ar, father_name_ar, address_ar, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note FROM hr_person ORDER BY active DESC, name')).filter((p) => !seen || seen.has(p.id)).map((p) => ({ ...p, name_ar: [p.first_name_ar, p.last_name_ar].filter(Boolean).join(' ') || null }));
+  const people = (await c.db.query<HrPerson>('SELECT id, name, first_name, last_name, father_name, first_name_ar, last_name_ar, father_name_ar, address_ar, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, category, activity FROM hr_person ORDER BY active DESC, name')).filter((p) => !seen || seen.has(p.id)).map((p) => ({ ...p, name_ar: [p.first_name_ar, p.last_name_ar].filter(Boolean).join(' ') || null }));
   const papers = mine(await c.db.query<HrPaper>(`SELECT ${PAPER_COLS} FROM hr_paper WHERE deleted_at IS NULL ORDER BY COALESCE(start_date, paid_on, created_at) DESC, id DESC`));
   const conducts = await c.db.query<HrConduct>('SELECT id, version, valid_from, note, file_name, size FROM hr_conduct ORDER BY valid_from DESC, id DESC');
   const signs = mine(await c.db.query<HrSign>('SELECT id, conduct_id, person_id, signed_on, file_name, size FROM hr_conduct_sign WHERE deleted_at IS NULL'));
@@ -112,7 +112,8 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
     const current = ags.filter((x) => (!x.start_date || x.start_date <= today) && (!x.end_date || x.end_date >= today));
     const ending = current.map((x) => x.end_date).filter((x): x is string => !!x).sort()[0];
     const futureStarted = ags.some((x) => x.start_date && x.start_date > today);
-    if (!current.length && !futureStarted) alerts.push({ kind: 'agreement_missing', person_id: p.id, item_id: null, date: null, days: null });
+    // a tutor is paid by session, without an agreement
+    if (p.category !== 'tutor' && !current.length && !futureStarted) alerts.push({ kind: 'agreement_missing', person_id: p.id, item_id: null, date: null, days: null });
     else if (ending && daysTo(ending, today) <= SOON && !futureStarted && !ags.some((x) => x.start_date && x.start_date > ending)) alerts.push({ kind: 'agreement_ending', person_id: p.id, item_id: current.find((x) => x.end_date === ending)!.id, date: ending, days: daysTo(ending, today) });
     if (latest && !signs.some((x) => x.person_id === p.id && x.conduct_id === latest.id)) alerts.push({ kind: 'conduct_unsigned', person_id: p.id, item_id: latest.id, date: null, days: null });
     for (const x of papers.filter((q) => q.person_id === p.id && !q.file_name)) alerts.push({ kind: 'unsigned_paper', person_id: p.id, item_id: x.id, date: x.start_date ?? x.paid_on, days: null });
@@ -219,19 +220,20 @@ export const HR_OPS = {
       needCentre(c, code);
       const role = txt(a.role);
       if (role && (await one(c.db, 'SELECT 1 AS x FROM hr_grade LIMIT 1')) && !(await one(c.db, 'SELECT 1 AS x FROM hr_grade WHERE name = ? AND (centre IS NULL OR centre IS ?)', [role, code]))) throw new UserError(m('الدور من سلّم الرواتب', `The role must be a position of the scale: ${role}`, `Le rôle doit être un poste de l'échelle : ${role}`));
+      const category = a.category === 'tutor' ? 'tutor' : a.category === 'staff' ? 'staff' : null;
       const v = [name, txt(a.father_name), txt(a.national_id), txt(a.birth_place), day(a.birth_date, 'birth'), txt(a.address), txt(a.phone), role, await pick('centre', txt(a.centre)), await pick('account', txt(a.account)), await pick('line', txt(a.budget_line)), day(a.started, 'start'), day(a.ended, 'end'), a.ended ? 0 : a.active === 0 ? 0 : 1, txt(a.note), first, last, firstAr, lastAr, txt(a.father_name_ar), txt(a.address_ar)];
       const ACT = 13;
       if (a.id) {
         const before = await one<HrPerson>(c.db, 'SELECT * FROM hr_person WHERE id = ?', [a.id]);
         if (!before) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
         await c.db.batch([
-          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=?, first_name=?, last_name=?, first_name_ar=?, last_name_ar=?, father_name_ar=?, address_ar=? WHERE id=?', params: [...v, a.id] },
+          { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=?, first_name=?, last_name=?, first_name_ar=?, last_name_ar=?, father_name_ar=?, address_ar=?, category=COALESCE(?, category), activity=? WHERE id=?', params: [...v, category, a.activity === undefined ? before.activity : txt(a.activity), a.id] },
           auditStmt(c.who, 'update', 'hr_person', String(a.id), { name: before.name, active: before.active }, { name, active: v[ACT] }),
         ]);
         return { id: a.id };
       }
       await c.db.batch([
-        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, first_name, last_name, first_name_ar, last_name_ar, father_name_ar, address_ar, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, nowIso(), c.who] },
+        { sql: 'INSERT INTO hr_person (name, father_name, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, first_name, last_name, first_name_ar, last_name_ar, father_name_ar, address_ar, category, activity, created_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', params: [...v, category ?? 'staff', txt(a.activity), nowIso(), c.who] },
         auditStmt(c.who, 'add', 'hr_person', null, null, { name }),
       ]);
       return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM hr_person'))!.id };
@@ -252,7 +254,7 @@ export const HR_OPS = {
         throw new UserError(m('دُفعت له مكافآت في كشف معتمد: لا يُحذف. اكتب تاريخ مغادرته بدلاً من ذلك.', 'This person is in an approved or paid payroll run: they cannot be deleted. Write the date they left instead.', "Cette personne figure dans une paie approuvée ou payée : elle ne peut pas être supprimée. Indiquez plutôt la date de départ."));
       const del = (table: string) => ({ sql: `DELETE FROM ${table} WHERE person_id = ?`, params: [a.id] });
       await c.db.batch([
-        del('hr_run_line'), del('hr_pay'), del('hr_alloc'), del('hr_hours'), del('hr_insurance'), del('hr_conduct_sign'), del('hr_doc'), del('hr_check_done'), del('hr_leave'), del('hr_paper'),
+        del('hr_session'), del('hr_run_line'), del('hr_pay'), del('hr_alloc'), del('hr_hours'), del('hr_insurance'), del('hr_conduct_sign'), del('hr_doc'), del('hr_check_done'), del('hr_leave'), del('hr_paper'),
         { sql: 'DELETE FROM hr_person WHERE id = ?', params: [a.id] },
         logStmt(c, 'delete', 'person', a.id, a.id, p.name),
         auditStmt(c.who, 'delete', 'hr_person', String(a.id), { name: p.name }, null),

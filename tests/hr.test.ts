@@ -350,7 +350,7 @@ describe('HR database', () => {
     expect(letter).toContain('Workshop animation');
     expect(letter).toContain('650,000 SYP');
     const run = { id: 1, ym: '2026-11', kind: 'monthly', centre: 'aleppo', rate_syp: 13000, status: 'approved', note: null, created_by: null, approved_at: null, approved_by: null, paid_on: null, paid_by: null, lines: 1, total_usd: 180 } as const;
-    const slips = await textOf(await payslipsDoc(run, [{ id: 1, run_id: 1, person_id: id, person_name: 'Salma Haddad', national_id: '01234567890', role: 'Reception', label: null, paper_id: null, weekly_hours: 30, hours_worked: null, base_usd: 180, bonus_usd: 0, deduction_usd: 0, total_usd: 180, paid_in: 'USD', amount_paid: 180, account: null, budget_line: null, note: null }], [person], () => head));
+    const slips = await textOf(await payslipsDoc(run, [{ id: 1, run_id: 1, person_id: id, person_name: 'Salma Haddad', national_id: '01234567890', role: 'Reception', label: null, paper_id: null, sessions: null, weekly_hours: 30, hours_worked: null, base_usd: 180, bonus_usd: 0, deduction_usd: 0, total_usd: 180, paid_in: 'USD', amount_paid: 180, account: null, budget_line: null, note: null }], [person], () => head));
     expect(slips).toContain('سلمى حداد');
     expect(slips).toContain('Salma Haddad');
     expect(slips).toContain('Payslip');
@@ -684,5 +684,55 @@ describe('HR database', () => {
     expect((await op('hr.data', {}, hk)).body.leaveTypes.map((x: { name_en: string; days_per_year: number }) => [x.name_en, x.days_per_year])).toEqual([['Annual leave', 10], ['Sick leave', 12]]);
     // someone must still see every centre and manage the users
     expect((await op('hr.user.save', { id: mid, name: 'Manager', accessId: keeper.id, centres: ['homs'] }, ck)).status).toBe(400);
+  });
+
+  it('tutors paid by session: one price in the settings, sessions by date, a line per tutor in the centre payroll', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR tutors', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR tutors', people: [{ name: 'Manager', password: 'manager-hr-1' }], mustChange: false });
+    const mid = (await call(`/api/profiles?db=${slug}`)).body[0].id;
+    const ck = (await call('/api/login', { db: slug, profileId: mid, password: 'manager-hr-1' }, '')).set!;
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Homs', code: 'homs' }, ck);
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Aleppo', code: 'aleppo' }, ck);
+    const keeper = (await op('hr.users.list', {}, ck)).body.access.find((a: { name: string }) => a.name.includes('HR keeper of a centre'));
+    const kid = (await op('hr.user.save', { name: 'Homs HR', accessId: keeper.id, centres: ['homs'], password: 'homs-hr-12' }, ck)).body.id;
+    const hk = (await call('/api/login', { db: slug, profileId: kid, password: 'homs-hr-12' }, '')).set!;
+    await op('profile.setPin', { id: kid, pin: 'homs-hr-13' }, hk);
+    // a tutor: no agreement, so no "no agreement" alert
+    const t = (await op('hr.person.save', { first_name: 'Rami', centre: 'MAGIS Homs', category: 'tutor', activity: 'Theatre', started: '2026-01-01' }, hk)).body.id;
+    const staff = (await op('hr.person.save', { first_name: 'Hala', centre: 'MAGIS Homs', started: '2026-01-01' }, hk)).body.id;
+    const ta = (await op('hr.person.save', { first_name: 'Nour', centre: 'MAGIS Aleppo', category: 'tutor', started: '2026-01-01' }, ck)).body.id;
+    await op('hr.pay.save', { personId: staff, validFrom: '2026-01-01', monthlyUsd: 200, weeklyHours: 30 }, hk);
+    const d = (await op('hr.data', {}, hk)).body;
+    expect(d.people.find((p: { id: number }) => p.id === t)).toMatchObject({ category: 'tutor', activity: 'Theatre' });
+    expect(d.alerts.filter((a: { person_id: number; kind: string }) => a.person_id === t && a.kind === 'agreement_missing')).toEqual([]);
+    // sessions: only for tutors, only of the keeper's centre
+    for (const day of ['2026-11-03', '2026-11-05', '2026-11-10']) expect((await op('hr.session.add', { personId: t, date: day, activity: 'Theatre' }, hk)).status).toBe(200);
+    expect((await op('hr.session.add', { personId: staff, date: '2026-11-03' }, hk)).status).toBe(400);
+    expect((await op('hr.session.add', { personId: ta, date: '2026-11-03' }, hk)).status).toBe(400);
+    await op('hr.session.add', { personId: ta, date: '2026-11-04', activity: 'English' }, ck);
+    expect((await op('hr.sessions.get', { ym: '2026-11' }, hk)).body.sessions.map((x: { person_id: number }) => x.person_id)).toEqual([t, t, t]);
+    // no price yet: the run says so; the price is one, for those who see every centre
+    expect((await op('hr.run.create', { centre: 'homs', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, hk)).status).toBe(400);
+    expect((await op('hr.run.list', {}, ck)).body).toEqual([]); // nothing half-made
+    expect((await op('hr.session.price.save', { validFrom: '2026-01-01', amount: 10, currency: 'USD' }, hk)).status).toBe(400);
+    expect((await op('hr.session.price.save', { validFrom: '2026-01-01', amount: 10, currency: 'USD' }, ck)).status).toBe(200);
+    // a later price in pounds applies from its date only
+    expect((await op('hr.session.price.save', { validFrom: '2026-11-08', amount: 150000, currency: 'SYP' }, ck)).status).toBe(200);
+    const rh = (await op('hr.run.create', { centre: 'homs', ym: '2026-11', kind: 'monthly', rateSyp: 15000 }, hk)).body.id;
+    const lines = (await op('hr.run.get', { id: rh }, hk)).body.lines;
+    const byLabel = lines.filter((l: { person_id: number }) => l.person_id === t).map((l: { label: string; sessions: number; paid_in: string; amount_paid: number; total_usd: number }) => [l.label, l.sessions, l.paid_in, l.amount_paid, l.total_usd]);
+    expect(byLabel.sort()).toEqual([['Sessions: 1 × 150000 SYP', 1, 'SYP', 150000, 10], ['Sessions: 2 × 10 USD', 2, 'USD', 20, 20]]);
+    expect(lines.some((l: { person_id: number }) => l.person_id === ta)).toBe(false);
+    // a paid session cannot change; a late session joins the draft run; removing a line frees its sessions
+    const ses = (await op('hr.sessions.get', { ym: '2026-11' }, hk)).body.sessions;
+    expect((await op('hr.session.delete', { id: ses[0].id }, hk)).status).toBe(400);
+    await op('hr.session.add', { personId: t, date: '2026-11-20' }, hk);
+    expect((await op('hr.run.get', { id: rh }, hk)).body.pendingSessions).toBe(1);
+    expect((await op('hr.run.sessions.add', { runId: rh }, hk)).body.lines).toBe(1);
+    const usdLine = (await op('hr.run.get', { id: rh }, hk)).body.lines.find((l: { label: string }) => l.label === 'Sessions: 2 × 10 USD');
+    expect((await op('hr.run.line.delete', { id: usdLine.id }, hk)).status).toBe(200);
+    expect((await op('hr.session.delete', { id: ses[0].id }, hk)).status).toBe(200);
+    expect((await op('hr.run.get', { id: rh }, hk)).body.pendingSessions).toBe(1);
   });
 });

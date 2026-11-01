@@ -8,6 +8,7 @@ import { TYPES, type Book, type TrxType } from '../domain/types';
 import { TYPE_LABEL, tx } from '../i18n';
 import { notesOf } from './Cash';
 import { pickFile, saveFile } from '../platform';
+import type { CommonList } from '../io/commonList';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
@@ -72,6 +73,7 @@ function CommonListPanel() {
   const { s, can, reload } = useApp();
   const [state, setState] = useState<'lead' | 'yes' | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  const [joining, setJoining] = useState<CommonList | null>(null);
   const load = () => s.api.call('common.status', {}).then((x) => setState(x.state)).catch(() => setState(null));
   useEffect(() => { void load(); }, [s]);
   const boss = can('users.manage');
@@ -106,6 +108,20 @@ function CommonListPanel() {
             return t('بدأت القائمة المشتركة', 'The common list has started');
           })}>{t('ابدأ القائمة المشتركة من هذه القاعدة', 'Start the common list from this database')}</button>
         )}
+        {!state && boss && (
+          <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
+            // the common list: from the database that leads it on this server, else from a file
+            let list: CommonList | null = null;
+            if (s.mode === 'server') list = await fetch('/api/common-list/lead', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+            if (!list) {
+              const f = await pickFile(['json'], t('اختر ملف القائمة المشتركة', 'Choose the common list file'));
+              if (!f) return null;
+              list = JSON.parse(new TextDecoder().decode(f.bytes)) as CommonList;
+            }
+            setJoining(list);
+            return null;
+          })}>{t('انضم إلى القائمة المشتركة…', 'Join the common list…')}</button>
+        )}
         {state && boss && s.mode === 'server' && (
           <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
             const r = await fetch('/api/common-list/sync', { method: 'POST', credentials: 'same-origin' });
@@ -131,7 +147,100 @@ function CommonListPanel() {
           })}>⬆ {t('خذ ملف قائمة', 'Take a list file')}</button>
         )}
       </div>
+      {joining && <JoinModal list={joining} onClose={() => setJoining(null)} onDone={async () => { setJoining(null); await reload(); await load(); }} />}
     </div>
+  );
+}
+
+/**
+ * Joining the common list (Fouad, 2026-11-01): each old heading and line of this database is matched to a common one
+ * (proposed by name; Income, Transfer and Exchange by their type), or added to the common list as it is. Lines going
+ * to the same common line are merged: their rows, budget amounts and items move. A backup is taken first.
+ */
+function JoinModal({ list, onClose, onDone }: { list: CommonList; onClose: () => void; onDone: () => Promise<void> }) {
+  const { s, d } = useApp();
+  const counts = useCounts();
+  const L = d.lists;
+  const low = (x: string) => x.trim().toLowerCase();
+  const typesOf = (id: number) => L.headingTypes.filter((x) => x.heading_id === id).map((x) => x.type);
+  const [hm, setHm] = useState<Record<number, string | null>>(() => Object.fromEntries(L.headings.map((h) => {
+    const ts = typesOf(h.id);
+    const byName = list.headings.find((c) => low(c.name) === low(h.name));
+    const byType = ts.length === 1 && ts[0] !== 'Exp' ? list.headings.find((c) => c.types.length === 1 && c.types[0] === ts[0]) : undefined;
+    return [h.id, (byName ?? byType)?.uid ?? null];
+  })));
+  const [lm, setLm] = useState<Record<number, string | null>>(() => Object.fromEntries(L.lines.map((l) => {
+    const h = L.headings.find((x) => x.id === l.heading_id)!;
+    const target = hm[h.id];
+    const same = list.lines.find((c) => c.heading_uid === target && low(c.name) === low(l.name)) ?? list.lines.find((c) => low(c.name) === low(l.name));
+    return [l.id, same?.uid ?? null];
+  })));
+  const [busy, setBusy] = useState(false);
+  const lineOptions = list.headings.map((h) => ({ h, lines: list.lines.filter((l) => l.heading_uid === h.uid) })).filter((g) => g.lines.length);
+  const LineSelect = ({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) => (
+    <select className="inp small" style={{ minWidth: 240 }} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">＋ {t('أضفه إلى القائمة المشتركة كما هو', 'Add it to the common list as it is')}</option>
+      {lineOptions.map((g) => <optgroup key={g.h.uid} label={`${g.h.code} ${g.h.name}`}>{g.lines.map((l) => <option key={l.uid} value={l.uid}>{l.name}</option>)}</optgroup>)}
+    </select>
+  );
+  const shown = L.headings.filter((h) => L.lines.some((l) => l.heading_id === h.id) || counts.heading.get(h.id));
+  const go = async () => {
+    const merged = Object.values(lm).filter(Boolean).length;
+    if (!(await confirmBox(t(`انضمام هذه القاعدة إلى القائمة المشتركة: ${merged} خطاً يصير خطاً مشتركاً، والباقي يُضاف كما هو. تنتقل القيود معها. تُؤخذ نسخة احتياطية أولاً.`, `This database joins the common list: ${merged} lines become common lines, the others are added as they are. The rows move with them. A backup is taken first.`)))) return;
+    setBusy(true);
+    try {
+      const r = await s.api.call('common.join', { list, headings: hm, lines: lm });
+      toast(t(`انضمت: ${r.matched} خطاً طوبق، ${r.kept} أضيف، ${r.added} جاء من القائمة المشتركة`, `Joined: ${r.matched} lines matched, ${r.kept} added, ${r.added} came from the common list`));
+      await onDone();
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title={t(`الانضمام إلى القائمة المشتركة (من ${list.from ?? ''})`, `Join the common list (from ${list.from ?? ''})`)} onClose={onClose}>
+      <p className="muted small" style={{ marginTop: 0 }}>{t('لكل بند وخط من بنود هذه القاعدة: اختر ما يصيره في القائمة المشتركة، أو «أضفه كما هو». عدة خطوط إلى خط واحد تُدمج فيه (رواتب كل شخص → خط الوظيفة). القيود تبقى بتواريخها ومبالغها؛ يتغير بندها وخطها فقط.', 'For each heading and line of this database: choose what it becomes in the common list, or "add it as it is". Several lines to one line are merged into it (a salary per person → the line of the position). The rows keep their dates and amounts; only their heading and line change.')}</p>
+      <div className="table-wrap" style={{ maxHeight: 520, overflowY: 'auto' }}>
+        <table className="t">
+          <tbody>
+            {shown.flatMap((h) => {
+              const ls = L.lines.filter((l) => l.heading_id === h.id);
+              return [
+                <tr key={`h${h.id}`} className="group">
+                  <td><b>{h.code} {h.name}</b> <span className="muted small">{typesOf(h.id).join(' · ')}</span></td>
+                  <td className="n muted small">{counts.heading.get(h.id) ?? 0}</td>
+                  <td>
+                    <select className="inp small" style={{ minWidth: 240 }} value={hm[h.id] ?? ''} onChange={(e) => setHm({ ...hm, [h.id]: e.target.value || null })}>
+                      <option value="">＋ {t('بند جديد في القائمة المشتركة', 'A new heading in the common list')}</option>
+                      {list.headings.map((c) => <option key={c.uid} value={c.uid}>{c.code} {c.name}</option>)}
+                    </select>
+                    {ls.length > 1 && (
+                      <div className="small" style={{ marginTop: 4 }}>
+                        {t('كل خطوطه →', 'All its lines →')}{' '}
+                        <LineSelect value={null} onChange={(v) => setLm({ ...lm, ...Object.fromEntries(ls.map((l) => [l.id, v])) })} />
+                      </div>
+                    )}
+                  </td>
+                </tr>,
+                ...ls.map((l) => (
+                  <tr key={l.id} className={l.active ? '' : 'off'}>
+                    <td style={{ paddingInlineStart: 22 }}>{l.code} {l.name}{!l.active && <span className="small muted"> · {t('موقوف', 'deactivated')}</span>}</td>
+                    <td className="n muted small">{counts.line.get(l.id) ?? 0}</td>
+                    <td><LineSelect value={lm[l.id] ?? null} onChange={(v) => setLm({ ...lm, [l.id]: v })} /></td>
+                  </tr>
+                )),
+              ];
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="modal-foot">
+        <span className="muted small" style={{ flex: 1 }}>{t(`${Object.values(lm).filter(Boolean).length} خطاً يُطابَق، ${Object.values(lm).filter((x) => !x).length} يُضاف كما هو`, `${Object.values(lm).filter(Boolean).length} lines matched, ${Object.values(lm).filter((x) => !x).length} added as they are`)}</span>
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={busy} onClick={go}>{busy ? '…' : t('انضم', 'Join')}</button>
+      </div>
+    </Modal>
   );
 }
 

@@ -458,6 +458,8 @@ describe('the common list between two databases', () => {
     const a = await lines(aleppo);
     expect(a.map((x) => x[0]).sort()).toEqual(['Cleaner', 'Cook', 'Driver', 'Receptionist']);
     expect(a.find((x) => x[0] === 'Cleaner')![2]).toBe(0); // still off in Aleppo
+    expect(a.find((x) => x[0] === 'Driver')![2]).toBe(0); // what comes from another centre arrives switched off
+    expect((await lines(homs)).find((x) => x[0] === 'Cook')![2]).toBe(0);
     expect(a.find((x) => x[0] === 'Driver')![1]).toBe('E01.3-2'); // its code was Cook's here: the next free one
     expect((await lines(homs)).map((x) => x[0]).sort()).toEqual(['Cleaner', 'Cook', 'Driver', 'Receptionist']);
 
@@ -467,6 +469,61 @@ describe('the common list between two databases', () => {
     await addLine(jaramana, (await loadLists(jaramana)).headings.find((h) => h.name === 'Salary')!.id, 'Cook', 't');
     expect(await applyCommonList(jaramana, common, 't', { lead: true })).toMatchObject({ headings: 0, lines: 3 });
     expect((await loadLists(jaramana)).lines.find((l) => l.name === 'Cook')!.uid).toBe(common.lines.find((l) => l.name === 'Cook')!.uid);
+  });
+});
+
+describe('a centre joins the common list', () => {
+  it('lines per person merged into the line of the position, with their rows and budget; a line of its own kept; the rest comes in', async () => {
+    const { exportCommonList, joinCommonList, joinWithMatching, commonListState } = await import('../src/io/commonList');
+    const fresh = async () => { const db = nodeDb(); await migrate(db); return db; };
+    // Homs leads: Salary with Reception and Cleaner
+    const homs = await fresh();
+    await addHeading(homs, 'Salary', ['Exp'], 't');
+    const hs = (await loadLists(homs)).headings.find((h) => h.name === 'Salary')!;
+    for (const n of ['Reception', 'Cleaner']) await addLine(homs, hs.id, n, 't');
+    await joinCommonList(homs, 't', true);
+    const common = await exportCommonList(homs);
+    // Aleppo: E01 Staff_Salary with Salim and Fatima (both reception), E02 Stationary with Paper
+    const aleppo = await fresh();
+    await addHeading(aleppo, 'Staff_Salary', ['Exp'], 't');
+    await addHeading(aleppo, 'Stationary', ['Exp'], 't');
+    let A = await loadLists(aleppo);
+    const hid = (n: string) => A.headings.find((h) => h.name === n)!.id;
+    await addLine(aleppo, hid('Staff_Salary'), 'Salim', 't');
+    await addLine(aleppo, hid('Staff_Salary'), 'Fatima', 't');
+    await addLine(aleppo, hid('Stationary'), 'Paper', 't');
+    A = await loadLists(aleppo);
+    const lid = (n: string) => A.lines.find((l) => l.name === n)!.id;
+    await aleppo.batch([
+      { sql: "INSERT INTO trx (id, type, date, heading_id, line_id, exp_usd, created_at) VALUES ('s1', 'Exp', '2026-05-01', ?, ?, 100, 'x'), ('f1', 'Exp', '2026-05-02', ?, ?, 80, 'x'), ('p1', 'Exp', '2026-05-03', ?, ?, 5, 'x')", params: [hid('Staff_Salary'), lid('Salim'), hid('Staff_Salary'), lid('Fatima'), hid('Stationary'), lid('Paper')] },
+      { sql: "INSERT INTO budget (id, name, start_ym, months, created_at) VALUES (1, 'B', '2026-01', 12, 'x')" },
+      { sql: "INSERT INTO budget_version (id, year, budget_id, rev, rate_syp, rate_eur, created_at) VALUES (1, 1, 1, 0, 1, 1, 'x')" },
+      { sql: 'INSERT INTO budget_amount (version_id, line_id, amount_usd) VALUES (1, ?, 1200), (1, ?, 960)', params: [lid('Salim'), lid('Fatima')] },
+    ]);
+    const reception = common.lines.find((l) => l.name === 'Reception')!.uid;
+    const salary = common.headings.find((h) => h.name === 'Salary')!.uid;
+    const r = await joinWithMatching(aleppo, common, {
+      headings: { [hid('Staff_Salary')]: salary, [hid('Stationary')]: null },
+      lines: { [lid('Salim')]: reception, [lid('Fatima')]: reception, [lid('Paper')]: null },
+    }, 't');
+    expect(r).toMatchObject({ matched: 2, kept: 1 });
+    expect(await commonListState(aleppo)).toBe('yes');
+    A = await loadLists(aleppo);
+    const rec = A.lines.find((l) => l.uid === reception)!;
+    expect([rec.name, rec.code, A.headings.find((h) => h.id === rec.heading_id)!.name]).toEqual(['Reception', 'E01.1', 'Salary']);
+    // the rows of Salim and Fatima are now on Reception, under Salary; the budget amounts added
+    const rows = await aleppo.query<{ id: string; line_id: number; heading_id: number }>('SELECT id, line_id, heading_id FROM trx ORDER BY id');
+    expect(rows.filter((x) => x.id !== 'p1').every((x) => x.line_id === rec.id && x.heading_id === rec.heading_id)).toBe(true);
+    expect((await aleppo.query<{ amount_usd: number }>('SELECT amount_usd FROM budget_amount WHERE line_id = ?', [rec.id]))[0].amount_usd).toBe(2160);
+    // Cleaner came from the common list; Stationary and Paper are kept, with codes that do not clash
+    expect(A.lines.some((l) => l.name === 'Cleaner')).toBe(true);
+    const st = A.headings.find((h) => h.name === 'Stationary')!;
+    expect(common.headings.some((h) => h.code === st.code)).toBe(false);
+    expect(A.lines.find((l) => l.name === 'Paper')!.code).toBe(`${st.code}.1`);
+    expect(A.headings.some((h) => h.name === 'Staff_Salary') || A.lines.some((l) => l.name === 'Salim' || l.name === 'Fatima')).toBe(false);
+    // the Transfer heading is the same one everywhere now
+    const tr = (db: Db) => db.query<{ uid: string }>("SELECT uid FROM heading WHERE name = 'Transfer'");
+    expect((await tr(aleppo))[0].uid).toBe((await tr(homs))[0].uid);
   });
 });
 

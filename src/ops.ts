@@ -29,7 +29,7 @@ import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
 } from './io/keeperFiles';
 import { applySeed, readWorkbook, type ImportReport } from './io/importWorkbook';
-import { applyCommonList, commonListState, exportCommonList, joinCommonList, parseCommonList } from './io/commonList';
+import { applyCommonList, commonListState, exportCommonList, joinCommonList, joinWithMatching, parseCommonList, type CommonList } from './io/commonList';
 import { m, type Msg } from './i18n';
 import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
 import { COUNTRY_OPS, COUNTRY_READ_ONLY } from './community/country';
@@ -1694,6 +1694,16 @@ export const OPS = {
     run: async (c: OpCtx) => {
       if (!(await commonListState(c.db))) throw new UserError(m('هذه القاعدة ليست في القائمة المشتركة بعد', 'This database is not in the common list yet', "Cette base n'est pas encore dans la liste commune"));
       return exportCommonList(c.db);
+    },
+  },
+  /** a centre joins the common list, its old headings and lines matched one by one (see joinWithMatching) */
+  'common.join': {
+    check: (c: OpCtx) => { need(c, 'lists.manage'); need(c, 'users.manage'); },
+    run: async (c: OpCtx, a: { list: CommonList; headings: Record<number, string | null>; lines: Record<number, string | null> }) => {
+      if (await commonListState(c.db)) throw new UserError(m('هذه القاعدة في القائمة المشتركة', 'This database is already in the common list', 'Cette base est déjà dans la liste commune'));
+      const list = parseCommonList(JSON.stringify(a.list));
+      await c.files.backupNow('before-joining-the-common-list');
+      return joinWithMatching(c.db, list, { headings: a.headings ?? {}, lines: a.lines ?? {} }, c.who);
     },
   },
   /** a common list file: its new headings and lines come in; the leading database's names and codes win */

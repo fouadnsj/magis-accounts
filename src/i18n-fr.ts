@@ -4,6 +4,18 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // joining the common list (2026-11-02)
+  "Join the common list…": "Rejoindre la liste commune…",
+  "Join the common list (from {0})": "Rejoindre la liste commune (de {0})",
+  "Add it to the common list as it is": "L'ajouter à la liste commune tel quel",
+  "A new heading in the common list": "Une nouvelle rubrique dans la liste commune",
+  "All its lines →": "Toutes ses lignes →",
+  "Join": "Rejoindre",
+  "{0} lines matched, {1} added as they are": "{0} lignes mises en correspondance, {1} ajoutées telles quelles",
+  "For each heading and line of this database: choose what it becomes in the common list, or \"add it as it is\". Several lines to one line are merged into it (a salary per person → the line of the position). The rows keep their dates and amounts; only their heading and line change.": "Pour chaque rubrique et ligne de cette base : choisissez ce qu'elle devient dans la liste commune, ou « l'ajouter telle quelle ». Plusieurs lignes vers une seule y sont fusionnées (un salaire par personne → la ligne du poste). Les écritures gardent leurs dates et montants ; seules leur rubrique et leur ligne changent.",
+  "This database joins the common list: {0} lines become common lines, the others are added as they are. The rows move with them. A backup is taken first.": "Cette base rejoint la liste commune : {0} lignes deviennent des lignes communes, les autres sont ajoutées telles quelles. Les écritures suivent. Une sauvegarde est faite d'abord.",
+  "Joined: {0} lines matched, {1} added, {2} came from the common list": "Rejointe : {0} lignes en correspondance, {1} ajoutées, {2} venues de la liste commune",
+
   // one list for every centre (2026-11-01)
   "The common list of every centre": "La liste commune de tous les centres",
   "· this database leads it: its names and codes are the reference": "· cette base la conduit : ses noms et codes sont la référence",

@@ -973,6 +973,15 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // ---- One list for every centre (Fouad, 2026-11-01): "make the lists the same" on this server. The databases in the
     // common list give their new headings and lines to the one that leads it (Fouad's), then all take its list: the
     // leading one's names and codes win; each keeps what it switched off. A backup of each first.
+    // the common list of the database that leads it on this server, for a database that joins it
+    if (url === '/api/common-list/lead' && method === 'GET') {
+      if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || (dirPerson && !dirSees(dirPerson, x.slug))) continue;
+        if ((await commonListState(x.handle.db)) === 'lead') return send(res, 200, await exportCommonList(x.handle.db));
+      }
+      return send(res, 200, null);
+    }
     if (url === '/api/common-list/sync' && method === 'POST') {
       if (!found || !has(found[1].profile, 'lists.manage') || !has(found[1].profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       if (!(await commonListState(found[2].handle.db))) throw new HttpError(400, { ar: 'هذه القاعدة ليست في القائمة المشتركة بعد', en: 'This database is not in the common list yet' });

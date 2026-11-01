@@ -4,6 +4,29 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // one budget, a fund per line (2026-11-01)
+  "Not funded": "Non financé",
+  "All funds": "Tous les fonds",
+  "With a fund": "Avec un fonds",
+  "Several funds": "Plusieurs fonds",
+  "The fund's money here": "L'argent du fonds ici",
+  "Its lines in the budget": "Ses lignes dans le budget",
+  "Spent on its lines": "Dépensé sur ses lignes",
+  "Short by": "Il manque",
+  "Not yet given to lines": "Pas encore donné à des lignes",
+  "Matches": "Correspond",
+  "Give it lines…": "Lui donner des lignes…",
+  "Lines of \"{0}\"": "Lignes de « {0} »",
+  "Tick whole headings or single lines. A line has one fund: if it belongs to another fund, it moves to this one.": "Cochez des rubriques entières ou des lignes. Une ligne a un seul fonds : si elle appartient à un autre fonds, elle passe à celui-ci.",
+  "Each line has one fund. To give a fund to a whole heading: choose it on the heading's row.": "Chaque ligne a un seul fonds. Pour donner un fonds à une rubrique entière : choisissez-le sur la ligne de la rubrique.",
+  "A grant's money here = this centre's share on the Grants page (euros at the budget's rate). A private fund has no set amount.": "L'argent d'une subvention ici = la part de ce centre dans la page Subventions (les euros au taux du budget). Un fonds privé n'a pas de montant fixé.",
+  "Funds are given to lines by who keeps the grants.": "Les fonds sont donnés aux lignes par qui tient les subventions.",
+  "Contingency for the budget (%), e.g. 10": "Imprévus du budget (%), par ex. 10",
+  "spent": "dépensé",
+  "Importing replaces the items of the lines in the sheet; the other lines stay. Each line keeps its fund.": "L'import remplace les éléments des lignes de la feuille ; les autres lignes restent. Chaque ligne garde son fonds.",
+  "Outside the budget": "Hors budget",
+  "Into the budget": "Dans le budget",
+
   // grants divided by centre, funds (2026-11-01)
   "Funds": "Fonds",
   "Fund": "Fonds",

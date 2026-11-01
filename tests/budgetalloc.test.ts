@@ -1,4 +1,4 @@
-// A budget allocated to several accounts (Fouad, 30 October 2026).
+// One budget for the centre, each line with one fund (Fouad, 2026-11-01).
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -22,58 +22,64 @@ async function call(url: string, body?: unknown, cookie = ck) {
 }
 const op = (n: string, a: unknown = {}) => call(`/api/op/${n}`, a);
 
-describe('budget allocation', () => {
-  it('splits the budget of an account between several accounts', async () => {
+describe('budget funds', () => {
+  it('a global budget: lines not funded until a fund is given to a heading or a line; one fund per line; kept by a new budget', async () => {
     const slug = (await call('/api/dbs/create', { organisation: 'Alloc', centre: 'aleppo' })).body.slug;
     await call('/api/setup/new', { db: slug, organisation: 'Alloc', supName: 'Boss', supPin: 'boss-alloc-1', comName: 'Clerk', comPin: 'clerk-alloc-1' });
     const id = (await call(`/api/profiles?db=${slug}`)).body.find((p: { name: string }) => p.name === 'Boss').id;
     await call('/api/login', { db: slug, profileId: id, password: 'boss-alloc-1' }, '');
-    for (const n of ['CEI', 'SZ', 'CJF']) await op('list.add', { table: 'account', name: n });
+    for (const n of ['Running SEN', 'Furniture', 'Deir']) expect((await op('list.add', { table: 'account', name: n })).status).toBe(200);
     await op('heading.add', { name: 'Staff', types: ['Exp'] });
+    await op('heading.add', { name: 'Furnishing', types: ['Exp'] });
     const lists0 = (await op('data')).body.lists;
-    const h = lists0.headings.find((x: { name: string }) => x.name === 'Staff').id;
-    await op('line.add', { headingId: h, name: 'Reception' });
-    await op('line.add', { headingId: h, name: 'Cleaner' });
+    const h = (n: string) => lists0.headings.find((x: { name: string }) => x.name === n).id;
+    await op('line.add', { headingId: h('Staff'), name: 'Reception' });
+    await op('line.add', { headingId: h('Staff'), name: 'Cleaner' });
+    await op('line.add', { headingId: h('Furnishing'), name: 'Chairs' });
     const lists = (await op('data')).body.lists;
     const acc = (n: string) => lists.accounts.find((a: { name: string }) => a.name === n).id;
     const line = (n: string) => lists.lines.find((l: { name: string }) => l.name === n).id;
+    await op('account.setOutside', { id: acc('Deir'), outside: true });
     await op('budget.create', { name: 'B', start_ym: '2027-01', months: 6, rate_syp: 130, rate_eur: 0.89, from: 'empty' });
     const v = (await op('budget.get', {})).body.versions[0].id;
-    await op('budget.importItems', { versionId: v, account_id: acc('CEI'), contingency_pct: 0, items: [
-      { account_id: acc('CEI'), line_id: line('Reception'), name: 'Reception', unit: 'person', qty: 2, times: 6, unit_cost: 200, note: null },
-      { account_id: acc('CEI'), line_id: line('Cleaner'), name: 'Cleaner', unit: 'person', qty: 2, times: 6, unit_cost: 180, note: null },
-    ] });
+    expect((await op('budget.importItems', { versionId: v, contingency_pct: 10, items: [
+      { line_id: line('Reception'), name: 'Reception', unit: 'person', qty: 2, times: 6, unit_cost: 200, note: null },
+      { line_id: line('Cleaner'), name: 'Cleaner', unit: 'person', qty: 2, times: 6, unit_cost: 180, note: null },
+      { line_id: line('Chairs'), name: 'Chairs', unit: 'piece', qty: 50, times: 1, unit_cost: 20, note: null },
+    ] })).status).toBe(200);
     const cells = async () => ((await op('budget.get', {})).body.amounts as { account_id: number; line_id: number; amount_usd: number }[]).map((x) => [x.account_id, x.line_id, x.amount_usd]);
-    expect(await cells()).toEqual(expect.arrayContaining([[acc('CEI'), line('Reception'), 2400], [acc('CEI'), line('Cleaner'), 2160]]));
+    // everything in the budget, nothing funded yet
+    expect(await cells()).toEqual(expect.arrayContaining([[0, line('Reception'), 2400], [0, line('Cleaner'), 2160], [0, line('Chairs'), 1000]]));
+    expect((await op('budget.get', {})).body.current.contingency_pct).toBe(10);
 
-    // must make 100, no account twice, nothing to move
-    const parts = (a: [string, number][]) => a.map(([n, pct]) => ({ account_id: acc(n), pct }));
-    const go = (p: [string, number][]) => op('budget.allocate', { versionId: v, fromAccountId: acc('CEI'), parts: parts(p) });
-    expect((await go([['SZ', 50], ['CJF', 40]])).status).toBe(400);
-    expect((await go([['SZ', 50], ['SZ', 50]])).status).toBe(400);
-    expect((await go([['CEI', 100]])).status).toBe(400);
-    expect((await op('budget.allocate', { versionId: v, fromAccountId: acc('SZ'), parts: parts([['CJF', 100]]) })).status).toBe(400); // SZ has no budget yet
+    // the running grant covers the staff heading; the chairs wait for their grant
+    expect((await op('budget.setFund', { versionId: v, line_ids: [line('Reception'), line('Cleaner')], account_id: acc('Running SEN') })).status).toBe(200);
+    expect((await op('budget.setFund', { versionId: v, line_ids: [line('Chairs')], account_id: acc('Deir') })).status).toBe(400); // outside the budget
+    let now = await cells();
+    expect(now.find((x) => x[1] === line('Chairs'))![0]).toBe(0);
+    expect(now.filter((x) => x[0] === acc('Running SEN')).length).toBe(2);
+    // a line moves to another fund: it leaves the first (one fund per line)
+    expect((await op('budget.setFund', { versionId: v, line_ids: [line('Cleaner')], account_id: acc('Furniture') })).status).toBe(200);
+    now = await cells();
+    expect(now.filter((x) => x[1] === line('Cleaner'))).toEqual([[acc('Furniture'), line('Cleaner'), 2160]]);
+    // changing the items keeps the line's fund
+    expect((await op('budget.saveItems', { versionId: v, line_id: line('Cleaner'), items: [{ name: 'Cleaner', unit: 'person', qty: 1, times: 6, unit_cost: 180, note: null }] })).status).toBe(200);
+    expect((await cells()).find((x) => x[1] === line('Cleaner'))).toEqual([acc('Furniture'), line('Cleaner'), 1080]);
+    // back to "not funded"
+    expect((await op('budget.setFund', { versionId: v, line_ids: [line('Cleaner')], account_id: null })).status).toBe(200);
+    expect((await cells()).find((x) => x[1] === line('Cleaner'))![0]).toBe(0);
 
-    // CEI keeps 50%, SZ 30%, CJF 20%
-    expect((await go([['CEI', 50], ['SZ', 30], ['CJF', 20]])).status).toBe(200);
-    const after = await cells();
-    const at = (a: string, l: string) => after.find((x) => x[0] === acc(a) && x[1] === line(l))![2];
-    expect([at('CEI', 'Reception'), at('SZ', 'Reception'), at('CJF', 'Reception')]).toEqual([1200, 720, 480]);
-    expect([at('CEI', 'Cleaner'), at('SZ', 'Cleaner'), at('CJF', 'Cleaner')]).toEqual([1080, 648, 432]);
-    expect(after.reduce((s, x) => s + (x[2] as number), 0)).toBe(2400 + 2160); // the total did not change
-    const b = (await op('budget.get', {})).body;
-    const sz = b.items.filter((i: { account_id: number }) => i.account_id === acc('SZ'));
-    expect(sz.map((i: { name: string; unit_cost: number; qty: number }) => [i.name, i.qty, i.unit_cost])).toEqual([['Reception', 2, 60], ['Cleaner', 2, 54]]);
-    expect(sz[0].note).toContain('30% of CEI');
-
-    // a second allocation adds to what an account already has
-    expect((await op('budget.allocate', { versionId: v, fromAccountId: acc('SZ'), parts: parts([['CJF', 100]]) })).status).toBe(200);
-    const again = await cells();
-    expect(again.find((x) => x[0] === acc('CJF') && x[1] === line('Reception'))![2]).toBe(480 + 720);
-    expect(again.some((x) => x[0] === acc('SZ'))).toBe(false);
-
-    // an account with one lump amount is refused
-    await op('budget.setAccount', { versionId: v, account_id: acc('SZ'), lump_usd: 100 });
-    expect((await go([['CEI', 50], ['SZ', 50]])).status).toBe(400);
+    // a revision and a new budget keep the funds
+    expect((await op('budget.revise', { budgetId: 1, note: 'r' })).status).toBe(200);
+    expect((await cells()).find((x) => x[1] === line('Reception'))![0]).toBe(acc('Running SEN'));
+    const next = (await op('budget.create', { start_ym: '2027-07', months: 6, rate_syp: 130, rate_eur: 0.89, from: 'empty' })).body;
+    const v2 = (await op('budget.get', { budgetId: next })).body.current.id;
+    expect((await op('budget.saveAmounts', { versionId: v2, cells: [{ line_id: line('Reception'), amount_usd: 2500 }, { line_id: line('Chairs'), amount_usd: 300 }] })).status).toBe(200);
+    const b2 = (await op('budget.get', { budgetId: next })).body.amounts as { account_id: number; line_id: number }[];
+    expect(b2.find((x) => x.line_id === line('Chairs'))!.account_id).toBe(0);
+    const copy = (await op('budget.create', { start_ym: '2028-01', months: 12, rate_syp: 130, rate_eur: 0.89, from: 'budget', fromBudgetId: 1 })).body;
+    const b3 = (await op('budget.get', { budgetId: copy })).body;
+    expect(b3.amounts.find((x: { line_id: number }) => x.line_id === line('Reception'))).toMatchObject({ account_id: acc('Running SEN'), amount_usd: 4800 });
+    expect(b3.current.contingency_pct).toBe(10);
   });
 });

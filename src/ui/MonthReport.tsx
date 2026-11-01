@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
 import { holdersMonth } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
-import { WHOLE, assignExpenses, followUp, inPeriod, type BudgetBook } from '../domain/budget';
+import { assignExpenses, followUp, inPeriod, type BudgetBook } from '../domain/budget';
 import { needsApproval, needsDoc, type BudgetPayload, type UserRow } from '../ops';
 import { brandStyle } from '../brand';
 import { fmtDate, fmtPct, fmtSyp, fmtUsd, t } from './kit';
@@ -57,14 +57,12 @@ export function MonthReport({ ym, onClose }: { ym: string; onClose: () => void }
   // every budget running this month, each with only the expenses that belong to it
   const budgetTables = useMemo(() => {
     if (!budget) return [];
-    const books: BudgetBook[] = budget.books.map((x) => ({ budget: x.budget, cells: x.cells, lumped: new Set(x.lumped) }));
-    const assigned = assignExpenses(d.rows, comp, books);
+    const books: BudgetBook[] = budget.books.map((x) => ({ budget: x.budget, cells: x.cells }));
     const headingOf = new Map(L.lines.map((l) => [l.id, l.heading_id]));
     const outside = new Set(L.accounts.filter((a) => a.outside_budget).map((a) => a.id));
+    const assigned = assignExpenses(d.rows, comp, books, (r) => r.account_id == null || !outside.has(r.account_id));
     return books.filter((bk) => inPeriod(bk.budget, ym)).map((bk) => {
-      const amounts = bk.cells.filter((c) => c.line_id !== WHOLE);
-      const accounts = bk.cells.filter((c) => c.line_id === WHOLE).map((c) => ({ version_id: 0, account_id: c.account_id, contingency_pct: 0, lump_usd: c.amount_usd }));
-      const rowsB = followUp({ rows: d.rows, comp, budget: bk.budget, upToYm: ym, amounts, original: null, headingOf, outside, accounts, assigned: books.length > 1 ? assigned : undefined });
+      const rowsB = followUp({ rows: d.rows, comp, budget: bk.budget, upToYm: ym, amounts: bk.cells, original: null, headingOf, outside, assigned: books.length > 1 ? assigned : undefined });
       const m = new Map<number, { budget: number; spent: number }>();
       for (const r of rowsB) {
         const x = m.get(r.heading_id) ?? { budget: 0, spent: 0 };
@@ -72,7 +70,7 @@ export function MonthReport({ ym, onClose }: { ym: string; onClose: () => void }
       }
       return {
         name: bk.budget.name,
-        rows: [...m].map(([h, x]) => ({ name: h === WHOLE ? t('حسابات بمبلغ واحد', 'Accounts with one amount') : L.headings.find((y) => y.id === h)?.name ?? '?', ...x })),
+        rows: [...m].map(([h, x]) => ({ name: L.headings.find((y) => y.id === h)?.name ?? '?', ...x })),
       };
     });
   }, [budget, d, comp, L, ym]);

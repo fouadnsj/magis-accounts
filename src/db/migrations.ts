@@ -1538,4 +1538,52 @@ CREATE TABLE grant_share (
 );
 `,
   },
+  {
+    n: 41,
+    name: 'one budget for the centre: each line has one amount and at most one fund (or "not funded"); one contingency per budget',
+    sql: `
+-- The reserve is the budget's, not an account's (it was set only on Center: the largest is kept).
+ALTER TABLE budget_version ADD COLUMN contingency_pct REAL NOT NULL DEFAULT 0;
+UPDATE budget_version SET contingency_pct = COALESCE((SELECT MAX(contingency_pct) FROM budget_account a WHERE a.version_id = budget_version.id), 0);
+-- A line once under several accounts becomes one line (Fouad, 2026-11-01): its amounts added together,
+-- its fund the account that had the largest amount. Funds outside the budget (Deir) are not the centre's
+-- budget: their amounts leave it, as the follow-up already left them out.
+CREATE TABLE budget_amount_new (
+  version_id INTEGER NOT NULL REFERENCES budget_version(id),
+  line_id    INTEGER NOT NULL REFERENCES budget_line(id),
+  account_id INTEGER REFERENCES account(id),
+  amount_usd REAL NOT NULL,
+  PRIMARY KEY (version_id, line_id)
+);
+INSERT INTO budget_amount_new (version_id, line_id, account_id, amount_usd)
+  SELECT x.version_id, x.line_id,
+         (SELECT y.account_id FROM budget_amount y JOIN account a ON a.id = y.account_id
+           WHERE y.version_id = x.version_id AND y.line_id = x.line_id AND a.outside_budget = 0
+           ORDER BY y.amount_usd DESC, y.account_id LIMIT 1),
+         SUM(x.amount_usd)
+    FROM budget_amount x JOIN account a ON a.id = x.account_id
+   WHERE a.outside_budget = 0
+   GROUP BY x.version_id, x.line_id;
+CREATE TABLE budget_item_new (
+  id         INTEGER PRIMARY KEY,
+  version_id INTEGER NOT NULL REFERENCES budget_version(id),
+  line_id    INTEGER NOT NULL REFERENCES budget_line(id),
+  name       TEXT NOT NULL,
+  unit       TEXT,
+  qty        REAL NOT NULL,
+  times      REAL NOT NULL,
+  unit_cost  REAL NOT NULL,
+  note       TEXT,
+  sort       INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO budget_item_new (id, version_id, line_id, name, unit, qty, times, unit_cost, note, sort)
+  SELECT i.id, i.version_id, i.line_id, i.name, i.unit, i.qty, i.times, i.unit_cost, i.note, i.sort
+    FROM budget_item i JOIN account a ON a.id = i.account_id WHERE a.outside_budget = 0;
+DROP TABLE budget_amount;
+ALTER TABLE budget_amount_new RENAME TO budget_amount;
+DROP TABLE budget_item;
+ALTER TABLE budget_item_new RENAME TO budget_item;
+CREATE INDEX budget_item_line ON budget_item(version_id, line_id);
+`,
+  },
 ];

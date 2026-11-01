@@ -270,6 +270,7 @@ function FundsTab() {
                 <td className="n">{used(x.id)}</td>
                 {edit && (
                   <td className="nowrap right">
+                    {can('lists.manage') && <button className="btn small ghost" title={t('خارج الموازنة (مثل الدير): ما يُصرف منه ليس من موازنة المركز', 'Outside the budget (like Deir): what it spends is not in the centre\'s budget')} onClick={() => act(() => s.api.call('account.setOutside', { id: x.id, outside: !x.outside_budget }))}>{x.outside_budget ? t('إلى الموازنة', 'Into the budget') : t('خارج الموازنة', 'Outside the budget')}</button>}
                     <button className="btn small ghost" title="↑" onClick={() => act(() => s.api.call('list.move', { table: 'account', id: x.id, dir: -1 }))}>▲</button>
                     <button className="btn small ghost" title="↓" onClick={() => act(() => s.api.call('list.move', { table: 'account', id: x.id, dir: 1 }))}>▼</button>
                     <button className="btn small ghost" onClick={async () => {

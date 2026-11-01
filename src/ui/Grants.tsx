@@ -2,11 +2,9 @@
 // promised → approved → transferred by the donor → in the bank → in hand. In hand,
 // it is an income in the Respo book; from there it is transferred to Main
 // (confirmed by the Accountant) and spent on the accounts it is for.
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp, useNames } from '../state';
 import { GRANT_STEPS, grantFlows, type GrantCard, type GrantStep } from '../domain/grants';
-import type { BudgetPayload } from '../ops';
-import { WHOLE, cellsOf, cover, effectivePct } from '../domain/budget';
 import { Field, Modal, Seg, Select, confirmBox, errText, fmtDate, fmtUsd, parseAmount, promptBox, t, toast, todayIso } from './kit';
 import { CENTRES, centreStyle, type CentreKey } from '../brand';
 import { tx } from '../i18n';
@@ -29,7 +27,6 @@ export function Grants() {
   const [showDone, setShowDone] = useState(false);
   const [donorsOpen, setDonorsOpen] = useState(false);
   const [donorF, setDonorF] = useState<number | null>(null);
-  const cov = useBudgetCover();
   const flows = useMemo(() => grantFlows(d.grants, d.grantParts, d.rows, d.comp), [d]);
   const done = (g: GrantCard) => g.status === 'hand' && (flows.get(g.id)?.left ?? 1) <= 0.5;
   const shown = d.grants.filter((g) => (showDone || !done(g)) && (donorF == null || g.donor_id === donorF));
@@ -133,41 +130,15 @@ export function Grants() {
         {!shown.length && <p className="muted">{t('لا منح بعد.', 'No grants yet.')}</p>}
       </div>
       <p className="muted small">{t('لإرسال مال منحة إلى الرئيسي: سجّل «تحويلاً» من دفتر المسؤول إلى الرئيسي واختر المنحة فيه. كل نفقة على حساب المنحة تُخصم من أقدم منحة لهذا الحساب.', 'To send a grant\'s money to Main: record a "Transfer" from the Respo book to Main and choose the grant in it. Each expense on a grant\'s account uses the oldest grant for that account.')}</p>
-      {donorsOpen && <DonorsModal onClose={() => setDonorsOpen(false)} cov={cov} />}
+      {donorsOpen && <DonorsModal onClose={() => setDonorsOpen(false)} />}
       {editing && <GrantModal start={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />}
       {stepping && <StepModal g={stepping.g} to={stepping.to} onClose={() => setStepping(null)} onDone={async () => { setStepping(null); await reload(); }} />}
     </>
   );
 }
 
-/** What the current budget expects from each donor, per account (USD): the link between the budget and the grants. */
-function useBudgetCover() {
-  const { s, d } = useApp();
-  const [b, setB] = useState<BudgetPayload | null>(null);
-  useEffect(() => {
-    s.api.call('budget.get', { budgetId: null }).then(setB).catch(() => setB(null));
-  }, [s]);
-  return useMemo(() => {
-    const per = new Map<number, Map<number, number>>(); // donor → account → USD
-    if (!b?.budget || !b.current) return { per, name: null as string | null };
-    const headingOf = new Map(d.lists.lines.map((l) => [l.id, l.heading_id]));
-    const outside = new Set(d.lists.accounts.filter((a) => a.outside_budget).map((a) => a.id));
-    const cells = cellsOf(b.amounts, b.accounts).filter((x) => !outside.has(x.account_id));
-    const eff = effectivePct(b.allocs, cells, headingOf);
-    for (const x of cells) {
-      const c = cover(b.allocs, eff, x.account_id, x.line_id, headingOf.get(x.line_id) ?? WHOLE, x.amount_usd);
-      for (const dn of c.donors) {
-        const m = per.get(dn.donor_id) ?? new Map<number, number>();
-        m.set(x.account_id, (m.get(x.account_id) ?? 0) + dn.usd);
-        per.set(dn.donor_id, m);
-      }
-    }
-    return { per, name: b.budget.name };
-  }, [b, d.lists]);
-}
-
 /** The donors, here with the grants (Fouad, 28 October 2026): add, rename, switch off; what each is expected to give in the budget, and what came. */
-function DonorsModal({ onClose, cov }: { onClose: () => void; cov: ReturnType<typeof useBudgetCover> }) {
+function DonorsModal({ onClose }: { onClose: () => void }) {
   const { s, d, reload } = useApp();
   const [name, setName] = useState('');
   const act = async (f: () => Promise<unknown>, ok?: string) => {
@@ -189,15 +160,13 @@ function DonorsModal({ onClose, cov }: { onClose: () => void; cov: ReturnType<ty
         <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => s.api.call('donor.save', { name, default_project_id: null }), t('أضيف', 'Added'))) && setName('')}>＋</button>
       </div>
       <table className="t">
-        <thead><tr><th>{t('المانح', 'Donor')}</th><th className="n">{cov.name ? t(`في الموازنة «${cov.name}»`, `In the budget "${cov.name}"`) : t('في الموازنة', 'In the budget')} $</th><th className="n">{t('منح', 'Grants')} $</th><th className="n">{t('باليد', 'In hand')} $</th><th /></tr></thead>
+        <thead><tr><th>{t('المانح', 'Donor')}</th><th className="n">{t('منح', 'Grants')} $</th><th className="n">{t('باليد', 'In hand')} $</th><th /></tr></thead>
         <tbody>
           {d.lists.donors.map((x) => {
             const gs = d.grants.filter((g) => g.donor_id === x.id);
-            const inBudget = [...(cov.per.get(x.id)?.values() ?? [])].reduce((a, b) => a + b, 0);
             return (
               <tr key={x.id} className={x.active ? '' : 'off'}>
                 <td>{x.name}</td>
-                <td className="n ltr">{inBudget ? fmtUsd(inBudget) : '—'}</td>
                 <td className="n ltr">{gs.length ? [gs.some((g) => g.currency === 'USD') ? fmtUsd(gs.reduce((a, g) => a + usdOf(g), 0)) : '', gs.some((g) => g.currency === 'EUR') ? `€${fmtUsd(gs.reduce((a, g) => a + (g.currency === 'EUR' ? g.amount : 0), 0))}` : ''].filter(Boolean).join(' + ') : '—'}</td>
                 <td className="n ltr">{gs.some((g) => g.status === 'hand') ? fmtUsd(gs.reduce((a, g) => a + (g.status === 'hand' ? g.hand_usd ?? 0 : 0), 0)) : '—'}</td>
                 <td className="nowrap right">
@@ -225,7 +194,6 @@ function DonorsModal({ onClose, cov }: { onClose: () => void; cov: ReturnType<ty
           })}
         </tbody>
       </table>
-      <p className="muted small">{t('ما يغطيه كل مانح في الموازنة يُحدَّد في الموازنة ← المانحون.', 'What each donor covers in the budget is set in Budget → Donors.')}</p>
       <div className="modal-foot"><button className="btn primary" onClick={onClose}>{t('تم', 'Done')}</button></div>
     </Modal>
   );

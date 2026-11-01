@@ -4,11 +4,11 @@
 // first out), so nothing is counted twice; what a budget did not spend can be
 // carried over to the one that continues it.
 // each item = Quantity × Times (the months it runs; staff 13) × Cost per unit, in USD.
-// Items are grouped under a budget line, per account; the line's amount is their
-// total. A contingency (e.g. 10 % on running costs) is added per account, as a
-// reserve, not a line one spends on. Pounds and euros come from estimated rates.
-// Donors cover parts: a percentage or a fixed amount of an account, a heading, a line.
-// What is spent comes from the register (expenses, in USD as in the reports: column T).
+// One budget for the whole centre (Fouad, 2026-11-01): items are grouped under a budget
+// line; the line's amount is their total; each line has at most ONE fund (a grant's share
+// here, or private money), else it is "not funded". A contingency (e.g. 10 %) is added to
+// the budget as a reserve, not a line one spends on. Pounds and euros come from estimated rates.
+// What is spent comes from the register (expenses, in USD as in the reports: column T), by line.
 import type { Computed, Trx } from './types';
 
 /** A budget: a name, a period, and (maybe) the budget it continues. */
@@ -32,6 +32,8 @@ export interface BudgetVersion {
   rev: number;
   rate_syp: number; // estimated SYP per USD
   rate_eur: number; // estimated EUR per USD
+  /** the reserve added to the budget, e.g. 10 (%) */
+  contingency_pct: number;
   note: string | null;
   created_at: string;
   created_by: string | null;
@@ -39,15 +41,18 @@ export interface BudgetVersion {
 
 export interface BudgetAmount {
   version_id: number;
+  /** the line's fund; NOFUND (0) = not funded */
   account_id: number;
   line_id: number;
   amount_usd: number;
 }
 
+/** A line without a fund. */
+export const NOFUND = 0;
+
 export interface BudgetItem {
   id?: number;
   version_id?: number;
-  account_id: number;
   line_id: number;
   name: string;
   unit: string | null;
@@ -58,48 +63,6 @@ export interface BudgetItem {
   sort?: number;
 }
 
-export interface BudgetAccount {
-  version_id: number;
-  account_id: number;
-  contingency_pct: number;
-  /** one amount for all the account's spending, whatever the line (e.g. Harat, funded by UNDP) */
-  lump_usd: number | null;
-}
-
-/** The "line" of an account budgeted as one amount. */
-export const WHOLE = -1;
-
-/** The budget's cells: line amounts, plus one cell per account budgeted as a single amount. */
-export function cellsOf(amounts: BudgetAmount[], accounts: BudgetAccount[]): BudgetAmount[] {
-  return [
-    ...amounts,
-    ...accounts.filter((a) => a.lump_usd != null && a.lump_usd > 0).map((a) => ({ version_id: a.version_id, account_id: a.account_id, line_id: WHOLE, amount_usd: a.lump_usd! })),
-  ];
-}
-
-export type AllocStatus = 'requested' | 'promised' | 'received';
-
-export interface BudgetAlloc {
-  id: number;
-  budget_id: number;
-  donor_id: number;
-  /** null: every account of the centre */
-  account_id: number | null;
-  /** null with line_id null: the whole account */
-  heading_id: number | null;
-  /** a single line (then heading_id is that line's heading) */
-  line_id: number | null;
-  /** either a percentage… */
-  pct: number | null;
-  /** …or a fixed amount in USD… */
-  amount_usd: number | null;
-  /** …or 1: the rest, what no other donor covers (e.g. SJ) */
-  rest: number;
-  status: AllocStatus;
-  note: string | null;
-}
-
-export const cellKey = (accountId: number, lineId: number) => `${accountId}|${lineId}`;
 export const itemTotal = (i: Pick<BudgetItem, 'qty' | 'times' | 'unit_cost'>) => i.qty * i.times * i.unit_cost;
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -110,13 +73,13 @@ export function prorateItems<T extends BudgetItem>(items: T[], months: number): 
 
 /** The line totals of a list of items. */
 export function totalsOf(items: BudgetItem[]) {
-  const m = new Map<string, number>();
-  for (const i of items) {
-    const k = cellKey(i.account_id, i.line_id);
-    m.set(k, (m.get(k) ?? 0) + itemTotal(i));
-  }
+  const m = new Map<number, number>();
+  for (const i of items) m.set(i.line_id, (m.get(i.line_id) ?? 0) + itemTotal(i));
   return m;
 }
+
+/** line → its fund, from a budget's amounts */
+export const fundsOf = (amounts: BudgetAmount[]) => new Map(amounts.map((a) => [a.line_id, a.account_id]));
 
 // ---------------------------------------------------------------- months
 
@@ -137,15 +100,15 @@ export function defaultBudgetName(start_ym: string, months: number) {
   return months === 1 ? monLabel(start_ym) : `${monLabel(start_ym)} – ${monLabel(addMonths(start_ym, months - 1))}`;
 }
 
-/** USD spent per (account, line) between two months (included), and the first month of each. */
+/** USD spent per line between two months (included), and the first month of each. */
 export function spentInRange(rows: Trx[], comp: Map<string, Computed>, from: string, to: string, keep?: (r: Trx) => boolean) {
-  const spent = new Map<string, number>();
-  const firstMonth = new Map<string, string>();
+  const spent = new Map<number, number>();
+  const firstMonth = new Map<number, string>();
   for (const r of rows) {
-    if (r.type !== 'Exp' || !r.date || r.account_id == null || r.line_id == null) continue;
+    if (r.type !== 'Exp' || !r.date || r.line_id == null) continue;
     const ym = r.date.slice(0, 7);
     if (ym < from || ym > to || (keep && !keep(r))) continue;
-    const k = cellKey(r.account_id, r.line_id);
+    const k = r.line_id;
     spent.set(k, (spent.get(k) ?? 0) + (comp.get(r.id)?.expUsdTot ?? 0));
     if (!firstMonth.has(k) || ym < firstMonth.get(k)!) firstMonth.set(k, ym);
   }
@@ -158,17 +121,16 @@ export function spentInRange(rows: Trx[], comp: Map<string, Computed>, from: str
  * raised to a full year first (3 months of rent → ×4); otherwise the real amount.
  * `pct`: one change for every line (+10 = 10 % more). Whole dollars.
  */
-export function proposeFromSpending(rows: Trx[], comp: Map<string, Computed>, start_ym: string, months: number, opts: { scale: boolean; pct: number }) {
+export function proposeFromSpending(rows: Trx[], comp: Map<string, Computed>, start_ym: string, months: number, opts: { scale: boolean; pct: number; keep?: (r: Trx) => boolean }) {
   const from = addMonths(start_ym, -12);
   const to = addMonths(start_ym, -1);
-  const { spent, firstMonth } = spentInRange(rows, comp, from, to);
-  const out: { account_id: number; line_id: number; amount_usd: number }[] = [];
-  for (const [k, v] of spent) {
+  const { spent, firstMonth } = spentInRange(rows, comp, from, to, opts.keep);
+  const out: { line_id: number; amount_usd: number }[] = [];
+  for (const [line_id, v] of spent) {
     if (v <= 0) continue;
-    const [account_id, line_id] = k.split('|').map(Number);
-    const active = monthsBetween(firstMonth.get(k) ?? from, to) + 1;
+    const active = monthsBetween(firstMonth.get(line_id) ?? from, to) + 1;
     const year = opts.scale ? (v * 12) / active : v;
-    out.push({ account_id, line_id, amount_usd: Math.round(((year * months) / 12) * (1 + opts.pct / 100)) });
+    out.push({ line_id, amount_usd: Math.round(((year * months) / 12) * (1 + opts.pct / 100)) });
   }
   return out;
 }
@@ -180,41 +142,33 @@ export function periodShare(b: Pick<Budget, 'start_ym' | 'months'>, upToYm: stri
 
 // ---------------------------------------------------------------- which budget an expense belongs to
 
-/** A budget with what it holds: its cells (line amounts, and one cell per account with one amount). */
+/** A budget with what it holds: its line amounts. */
 export interface BudgetBook {
   budget: Budget;
   cells: BudgetAmount[];
-  /** accounts budgeted as one amount: their spending goes to the WHOLE cell */
-  lumped: Set<number>;
 }
 
 /**
  * Each expense goes to ONE budget: among the budgets running at its date that
- * contain its account, the oldest that still has money on its line (or on the
- * account, for one amount); when none has, the newest. Expenses are taken in
- * date order, so the first donation is finished before the new one starts.
+ * have its line, the oldest that still has money on that line; when none has,
+ * the newest. Expenses are taken in date order, so the first donation is finished
+ * before the new one starts. `keep`: the expenses that count (not outside the budget).
  */
-export function assignExpenses(rows: Trx[], comp: Map<string, Computed>, books: BudgetBook[]): Map<string, number> {
+export function assignExpenses(rows: Trx[], comp: Map<string, Computed>, books: BudgetBook[], keep?: (r: Trx) => boolean): Map<string, number> {
   const out = new Map<string, number>();
   const ordered = [...books].sort((a, b) => a.budget.start_ym.localeCompare(b.budget.start_ym) || a.budget.id - b.budget.id);
-  const left = new Map<number, Map<string, number>>();
-  const accounts = new Map<number, Set<number>>();
-  for (const bk of ordered) {
-    left.set(bk.budget.id, new Map(bk.cells.map((c) => [cellKey(c.account_id, c.line_id), c.amount_usd])));
-    accounts.set(bk.budget.id, new Set(bk.cells.map((c) => c.account_id)));
-  }
+  const left = new Map<number, Map<number, number>>();
+  for (const bk of ordered) left.set(bk.budget.id, new Map(bk.cells.map((c) => [c.line_id, c.amount_usd])));
   const exps = rows
-    .filter((r) => r.type === 'Exp' && r.date && r.account_id != null)
+    .filter((r) => r.type === 'Exp' && r.date && r.line_id != null && (!keep || keep(r)))
     .sort((a, b) => a.date!.localeCompare(b.date!) || (a.n ?? 0) - (b.n ?? 0));
   for (const r of exps) {
     const ym = r.date!.slice(0, 7);
-    const cands = ordered.filter((bk) => inPeriod(bk.budget, ym) && accounts.get(bk.budget.id)!.has(r.account_id!));
+    const cands = ordered.filter((bk) => inPeriod(bk.budget, ym) && left.get(bk.budget.id)!.has(r.line_id!));
     if (!cands.length) continue;
-    const keyFor = (bk: BudgetBook) => (bk.lumped.has(r.account_id!) ? cellKey(r.account_id!, WHOLE) : cellKey(r.account_id!, r.line_id ?? -999));
-    const pick = cands.find((bk) => (left.get(bk.budget.id)!.get(keyFor(bk)) ?? 0) > 0.004) ?? cands[cands.length - 1];
-    const k = keyFor(pick);
+    const pick = cands.find((bk) => (left.get(bk.budget.id)!.get(r.line_id!) ?? 0) > 0.004) ?? cands[cands.length - 1];
     const m = left.get(pick.budget.id)!;
-    m.set(k, (m.get(k) ?? 0) - (comp.get(r.id)?.expUsdTot ?? 0));
+    m.set(r.line_id!, (m.get(r.line_id!) ?? 0) - (comp.get(r.id)?.expUsdTot ?? 0));
     out.set(r.id, pick.budget.id);
   }
   return out;
@@ -254,67 +208,8 @@ export function usedBand(used: number | null): 0 | 50 | 75 | 90 | 100 {
   return 0;
 }
 
-/** Which allocations apply to one cell (account + line of a heading). */
-export function allocsFor(allocs: BudgetAlloc[], accountId: number, lineId: number, headingId: number) {
-  return allocs.filter((a) =>
-    (a.account_id == null || a.account_id === accountId) &&
-    (a.line_id != null ? a.line_id === lineId : a.heading_id != null ? a.heading_id === headingId : true));
-}
-
-const inScope = (a: BudgetAlloc, x: BudgetAmount, headingOf: Map<number, number>) =>
-  (a.account_id == null || x.account_id === a.account_id) &&
-  (a.line_id != null ? x.line_id === a.line_id : a.heading_id != null ? headingOf.get(x.line_id) === a.heading_id : true);
-
-/**
- * The percentage each allocation really gives: its own %, or, for a fixed
- * amount, that amount against the budget of what it covers (at most 100 %).
- */
-export function effectivePct(allocs: BudgetAlloc[], cells: BudgetAmount[], headingOf: Map<number, number>) {
-  const out = new Map<number, number>();
-  for (const a of allocs) {
-    if (a.rest) continue; // worked out cell by cell (see cover)
-    if (a.pct != null) {
-      out.set(a.id, a.pct);
-      continue;
-    }
-    const scope = cells.filter((x) => inScope(a, x, headingOf)).reduce((s, x) => s + x.amount_usd, 0);
-    out.set(a.id, scope > 0 ? Math.min(100, ((a.amount_usd ?? 0) / scope) * 100) : 0);
-  }
-  return out;
-}
-
-/** What an allocation is worth in USD over the budget it covers. */
-export function allocWorth(a: BudgetAlloc, allocs: BudgetAlloc[], eff: Map<number, number>, cells: BudgetAmount[], headingOf: Map<number, number>) {
-  return cells.filter((x) => inScope(a, x, headingOf)).reduce((s, x) => {
-    const c = cover(allocs, eff, x.account_id, x.line_id, headingOf.get(x.line_id) ?? WHOLE, x.amount_usd);
-    return s + c.donors.filter((d) => d.alloc_id === a.id).reduce((t, d) => t + d.usd, 0);
-  }, 0);
-}
-
-export interface CellCover {
-  /** per allocation: USD of this cell it covers, and with which status */
-  donors: { alloc_id: number; donor_id: number; usd: number; status: AllocStatus }[];
-  /** total percentage given (can pass 100 %: shown as a warning) */
-  pct: number;
-  covered: number;
-  toFind: number;
-}
-
-export function cover(allocs: BudgetAlloc[], eff: Map<number, number>, accountId: number, lineId: number, headingId: number, amount: number): CellCover {
-  const mine = allocsFor(allocs, accountId, lineId, headingId);
-  const fixed = mine.filter((a) => !a.rest);
-  const rests = mine.filter((a) => a.rest);
-  const given = fixed.reduce((s, a) => s + (eff.get(a.id) ?? 0), 0);
-  // "the rest": what the others leave, shared if several donors take the rest
-  const restPct = rests.length ? Math.max(0, 100 - given) / rests.length : 0;
-  const pctOf = (a: BudgetAlloc) => (a.rest ? restPct : eff.get(a.id) ?? 0);
-  const donors = mine.map((a) => ({ alloc_id: a.id, donor_id: a.donor_id, usd: (amount * pctOf(a)) / 100, status: a.status }));
-  const pct = given + restPct * rests.length;
-  const covered = (amount * Math.min(pct, 100)) / 100;
-  return { donors, pct, covered, toFind: Math.max(0, amount - covered) };
-}
-
 export interface BudgetRow {
+  /** the line's fund (NOFUND: not funded) */
   account_id: number;
   line_id: number;
   heading_id: number;
@@ -330,10 +225,10 @@ export interface BudgetRow {
 }
 
 /**
- * Budget against what was really spent, line by line, up to a month. Accounts
- * marked outside the centre are left out. Lines spent on without any budget
- * are listed too (budget 0), so nothing is hidden. With `assigned`, only the
- * expenses that belong to this budget count (overlapping budgets).
+ * Budget against what was really spent, line by line, up to a month. Expenses on
+ * a fund outside the budget are left out. Lines spent on without any budget are
+ * listed too (budget 0), so nothing is hidden. With `assigned`, only the expenses
+ * that belong to this budget count (overlapping budgets).
  */
 export function followUp(args: {
   rows: Trx[];
@@ -343,64 +238,44 @@ export function followUp(args: {
   amounts: BudgetAmount[];
   original: BudgetAmount[] | null;
   headingOf: Map<number, number>;
+  /** funds outside the budget (their spending is not the centre's) */
   outside: Set<number>;
-  /** accounts budgeted as one amount (their spending is gathered, whatever the line) */
-  accounts?: BudgetAccount[];
   /** expense id → the budget it belongs to (see assignExpenses) */
   assigned?: Map<string, number>;
 }): BudgetRow[] {
   const { rows, comp, budget, upToYm, amounts, original, headingOf, outside, assigned } = args;
-  const lumps = (args.accounts ?? []).filter((a) => a.lump_usd != null && a.lump_usd > 0);
-  const lumped = new Set(lumps.map((a) => a.account_id));
-  const gather = (m: Map<string, number>) => {
-    const out = new Map<string, number>();
-    for (const [k, v] of m) {
-      const acc = Number(k.split('|')[0]);
-      const key = lumped.has(acc) ? cellKey(acc, WHOLE) : k;
-      out.set(key, (out.get(key) ?? 0) + v);
-    }
-    return out;
-  };
   const end = upToYm < periodEnd(budget) ? upToYm : periodEnd(budget);
-  const mine = assigned ? (r: Trx) => assigned.get(r.id) === budget.id : undefined;
-  const spent = gather(spentInRange(rows, comp, budget.start_ym, end, mine).spent);
-  // reference: the same months one year before, on this budget's accounts
-  const accs = new Set([...amounts.map((a) => a.account_id), ...lumped]);
-  const onMine = assigned && accs.size ? (r: Trx) => accs.has(r.account_id!) : undefined;
-  const last = gather(spentInRange(rows, comp, addMonths(budget.start_ym, -12), addMonths(end, -12), onMine).spent);
-  const budgetMap = new Map([...amounts.filter((a) => !lumped.has(a.account_id)), ...cellsOf([], lumps)].map((a) => [cellKey(a.account_id, a.line_id), a.amount_usd]));
-  const hOf = new Map([...headingOf, [WHOLE, WHOLE]]);
-  const orig = original ? new Map(original.map((a) => [cellKey(a.account_id, a.line_id), a.amount_usd])) : null;
+  const inside = (r: Trx) => r.account_id == null || !outside.has(r.account_id);
+  const mine = (r: Trx) => inside(r) && (!assigned || assigned.get(r.id) === budget.id);
+  const spent = spentInRange(rows, comp, budget.start_ym, end, mine).spent;
+  // reference: the same months one year before
+  const last = spentInRange(rows, comp, addMonths(budget.start_ym, -12), addMonths(end, -12), inside).spent;
+  const budgetMap = new Map(amounts.map((a) => [a.line_id, a.amount_usd]));
+  const fund = fundsOf(amounts);
+  const orig = original ? new Map(original.map((a) => [a.line_id, a.amount_usd])) : null;
   const share = periodShare(budget, end);
   const out: BudgetRow[] = [];
-  for (const k of new Set([...budgetMap.keys(), ...spent.keys()])) {
-    const [account_id, line_id] = k.split('|').map(Number);
-    const heading_id = hOf.get(line_id);
-    if (heading_id == null || outside.has(account_id)) continue;
-    const b = budgetMap.get(k) ?? 0;
-    const sp = spent.get(k) ?? 0;
+  for (const line_id of new Set([...budgetMap.keys(), ...spent.keys()])) {
+    const heading_id = headingOf.get(line_id);
+    if (heading_id == null) continue;
+    const b = budgetMap.get(line_id) ?? 0;
+    const sp = spent.get(line_id) ?? 0;
     out.push({
-      account_id, line_id, heading_id,
-      original: orig ? orig.get(k) ?? 0 : null,
+      account_id: fund.get(line_id) ?? NOFUND, line_id, heading_id,
+      original: orig ? orig.get(line_id) ?? 0 : null,
       budget: b, spent: sp, left: b - sp, used: b > 0 ? sp / b : null,
       pace: paceOf(b, sp, share),
-      lastYear: last.get(k) ?? 0,
+      lastYear: last.get(line_id) ?? 0,
     });
   }
   return out;
 }
 
-/** Per account: the contingency, and how much of it the overspent lines already use. */
-export function contingencyOf(rows: BudgetRow[], accounts: BudgetAccount[]) {
-  const out = new Map<number, { base: number; reserve: number; used: number }>();
-  for (const r of rows) {
-    const x = out.get(r.account_id) ?? { base: 0, reserve: 0, used: 0 };
-    x.base += r.budget;
-    x.used += Math.max(0, r.spent - r.budget);
-    out.set(r.account_id, x);
-  }
-  for (const [id, x] of out) x.reserve = (x.base * (accounts.find((a) => a.account_id === id)?.contingency_pct ?? 0)) / 100;
-  return out;
+/** The contingency of the budget (a % of it), and how much of it the overspent lines already use. */
+export function contingencyOf(rows: BudgetRow[], pct: number) {
+  const base = rows.reduce((s, r) => s + r.budget, 0);
+  const used = rows.reduce((s, r) => s + Math.max(0, r.spent - r.budget), 0);
+  return { base, reserve: (base * pct) / 100, used };
 }
 
 // ---------------------------------------------------------------- reading a budget sheet

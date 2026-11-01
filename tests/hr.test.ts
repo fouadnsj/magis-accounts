@@ -565,6 +565,9 @@ describe('HR database', () => {
     expect(lineFor(two, { centre: 'C', role: 'IT', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E02.6');
     expect(lineFor(two, { centre: 'C', role: 'Centre Director', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E03.1');
     expect(lineFor(two, { centre: 'C', role: 'Media', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line).toBeNull(); // no "Media person" line here, and never the insurance line
+    // the position holds the line's words: "Workshop Coordinator" is paid on "Coordinator" (one line in the common list)
+    const coord = [...(two as unknown as object[]), { id: 6, kind: 'line', name: 'Coordinator', code: 'E03.2', heading: 'Operational staff', source: 'c' }] as never;
+    expect(lineFor(coord, { centre: 'C', role: 'Workshop Coordinator', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E03.2');
     // a tutor: any line of the centre, chosen on the card (an activities line too); never guessed; staff keep the salary lines
     const tutor = { centre: 'C', role: null, first_name: 'English', first_name_ar: null, name: 'x', category: 'tutor' };
     expect(lineFor(two, { ...tutor, budget_line: 'E04.1 · English courses' }).line?.code).toBe('E04.1');

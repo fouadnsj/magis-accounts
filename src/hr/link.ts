@@ -47,9 +47,13 @@ export function lineFor(lists: HrListItem[], p: Pick<HrPerson, 'centre' | 'budge
   if (p.category === 'tutor') return { line: null, guessed: false };
   const role = norm(p.role);
   const words = (x: string) => x.split(' ').filter(Boolean);
-  // the same name, else the shortest line holding every word of the position ("IT" → "IT person"); never an insurance line
+  // the same name, else the shortest line holding every word of the position ("IT" → "IT person"), else the longest
+  // line whose words are all in the position ("Workshop Coordinator" → "Coordinator", one line in the common list);
+  // never an insurance line
+  const usable = lines.filter((l) => !/insurance|تأمين/i.test(l.name));
   const byRole = role ? lines.find((l) => norm(l.name) === role)
-    ?? lines.filter((l) => !/insurance|تأمين/i.test(l.name) && words(role).every((w) => words(norm(l.name)).includes(w))).sort((a, b) => words(norm(a.name)).length - words(norm(b.name)).length)[0] : undefined;
+    ?? usable.filter((l) => words(role).every((w) => words(norm(l.name)).includes(w))).sort((a, b) => words(norm(a.name)).length - words(norm(b.name)).length)[0]
+    ?? usable.filter((l) => words(norm(l.name)).length > 0 && words(norm(l.name)).every((w) => words(role).includes(w))).sort((a, b) => words(norm(b.name)).length - words(norm(a.name)).length)[0] : undefined;
   if (byRole) return { line: byRole, guessed: true };
   for (const n of [p.first_name, p.first_name_ar, p.name?.split(' ')[0]].map(norm).filter((x) => x.length > 2)) {
     const byName = lines.find((l) => norm(l.name).split(' ').includes(n));

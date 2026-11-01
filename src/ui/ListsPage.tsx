@@ -20,7 +20,7 @@ export function ListsPage() {
         { value: 'budget', label: t('الموازنة', 'Budget') },
         { value: 'books', label: t('الدفاتر والأمناء', 'Books & keepers') },
         { value: 'party', label: t('الجهات', 'Parties') },
-        { value: 'account', label: t('الصناديق', 'Funds') },
+        { value: 'account', label: t('المشاريع', 'Projects') },
         { value: 'city', label: t('المدن', 'Cities') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
@@ -250,15 +250,15 @@ function FundsTab() {
   const add = async () => (await act(() => s.api.call('list.add', { table: 'account', name }), t('أضيف', 'Added'))) && setName('');
   return (
     <div className="panel" style={{ maxWidth: 900 }}>
-      <p className="muted small" style={{ marginTop: 0 }}>{t('حصة كل منحة في هذا المركز صندوق. الصندوق بلا منحة مال خاص. صندوق المنحة يُنشأ من صفحة المنح.', "Each grant's share in this centre is a fund. A fund without a grant is private money. A grant's fund is made from the Grants page.")}</p>
+      <p className="muted small" style={{ marginTop: 0 }}>{t('حصة كل منحة في هذا المركز مشروع. المشروع بلا منحة مال خاص. مشروع المنحة يُنشأ من صفحة المنح.', "Each grant's share in this centre is a project. A project without a grant is private money. A grant's project is made from the Grants page.")}</p>
       {edit && (
         <div className="row" style={{ marginBottom: 10 }}>
-          <input className="inp" style={{ flex: 1 }} placeholder={t('صندوق خاص جديد', 'New private fund')} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && void add()} />
+          <input className="inp" style={{ flex: 1 }} placeholder={t('مشروع خاص جديد', 'New private project')} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && void add()} />
           <button className="btn primary" disabled={!name.trim()} onClick={add}>＋ {t('إضافة', 'Add')}</button>
         </div>
       )}
       <table className="t">
-        <thead><tr><th>{t('الصندوق', 'Fund')}</th><th>{t('المنحة', 'Grant')}</th><th className="n">{t('الحصة هنا', 'Share here')}</th><th className="n">{t('مستعمل', 'Used')}</th>{edit && <th />}</tr></thead>
+        <thead><tr><th>{t('المشروع', 'Project')}</th><th>{t('المنحة', 'Grant')}</th><th className="n">{t('الحصة هنا', 'Share here')}</th><th className="n">{t('مستعمل', 'Used')}</th>{edit && <th />}</tr></thead>
         <tbody>
           {d.lists.accounts.map((x) => {
             const gr = grantOf(x.id);
@@ -279,7 +279,7 @@ function FundsTab() {
                     }}>✎</button>
                     {x.active ? (
                       <button className="btn small ghost" onClick={async () => {
-                        if (gr) return toast(t('لهذا الصندوق منحة: غيّرها من صفحة المنح', 'This fund has a grant: change it from the Grants page'), true);
+                        if (gr) return toast(t('لهذا المشروع منحة: غيّرها من صفحة المنح', 'This project has a grant: change it from the Grants page'), true);
                         if (used(x.id)) {
                           if (await confirmBox(t('مستعمل. إيقافه؟ (يبقى في السطور القديمة ويختفي من القوائم)', 'In use. Deactivate it? (stays on old rows, leaves the dropdowns)')))
                             await act(() => s.api.call('list.setActive', { table: 'account', id: x.id, active: false }));

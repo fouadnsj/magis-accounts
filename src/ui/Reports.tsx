@@ -4,12 +4,15 @@ import { exchangeLog, funding, monthly, summary, inPeriod, type Period } from '.
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { monthWord } from '../i18n';
 import type { Perm } from '../perms';
-import { Seg, Tabs, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t } from './kit';
+import { Seg, Tabs, errText, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t, toast } from './kit';
 import { BarList, EXPENSE, INCOME, MonthColumns, type Bar } from './Charts';
 import { useNav } from './Shell';
 import type { Trx } from '../domain/types';
 import { CurrencyFrame } from './Cash';
 import { QuartersTab } from './Quarters';
+import { projectReport, type ProjectRow } from '../domain/projects';
+import { projectXlsx } from '../io/projectExcel';
+import { saveFile } from '../platform';
 
 type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'funding' | 'exchange';
 
@@ -57,7 +60,7 @@ export function Reports() {
         { value: 'explore', label: t('التحليل', 'Explore'), hidden: !can('reports.summary') },
         { value: 'quarters', label: t('الفصول والبنود', 'Quarters & categories'), hidden: !can('reports.summary') },
         { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
-        { value: 'accounts', label: t('حسب الحساب', 'By account'), hidden: !can('reports.accounts') },
+        { value: 'accounts', label: t('حسب المشروع', 'By project'), hidden: !can('reports.accounts') },
         { value: 'funding', label: t('التمويل', 'Funding'), hidden: !can('reports.funding') },
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
@@ -67,7 +70,7 @@ export function Reports() {
       {tab === 'explore' && can('reports.summary') && <ExploreTab p={p} />}
       {tab === 'quarters' && can('reports.summary') && <QuartersTab />}
       {tab === 'monthly' && can('reports.monthly') && <MonthlyTab year={year} />}
-      {tab === 'accounts' && can('reports.accounts') && <AccountsTab p={p} />}
+      {tab === 'accounts' && can('reports.accounts') && <ProjectsTab p={p} />}
       {tab === 'exchange' && can('reports.exchange') && <ExchangeTab p={p} names={names} />}
     </>
   );
@@ -428,32 +431,95 @@ function MonthlyTab({ year }: { year: number }) {
   );
 }
 
-function AccountsTab({ p }: { p: Period }) {
-  const { d } = useApp();
-  const rs = d.centreRows.filter((r) => inPeriod(r, p));
-  const ls = d.lists.accounts.map((a) => {
-    const mine = rs.filter((r) => r.account_id === a.id);
-    const s = (f: (r: (typeof mine)[number]) => number) => mine.reduce((x, r) => x + f(r), 0);
-    return {
-      a, inS: s((r) => r.inc_syp), exS: s((r) => r.exp_syp), inU: s((r) => r.inc_usd), exU: s((r) => r.exp_usd),
-      eq: s((r) => d.comp.get(r.id)!.incUsdTot - d.comp.get(r.id)!.expUsdTot), n: mine.length,
-      books: [...new Set(mine.map((r) => d.lists.books.find((b) => b.id === r.book_id)?.name).filter(Boolean))].join(', '),
-    };
-  });
+/**
+ * The centre by project (Fouad, 2026-11-01): each project with its grant (for who sees the grants),
+ * what was received, spent in the period and since the beginning, what is left; line by line on
+ * opening; what is not funded; the projects outside the budget (Deir) apart. Excel for the donor.
+ */
+function ProjectsTab({ p }: { p: Period }) {
+  const { d, s, can } = useApp();
+  const names = useNames();
+  const icons = useIcons();
+  const [open, setOpen] = useState<string | null>(null);
+  const report = useMemo(() => projectReport({ rows: d.centreRows, comp: d.comp, lists: d.lists, grants: d.grants, grantParts: d.grantParts, grantShares: d.grantShares, period: p }), [d, p]);
+  const inside = report.filter((x) => !x.outside);
+  const outside = report.filter((x) => x.outside);
+  const total = inside.reduce((t, x) => t + x.spent, 0);
+  const notFunded = report.find((x) => x.id == null)?.spent ?? 0;
+  const money = (n: number, cur: string) => `${cur === 'EUR' ? '€' : '$'}${fmtUsd(n)}`;
+  const label = (x: ProjectRow) => (x.id == null ? t('غير ممول', 'Not funded') : x.name);
+  const excel = async (x: ProjectRow) => {
+    try {
+      const docs = new Map<string, string[]>();
+      for (const at of d.attachments) docs.set(at.trx_id, [...(docs.get(at.trx_id) ?? []), at.name]);
+      const bytes = await projectXlsx({ project: x, period: p, organisation: s.organisation, lists: d.lists, comp: d.comp, docs });
+      const path = await saveFile(`${(x.id == null ? 'not-funded' : x.name).replace(/[^\p{L}\p{N}]+/gu, '-')}-${p.from}-${p.to}.xlsx`, ['xlsx'], bytes, t('احفظ ملف Excel', 'Save the Excel file'));
+      if (path) toast(t('حُفظ', 'Saved') + ': ' + path);
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  const rowOf = (x: ProjectRow) => {
+    const k = String(x.id);
+    return [
+      <tr key={k} className={x.id == null ? 'group' : ''}>
+        <td>
+          <button className="btn small ghost" onClick={() => setOpen(open === k ? null : k)}>{open === k ? '▾' : '▸'}</button>{' '}
+          <b className={x.id == null ? 'bad' : ''}>{label(x)}</b>
+        </td>
+        <td className="small">
+          {x.grant ? <>{names.donor(x.grant.donor_id)}{x.grant.reference ? <span className="muted"> · {x.grant.reference}</span> : null}{x.share != null ? <span className="muted ltr"> · {money(x.share, x.grant.currency)}</span> : null}</> : x.id == null || !can('lists.donors') ? '' : <span className="muted">{t('خاص', 'Private')}</span>}
+        </td>
+        <td className="n">{x.received == null ? '—' : fmtUsd(x.received)}</td>
+        <td className="n">{fmtUsd(x.spent)}</td>
+        <td className="n muted">{fmtUsd(x.spentAll)}</td>
+        <td className={`n ${x.left != null && x.left < -0.5 ? 'bad' : ''}`}>{x.left == null ? '—' : fmtUsd(x.left)}</td>
+        <td className="right"><button className="btn small" disabled={!x.expenses.length} onClick={() => excel(x)}>Excel</button></td>
+      </tr>,
+      open === k ? (
+        <tr key={`${k}-lines`} className="items-row">
+          <td colSpan={7}>
+            <table className="t">
+              <tbody>
+                {x.lines.map((l) => (
+                  <tr key={`${l.line_id}`}>
+                    <td>{l.heading_id != null ? `${icons.heading(l.heading_id)} ${names.heading(l.heading_id)} › ` : ''}{l.line_id != null ? names.line(l.line_id) : '—'}</td>
+                    <td className="n muted">{l.rows}</td>
+                    <td className="n">{fmtUsd(l.spent)}</td>
+                  </tr>
+                ))}
+                {!x.lines.length && <tr><td className="muted">{t('لا مصاريف في هذه الفترة', 'No expenses in this period')}</td></tr>}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      ) : null,
+    ];
+  };
+  const head = (
+    <thead><tr>
+      <th>{t('المشروع', 'Project')}</th><th>{t('المنحة', 'Grant')}</th><th className="n">{t('استُلم باليد', 'Received in hand')} $</th>
+      <th className="n">{t('صُرف في الفترة', 'Spent in the period')} $</th><th className="n">{t('صُرف منذ البداية', 'Spent since the beginning')} $</th><th className="n">{t('الباقي', 'Left')} $</th><th />
+    </tr></thead>
+  );
   return (
-    <div className="tbl-wrap">
-      <table className="t">
-        <thead><tr><th>{t('الحساب', 'Account')}</th><th className="n">Inc SYP</th><th className="n">Exp SYP</th><th className="n">Net SYP</th><th className="n">Inc USD</th><th className="n">Exp USD</th><th className="n">Net USD</th><th className="n">Net USD-eq</th><th className="n">{t('العدد', 'Rows')}</th><th>{t('الصناديق', 'Held by')}</th></tr></thead>
-        <tbody>
-          {ls.map((l) => (
-            <tr key={l.a.id} className={l.n ? '' : 'off'}>
-              <td>{l.a.name}</td><td className="n">{fmtSyp(l.inS)}</td><td className="n">{fmtSyp(l.exS)}</td><td className="n">{fmtSyp(l.inS - l.exS)}</td>
-              <td className="n">{fmtUsd(l.inU)}</td><td className="n">{fmtUsd(l.exU)}</td><td className="n">{fmtUsd(l.inU - l.exU)}</td><td className="n">{fmtUsd(l.eq)}</td><td className="n">{l.n}</td><td className="small">{l.books}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div className="cards" style={{ marginBottom: 14 }}>
+        <Card k={t('مصاريف المركز في الفترة', "The centre's expenses in the period")} v={`$${fmtUsd(total)}`} />
+        <Card k={t('لها مشروع', 'With a project')} v={`$${fmtUsd(total - notFunded)}`} />
+        <Card k={t('غير ممول', 'Not funded')} v={`$${fmtUsd(notFunded)}`} />
+      </div>
+      <div className="tbl-wrap">
+        <table className="t">{head}<tbody>{inside.flatMap(rowOf)}</tbody></table>
+      </div>
+      {outside.length > 0 && (
+        <>
+          <h3>{t('خارج الموازنة', 'Outside the budget')}</h3>
+          <div className="tbl-wrap"><table className="t">{head}<tbody>{outside.flatMap(rowOf)}</tbody></table></div>
+        </>
+      )}
+      <p className="muted small">{t('الليرات بالدولار بسعر كل نفقة. «الباقي» = ما استُلم باليد ناقص كل ما صُرف على المشروع منذ البداية. مصروف المشروع يأتي من خط الموازنة.', 'Pounds are in dollars at the rate of each expense. "Left" = what was received in hand minus all that was spent on the project since the beginning. A project\'s spending comes from the budget line.')}</p>
+    </>
   );
 }
 

@@ -380,6 +380,32 @@ describe('one budget for the centre (migration 41)', () => {
   });
 });
 
+describe('the centre by project', () => {
+  it('each project with its grant, spent in the period and since the beginning, what is left; not funded; line by line; an Excel', async () => {
+    const { projectReport } = await import('../src/domain/projects');
+    const { projectXlsx } = await import('../src/io/projectExcel');
+    const row = (id: string, date: string, acc: number | null, line: number, usd: number): Trx => ({ ...blankTrx(), id, date, type: 'Exp', account_id: acc, line_id: line, heading_id: 3, exp_usd: usd });
+    const rows = [row('a', '2026-12-01', 2, 7, 100), row('b', '2027-01-05', 2, 7, 50), row('c', '2027-01-06', 2, 8, 30), row('d', '2027-01-07', null, 9, 20), row('e', '2027-01-08', 1, 9, 5)];
+    const comp = new Map(rows.map((r) => [r.id, { expUsdTot: r.exp_usd, billCode: `B-${r.id}` } as never]));
+    const lists = { accounts: [{ id: 1, name: 'Deir', active: 1, sort: 0, outside_budget: 1 }, { id: 2, name: 'SEN running', active: 1, sort: 1 }, { id: 3, name: 'Network', active: 1, sort: 2 }], lines: [{ id: 7, heading_id: 3, name: 'Rent', code: 'x', is_project_fund: 0, active: 1 }] } as never;
+    const grant = { id: 'g', donor_id: 1, amount: 9000, currency: 'EUR' as const, reference: 'SEN-1', note: null, status: 'hand' as const, promised_on: null, approved_on: null, transferred_on: null, bank_on: null, hand_on: '2026-11-01', hand_usd: 6000 };
+    const rep = projectReport({ rows, comp, lists, grants: [grant], grantParts: [{ grant_id: 'g', account_id: 2, amount: 6000 }], grantShares: [{ grant_id: 'g', centre: 'homs', amount: 6000 }, { grant_id: 'g', centre: 'aleppo', amount: 3000 }], period: { from: '2027-01', to: '2027-12' } });
+    const sen = rep.find((x) => x.id === 2)!;
+    expect([sen.spent, sen.spentAll, sen.received, sen.left, sen.share]).toEqual([80, 180, 6000, 5820, 6000]);
+    expect(sen.lines.map((l) => [l.line_id, l.spent, l.rows])).toEqual([[7, 50, 1], [8, 30, 1]]);
+    expect(rep.find((x) => x.id == null)!.spent).toBe(20); // not funded
+    expect(rep.find((x) => x.id === 1)!.outside).toBe(true); // Deir, apart
+    expect(rep.some((x) => x.id === 3)).toBe(false); // nothing on it: not shown
+    const bytes = await projectXlsx({ project: sen, period: { from: '2027-01', to: '2027-12' }, organisation: 'MAGIS Homs', comp, docs: new Map([['b', ['B-b.pdf']]]),
+      lists: { headings: [{ id: 3, name: 'Operations' }], lines: [{ id: 7, name: 'Rent' }], books: [], parties: [], donors: [{ id: 1, name: 'SEN' }] } as never });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(bytes as never);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Summary', 'By line', 'Expenses']);
+    expect(wb.getWorksheet('Summary')!.getRow(3).values).toContain('SEN');
+    expect(wb.getWorksheet('Expenses')!.getRow(2).getCell(11).value).toBe('B-b.pdf');
+  });
+});
+
 describe('grants follow the money', () => {
   it('in hand, sent to Main, spent on its account (oldest grant first), what is left; EUR changed to USD', async () => {
     const { grantFlows } = await import('../src/domain/grants');

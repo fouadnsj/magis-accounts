@@ -101,8 +101,8 @@ export function Grants() {
                 </div>
               )}
               <div className="small">
-                <span className="muted">{t('الصندوق هنا', 'The fund here')}: </span>
-                {parts.length ? parts.map((p, k) => <span key={k}>{k > 0 ? ' · ' : ''}{p.account_id == null ? <span className="bad">{t('لا صندوق بعد', 'no fund yet')}</span> : <b>{names.account(p.account_id)}</b>}{parts.length > 1 || shares.length ? <span className="ltr"> {money(p.amount, g.currency)}</span> : null}</span>) : <span className="muted">{t('لا حصة هنا', 'no share here')}</span>}
+                <span className="muted">{t('المشروع هنا', 'The project here')}: </span>
+                {parts.length ? parts.map((p, k) => <span key={k}>{k > 0 ? ' · ' : ''}{p.account_id == null ? <span className="bad">{t('لا مشروع بعد', 'no project yet')}</span> : <b>{names.account(p.account_id)}</b>}{parts.length > 1 || shares.length ? <span className="ltr"> {money(p.amount, g.currency)}</span> : null}</span>) : <span className="muted">{t('لا حصة هنا', 'no share here')}</span>}
               </div>
               {g.status === 'hand' && (
                 <div className="grant-flow">
@@ -234,7 +234,7 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
   const taken = new Set(d.grantParts.filter((p) => p.grant_id !== start?.id && p.account_id != null).map((p) => p.account_id!));
   const funds = [
     ...d.lists.accounts.filter((a) => (a.active && !taken.has(a.id)) || a.id === fund).map((a) => ({ value: a.id, label: a.name })),
-    { value: NEW_FUND, label: `＋ ${t('صندوق جديد باسم المنحة', 'A new fund with the grant\'s name')}` },
+    { value: NEW_FUND, label: `＋ ${t('مشروع جديد باسم المنحة', 'A new project with the grant\'s name')}` },
   ];
   const autoName = [donor.trim(), reference.trim()].filter(Boolean).join(' ');
   const ok = !!donor.trim() && total > 0 && (!split || Math.abs(sum - total) <= 0.01) && (hereAmount <= 0 || fund != null);
@@ -295,15 +295,15 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
 
       {hereAmount > 0 ? (
         <>
-          <h3 style={{ marginTop: 12 }}>{t('الصندوق هنا', 'The fund here')} <span className="muted small ltr">{money(hereAmount, currency)}</span></h3>
-          {oldParts.length > 1 && <div className="alert warn small">{t('كانت هذه المنحة مقسومة على عدة حسابات: تذهب الآن كلها إلى صندوق واحد.', 'This grant was split over several accounts: it now goes to one fund.')}</div>}
+          <h3 style={{ marginTop: 12 }}>{t('المشروع هنا', 'The project here')} <span className="muted small ltr">{money(hereAmount, currency)}</span></h3>
+          {oldParts.length > 1 && <div className="alert warn small">{t('كانت هذه المنحة مقسومة على عدة حسابات: تذهب الآن كلها إلى مشروع واحد.', 'This grant was split over several accounts: it now goes to one project.')}</div>}
           <div className="grid2">
-            <Field label={t('الصندوق', 'Fund')}><Select value={fund} options={funds} onChange={setFund} /></Field>
-            {fund === NEW_FUND && <Field label={t('اسم الصندوق', 'Name of the fund')}><input value={fundName} placeholder={autoName} onChange={(e) => setFundName(e.target.value)} /></Field>}
+            <Field label={t('المشروع', 'Project')}><Select value={fund} options={funds} onChange={setFund} /></Field>
+            {fund === NEW_FUND && <Field label={t('اسم المشروع', 'Name of the project')}><input value={fundName} placeholder={autoName} onChange={(e) => setFundName(e.target.value)} /></Field>}
           </div>
-          <p className="muted small">{t('الصندوق لا يكون لمنحتين. في الموازنة، كل خط له صندوق واحد.', 'A fund never has two grants. In the budget, each line has one fund.')}</p>
+          <p className="muted small">{t('المشروع لا يكون لمنحتين. في الموازنة، كل خط له مشروع واحد.', 'A project never has two grants. In the budget, each line has one project.')}</p>
         </>
-      ) : split && <p className="muted small">{t('لا حصة لهذا المركز: لا صندوق هنا.', 'No share for this centre: no fund here.')}</p>}
+      ) : split && <p className="muted small">{t('لا حصة لهذا المركز: لا مشروع هنا.', 'No share for this centre: no project here.')}</p>}
 
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>

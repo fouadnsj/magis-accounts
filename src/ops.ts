@@ -813,8 +813,8 @@ async function setLineFund(c: OpCtx, a: { versionId: number; line_ids: number[];
   const v = await latestVersion(c, a.versionId);
   if (a.account_id != null) {
     const acc = await one<{ outside_budget: number }>(c.db, 'SELECT outside_budget FROM account WHERE id = ?', [a.account_id]);
-    if (!acc) throw new UserError(m('الصندوق غير موجود', 'Fund not found', 'Fonds introuvable'));
-    if (acc.outside_budget) throw new UserError(m('هذا الصندوق خارج الموازنة', 'This fund is outside the budget', 'Ce fonds est hors budget'));
+    if (!acc) throw new UserError(m('المشروع غير موجود', 'Project not found', 'Projet introuvable'));
+    if (acc.outside_budget) throw new UserError(m('هذا المشروع خارج الموازنة', 'This project is outside the budget', 'Ce projet est hors budget'));
   }
   const ids = [...new Set((a.line_ids ?? []).map(Number).filter(Boolean))];
   if (!ids.length) throw new UserError(m('اختر الخطوط', 'Choose the lines', 'Choisissez les lignes'));
@@ -909,15 +909,15 @@ async function saveGrant(c: OpCtx, a: {
   let fundId: number | null = null;
   if (hereAmount > 0) {
     if (newFund) {
-      if (await one(c.db, 'SELECT 1 FROM account WHERE name = ?', [newFund])) throw new UserError(m(`الصندوق «${newFund}» موجود: اختره من القائمة`, `The fund "${newFund}" exists: choose it in the list`, `Le fonds « ${newFund} » existe : choisissez-le dans la liste`));
+      if (await one(c.db, 'SELECT 1 FROM account WHERE name = ?', [newFund])) throw new UserError(m(`المشروع «${newFund}» موجود: اختره من القائمة`, `The project "${newFund}" exists: choose it in the list`, `Le projet « ${newFund} » existe : choisissez-le dans la liste`));
     } else {
       fundId = a.fund_id ?? null;
-      if (fundId == null || !(await one(c.db, 'SELECT 1 FROM account WHERE id = ?', [fundId]))) throw new UserError(m('اختر الصندوق', 'Choose the fund', 'Choisissez le fonds'));
+      if (fundId == null || !(await one(c.db, 'SELECT 1 FROM account WHERE id = ?', [fundId]))) throw new UserError(m('اختر المشروع', 'Choose the project', 'Choisissez le projet'));
       const other = await one<{ donor: string; reference: string | null }>(c.db,
         'SELECT d.name AS donor, g.reference FROM grant_part p JOIN grant_card g ON g.id = p.grant_id JOIN donor d ON d.id = g.donor_id WHERE p.account_id = ? AND p.grant_id <> ? LIMIT 1', [fundId, id]);
       if (other) {
         const o = `${other.donor}${other.reference ? ` · ${other.reference}` : ''}`;
-        throw new UserError(m(`لهذا الصندوق منحة أخرى (${o}): الصندوق لا يكون لمنحتين`, `This fund already has a grant (${o}): a fund never has two grants`, `Ce fonds a déjà une subvention (${o}) : un fonds n'a jamais deux subventions`));
+        throw new UserError(m(`لهذا المشروع منحة أخرى (${o}): المشروع لا يكون لمنحتين`, `This project already has a grant (${o}): a project never has two grants`, `Ce projet a déjà une subvention (${o}) : un projet n'a jamais deux subventions`));
       }
     }
   }

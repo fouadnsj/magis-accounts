@@ -104,7 +104,7 @@ export function BudgetPage() {
           <Tabs value={tab} onChange={setTab} tabs={[
             { value: 'follow', label: t('المتابعة', 'Follow-up') },
             { value: 'edit', label: t('الموازنة', 'Budget') },
-            { value: 'funds', label: t('الصناديق', 'Funds') },
+            { value: 'funds', label: t('المشاريع', 'Projects') },
           ]} />
           {tab === 'follow' && <FollowUp key={b.budget!.id} b={b} />}
           {tab === 'edit' && <EditBudget key={b.budget!.id} b={b} reload={load} onDeleted={() => setBudgetId(null)} />}
@@ -353,9 +353,9 @@ function FollowUp({ b }: { b: BudgetPayload }) {
         <select className="inp" style={{ width: 'auto' }} value={upTo} onChange={(e) => setUpTo(e.target.value)}>
           {months.map((m) => <option key={m} value={m}>{ymName(m)}</option>)}
         </select>
-        <span className="muted small">{t('الصندوق', 'Fund')}</span>
+        <span className="muted small">{t('المشروع', 'Project')}</span>
         <div style={{ minWidth: 180 }}>
-          <Select value={account} placeholder={t('كل الصناديق', 'All funds')} options={[...d.lists.accounts.filter((a) => !a.outside_budget && b.amounts.some((x) => x.account_id === a.id)).map((a) => ({ value: a.id, label: a.name })), { value: NOFUND, label: t('غير ممول', 'Not funded') }]} onChange={setAccount} />
+          <Select value={account} placeholder={t('كل المشاريع', 'All projects')} options={[...d.lists.accounts.filter((a) => !a.outside_budget && b.amounts.some((x) => x.account_id === a.id)).map((a) => ({ value: a.id, label: a.name })), { value: NOFUND, label: t('غير ممول', 'Not funded') }]} onChange={setAccount} />
         </div>
         <label className="row small"><input type="checkbox" checked={onlyFlags} onChange={(e) => setOnlyFlags(e.target.checked)} /> {t('ما يحتاج انتباهاً فقط', 'Only what needs attention')}</label>
       </div>
@@ -401,7 +401,7 @@ function FollowUp({ b }: { b: BudgetPayload }) {
           <thead>
             <tr>
               <th>{t('البند / الخط', 'Heading / line')}</th>
-              {account == null && <th>{t('الصندوق', 'Fund')}</th>}
+              {account == null && <th>{t('المشروع', 'Project')}</th>}
               {revised && <th className="n">{t('الأصلية', 'Original')}</th>}
               <th className="n">{t('الموازنة', 'Budget')} $</th>
               <th className="n">{t('المصروف', 'Spent')} $</th>
@@ -590,7 +590,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
         {b.versions.length > 1 && (
           <p className="muted small">{b.versions.map((x) => `${x.rev === 0 ? t('الأصلية', 'Original') : t(`مراجعة ${x.rev}`, `Revision ${x.rev}`)}: ${x.created_at.slice(0, 10)}${x.note ? ` (${x.note})` : ''}`).join(' · ')}</p>
         )}
-        <p className="muted small">{t('لكل خط صندوق واحد. لإعطاء صندوق لبند كامل: اختره في سطر البند.', 'Each line has one fund. To give a fund to a whole heading: choose it on the heading\'s row.')}</p>
+        <p className="muted small">{t('لكل خط مشروع واحد. لإعطاء مشروع لبند كامل: اختره في سطر البند.', 'Each line has one project. To give a project to a whole heading: choose it on the heading\'s row.')}</p>
       </div>
 
       <div className="table-wrap">
@@ -598,7 +598,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
           <thead>
             <tr>
               <th>{t('البند / الخط', 'Heading / line')}</th>
-              <th>{t('الصندوق', 'Fund')}</th>
+              <th>{t('المشروع', 'Project')}</th>
               {orig && <th className="n">{t('الأصلية', 'Original')} $</th>}
               <th className="n">{t('الموازنة', 'Budget')} $</th>
               <th className="n">SYP</th>
@@ -622,7 +622,7 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
                   <td>
                     {mayFund && withAmount.length > 0
                       ? <select className="inp small" style={{ minWidth: 160 }} value={hFunds.length === 1 ? hFunds[0] : ''} onChange={(e) => e.target.value !== '' && void giveFund(withAmount, Number(e.target.value))}>
-                          {hFunds.length !== 1 && <option value="">{t('عدة صناديق', 'Several funds')}</option>}
+                          {hFunds.length !== 1 && <option value="">{t('عدة مشاريع', 'Several projects')}</option>}
                           {fundOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                         </select>
                       : hFunds.length === 1 ? <span className={`small ${hFunds[0] === NOFUND ? 'bad' : ''}`}>{fundName(hFunds[0])}</span> : null}
@@ -878,7 +878,7 @@ function ImportSheet({ versionId, contingency, onClose, onDone }: { versionId: n
                   </tbody>
                 </table>
               </div>
-              <p className="muted small">{t('الاستيراد يستبدل عناصر الخطوط الموجودة في الورقة؛ الخطوط الأخرى تبقى. كل خط يحتفظ بصندوقه.', 'Importing replaces the items of the lines in the sheet; the other lines stay. Each line keeps its fund.')}</p>
+              <p className="muted small">{t('الاستيراد يستبدل عناصر الخطوط الموجودة في الورقة؛ الخطوط الأخرى تبقى. كل خط يحتفظ بمشروعه.', 'Importing replaces the items of the lines in the sheet; the other lines stay. Each line keeps its project.')}</p>
             </>
           )}
           <div className="modal-foot">
@@ -970,16 +970,16 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
     <>
       <div className="cards" style={{ margin: '10px 0 14px' }}>
         <div className="card"><div className="k">{t('الموازنة', 'Budget')}</div><div className="v ltr">{usd(total)}</div></div>
-        <div className="card"><div className="k">{t('لها صندوق', 'With a fund')}</div><div className="v ltr">{usd(total - notFunded)}</div></div>
+        <div className="card"><div className="k">{t('لها مشروع', 'With a project')}</div><div className="v ltr">{usd(total - notFunded)}</div></div>
         <div className="card"><div className="k">{t('غير ممول', 'Not funded')}</div><div className={`v ltr ${notFunded > 0.5 ? 'bad' : ''}`}>{usd(notFunded)}</div></div>
       </div>
       <div className="table-wrap">
         <table className="t">
           <thead>
             <tr>
-              <th>{t('الصندوق', 'Fund')}</th>
+              <th>{t('المشروع', 'Project')}</th>
               <th>{t('المنحة', 'Grant')}</th>
-              <th className="n">{t('مال الصندوق هنا', "The fund's money here")} $</th>
+              <th className="n">{t('مال المشروع هنا', "The project's money here")} $</th>
               <th className="n">{t('خطوطه في الموازنة', 'Its lines in the budget')} $</th>
               <th>{t('الفرق', 'Difference')}</th>
               <th className="n">{t('صُرف على خطوطه', 'Spent on its lines')} $</th>
@@ -1018,9 +1018,9 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
           </tbody>
         </table>
       </div>
-      <p className="muted small">{t('مال المنحة هنا = حصة هذا المركز في صفحة المنح (اليورو بسعر الموازنة). الصندوق الخاص بلا مبلغ محدد.', "A grant's money here = this centre's share on the Grants page (euros at the budget's rate). A private fund has no set amount.")}</p>
+      <p className="muted small">{t('مال المنحة هنا = حصة هذا المركز في صفحة المنح (اليورو بسعر الموازنة). المشروع الخاص بلا مبلغ محدد.', "A grant's money here = this centre's share on the Grants page (euros at the budget's rate). A private project has no set amount.")}</p>
       {giving != null && <GiveLines b={b} fundId={giving} onClose={() => setGiving(null)} onDone={async () => { setGiving(null); await reload(); }} />}
-      {!mayFund && <p className="muted small">{t('يعطي الصناديقَ للخطوط من يحفظ المنح.', 'Funds are given to lines by who keeps the grants.')}</p>}
+      {!mayFund && <p className="muted small">{t('يعطي المشاريعَ للخطوط من يحفظ المنح.', 'Projects are given to lines by who keeps the grants.')}</p>}
     </>
   );
 }
@@ -1055,7 +1055,7 @@ function GiveLines({ b, fundId, onClose, onDone }: { b: BudgetPayload; fundId: n
   };
   return (
     <Modal title={t(`خطوط «${fundName(fundId)}»`, `Lines of "${fundName(fundId)}"`)} onClose={onClose}>
-      <p className="muted small">{t('اختر بنوداً كاملة أو خطوطاً. الخط له صندوق واحد: إن كان لصندوق آخر ينتقل إلى هذا.', 'Tick whole headings or single lines. A line has one fund: if it belongs to another fund, it moves to this one.')}</p>
+      <p className="muted small">{t('اختر بنوداً كاملة أو خطوطاً. الخط له مشروع واحد: إن كان لمشروع آخر ينتقل إلى هذا.', 'Tick whole headings or single lines. A line has one project: if it belongs to another project, it moves to this one.')}</p>
       <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
         <table className="t">
           <tbody>

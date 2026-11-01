@@ -136,7 +136,7 @@ export function Register() {
     { key: 'n', label: 'N', td: (r) => <>{withDocs.has(r.id) ? '📎' : ''}{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</> },
     { key: 'date', label: t('التاريخ', 'Date'), td: (r) => <span className="ltr">{fmtDate(r.date)}</span> },
     ...(holder ? [] : [{ key: 'book', label: t('الدفتر', 'Book'), td: (r: Trx) => names.book(r.book_id) }]),
-    { key: 'account', label: t('الصندوق', 'Fund'), td: (r) => (r.type === 'Exp' && r.account_id == null && !r.private_total ? <span className="bad small">{fundOf(r)}</span> : fundOf(r)) },
+    { key: 'account', label: t('المشروع', 'Project'), td: (r) => (r.type === 'Exp' && r.account_id == null && !r.private_total ? <span className="bad small">{fundOf(r)}</span> : fundOf(r)) },
     { key: 'type', label: t('النوع', 'Type'), td: (r) => <>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</> },
     { key: 'heading', label: t('البند', 'Heading'), td: (r) => r.heading_id == null ? '' : `${icons.heading(r.heading_id)} ${names.heading(r.heading_id)}` },
     { key: 'line', label: t('الخط', 'Line'), td: (r) => r.line_id == null ? '' : `${icons.line(r.line_id)} ${names.line(r.line_id)}` },
@@ -202,7 +202,7 @@ export function Register() {
           </div>
         )}
         <div style={{ minWidth: 190, width: 'auto' }} className="field">
-          <Select value={account} options={[...d.lists.accounts.map((b) => ({ value: b.id, label: b.name })), { value: 0, label: t('غير ممول', 'Not funded') }]} onChange={setAccount} placeholder={t('كل الصناديق', 'All funds')} />
+          <Select value={account} options={[...d.lists.accounts.map((b) => ({ value: b.id, label: b.name })), { value: 0, label: t('غير ممول', 'Not funded') }]} onChange={setAccount} placeholder={t('كل المشاريع', 'All projects')} />
         </div>
         <select className="inp" style={{ minWidth: 180, width: 'auto' }} value={type} onChange={(e) => setType(e.target.value)}>
           <option value="">{t('كل الأنواع', 'All types')}</option>

@@ -486,7 +486,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
             </>
           )}
           {f.type === 'Exp' && outsideFunds.length > 0 && (
-            <Field label={t('الصندوق', 'Fund')}>
+            <Field label={t('المشروع', 'Project')}>
               <select className="inp" value={f.accountId != null && outsideIds.has(f.accountId) ? f.accountId : ''} onChange={(e) => set('accountId', e.target.value ? Number(e.target.value) : null)}>
                 <option value="">{t('من خط الموازنة', 'From the budget line')}</option>
                 {outsideFunds.map((a) => <option key={a.id} value={a.id}>{a.name} ({t('خارج الموازنة', 'outside the budget')})</option>)}
@@ -494,7 +494,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
             </Field>
           )}
           {f.type === 'Income' && can('lists.donors') && (
-            <Field label={t('الصندوق', 'Fund')}>
+            <Field label={t('المشروع', 'Project')}>
               <select className="inp" value={f.accountId ?? ''} onChange={(e) => set('accountId', e.target.value ? Number(e.target.value) : null)}>
                 <option value="">{t('دخل المركز نفسه', "The centre's own income")}</option>
                 {L.accounts.filter((a) => a.active || a.id === f.accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}

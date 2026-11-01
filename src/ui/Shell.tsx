@@ -14,6 +14,7 @@ import { Grants } from './Grants';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
+import { Guide } from './Guide';
 import { draftFor, draftKey } from './draft';
 import { PhoneShell } from './Phone';
 
@@ -33,7 +34,7 @@ function useNarrow() {
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
 
-export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'lists' | 'files' | 'admin';
+export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'lists' | 'files' | 'admin' | 'guide';
 
 interface Nav {
   go: (p: Page, opts?: { review?: boolean; book?: number }) => void;
@@ -121,6 +122,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
           {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
+          {(can('lists.manage') || can('lists.donors') || can('budget.view')) && item('guide', `📖 ${t('الدليل', 'Guide')}`)}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
           <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
@@ -139,6 +141,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {page === 'lists' && <ListsPage />}
           {page === 'files' && <Files />}
           {page === 'admin' && <Admin />}
+          {page === 'guide' && <Guide />}
         </main>
       </div>
       {editing && <EntryForm key={formKey} start={editing} onClose={() => setEditing(null)} onCopy={openEntry} />}

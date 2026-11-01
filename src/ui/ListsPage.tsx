@@ -9,6 +9,7 @@ import { TYPE_LABEL, tx } from '../i18n';
 import { notesOf } from './Cash';
 import { pickFile, saveFile } from '../platform';
 import type { CommonList } from '../io/commonList';
+import { useNav } from './Shell';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
@@ -64,6 +65,15 @@ function useCounts() {
 
 // ---------------------------------------------------------------- budget
 
+/** What each button of the common list does (shown under the buttons, and on the button itself). */
+const HELP = {
+  start: () => t('مرة واحدة، في حمص فقط: تصير قائمة هذه القاعدة القائمة المشتركة، وتقودها (أسماؤها ورموزها هي المرجع).', "Once, in Homs only: this database's list becomes the common list, and it leads it (its names and codes are the reference)."),
+  join: () => t('مرة واحدة في كل مركز آخر: تطابق كل بند وخط قديم مع خط مشترك (أو تضيفه كما هو). القيود والموازنة تنتقل مع خطوطها. تُؤخذ نسخة احتياطية أولاً.', 'Once in each other centre: each old heading and line is matched to a common one (or added as it is). The rows and the budget move with their lines. A backup is taken first.'),
+  same: () => t('على الخادم، كلما أضاف مركز خطوطاً: تجمع خطوط كل القواعد في القائمة المشتركة وتعطيها لكل قاعدة. لا يُحذف شيء، وما يأتي من مركز آخر يصل موقوفاً.', 'On the server, whenever a centre has added lines: gathers the lines of every database in the common list and gives them to each. Nothing is deleted; what comes from another centre arrives switched off.'),
+  save: () => t('لمركز يعمل على حاسوبه: ملف فيه بنود هذه القاعدة وخطوطها، يُحمل إلى القاعدة الأخرى.', 'For a centre that works on its own computer: a file with the headings and lines of this database, to bring to the other database.'),
+  take: () => t('يأخذ ملفاً حُفظ في قاعدة أخرى: تُضاف الخطوط الجديدة (موقوفة). ملف من القاعدة القائدة يغيّر الأسماء والرموز أيضاً.', 'Takes a file saved in another database: its new lines are added (switched off). A file from the leading database also changes the names and codes.'),
+};
+
 /**
  * One list of headings and lines for every centre (Fouad, 2026-11-01). The first database (Homs, on Fouad's server)
  * starts it and leads it; on the server, "make the lists the same" gathers the new lines of every database in it and
@@ -71,6 +81,7 @@ function useCounts() {
  */
 function CommonListPanel() {
   const { s, can, reload } = useApp();
+  const nav = useNav();
   const [state, setState] = useState<'lead' | 'yes' | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [joining, setJoining] = useState<CommonList | null>(null);
@@ -102,14 +113,14 @@ function CommonListPanel() {
       <p className="muted small" style={{ margin: '6px 0' }}>{t('بنود وخطوط واحدة لكل المراكز. يضيف المركز خطاً فيصير للجميع، ويوقف ما لا يستعمله لنفسه فقط.', 'One set of headings and lines for every centre. A centre adds a line and it is for everyone; it switches off what it does not use, for itself only.')}</p>
       <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
         {!state && boss && (
-          <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
+          <button className="btn primary" disabled={busy} title={HELP.start()} onClick={() => void run(async () => {
             if (!(await confirmBox(t('تصير قائمة هذه القاعدة القائمة المشتركة، وتقودها. افعل هذا في حمص فقط. المراكز الأخرى تنضم بعد مطابقة خطوطها.', "This database's list becomes the common list, and it leads it. Do this in Homs only. The other centres join after their lines are matched.")))) return null;
             await s.api.call('common.start', {});
             return t('بدأت القائمة المشتركة', 'The common list has started');
           })}>{t('ابدأ القائمة المشتركة من هذه القاعدة', 'Start the common list from this database')}</button>
         )}
         {!state && boss && (
-          <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
+          <button className="btn primary" disabled={busy} title={HELP.join()} onClick={() => void run(async () => {
             // the common list: from the database that leads it on this server, else from a file
             let list: CommonList | null = null;
             if (s.mode === 'server') list = await fetch('/api/common-list/lead', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -123,7 +134,7 @@ function CommonListPanel() {
           })}>{t('انضم إلى القائمة المشتركة…', 'Join the common list…')}</button>
         )}
         {state && boss && s.mode === 'server' && (
-          <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
+          <button className="btn primary" disabled={busy} title={HELP.same()} onClick={() => void run(async () => {
             const r = await fetch('/api/common-list/sync', { method: 'POST', credentials: 'same-origin' });
             const j = await r.json();
             if (!r.ok) throw new Error(j?.error?.en ?? 'Error');
@@ -132,14 +143,14 @@ function CommonListPanel() {
           })}>{t('اجعل القوائم واحدة على هذا الخادم', 'Make the lists the same on this server')}</button>
         )}
         {state && (
-          <button className="btn" disabled={busy} onClick={() => void run(async () => {
+          <button className="btn" disabled={busy} title={HELP.save()} onClick={() => void run(async () => {
             const list = await s.api.call('common.export', {});
             const path = await saveFile(`common-list-${new Date().toISOString().slice(0, 10)}.json`, ['json'], new TextEncoder().encode(JSON.stringify(list, null, 1)), t('احفظ القائمة المشتركة', 'Save the common list'));
             return path ? `${t('حُفظ', 'Saved')}: ${path}` : null;
           })}>⬇ {t('احفظ القائمة ملفاً', 'Save the list as a file')}</button>
         )}
         {state && boss && (
-          <button className="btn" disabled={busy} onClick={() => void run(async () => {
+          <button className="btn" disabled={busy} title={HELP.take()} onClick={() => void run(async () => {
             const f = await pickFile(['json'], t('اختر ملف القائمة المشتركة', 'Choose the common list file'));
             if (!f) return null;
             const r = await s.api.call('common.import', { text: new TextDecoder().decode(f.bytes) });
@@ -147,6 +158,14 @@ function CommonListPanel() {
           })}>⬆ {t('خذ ملف قائمة', 'Take a list file')}</button>
         )}
       </div>
+      <ul className="muted small" style={{ margin: '8px 0 0', paddingInlineStart: 18 }}>
+        {!state && boss && <li><b>{t('ابدأ القائمة المشتركة', 'Start the common list')}</b>: {HELP.start()}</li>}
+        {!state && boss && <li><b>{t('انضم إلى القائمة المشتركة', 'Join the common list')}</b>: {HELP.join()}</li>}
+        {state && boss && s.mode === 'server' && <li><b>{t('اجعل القوائم واحدة', 'Make the lists the same')}</b>: {HELP.same()}</li>}
+        {state && <li><b>{t('احفظ القائمة ملفاً', 'Save the list as a file')}</b>: {HELP.save()}</li>}
+        {state && boss && <li><b>{t('خذ ملف قائمة', 'Take a list file')}</b>: {HELP.take()}</li>}
+      </ul>
+      <button className="link small" style={{ marginTop: 6 }} onClick={() => nav.go('guide')}>📖 {t('الخطوات كلها في «الدليل»', 'All the steps in the Guide')}</button>
       {joining && <JoinModal list={joining} onClose={() => setJoining(null)} onDone={async () => { setJoining(null); await reload(); await load(); }} />}
     </div>
   );

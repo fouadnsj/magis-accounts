@@ -169,7 +169,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
     return {
       type, date: recall('lastDate') ?? todayIso(), bookId,
-      accountId: Number(recall('lastAccount')) || book?.account_id || L.settings.def_account_id,
+      accountId: null,
       cityId: book?.city_id ?? L.settings.def_city_id,
       headingId: h, lineId: l, partyId: null, explanation: '', receipt: '', currency: null, amount: '',
       fromBook: pre?.fromBook ?? (restricted ? myBooks[0] ?? null : mainId), toBook: pre?.toBook ?? null, usd: '', syp: '',
@@ -196,6 +196,11 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     setWarnAccepted(false);
     setWarnings([]);
   };
+
+  // an expense takes its fund from its budget line; only a fund outside the budget (Deir) is chosen
+  const outsideFunds = L.accounts.filter((a) => a.outside_budget && (a.active || a.id === f.accountId));
+  const outsideIds = new Set(L.accounts.filter((a) => a.outside_budget).map((a) => a.id));
+  const fundOfRow = () => (f.type === 'Exp' && (f.accountId == null || !outsideIds.has(f.accountId)) ? null : f.accountId);
 
   const opts = <T extends { id: number; name: string; active: number }>(arr: T[], current: number | null): Option[] =>
     arr.filter((x) => x.active || x.id === current).map((x) => ({ value: x.id, label: x.name, off: !x.active }));
@@ -226,7 +231,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     const formErrors: Msg[] = [];
     const base = (id?: string): Trx => ({
       ...(id ? d.rows.find((r) => r.id === id)! : blankTrx()),
-      city_id: f.cityId, account_id: f.accountId, date: f.date || null, type: f.type,
+      city_id: f.cityId, account_id: fundOfRow(), date: f.date || null, type: f.type,
       heading_id: f.headingId, line_id: f.lineId, explanation: f.explanation.trim() || null,
       party_id: f.partyId, receipt: f.receipt.trim() || null,
       inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0, review: null,
@@ -454,14 +459,14 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
             <Field label={t('الدفتر', 'Book')}>
               <Select value={f.bookId} options={myBookOpts} disabled={restricted && myBookOpts.length <= 1} onChange={(v) => {
                 const b = L.books.find((x) => x.id === v);
-                setF((x) => ({ ...x, bookId: v, accountId: b?.account_id ?? x.accountId, cityId: b?.city_id ?? x.cityId }));
+                setF((x) => ({ ...x, bookId: v, cityId: b?.city_id ?? x.cityId }));
               }} />
               {ownPrivate != null && f.bookId === mainId && (
                 <div className="small" style={{ color: '#8a5a10', marginTop: 4 }}>
                   ⚠ {t('الدفتر الرئيسي يراه المحاسب سطراً سطراً؛ دفترك الخاص سرّي.', 'Main is seen by the Accountant, line by line; your own book is private.')}
                   {' '}<button type="button" className="btn small ghost" onClick={() => {
                     const b = L.books.find((x) => x.id === ownPrivate);
-                    setF((x) => ({ ...x, bookId: ownPrivate, accountId: b?.account_id ?? x.accountId, cityId: b?.city_id ?? x.cityId }));
+                    setF((x) => ({ ...x, bookId: ownPrivate, cityId: b?.city_id ?? x.cityId }));
                   }}>{t('دفتري', 'My book')}</button>
                 </div>
               )}
@@ -480,9 +485,22 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
               )}
             </>
           )}
-          <Field label={t('الحساب', 'Account')}>
-            <Select value={f.accountId} options={opts(L.accounts, f.accountId)} onChange={(v) => set('accountId', v)} />
-          </Field>
+          {f.type === 'Exp' && outsideFunds.length > 0 && (
+            <Field label={t('الصندوق', 'Fund')}>
+              <select className="inp" value={f.accountId != null && outsideIds.has(f.accountId) ? f.accountId : ''} onChange={(e) => set('accountId', e.target.value ? Number(e.target.value) : null)}>
+                <option value="">{t('من خط الموازنة', 'From the budget line')}</option>
+                {outsideFunds.map((a) => <option key={a.id} value={a.id}>{a.name} ({t('خارج الموازنة', 'outside the budget')})</option>)}
+              </select>
+            </Field>
+          )}
+          {f.type === 'Income' && can('lists.donors') && (
+            <Field label={t('الصندوق', 'Fund')}>
+              <select className="inp" value={f.accountId ?? ''} onChange={(e) => set('accountId', e.target.value ? Number(e.target.value) : null)}>
+                <option value="">{t('دخل المركز نفسه', "The centre's own income")}</option>
+                {L.accounts.filter((a) => a.active || a.id === f.accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+          )}
           {f.type !== 'Transfer' && (
             <Field label={t('المدينة', 'City')}>
               <Select value={f.cityId} options={opts(L.cities, f.cityId)} onChange={(v) => set('cityId', v)} />

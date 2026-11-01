@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer, type Running } from '../server/server';
+import { blankTrx } from '../src/db/repo';
 
 let srv: Running, base: string, dir: string, ck = '';
 beforeAll(async () => {
@@ -81,5 +82,28 @@ describe('budget funds', () => {
     const b3 = (await op('budget.get', { budgetId: copy })).body;
     expect(b3.amounts.find((x: { line_id: number }) => x.line_id === line('Reception'))).toMatchObject({ account_id: acc('Running SEN'), amount_usd: 4800 });
     expect(b3.current.contingency_pct).toBe(10);
+
+    // the register: an expense takes its fund from its line in the budget of its date
+    await op('list.add', { table: 'city', name: 'Aleppo' });
+    const L = (await op('data')).body.lists;
+    const exp = (id: string, date: string, ln: string, account_id: number | null) => ({
+      ...blankTrx(), id, date, type: 'Exp', book_id: L.books[0].id, city_id: L.cities[0].id, account_id,
+      heading_id: L.lines.find((l: { name: string }) => l.name === ln).heading_id, line_id: line(ln), exp_usd: 10, explanation: id,
+    });
+    expect((await op('trx.save', { rows: [
+      exp('e-reception', '2027-02-10', 'Reception', null), // Running SEN, from the line
+      exp('e-chairs', '2027-02-11', 'Chairs', acc('Running SEN')), // a fund written by hand does not count: not funded
+      exp('e-deir', '2027-02-12', 'Chairs', acc('Deir')), // outside the budget: stays
+      exp('e-before', '2026-05-01', 'Chairs', acc('Furniture')), // before any budget: as written
+    ] })).status).toBe(200);
+    const rows = (await op('data')).body.rows as { id: string; account_id: number | null; from_line?: boolean }[];
+    const fundOf = (id: string) => rows.find((r) => r.id === id)!;
+    expect(fundOf('e-reception')).toMatchObject({ account_id: acc('Running SEN'), from_line: true });
+    expect(fundOf('e-chairs')).toMatchObject({ account_id: null, from_line: true });
+    expect(fundOf('e-deir').account_id).toBe(acc('Deir'));
+    expect(fundOf('e-before').account_id).toBe(acc('Furniture'));
+    // the chairs get their grant: the expense already written follows
+    expect((await op('budget.setFund', { versionId: (await op('budget.get', { budgetId: 1 })).body.current.id, line_ids: [line('Chairs')], account_id: acc('Furniture') })).status).toBe(200);
+    expect(((await op('data')).body.rows as { id: string; account_id: number | null }[]).find((r) => r.id === 'e-chairs')!.account_id).toBe(acc('Furniture'));
   });
 });

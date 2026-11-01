@@ -40,6 +40,8 @@ export interface Trx {
   private_book?: boolean;
   /** one month's expenses of a private book, as a total, for those who do not keep it */
   private_total?: boolean;
+  /** an expense whose fund comes from its line in the budget (account_id: that fund, null = not funded) */
+  from_line?: boolean;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;

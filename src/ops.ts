@@ -18,7 +18,7 @@ import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
 import { billCode, computeAll } from './domain/compute';
 import {
-  NOFUND, addMonths, defaultBudgetName, itemTotal, periodEnd, proposeFromSpending, prorateItems, spentInRange, totalsOf,
+  NOFUND, addMonths, assignExpenses, defaultBudgetName, inPeriod, itemTotal, periodEnd, proposeFromSpending, prorateItems, spentInRange, totalsOf,
   type Budget, type BudgetAmount, type BudgetItem, type BudgetVersion,
 } from './domain/budget';
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
@@ -264,9 +264,33 @@ function privateView(c: OpCtx, lists: Lists, rows: Trx[]): Trx[] {
   });
 }
 
+/**
+ * The fund of an expense comes from its line in the budget it belongs to (Fouad, 2026-11-01):
+ * during a budget's period, an expense on a line with a fund is that fund's; on a line without
+ * one (or not in the budget), it is not funded (null). A fund outside the budget (Deir) written
+ * on the row stays. Expenses outside every budget's period keep what was written.
+ */
+async function fundsFromLines(c: OpCtx, lists: Lists, rows: Trx[]): Promise<Trx[]> {
+  const budgets = await c.db.query<Budget>('SELECT * FROM budget');
+  if (!budgets.length) return rows;
+  const books = await Promise.all(budgets.map((b) => bookOf(c, b)));
+  const outside = new Set(lists.accounts.filter((a) => a.outside_budget).map((a) => a.id));
+  const inside = (r: Trx) => r.account_id == null || !outside.has(r.account_id);
+  const assigned = assignExpenses(rows, computeAll(rows, lists), books, inside);
+  const fundOf = new Map(books.map((b) => [b.budget.id, new Map(b.cells.map((x) => [x.line_id, x.account_id]))]));
+  return rows.map((r) => {
+    if (r.type !== 'Exp' || !r.date || !inside(r)) return r;
+    const b = assigned.get(r.id);
+    if (b == null && !budgets.some((x) => inPeriod(x, r.date!.slice(0, 7)))) return r;
+    const fund = b == null ? NOFUND : fundOf.get(b)!.get(r.line_id!) ?? NOFUND;
+    return { ...r, account_id: fund === NOFUND ? null : fund, from_line: true };
+  });
+}
+
 async function loadData(c: OpCtx): Promise<DataPayload> {
   const { db } = c;
-  const [lists, allRows, closed, bm, kept] = await Promise.all([loadLists(db), loadTrx(db), closedMonths(db), bookMonths(db), keptBooks(db)]);
+  const [lists, rawRows, closed, bm, kept] = await Promise.all([loadLists(db), loadTrx(db), closedMonths(db), bookMonths(db), keptBooks(db)]);
+  const allRows = await fundsFromLines(c, lists, rawRows);
   const all = can(c, 'register.view');
   // A private book (the Superior's) is seen only by its keepers; others see only its
   // transfers (marked), so the receiver can confirm and Main's balance stays right.

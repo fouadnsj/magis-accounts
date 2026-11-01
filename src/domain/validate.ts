@@ -49,7 +49,7 @@ export function validateTrx(t: Trx, ctx: ValidateContext): Check {
 
   // ---- Classification
   if (t.book_id == null) errors.push(m('الدفتر مطلوب', 'Book is required'));
-  if (t.account_id == null) errors.push(m('الحساب مطلوب', 'Account is required'));
+  // (no fund to choose: an expense takes it from its budget line; the centre's own income has none)
   if (t.city_id == null) errors.push(m('المدينة مطلوبة', 'City is required'));
   if (!t.type) {
     errors.push(m('النوع مطلوب', 'Type is required'));

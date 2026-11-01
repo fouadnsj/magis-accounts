@@ -4,6 +4,10 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // the register: the fund from the line (2026-11-01)
+  "From the budget line": "De la ligne du budget",
+  "The centre's own income": "Revenu propre du centre",
+
   // one budget, a fund per line (2026-11-01)
   "Not funded": "Non financé",
   "All funds": "Tous les fonds",

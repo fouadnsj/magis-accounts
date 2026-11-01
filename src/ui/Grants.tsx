@@ -8,6 +8,8 @@ import { GRANT_STEPS, grantFlows, type GrantCard, type GrantStep } from '../doma
 import type { BudgetPayload } from '../ops';
 import { WHOLE, cellsOf, cover, effectivePct } from '../domain/budget';
 import { Field, Modal, Seg, Select, confirmBox, errText, fmtDate, fmtUsd, parseAmount, promptBox, t, toast, todayIso } from './kit';
+import { CENTRES, centreStyle, type CentreKey } from '../brand';
+import { tx } from '../i18n';
 
 const STEP_LABEL: Record<GrantStep, () => string> = {
   promised: () => t('موعودة', 'Promised'),
@@ -75,13 +77,14 @@ export function Grants() {
         {shown.map((g) => {
           const f = flows.get(g.id)!;
           const parts = d.grantParts.filter((p) => p.grant_id === g.id);
+          const shares = SHARE_CENTRES.flatMap((k) => d.grantShares.filter((x) => x.grant_id === g.id && x.centre === k));
           const i = GRANT_STEPS.indexOf(g.status);
           return (
             <div key={g.id} className="card grant-card">
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div className="grant-donor">{names.donor(g.donor_id)}</div>
-                  <div className="muted small">{g.reference ?? ''}{g.note ? ` · ${g.note}` : ''}</div>
+                  <div className="muted small">{g.reference ? `${t('عقد', 'Contract')} ${g.reference}` : ''}{g.note ? ` · ${g.note}` : ''}</div>
                 </div>
                 <div className="grant-amount ltr">{money(g.amount, g.currency)}</div>
               </div>
@@ -94,9 +97,15 @@ export function Grants() {
                   </li>
                 ))}
               </ol>
+              {shares.length > 0 && (
+                <div className="small">
+                  <span className="muted">{t('المراكز', 'Centres')}: </span>
+                  {shares.map((x, k) => <span key={x.centre}>{k > 0 ? ' · ' : ''}{x.centre === s.centre ? <b>{tx(centreStyle(x.centre).name)}</b> : tx(centreStyle(x.centre).name)} <span className="ltr">{money(x.amount, g.currency)}</span></span>)}
+                </div>
+              )}
               <div className="small">
-                <span className="muted">{t('لـ', 'For')}: </span>
-                {parts.map((p, k) => <span key={k}>{k > 0 ? ' · ' : ''}{p.account_id == null ? t('المركز كله', 'the whole centre') : names.account(p.account_id)}{parts.length > 1 ? <span className="ltr"> {money(p.amount, g.currency)}</span> : null}</span>)}
+                <span className="muted">{t('الصندوق هنا', 'The fund here')}: </span>
+                {parts.length ? parts.map((p, k) => <span key={k}>{k > 0 ? ' · ' : ''}{p.account_id == null ? <span className="bad">{t('لا صندوق بعد', 'no fund yet')}</span> : <b>{names.account(p.account_id)}</b>}{parts.length > 1 || shares.length ? <span className="ltr"> {money(p.amount, g.currency)}</span> : null}</span>) : <span className="muted">{t('لا حصة هنا', 'no share here')}</span>}
               </div>
               {g.status === 'hand' && (
                 <div className="grant-flow">
@@ -125,7 +134,7 @@ export function Grants() {
       </div>
       <p className="muted small">{t('لإرسال مال منحة إلى الرئيسي: سجّل «تحويلاً» من دفتر المسؤول إلى الرئيسي واختر المنحة فيه. كل نفقة على حساب المنحة تُخصم من أقدم منحة لهذا الحساب.', 'To send a grant\'s money to Main: record a "Transfer" from the Respo book to Main and choose the grant in it. Each expense on a grant\'s account uses the oldest grant for that account.')}</p>
       {donorsOpen && <DonorsModal onClose={() => setDonorsOpen(false)} cov={cov} />}
-      {editing && <GrantModal cov={cov} start={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />}
+      {editing && <GrantModal start={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />}
       {stepping && <StepModal g={stepping.g} to={stepping.to} onClose={() => setStepping(null)} onDone={async () => { setStepping(null); await reload(); }} />}
     </>
   );
@@ -222,55 +231,51 @@ function DonorsModal({ onClose, cov }: { onClose: () => void; cov: ReturnType<ty
   );
 }
 
-/** New or changed grant: donor, amount, currency, what it is for. */
-function GrantModal({ start, cov, onClose, onSaved }: { start: GrantCard | null; cov: ReturnType<typeof useBudgetCover>; onClose: () => void; onSaved: () => Promise<void> }) {
-  const { s, d, reload } = useApp();
-  const NEW_DONOR = -1;
-  const [newName, setNewName] = useState<string | null>(null);
-  const [donor, setDonor] = useState<number | null>(start?.donor_id ?? null);
+/** The centres a grant can be divided between (the order of the menus). */
+const SHARE_CENTRES: CentreKey[] = ['jaramana', 'aleppo', 'homs', 'other'];
+
+/**
+ * New or changed grant (Fouad, 2026-11-01): the donor written as a name, the contract number,
+ * the amount, the share of each centre; this centre's share goes to one fund here.
+ */
+function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onClose: () => void; onSaved: () => Promise<void> }) {
+  const { s, d } = useApp();
+  const names = useNames();
+  const here = (s.centre ?? 'other') as CentreKey;
+  const NEW_FUND = -1;
+  const [donor, setDonor] = useState(start ? names.donor(start.donor_id) : '');
   const [amount, setAmount] = useState(start ? String(start.amount) : '');
   const [currency, setCurrency] = useState<'USD' | 'EUR'>(start?.currency ?? 'USD');
   const [reference, setReference] = useState(start?.reference ?? '');
   const [note, setNote] = useState(start?.note ?? '');
-  const ALL = 0; // the whole centre
-  const [parts, setParts] = useState<{ account: number; amount: string }[]>(() => {
-    const ps = start ? d.grantParts.filter((p) => p.grant_id === start.id) : [];
-    return ps.length ? ps.map((p) => ({ account: p.account_id ?? ALL, amount: String(p.amount) })) : [{ account: ALL, amount: '' }];
+  const oldParts = start ? d.grantParts.filter((p) => p.grant_id === start.id) : [];
+  // several centres, or only this one
+  const [split, setSplit] = useState(() => !!start && d.grantShares.some((x) => x.grant_id === start.id && x.centre !== here));
+  const [shares, setShares] = useState<Record<string, string>>(() => {
+    const o: Record<string, string> = {};
+    for (const x of start ? d.grantShares.filter((y) => y.grant_id === start.id) : []) o[x.centre] = String(x.amount);
+    return o;
   });
-  // a donor made on the spot: once the lists are reloaded, it is the one chosen
-  useEffect(() => {
-    if (newName == null) return;
-    const x = d.lists.donors.find((y) => y.name === newName.trim());
-    if (x) { setDonor(x.id); setNewName(null); }
-  }, [d.lists.donors, newName]);
-  const pickDonor = async (v: number | null) => {
-    if (v !== NEW_DONOR) return setDonor(v);
-    const n = (await promptBox(t('اسم المانح الجديد', "The new donor's name"), ''))?.trim();
-    if (!n) return;
-    try {
-      await s.api.call('donor.save', { name: n, default_project_id: null });
-      setNewName(n);
-      await reload();
-    } catch (e) {
-      toast(errText(e), true);
-    }
-  };
+  const [fund, setFund] = useState<number | null>(oldParts.length === 1 && oldParts[0].account_id != null ? oldParts[0].account_id : start ? null : NEW_FUND);
+  const [fundName, setFundName] = useState('');
   const total = parseAmount(amount);
-  const budgetParts = donor != null ? [...(cov.per.get(donor)?.entries() ?? [])].filter(([, v]) => v > 0.5) : [];
-  const fromBudget = () => {
-    const rounded = budgetParts.map(([account, v]) => ({ account, amount: String(Math.round(v * 100) / 100) }));
-    setParts(rounded);
-    setCurrency('USD');
-    if (!(total > 0)) setAmount(String(Math.round(budgetParts.reduce((a, [, v]) => a + v, 0) * 100) / 100));
-  };
-  const single = parts.length === 1;
-  const sum = single ? total : parts.reduce((a, p) => a + (parseAmount(p.amount) || 0), 0);
-  const accounts = [{ value: ALL, label: t('المركز كله', 'The whole centre') }, ...d.lists.accounts.filter((a) => a.active && !a.outside_budget).map((a) => ({ value: a.id, label: a.name }))];
+  const shareOf = (k: string) => parseAmount(shares[k] ?? '') || 0;
+  const sum = SHARE_CENTRES.reduce((a, k) => a + shareOf(k), 0);
+  const hereAmount = split ? shareOf(here) : total;
+  // a fund has one grant: the funds already taken by another grant are not offered
+  const taken = new Set(d.grantParts.filter((p) => p.grant_id !== start?.id && p.account_id != null).map((p) => p.account_id!));
+  const funds = [
+    ...d.lists.accounts.filter((a) => (a.active && !taken.has(a.id)) || a.id === fund).map((a) => ({ value: a.id, label: a.name })),
+    { value: NEW_FUND, label: `＋ ${t('صندوق جديد باسم المنحة', 'A new fund with the grant\'s name')}` },
+  ];
+  const autoName = [donor.trim(), reference.trim()].filter(Boolean).join(' ');
+  const ok = !!donor.trim() && total > 0 && (!split || Math.abs(sum - total) <= 0.01) && (hereAmount <= 0 || fund != null);
   const save = async () => {
     try {
       await s.api.call('grant.save', {
-        id: start?.id, donor_id: donor!, amount: total, currency, reference: reference.trim() || null, note: note.trim() || null,
-        parts: parts.map((p) => ({ account_id: p.account === ALL ? null : p.account, amount: single ? total : parseAmount(p.amount) })),
+        id: start?.id, donor: donor.trim(), amount: total, currency, reference: reference.trim() || null, note: note.trim() || null,
+        here, shares: split ? SHARE_CENTRES.filter((k) => shareOf(k) > 0).map((k) => ({ centre: k, amount: shareOf(k) })) : [],
+        fund_id: fund === NEW_FUND ? null : fund, new_fund: fund === NEW_FUND ? (fundName.trim() || autoName) : null,
       });
       toast(t('حُفظ', 'Saved'));
       await onSaved();
@@ -281,37 +286,60 @@ function GrantModal({ start, cov, onClose, onSaved }: { start: GrantCard | null;
   return (
     <Modal title={start ? t('تعديل المنحة', 'Edit the grant') : t('منحة جديدة', 'New grant')} onClose={onClose}>
       <div className="grid2">
-        <Field label={t('المانح', 'Donor')}><Select value={donor} options={[...d.lists.donors.filter((x) => x.active || x.id === donor).map((x) => ({ value: x.id, label: x.name })), { value: NEW_DONOR, label: `＋ ${t('مانح جديد…', 'New donor…')}` }]} onChange={pickDonor} /></Field>
+        <Field label={t('المانح', 'Donor')}>
+          <input list="grant-donors" value={donor} onChange={(e) => setDonor(e.target.value)} />
+          <datalist id="grant-donors">{d.lists.donors.filter((x) => x.active).map((x) => <option key={x.id} value={x.name} />)}</datalist>
+        </Field>
+        <Field label={t('رقم العقد', 'Contract number')}><input value={reference} onChange={(e) => setReference(e.target.value)} /></Field>
         <Field label={t('المبلغ', 'Amount')}>
           <div className="row">
             <input className="ltr" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ width: 140 }} />
             <Seg value={currency} onChange={setCurrency} options={[{ value: 'USD', label: 'USD $' }, { value: 'EUR', label: 'EUR €' }]} />
           </div>
         </Field>
-        <Field label={t('المرجع (رقم الاتفاق…)', 'Reference (agreement no.…)')}><input value={reference} onChange={(e) => setReference(e.target.value)} /></Field>
-        <Field label={t('ملاحظة', 'Note')}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <Field label={t('ملاحظة (الاتفاق…)', 'Note (the agreement…)')}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       </div>
-      <h3 style={{ marginTop: 12 }}>{t('لأي حساب؟', 'For which account?')}</h3>
-      {budgetParts.length > 0 && (
-        <div className="alert info small row" style={{ justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-          <span>{t(`في الموازنة «${cov.name}» يغطي هذا المانح`, `In the budget "${cov.name}" this donor covers`)}: {budgetParts.map(([a, v]) => `${d.lists.accounts.find((x) => x.id === a)?.name ?? ''} $${fmtUsd(v)}`).join(' · ')}</span>
-          <button className="btn small" onClick={fromBudget}>{t('خذها من الموازنة', 'Use the budget')}</button>
-        </div>
+
+      <h3 style={{ marginTop: 12 }}>{t('لأي مركز؟', 'For which centre?')}</h3>
+      <Seg value={split ? 'split' : 'here'} onChange={(v) => {
+        setSplit(v === 'split');
+        if (v === 'split' && !Object.keys(shares).length && total > 0) setShares({ [here]: String(total) });
+      }} options={[
+        { value: 'here', label: t(`كلها لـ${CENTRES[here].name.ar}`, `All for ${CENTRES[here].name.en}`) },
+        { value: 'split', label: t('مقسومة بين المراكز', 'Divided between centres') },
+      ]} />
+      {split && (
+        <table className="t" style={{ marginTop: 8, maxWidth: 420 }}>
+          <tbody>
+            {SHARE_CENTRES.map((k) => (
+              <tr key={k}>
+                <td>{tx(CENTRES[k].name)}{k === here && <span className="muted small"> · {t('هنا', 'here')}</span>}</td>
+                <td className="n"><input className="ltr" inputMode="decimal" placeholder={currency} value={shares[k] ?? ''} onChange={(e) => setShares({ ...shares, [k]: e.target.value })} style={{ width: 120 }} /></td>
+              </tr>
+            ))}
+            <tr>
+              <td><b>{t('المجموع', 'Total')}</b></td>
+              <td className={`n ltr ${Math.abs(sum - total) > 0.01 ? 'bad' : 'ok'}`}>{money(sum, currency)} / {money(total || 0, currency)}</td>
+            </tr>
+          </tbody>
+        </table>
       )}
-      {parts.map((p, k) => (
-        <div key={k} className="row" style={{ marginBottom: 6 }}>
-          <div style={{ flex: 1 }}><Select value={p.account} options={accounts} onChange={(v) => setParts(parts.map((x, j) => (j === k ? { ...x, account: v ?? ALL } : x)))} /></div>
-          {!single && <input className="ltr" inputMode="decimal" placeholder={currency} value={p.amount} onChange={(e) => setParts(parts.map((x, j) => (j === k ? { ...x, amount: e.target.value } : x)))} style={{ width: 120 }} />}
-          {!single && <button className="btn small ghost" onClick={() => setParts(parts.filter((_, j) => j !== k))}>✕</button>}
-        </div>
-      ))}
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <button className="btn small" onClick={() => setParts([...parts, { account: ALL, amount: '' }])}>＋ {t('حساب آخر (تقسيم)', 'Another account (split)')}</button>
-        {!single && <span className={`small ${Math.abs(sum - total) > 0.01 ? 'bad' : 'ok'}`}>{t('المجموع', 'Total')}: <span className="ltr">{money(sum, currency)} / {money(total || 0, currency)}</span></span>}
-      </div>
+
+      {hereAmount > 0 ? (
+        <>
+          <h3 style={{ marginTop: 12 }}>{t('الصندوق هنا', 'The fund here')} <span className="muted small ltr">{money(hereAmount, currency)}</span></h3>
+          {oldParts.length > 1 && <div className="alert warn small">{t('كانت هذه المنحة مقسومة على عدة حسابات: تذهب الآن كلها إلى صندوق واحد.', 'This grant was split over several accounts: it now goes to one fund.')}</div>}
+          <div className="grid2">
+            <Field label={t('الصندوق', 'Fund')}><Select value={fund} options={funds} onChange={setFund} /></Field>
+            {fund === NEW_FUND && <Field label={t('اسم الصندوق', 'Name of the fund')}><input value={fundName} placeholder={autoName} onChange={(e) => setFundName(e.target.value)} /></Field>}
+          </div>
+          <p className="muted small">{t('الصندوق لا يكون لمنحتين. في الموازنة، كل خط له صندوق واحد.', 'A fund never has two grants. In the budget, each line has one fund.')}</p>
+        </>
+      ) : split && <p className="muted small">{t('لا حصة لهذا المركز: لا صندوق هنا.', 'No share for this centre: no fund here.')}</p>}
+
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
-        <button className="btn primary" disabled={!donor || !(total > 0) || (!single && Math.abs(sum - total) > 0.01)} onClick={save}>{t('احفظ', 'Save')}</button>
+        <button className="btn primary" disabled={!ok} onClick={save}>{t('احفظ', 'Save')}</button>
       </div>
     </Modal>
   );

@@ -5,7 +5,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { catIcon } from './ui/catIcons';
 import { computeAll } from './domain/compute';
-import type { GrantCard, GrantPart } from './domain/grants';
+import type { GrantCard, GrantPart, GrantShare } from './domain/grants';
 import type { Computed, Lists, Trx } from './domain/types';
 import { has, type Profile } from './auth';
 import type { Perm } from './perms';
@@ -50,6 +50,7 @@ export interface Data {
   keptBooks: number[];
   grants: GrantCard[];
   grantParts: GrantPart[];
+  grantShares: GrantShare[];
   /** the books this person may see the cash of (a private book only by its keepers) */
   shownBooks: Lists['books'];
   /** the Respo book (grants, the Province's money) */
@@ -104,6 +105,7 @@ async function loadData(s: Session, background = false): Promise<Data> {
     keptBooks: p.keptBooks,
     grants: p.grants,
     grantParts: p.grantParts ?? [],
+    grantShares: p.grantShares ?? [],
     shownBooks: p.lists.books.filter((b) => !b.private || s.profile.books.includes(b.id)),
     grantsBookId: p.grantsBookId ?? null,
     centreRows: p.rows.filter((r) => r.book_id == null || r.book_id !== p.grantsBookId),

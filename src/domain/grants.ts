@@ -35,6 +35,13 @@ export interface GrantPart {
   amount: number;
 }
 
+/** The amount of a grant for one centre (jaramana, aleppo, homs, other), in the grant's currency. */
+export interface GrantShare {
+  grant_id: string;
+  centre: string;
+  amount: number;
+}
+
 export interface GrantFlow {
   /** dollars in hand (0 before "in hand") */
   inHand: number;

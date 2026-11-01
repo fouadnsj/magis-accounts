@@ -4,6 +4,32 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // grants divided by centre, funds (2026-11-01)
+  "Funds": "Fonds",
+  "Fund": "Fonds",
+  "Contract number": "Numéro de contrat",
+  "Contract": "Contrat",
+  "Note (the agreement…)": "Note (l'accord…)",
+  "For which centre?": "Pour quel centre ?",
+  "All for {0}": "Tout pour {0}",
+  "Divided between centres": "Partagée entre les centres",
+  "here": "ici",
+  "The fund here": "Le fonds ici",
+  "A new fund with the grant's name": "Un nouveau fonds au nom de la subvention",
+  "Name of the fund": "Nom du fonds",
+  "This grant was split over several accounts: it now goes to one fund.": "Cette subvention était partagée entre plusieurs comptes : elle va maintenant à un seul fonds.",
+  "A fund never has two grants. In the budget, each line has one fund.": "Un fonds n'a jamais deux subventions. Dans le budget, chaque ligne a un seul fonds.",
+  "No share for this centre: no fund here.": "Pas de part pour ce centre : pas de fonds ici.",
+  "Centres": "Centres",
+  "no fund yet": "pas encore de fonds",
+  "no share here": "pas de part ici",
+  "Each grant's share in this centre is a fund. A fund without a grant is private money. A grant's fund is made from the Grants page.": "La part de chaque subvention dans ce centre est un fonds. Un fonds sans subvention est de l'argent privé. Le fonds d'une subvention se crée depuis la page Subventions.",
+  "New private fund": "Nouveau fonds privé",
+  "Share here": "Part ici",
+  "Private": "Privé",
+  "outside the budget": "hors budget",
+  "This fund has a grant: change it from the Grants page": "Ce fonds a une subvention : changez-la depuis la page Subventions",
+
   "Headings (tick one or more)": "Rubriques (cochez-en une ou plusieurs)",
   "Lines (tick one or more, from any heading)": "Lignes (cochez-en une ou plusieurs, de n'importe quelle rubrique)",
   "The amount is shared between them in proportion to their budget.": "Le montant est partagé selon le budget de chacun.",

@@ -1524,5 +1524,18 @@ UPDATE access_profile SET perms = replace(perms, '"hr.approve"', '"hr.approve","
 -- writing agreements shows their amounts
 UPDATE access_profile SET perms = replace(perms, '"hr.agreements"', '"hr.agreements","hr.salary"') WHERE perms LIKE '%"hr.agreements"%' AND perms NOT LIKE '%"hr.salary"%';
 `,
+  },  {
+    n: 40,
+    name: 'grants divided by centre: the share of each centre; here the share goes to one fund',
+    sql: `
+-- A grant may cover several centres (Fouad, 2026-11-01): the amount of each.
+-- Here, this centre's share goes to one fund (grant_part). A grant without shares is all for here.
+CREATE TABLE grant_share (
+  grant_id TEXT NOT NULL REFERENCES grant_card(id),
+  centre   TEXT NOT NULL,
+  amount   REAL NOT NULL CHECK (amount > 0),
+  PRIMARY KEY (grant_id, centre)
+);
+`,
   },
 ];

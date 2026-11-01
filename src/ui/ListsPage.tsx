@@ -20,12 +20,13 @@ export function ListsPage() {
         { value: 'budget', label: t('الموازنة', 'Budget') },
         { value: 'books', label: t('الدفاتر والأمناء', 'Books & keepers') },
         { value: 'party', label: t('الجهات', 'Parties') },
-        { value: 'account', label: t('الحسابات', 'Accounts') },
+        { value: 'account', label: t('الصناديق', 'Funds') },
         { value: 'city', label: t('المدن', 'Cities') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
       {tab === 'budget' && <BudgetTab />}
-      {(tab === 'city' || tab === 'account' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
+      {(tab === 'city' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
+      {tab === 'account' && <FundsTab />}
       {tab === 'books' && <BooksTab />}
       {tab === 'settings' && <SettingsTab />}
     </>
@@ -221,6 +222,76 @@ function SimpleTab({ table }: { table: SimpleList }) {
               </td>
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- funds
+
+/**
+ * The funds (Fouad, 2026-11-01): each grant's share in this centre is one fund; a fund without
+ * a grant is private money (the Jesuit foundation…). Only who keeps the grants adds or changes them.
+ */
+function FundsTab() {
+  const { s, d, can } = useApp();
+  const act = useAct();
+  const counts = useCounts();
+  const [name, setName] = useState('');
+  const edit = can('lists.donors');
+  const used = (id: number) => counts.account.get(id) ?? 0;
+  const money = (n: number, cur: string) => `${cur === 'EUR' ? '€' : '$'}${fmtUsd(n)}`;
+  const grantOf = (id: number) => {
+    const p = d.grantParts.find((x) => x.account_id === id);
+    const g = p && d.grants.find((x) => x.id === p.grant_id);
+    return g && p ? { g, here: p.amount } : null;
+  };
+  const add = async () => (await act(() => s.api.call('list.add', { table: 'account', name }), t('أضيف', 'Added'))) && setName('');
+  return (
+    <div className="panel" style={{ maxWidth: 900 }}>
+      <p className="muted small" style={{ marginTop: 0 }}>{t('حصة كل منحة في هذا المركز صندوق. الصندوق بلا منحة مال خاص. صندوق المنحة يُنشأ من صفحة المنح.', "Each grant's share in this centre is a fund. A fund without a grant is private money. A grant's fund is made from the Grants page.")}</p>
+      {edit && (
+        <div className="row" style={{ marginBottom: 10 }}>
+          <input className="inp" style={{ flex: 1 }} placeholder={t('صندوق خاص جديد', 'New private fund')} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && void add()} />
+          <button className="btn primary" disabled={!name.trim()} onClick={add}>＋ {t('إضافة', 'Add')}</button>
+        </div>
+      )}
+      <table className="t">
+        <thead><tr><th>{t('الصندوق', 'Fund')}</th><th>{t('المنحة', 'Grant')}</th><th className="n">{t('الحصة هنا', 'Share here')}</th><th className="n">{t('مستعمل', 'Used')}</th>{edit && <th />}</tr></thead>
+        <tbody>
+          {d.lists.accounts.map((x) => {
+            const gr = grantOf(x.id);
+            return (
+              <tr key={x.id} className={x.active ? '' : 'off'}>
+                <td>{x.name}{!x.active && <span className="small"> · {t('موقوف', 'deactivated')}</span>}{x.outside_budget ? <span className="small muted"> · {t('خارج الموازنة', 'outside the budget')}</span> : null}</td>
+                <td>{gr ? <>{d.lists.donors.find((y) => y.id === gr.g.donor_id)?.name ?? ''}{gr.g.reference ? <span className="muted"> · {gr.g.reference}</span> : null}</> : edit ? <span className="muted">{t('خاص', 'Private')}</span> : ''}</td>
+                <td className="n ltr">{gr ? money(gr.here, gr.g.currency) : ''}</td>
+                <td className="n">{used(x.id)}</td>
+                {edit && (
+                  <td className="nowrap right">
+                    <button className="btn small ghost" title="↑" onClick={() => act(() => s.api.call('list.move', { table: 'account', id: x.id, dir: -1 }))}>▲</button>
+                    <button className="btn small ghost" title="↓" onClick={() => act(() => s.api.call('list.move', { table: 'account', id: x.id, dir: 1 }))}>▼</button>
+                    <button className="btn small ghost" onClick={async () => {
+                      const n = await promptBox(t('الاسم الجديد', 'New name'), x.name);
+                      if (n && n !== x.name) void act(() => s.api.call('list.rename', { table: 'account', id: x.id, name: n }), t('تمت إعادة التسمية', 'Renamed'));
+                    }}>✎</button>
+                    {x.active ? (
+                      <button className="btn small ghost" onClick={async () => {
+                        if (gr) return toast(t('لهذا الصندوق منحة: غيّرها من صفحة المنح', 'This fund has a grant: change it from the Grants page'), true);
+                        if (used(x.id)) {
+                          if (await confirmBox(t('مستعمل. إيقافه؟ (يبقى في السطور القديمة ويختفي من القوائم)', 'In use. Deactivate it? (stays on old rows, leaves the dropdowns)')))
+                            await act(() => s.api.call('list.setActive', { table: 'account', id: x.id, active: false }));
+                        } else if (await confirmBox(t('حذف نهائي؟', 'Delete for good?'), true)) await act(() => s.api.call('list.delete', { table: 'account', id: x.id }));
+                      }}>✕</button>
+                    ) : (
+                      <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'account', id: x.id, active: true }))}>↺</button>
+                    )}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

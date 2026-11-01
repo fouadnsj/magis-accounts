@@ -24,7 +24,7 @@ import {
 } from './domain/budget';
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
 import { holders } from './domain/reports';
-import { GRANT_STEPS, type GrantCard, type GrantPart, type GrantStep } from './domain/grants';
+import { GRANT_STEPS, type GrantCard, type GrantPart, type GrantShare, type GrantStep } from './domain/grants';
 import type { Book, Lists, Settings, Trx, TrxType } from './domain/types';
 import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
@@ -163,6 +163,7 @@ export interface DataPayload {
   /** grants and what they are for (only for those who see the donors) */
   grants: GrantCard[];
   grantParts: GrantPart[];
+  grantShares: GrantShare[];
   receipts: HolderReceipt[];
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
@@ -204,7 +205,8 @@ const LIST_TABLES = ['city', 'account', 'project', 'party', 'book', 'heading', '
 type ListTable = (typeof LIST_TABLES)[number];
 function listTable(c: OpCtx, t: string): ListTable {
   if (!(LIST_TABLES as readonly string[]).includes(t)) throw new UserError(m('قائمة غير معروفة', 'Unknown list'));
-  need(c, t === 'donor' ? 'lists.donors' : 'lists.manage');
+  // funds (the accounts) and donors: only who keeps the grants (the Superior, the Administrator)
+  need(c, t === 'donor' || t === 'account' ? 'lists.donors' : 'lists.manage');
   return t as ListTable;
 }
 
@@ -301,6 +303,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   if (!donors) lists.donors = [];
   const grants = donors ? await db.query<GrantCard>('SELECT * FROM grant_card ORDER BY COALESCE(hand_on, bank_on, transferred_on, approved_on, promised_on, created_at) DESC') : [];
   const grantParts = donors ? await db.query<GrantPart>('SELECT * FROM grant_part') : [];
+  const grantShares = donors ? await db.query<GrantShare>('SELECT * FROM grant_share') : [];
   const receipts = c.install === 'holder' ? await db.query<HolderReceipt>('SELECT * FROM holder_receipt ORDER BY date') : [];
   const ot = await getMeta(db, 'office_transfers');
   const visible = new Set(rows.map((r) => r.id));
@@ -309,7 +312,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   return {
     lists, rows, closed: [...closed], bookMonths: all ? bm : bm.filter((b) => keeps(c, b.book_id)), transfers, keptBooks: kept,
     closedYears: (await c.db.query<{ year: number }>('SELECT year FROM closed_year')).map((x) => x.year),
-    grants, grantParts, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
+    grants, grantParts, grantShares, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
     grantsBookId: Number(await getMeta(db, 'grants_book_id')) || null,
   };
 }
@@ -897,24 +900,66 @@ const STEP_DATE: Record<GrantStep, keyof GrantCard> = { promised: 'promised_on',
 const goodDate = (x: unknown) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
 
 /** A grant: donor, amount (USD or EUR), what it is for. A new one starts "promised" today. */
-async function saveGrant(c: OpCtx, a: { id?: string; donor_id: number; amount: number; currency: 'USD' | 'EUR'; reference?: string | null; note?: string | null; parts: { account_id: number | null; amount: number }[]; promised_on?: string | null }) {
-  if (!a.donor_id) throw new UserError(m('اختر المانح', 'Choose the donor'));
+/**
+ * A grant (Fouad, 2026-11-01): the donor written as a name, the contract number, the amount,
+ * and the share of each centre. Here, this centre's share goes to ONE fund (an existing one
+ * or a new one with the grant's name); a fund never has two grants. No shares = all for here.
+ */
+async function saveGrant(c: OpCtx, a: {
+  id?: string; donor: string; amount: number; currency: 'USD' | 'EUR'; reference?: string | null; note?: string | null;
+  here: string | null; shares: { centre: string; amount: number }[]; fund_id: number | null; new_fund?: string | null; promised_on?: string | null;
+}) {
+  const donorName = (a.donor ?? '').trim();
+  if (!donorName) throw new UserError(m('اكتب المانح', 'Write the donor', 'Écrivez le donateur'));
   if (!(a.amount > 0)) throw new UserError(m('مبلغ غير صحيح', 'Wrong amount'));
   if (a.currency !== 'USD' && a.currency !== 'EUR') throw new UserError(m('دولار أو يورو', 'USD or EUR'));
-  const parts = (a.parts ?? []).filter((p) => p.amount > 0);
-  const sum = parts.reduce((s, p) => s + p.amount, 0);
-  if (parts.length && Math.abs(sum - a.amount) > 0.01) throw new UserError(m(`مجموع الحسابات (${sum}) لا يساوي المبلغ (${a.amount})`, `The accounts add up to ${sum}, not ${a.amount}`));
+  const shares = (a.shares ?? []).filter((x) => x.amount > 0);
+  if (new Set(shares.map((x) => x.centre)).size !== shares.length) throw new UserError(m('مركز مكرر', 'A centre is written twice', 'Un centre est écrit deux fois'));
+  const sum = shares.reduce((t, x) => t + x.amount, 0);
+  if (shares.length && Math.abs(sum - a.amount) > 0.01)
+    throw new UserError(m(`مجموع حصص المراكز (${sum}) لا يساوي المبلغ (${a.amount})`, `The centres' shares add up to ${sum}, not ${a.amount}`, `Les parts des centres font ${sum}, pas ${a.amount}`));
+  const hereAmount = shares.length ? (shares.find((x) => x.centre === a.here)?.amount ?? 0) : a.amount;
   const id = a.id ?? uuid();
   const before = a.id ? await one<GrantCard>(c.db, 'SELECT * FROM grant_card WHERE id = ?', [a.id]) : null;
   if (a.id && !before) throw new UserError(m('المنحة غير موجودة', 'Grant not found'));
-  const finalParts = parts.length ? parts : [{ account_id: null, amount: a.amount }];
+  // the fund of this centre's share
+  const newFund = (a.new_fund ?? '').trim();
+  let fundId: number | null = null;
+  if (hereAmount > 0) {
+    if (newFund) {
+      if (await one(c.db, 'SELECT 1 FROM account WHERE name = ?', [newFund])) throw new UserError(m(`الصندوق «${newFund}» موجود: اختره من القائمة`, `The fund "${newFund}" exists: choose it in the list`, `Le fonds « ${newFund} » existe : choisissez-le dans la liste`));
+    } else {
+      fundId = a.fund_id ?? null;
+      if (fundId == null || !(await one(c.db, 'SELECT 1 FROM account WHERE id = ?', [fundId]))) throw new UserError(m('اختر الصندوق', 'Choose the fund', 'Choisissez le fonds'));
+      const other = await one<{ donor: string; reference: string | null }>(c.db,
+        'SELECT d.name AS donor, g.reference FROM grant_part p JOIN grant_card g ON g.id = p.grant_id JOIN donor d ON d.id = g.donor_id WHERE p.account_id = ? AND p.grant_id <> ? LIMIT 1', [fundId, id]);
+      if (other) {
+        const o = `${other.donor}${other.reference ? ` · ${other.reference}` : ''}`;
+        throw new UserError(m(`لهذا الصندوق منحة أخرى (${o}): الصندوق لا يكون لمنحتين`, `This fund already has a grant (${o}): a fund never has two grants`, `Ce fonds a déjà une subvention (${o}) : un fonds n'a jamais deux subventions`));
+      }
+    }
+  }
+  // the donor: found by its name, or added
+  let donor = await one<{ id: number }>(c.db, 'SELECT id FROM donor WHERE name = ?', [donorName]);
+  if (!donor) {
+    await saveDonor(c.db, { name: donorName, default_project_id: null }, c.who);
+    donor = await one<{ id: number }>(c.db, 'SELECT id FROM donor WHERE name = ?', [donorName]);
+  }
+  const maxSort = (await one<{ s: number | null }>(c.db, 'SELECT MAX(sort) AS s FROM account'))?.s ?? 0;
+  const fundRef = newFund ? { sql: '(SELECT id FROM account WHERE name = ?)', param: newFund } : { sql: '?', param: fundId };
   await c.db.batch([
+    ...(hereAmount > 0 && newFund ? [
+      { sql: 'INSERT INTO account (name, sort) VALUES (?, ?)', params: [newFund, maxSort + 1] },
+      auditStmt(c.who, 'add', 'account', null, null, { name: newFund, grant: id }),
+    ] : []),
     before
-      ? { sql: 'UPDATE grant_card SET donor_id = ?, amount = ?, currency = ?, reference = ?, note = ? WHERE id = ?', params: [a.donor_id, a.amount, a.currency, a.reference ?? null, a.note ?? null, id] }
-      : { sql: "INSERT INTO grant_card (id, donor_id, amount, currency, reference, note, status, promised_on, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, 'promised', ?, ?, ?)", params: [id, a.donor_id, a.amount, a.currency, a.reference ?? null, a.note ?? null, a.promised_on ?? nowIso().slice(0, 10), nowIso(), c.who] },
+      ? { sql: 'UPDATE grant_card SET donor_id = ?, amount = ?, currency = ?, reference = ?, note = ? WHERE id = ?', params: [donor!.id, a.amount, a.currency, a.reference ?? null, a.note ?? null, id] }
+      : { sql: "INSERT INTO grant_card (id, donor_id, amount, currency, reference, note, status, promised_on, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, 'promised', ?, ?, ?)", params: [id, donor!.id, a.amount, a.currency, a.reference ?? null, a.note ?? null, a.promised_on ?? nowIso().slice(0, 10), nowIso(), c.who] },
     { sql: 'DELETE FROM grant_part WHERE grant_id = ?', params: [id] },
-    ...finalParts.map((p) => ({ sql: 'INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, ?, ?)', params: [id, p.account_id ?? null, p.amount] })),
-    auditStmt(c.who, before ? 'edit' : 'add', 'grant_card', id, before, { ...a, parts: finalParts }),
+    ...(hereAmount > 0 ? [{ sql: `INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, ${fundRef.sql}, ?)`, params: [id, fundRef.param, hereAmount] }] : []),
+    { sql: 'DELETE FROM grant_share WHERE grant_id = ?', params: [id] },
+    ...shares.map((x) => ({ sql: 'INSERT INTO grant_share (grant_id, centre, amount) VALUES (?, ?, ?)', params: [id, x.centre, x.amount] })),
+    auditStmt(c.who, before ? 'edit' : 'add', 'grant_card', id, before, { ...a, donor_id: donor!.id }),
   ]);
   return id;
 }
@@ -1297,8 +1342,10 @@ export const OPS = {
   },
   'list.add': {
     check: (c: OpCtx) => need(c, 'lists.manage'),
+    // (a fund: lists.donors, checked below)
     run: (c: OpCtx, a: { table: SimpleList; name: string }) => {
       if (!SIMPLE.includes(a.table)) throw new UserError(m('قائمة غير معروفة', 'Unknown list'));
+      listTable(c, a.table);
       return addNamed(c.db, a.table, a.name, c.who);
     },
   },
@@ -1395,6 +1442,7 @@ export const OPS = {
       await c.db.batch([
         ...(income ? [{ sql: 'DELETE FROM trx WHERE id = ?', params: [income.id] }, auditStmt(c.who, 'delete', 'trx', income.id, income, { reason: 'grant deleted' })] : []),
         { sql: 'DELETE FROM grant_part WHERE grant_id = ?', params: [a.id] },
+        { sql: 'DELETE FROM grant_share WHERE grant_id = ?', params: [a.id] },
         { sql: 'DELETE FROM grant_card WHERE id = ?', params: [a.id] },
         auditStmt(c.who, 'delete', 'grant_card', a.id, g, null),
       ]);

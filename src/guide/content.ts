@@ -1,5 +1,6 @@
 // The guide inside the programs (Fouad, 2026-11-02): the essentials of the accounts and of HR, by section, in Arabic,
-// English and French. Each page has a 📖 that opens its section. What is written here says what the screens do.
+// English and French. Each page has a "Guide" button (the MAGIS sun) that opens its section. What is written here
+// says what the screens do.
 import { m, type Msg } from '../i18n';
 
 export interface GuideStep { title: Msg; text: Msg }

@@ -15,7 +15,7 @@ import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
 import { Guide } from './Guide';
-import { GuideCtx } from '../guide/GuideView';
+import { GuideCtx, GuideSun } from '../guide/GuideView';
 import { draftFor, draftKey } from './draft';
 import { PhoneShell } from './Phone';
 
@@ -48,7 +48,7 @@ interface Nav {
 const NavCtx = createContext<Nav | null>(null);
 export const useNav = () => useContext(NavCtx)!;
 
-export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void }) {
+export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void; /** the first choice: MAGIS centres, Jesuit communities, HR */ onAllDatabases?: () => void }) {
   const { s, d, logout, can, myBooks, limited } = useApp();
   const [page, setPage] = useState<Page>('home');
   const [guideSection, setGuideSection] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
   };
   const toReview = d.rows.filter((r) => r.review).length;
 
-  const item = (p: Page, label: string, extra?: React.ReactNode) => (
+  const item = (p: Page, label: React.ReactNode, extra?: React.ReactNode) => (
     <button className={page === p ? 'on' : ''} onClick={() => nav.go(p)}>
       <span>{label}</span>
       {extra}
@@ -124,12 +124,13 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
           {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
-          {(can('lists.manage') || can('lists.donors') || can('budget.view')) && item('guide', `📖 ${t('الدليل', 'Guide')}`)}
+          {(can('lists.manage') || can('lists.donors') || can('budget.view')) && item('guide', <><GuideSun light /> {t('الدليل', 'Guide')}</>)}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
           <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
           <LangPick onChange={onToggleLang} />
           {onDatabases && <button onClick={onDatabases}>{can('users.manage') ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
+          {onAllDatabases && <button onClick={onAllDatabases}>🏠 {t('الصفحة الأولى', 'Home page')}</button>}
           <button onClick={logout}>{t('خروج', 'Log out')}</button>
           {s.mode !== 'server' && <button onClick={onCloseDb} className="small">{t('إغلاق الملف', 'Close file')}</button>}
         </nav>

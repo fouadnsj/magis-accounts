@@ -158,7 +158,7 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, dir, isLocal, onDirChanged, onDirSignOut, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked, onHome }: {
+export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, dir, isLocal, onDirChanged, onDirSignOut, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked, onHome, home }: {
   dbs: DbInfo[];
   canCreate: boolean;
   canCreateCty?: boolean;
@@ -180,6 +180,8 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   onBackIn?: () => void;
   /** signed in from a community (or a centre): the list opens on that side */
   startArea?: 'centres' | 'cty' | null;
+  /** opened from "Home page": the first choice (MAGIS centres or Jesuit communities), even when signed in */
+  home?: boolean;
   /** the communities' side has a password not given yet in this browser */
   ctyLocked?: boolean;
   onCtyUnlocked?: () => Promise<void>;
@@ -199,7 +201,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   // on the communities' side, the communities' password is enough to make a new one
   const canCreate = canCreateAll || (area === 'cty' && !!canCreateCty);
   const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
-  const choosing = both && area === null && !signedIn && !creating;
+  const choosing = both && area === null && (!signedIn || !!home) && !creating;
   // the communities are hidden behind their password (the server does not even name them)
   if (area === 'cty' && ctyLocked)
     return (

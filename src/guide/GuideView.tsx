@@ -1,5 +1,5 @@
 // The guide's screen, the same in the accounts and in HR (Fouad, 2026-11-02): the sections on one side, the chosen
-// section on the other; and the 📖 on each page, which opens the guide at that page's section.
+// section on the other; and the "Guide" button on each page (the MAGIS sun), which opens it at that page's section.
 import { createContext, useContext, useState } from 'react';
 import { m, tx } from '../i18n';
 import type { GuideSection } from './content';
@@ -7,11 +7,20 @@ import type { GuideSection } from './content';
 /** Opens the guide at a section (given by each program around its pages). */
 export const GuideCtx = createContext<(id: string) => void>(() => undefined);
 
-/** The 📖 of a page: opens its section of the guide. */
+/** The MAGIS sun, the guide's sign (white on the dark side menus). */
+export function GuideSun({ size = 18, light = false }: { size?: number; light?: boolean }) {
+  return <img src="/brand/magis-sun.png" alt="" style={{ width: size, height: size, objectFit: 'contain', verticalAlign: 'middle', filter: light ? 'brightness(0) invert(1)' : undefined }} />;
+}
+
+/** The guide's button on a page: the MAGIS sun and "Guide", in the welcome page's colours; opens its section. */
 export function GuideLink({ id }: { id: string }) {
   const open = useContext(GuideCtx);
   return (
-    <button type="button" className="btn small ghost" style={{ marginInlineStart: 8, verticalAlign: 'middle' }} title={tx(m('الدليل: كيف تعمل هذه الصفحة', 'Guide: how this page works', 'Guide : comment fonctionne cette page'))} onClick={() => open(id)}>📖</button>
+    <button type="button" onClick={() => open(id)} title={tx(m('الدليل: كيف تعمل هذه الصفحة', 'Guide: how this page works', 'Guide : comment fonctionne cette page'))}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginInlineStart: 10, verticalAlign: 'middle', padding: '2px 10px 2px 6px', borderRadius: 999,
+        border: '1px solid #B8891B', background: '#FBF7EE', color: '#8A6A1A', font: 'inherit', fontSize: 13, fontWeight: 600, lineHeight: '20px', cursor: 'pointer' }}>
+      <GuideSun size={20} />{tx(m('الدليل', 'Guide', 'Guide'))}
+    </button>
   );
 }
 

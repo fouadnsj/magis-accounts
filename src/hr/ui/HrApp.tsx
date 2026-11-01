@@ -22,7 +22,7 @@ import { ReportsPage } from './Reports';
 import { SessionsPage } from './Sessions';
 import { rightsOf, SortTh, TwoNames, centreLabel, centreOf, centreVars, chooseScan, codeOf, fail, markOf, openScan, centreChoices, sortRows, usd, useSort } from './common';
 import './hr.css';
-import { GuideCtx, GuideLink, GuideView } from '../../guide/GuideView';
+import { GuideCtx, GuideLink, GuideSun, GuideView } from '../../guide/GuideView';
 import { HR_GUIDE } from '../../guide/content';
 
 type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'sessions' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log' | 'guide';
@@ -39,7 +39,7 @@ function onlyCentre(d: HrData, code: string | null): HrData {
   return { ...d, people, papers: mine(d.papers), signs: mine(d.signs), docs: d.docs ? mine(d.docs) : null, alerts: mine(d.alerts), checksDone: mine(d.checksDone) };
 }
 
-export function HrApp({ session, onLogout, onDatabases }: { session: Session; onLogout: () => void; onLang?: () => void; /** the other databases of this person (server) */ onDatabases?: () => void }) {
+export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { session: Session; onLogout: () => void; onLang?: () => void; /** the other databases of this person (server) */ onDatabases?: () => void; /** the first choice: MAGIS centres, Jesuit communities, HR */ onAllDatabases?: () => void }) {
   const [all, setAll] = useState<HrData | null>(null);
   const [pd, setPd] = useState<HrPayData | null>(null);
   const [page, setPage] = useState<Page>('home');
@@ -72,7 +72,7 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
   const open = (p: HrPerson) => { setPersonId(p.id); setPage('person'); };
   const ctx: Ctx = { s: session, d, reload, open };
   const go = (p: Page) => { setPage(p); setPersonId(null); };
-  const item = (p: Page, label: string, badge?: number) => <button key={p} className={page === p || (p === 'people' && page === 'person') ? 'on' : ''} onClick={() => go(p)}><span>{label}</span>{badge ? <i className="hr-badge">{badge}</i> : null}</button>;
+  const item = (p: Page, label: React.ReactNode, badge?: number) => <button key={p} className={page === p || (p === 'people' && page === 'person') ? 'on' : ''} onClick={() => go(p)}><span>{label}</span>{badge ? <i className="hr-badge">{badge}</i> : null}</button>;
   const person = typeof personId === 'number' ? all.people.find((p) => p.id === personId) ?? null : null;
   return (
     <GuideCtx.Provider value={(id) => { setGuideSection(id); go('guide'); }}>
@@ -97,10 +97,11 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
         {item('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'))}
         {(manage || rt.scale || rt.users || rt.backups) && item('lists', t3('الإعدادات', 'Settings', 'Réglages'))}
         {vault && item('log', t3('سجل فتح الوثائق', 'Document log', 'Journal des documents'))}
-        {item('guide', `📖 ${t3('الدليل', 'Guide', 'Guide')}`)}
+        {item('guide', <><GuideSun light /> {t3('الدليل', 'Guide', 'Guide')}</>)}
         <div className="spacer" />
         <div className="sun"><img src="/brand/magis-sun.png" alt="" /></div>
         {onDatabases && <button onClick={onDatabases}>{t3('قواعد البيانات', 'Databases', 'Bases de données')}</button>}
+        {onAllDatabases && <button onClick={onAllDatabases}>🏠 {t3('الصفحة الأولى', 'Home page', "Page d'accueil")}</button>}
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </nav>
       <main className="hr-main">
@@ -128,7 +129,7 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'lists' && <ListsPage s={session} d={all} reload={reload} r={rt} />}
         {page === 'log' && <Log s={session} d={all} />}
-        {page === 'guide' && <><div className="hr-head"><div><div className="hr-eyebrow">{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</div><h1>📖 {t3('الدليل', 'Guide', 'Guide')}</h1></div></div><GuideView key={guideSection ?? ''} sections={HR_GUIDE} initial={guideSection} /></>}
+        {page === 'guide' && <><div className="hr-head"><div><div className="hr-eyebrow">{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</div><h1><GuideSun size={30} /> {t3('الدليل', 'Guide', 'Guide')}</h1></div></div><GuideView key={guideSection ?? ''} sections={HR_GUIDE} initial={guideSection} /></>}
       </main>
     </div>
     </GuideCtx.Provider>

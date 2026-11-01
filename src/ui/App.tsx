@@ -53,6 +53,8 @@ export function App() {
   const [settingUp, setSettingUp] = useState(false);
   /** logged in, but looking at the list of databases (to create one, or change) */
   const [browsing, setBrowsing] = useState(false);
+  // browsing from the first choice (MAGIS centres, Jesuit communities, HR), not the centres' list
+  const [browseTop, setBrowseTop] = useState(false);
   /** server: from the first page to the communities' side (their own password, then their people) */
   const [ctySide, setCtySide] = useState(false);
   /** signed out for inactivity: said on the login page */
@@ -276,7 +278,9 @@ export function App() {
         onDirSignOut={logout}
         onHome={!session && !server.dir?.person ? () => setCtySide(false) : undefined}
         signedIn={session ? { name: session.profile.name, db: serverDb?.organisation ?? '' } : null}
-        startArea={session ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : ctySide ? 'cty' : null}
+        key={browseTop ? 'top' : 'area'}
+        home={browseTop}
+        startArea={session && !browseTop ? (session.kind === 'community' || session.kind === 'country' ? 'cty' : 'centres') : ctySide ? 'cty' : null}
         ctyLocked={!!server.ctyGate && !server.ctyOpen}
         onCtyUnlocked={async () => { await refreshServer(); }}
         address={remoteBase}
@@ -405,7 +409,7 @@ export function App() {
     body = (
       <>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <HrApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} />
+        <HrApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
       </>
     );
   else if (session?.kind === 'country')
@@ -426,7 +430,7 @@ export function App() {
     body = (
       <AppProvider session={session!} onLogout={logout}>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} />
+        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
       </AppProvider>
     );
 

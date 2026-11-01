@@ -236,7 +236,7 @@ export const FR: Record<string, string> = {
   "All accounts": "Tous les comptes",
   "All books": "Toutes les caisses",
   "All currencies in dollars": "Toutes les monnaies en dollars",
-  "All databases": "Toutes les bases",
+  "Home page": "Page d'accueil",
   "All expenses": "Toutes les dépenses",
   "All headings": "Toutes les rubriques",
   "All in USD": "Tout en USD",

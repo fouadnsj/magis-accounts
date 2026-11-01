@@ -10,7 +10,7 @@ import { notesOf } from './Cash';
 import { pickFile, saveFile } from '../platform';
 import type { CommonList } from '../io/commonList';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
-import { GuideCtx, GuideLink } from '../guide/GuideView';
+import { GuideCtx, GuideLink, GuideSun } from '../guide/GuideView';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
 
@@ -165,7 +165,7 @@ function CommonListPanel() {
         {state && <li><b>{t('احفظ القائمة ملفاً', 'Save the list as a file')}</b>: {HELP.save()}</li>}
         {state && boss && <li><b>{t('خذ ملف قائمة', 'Take a list file')}</b>: {HELP.take()}</li>}
       </ul>
-      <button className="link small" style={{ marginTop: 6 }} onClick={() => openGuide('common')}>📖 {t('الخطوات كلها في «الدليل»', 'All the steps in the Guide')}</button>
+      <button className="link small" style={{ marginTop: 6 }} onClick={() => openGuide('common')}><GuideSun /> {t('الخطوات كلها في «الدليل»', 'All the steps in the Guide')}</button>
       {joining && <JoinModal list={joining} onClose={() => setJoining(null)} onDone={async () => { setJoining(null); await reload(); await load(); }} />}
     </div>
   );

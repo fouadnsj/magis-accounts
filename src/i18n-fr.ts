@@ -4,6 +4,11 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // Explore with all centres (2026-11-02)
+  "This centre": "Ce centre",
+  "By centre": "Par centre",
+  "Every centre of this server together. Headings and lines go together by the common list; a centre not in it yet keeps its headings apart.": "Tous les centres de ce serveur ensemble. Les rubriques et lignes vont ensemble selon la liste commune ; un centre qui n'y est pas encore garde ses rubriques à part.",
+
   // joining the common list (2026-11-02)
   "Join the common list…": "Rejoindre la liste commune…",
   "Join the common list (from {0})": "Rejoindre la liste commune (de {0})",

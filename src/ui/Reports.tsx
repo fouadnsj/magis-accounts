@@ -7,11 +7,11 @@ import type { Perm } from '../perms';
 import { Seg, Tabs, errText, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t, toast } from './kit';
 import { BarList, EXPENSE, INCOME, MonthColumns, type Bar } from './Charts';
 import { useNav } from './Shell';
-import type { Trx } from '../domain/types';
 import { CurrencyFrame } from './Cash';
 import { QuartersTab } from './Quarters';
 import { projectReport, type ProjectRow } from '../domain/projects';
-import type { CentreSummary, GrantAcross } from '../domain/allCentres';
+import { exploreRows, type CentreSummary, type ExploreRow, type GrantAcross } from '../domain/allCentres';
+import { catIcon } from './catIcons';
 import { centreStyle } from '../brand';
 import { projectXlsx } from '../io/projectExcel';
 import { saveFile } from '../platform';
@@ -116,132 +116,198 @@ const shortMonth = (ym: string, many: boolean) => `${MONTHS_EN[Number(ym.slice(5
  * Explore: choose expenses or income, a heading, a line — every chart follows the choice:
  * its lines, month by month, by account, by holder, by party, and the rows themselves.
  */
+/**
+ * Explore one kind (expenses or income) by heading, line, project, holder and party, month by month. "All centres"
+ * (Fouad, 2026-11-02): every centre of this server together, the headings and lines matched by the common list.
+ */
 function ExploreTab({ p }: { p: Period }) {
-  const { d } = useApp();
-  const names = useNames();
+  const { d, s, can } = useApp();
   const icons = useIcons();
   const nav = useNav();
+  const mayAll = s.mode === 'server' && can('lists.donors') && can('users.manage');
+  const [scope, setScope] = useState<'here' | 'all'>('here');
   const [kind, setKind] = useState<'Exp' | 'Income'>('Exp');
-  const [heading, setHeading] = useState<number | null>(null);
-  const [line, setLine] = useState<number | null>(null);
+  const [heading, setHeading] = useState<string | null>(null);
+  const [line, setLine] = useState<string | null>(null);
+  const [project, setProject] = useState<string | null>(null); // a project's name; NONE: not funded / the centre's own
+  const [centre, setCentre] = useState<string | null>(null);
   const [measure, setMeasure] = useState<Measure>('eq');
-  const L = d.lists;
+  const [allRows, setAllRows] = useState<ExploreRow[] | null>(null);
+  const NONE = '\u0000none';
+  const here = useMemo(() => exploreRows({ rows: d.centreRows, comp: d.comp, lists: d.lists, centre: s.centre ?? 'other', organisation: s.organisation, period: p }), [d, s, p]);
+  useEffect(() => {
+    if (scope !== 'all') return;
+    setAllRows(null);
+    fetch('/api/all-centres/rows', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) })
+      .then(async (x) => (x.ok ? setAllRows(await x.json()) : (toast(t('غير مسموح', 'Not allowed'), true), setScope('here'))))
+      .catch((e) => toast(String(e), true));
+  }, [scope, p]);
+  const source = scope === 'all' ? allRows : here;
+  const local = new Map(d.centreRows.map((r) => [r.id, r]));
 
   const fmtM = measure === 'SYP' ? fmtSyp : fmtUsd;
   const unit = measure === 'SYP' ? 'SYP' : measure === 'USD' ? 'USD' : 'USD-eq';
   const color = kind === 'Exp' ? EXPENSE : INCOME;
-  const val = (r: Trx) =>
-    kind === 'Exp'
-      ? measure === 'SYP' ? r.exp_syp : measure === 'USD' ? r.exp_usd : d.comp.get(r.id)!.expUsdTot
-      : measure === 'SYP' ? r.inc_syp : measure === 'USD' ? r.inc_usd : d.comp.get(r.id)!.incUsdTot;
+  const val = (r: ExploreRow) => (measure === 'SYP' ? r.syp : measure === 'USD' ? r.usd : r.eq);
+  const projectOf = (r: ExploreRow) => r.project ?? NONE;
+  const projectName = (k: string) => (k === NONE ? (kind === 'Exp' ? t('غير ممول', 'Not funded') : t('دخل المركز نفسه', "The centre's own income")) : k);
+  const centreName = (k: string) => tx(centreStyle(k).name);
 
-  const ofKind = useMemo(() => d.centreRows.filter((r) => r.type === kind && inPeriod(r, p)), [d.centreRows, kind, p]);
-  const rows = ofKind.filter((r) => (heading == null || r.heading_id === heading) && (line == null || r.line_id === line)).filter((r) => val(r) !== 0);
+  const ofKind = useMemo(() => (source ?? []).filter((r) => r.type === kind && (centre == null || r.centre === centre)), [source, kind, centre]);
+  const rows = ofKind.filter((r) => (heading == null || r.heading_uid === heading) && (line == null || r.line_uid === line) && (project == null || projectOf(r) === project)).filter((r) => val(r) !== 0);
   const total = rows.reduce((a, r) => a + val(r), 0);
   const allTotal = ofKind.reduce((a, r) => a + val(r), 0);
   const months = monthsBetween(p);
   const many = months.length > 12;
-
-  const group = (key: (r: Trx) => number | null, label: (k: number) => string): Bar[] => {
-    const m = new Map<number, number>();
+  // names by identity (the first one met: in the common list they are the same everywhere)
+  const nameOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of source ?? []) {
+      if (r.heading_uid && r.heading && !m.has(r.heading_uid)) m.set(r.heading_uid, r.heading);
+      if (r.line_uid && r.line && !m.has(r.line_uid)) m.set(r.line_uid, r.line);
+    }
+    return m;
+  }, [source]);
+  const group = (key: (r: ExploreRow) => string | null, label: (k: string) => string): Bar[] => {
+    const m = new Map<string, number>();
     for (const r of rows) {
-      const k = key(r) ?? -1;
+      const k = key(r) ?? '';
       m.set(k, (m.get(k) ?? 0) + val(r));
     }
-    return [...m.entries()].map(([k, v]) => ({ key: k, label: k === -1 ? '—' : label(k), value: v }));
+    return [...m.entries()].map(([k, v]) => ({ key: k, label: k === '' ? '—' : label(k), value: v }));
   };
-
-  const headingOpts = L.headings.filter((h) => L.headingTypes.some((x) => x.heading_id === h.id && x.type === kind));
-  const lineOpts = heading == null ? [] : L.lines.filter((l) => l.heading_id === heading);
-  const title = line != null ? names.line(line) : heading != null ? names.heading(heading) : kind === 'Exp' ? t('كل النفقات', 'All expenses') : t('كل الإيرادات', 'All income');
-  const byParty = group((r) => r.party_id, names.party).sort((a, b) => b.value - a.value).slice(0, 12);
+  const options = (key: (r: ExploreRow) => string | null, of: ExploreRow[]) => [...new Set(of.map(key).filter((x): x is string => !!x))];
+  const headingOpts = options((r) => r.heading_uid, ofKind).sort((a, b) => (nameOf.get(a) ?? '').localeCompare(nameOf.get(b) ?? ''));
+  const lineOpts = heading == null ? [] : options((r) => r.line_uid, ofKind.filter((r) => r.heading_uid === heading)).sort((a, b) => (nameOf.get(a) ?? '').localeCompare(nameOf.get(b) ?? ''));
+  const projectOpts = options(projectOf, ofKind).sort((a, b) => projectName(a).localeCompare(projectName(b)));
+  const centreOpts = options((r) => r.centre, source ?? []);
+  const title = [line != null ? nameOf.get(line) : heading != null ? nameOf.get(heading) : kind === 'Exp' ? t('كل النفقات', 'All expenses') : t('كل الإيرادات', 'All income'),
+    project != null ? projectName(project) : null, scope === 'all' ? (centre != null ? centreName(centre) : t('كل المراكز', 'All centres')) : null].filter(Boolean).join(' · ');
+  const byParty = group((r) => r.party, (k) => k).sort((a, b) => b.value - a.value).slice(0, 12);
+  const clear = () => { setHeading(null); setLine(null); setProject(null); setCentre(null); };
+  const lineIcon = (k: string) => {
+    const l = d.lists.lines.find((x) => x.uid === k);
+    return l ? icons.line(l.id) : catIcon(nameOf.get(k) ?? '');
+  };
+  const headingIcon = (k: string) => catIcon(nameOf.get(k) ?? '');
 
   return (
     <>
       <div className="panel explore-bar">
-        <Seg<'Exp' | 'Income'> value={kind} onChange={(k) => { setKind(k); setHeading(null); setLine(null); }} options={[
+        {mayAll && (
+          <Seg<'here' | 'all'> value={scope} onChange={(v) => { setScope(v); clear(); }} options={[
+            { value: 'here', label: t('هذا المركز', 'This centre') },
+            { value: 'all', label: t('كل المراكز', 'All centres') },
+          ]} />
+        )}
+        <Seg<'Exp' | 'Income'> value={kind} onChange={(k) => { setKind(k); clear(); }} options={[
           { value: 'Exp', label: t('النفقات', 'Expenses') },
           { value: 'Income', label: t('الإيرادات', 'Income') },
         ]} />
-        <select className="inp" value={heading ?? ''} onChange={(e) => { setHeading(e.target.value ? Number(e.target.value) : null); setLine(null); }}>
+        {scope === 'all' && (
+          <select className="inp" value={centre ?? ''} onChange={(e) => setCentre(e.target.value || null)}>
+            <option value="">{t('كل المراكز', 'All centres')}</option>
+            {centreOpts.map((c) => <option key={c} value={c}>{centreName(c)}</option>)}
+          </select>
+        )}
+        <select className="inp" value={heading ?? ''} onChange={(e) => { setHeading(e.target.value || null); setLine(null); }}>
           <option value="">{t('كل البنود', 'All headings')}</option>
-          {headingOpts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          {headingOpts.map((h) => <option key={h} value={h}>{nameOf.get(h)}</option>)}
         </select>
-        <select className="inp" value={line ?? ''} disabled={heading == null} onChange={(e) => setLine(e.target.value ? Number(e.target.value) : null)}>
+        <select className="inp" value={line ?? ''} disabled={heading == null} onChange={(e) => setLine(e.target.value || null)}>
           <option value="">{t('كل الخطوط', 'All lines')}</option>
-          {lineOpts.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          {lineOpts.map((l) => <option key={l} value={l}>{nameOf.get(l)}</option>)}
+        </select>
+        <select className="inp" value={project ?? ''} onChange={(e) => setProject(e.target.value || null)}>
+          <option value="">{t('كل المشاريع', 'All projects')}</option>
+          {projectOpts.map((x) => <option key={x} value={x}>{projectName(x)}</option>)}
         </select>
         <Seg<Measure> value={measure} onChange={setMeasure} options={[
           { value: 'eq', label: t('الكل بالدولار', 'All in USD') },
           { value: 'SYP', label: t('ليرة فقط', 'SYP only') },
           { value: 'USD', label: t('دولار فقط', 'USD only') },
         ]} />
-        {(heading != null || line != null) && <button className="btn small ghost" onClick={() => { setHeading(null); setLine(null); }}>✕ {t('مسح', 'Clear')}</button>}
+        {(heading != null || line != null || project != null || centre != null) && <button className="btn small ghost" onClick={clear}>✕ {t('مسح', 'Clear')}</button>}
       </div>
+      {scope === 'all' && <p className="muted small" style={{ margin: '0 0 8px' }}>{t('كل مراكز هذا الخادم معاً. البنود والخطوط تُجمع حسب القائمة المشتركة؛ مركز ليس فيها بعد تبقى بنوده وحدها.', 'Every centre of this server together. Headings and lines go together by the common list; a centre not in it yet keeps its headings apart.')}</p>}
 
-      <h2>{title}</h2>
-      <div className="cards" style={{ marginBottom: 16 }}>
-        <Card k={t('المجموع', 'Total')} v={fmtM(total)} sub={unit} />
-        <Card k={t('عدد الحركات', 'Rows')} v={String(rows.length)} />
-        <Card k={t('المعدّل الشهري', 'Average per month')} v={fmtM(total / Math.max(1, months.length))} sub={unit} />
-        <Card k={kind === 'Exp' ? t('من كل النفقات', 'Share of all expenses') : t('من كل الإيرادات', 'Share of all income')} v={allTotal ? fmtPct(total / allTotal) : '-'} />
-      </div>
-
-      <div className="grid2 dash-charts">
-        {line == null && (
-          <div className="panel">
-            {heading == null ? (
-              <>
-                <h3>{t('حسب البند', 'By heading')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
-                <BarList bars={group((r) => r.heading_id, (k) => `${icons.heading(k)} ${names.heading(k)}`)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setHeading(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
-              </>
-            ) : (
-              <>
-                <h3>{t('حسب الخط', 'By line')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
-                <BarList bars={group((r) => r.line_id, (k) => `${icons.line(k)} ${names.line(k)}`)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== -1 && setLine(Number(b.key))} empty={t('لا شيء', 'Nothing')} />
-              </>
-            )}
+      {!source ? <p className="muted">…</p> : (
+        <>
+          <h2>{title}</h2>
+          <div className="cards" style={{ marginBottom: 16 }}>
+            <Card k={t('المجموع', 'Total')} v={fmtM(total)} sub={unit} />
+            <Card k={t('عدد الحركات', 'Rows')} v={String(rows.length)} />
+            <Card k={t('المعدّل الشهري', 'Average per month')} v={fmtM(total / Math.max(1, months.length))} sub={unit} />
+            <Card k={kind === 'Exp' ? t('من كل النفقات', 'Share of all expenses') : t('من كل الإيرادات', 'Share of all income')} v={allTotal ? fmtPct(total / allTotal) : '-'} />
           </div>
-        )}
-        <div className="panel">
-          <h3>{t('شهراً بشهر', 'Month by month')} <span className="muted small">· {unit}</span></h3>
-          <MonthColumns
-            labels={months.map((m) => shortMonth(m, many))}
-            series={[{ name: title, color, values: months.map((m) => rows.filter((r) => r.date?.startsWith(m)).reduce((a, r) => a + val(r), 0)) }]}
-            fmt={(n) => (measure === 'SYP' ? fmtSyp(n) : Math.round(n).toLocaleString('en-US'))} unit={unit} />
-        </div>
-        <div className="panel">
-          <h3>{t('حسب الحساب', 'By account')} <span className="muted small">· {unit}</span></h3>
-          <BarList bars={group((r) => r.account_id, names.account)} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
-        </div>
-        <div className="panel">
-          <h3>{t('حسب الصندوق', 'By holder')} <span className="muted small">· {unit}</span></h3>
-          <BarList bars={group((r) => r.book_id, names.book)} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
-        </div>
-        <div className="panel">
-          <h3>{kind === 'Exp' ? t('لمن دُفع', 'Paid to') : t('ممّن قُبض', 'Received from')} <span className="muted small">· {unit} · {t('أعلى 12', 'top 12')}</span></h3>
-          <BarList bars={byParty} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
-        </div>
-      </div>
 
-      <div className="panel">
-        <h3>{t('السطور', 'The rows')} <span className="muted small">· {rows.length}</span></h3>
-        <div className="tbl-wrap" style={{ maxHeight: 420 }}>
-          <table className="t">
-            <thead><tr><th>N</th><th>{t('التاريخ', 'Date')}</th><th>{t('الصندوق', 'Holder')}</th><th>{t('الخط', 'Line')}</th><th>{t('الشرح', 'Explanation')}</th><th>{t('الجهة', 'Party')}</th><th className="n">{unit}</th></tr></thead>
-            <tbody>
-              {[...rows].sort((a, b) => ((a.date ?? '') < (b.date ?? '') ? 1 : -1)).map((r) => (
-                <tr key={r.id} className="click" onClick={() => nav.entry(r)}>
-                  <td className="code">{d.attachments.some((x) => x.trx_id === r.id) ? '📎' : ''}{r.n == null ? '' : String(r.n).padStart(4, '0')}</td>
-                  <td className="nowrap">{fmtDate(r.date)}</td><td>{names.book(r.book_id)}</td><td>{icons.line(r.line_id)} {names.line(r.line_id)}</td>
-                  <td>{r.explanation}</td><td>{names.party(r.party_id)}</td><td className="n">{fmtM(val(r))}</td>
-                </tr>
-              ))}
-              <tr className="total"><td colSpan={6}>{t('المجموع', 'Total')}</td><td className="n">{fmtM(total)}</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+          <div className="grid2 dash-charts">
+            {line == null && (
+              <div className="panel">
+                {heading == null ? (
+                  <>
+                    <h3>{t('حسب البند', 'By heading')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
+                    <BarList bars={group((r) => r.heading_uid, (k) => `${headingIcon(k)} ${nameOf.get(k) ?? ''}`)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== '' && setHeading(String(b.key))} empty={t('لا شيء', 'Nothing')} />
+                  </>
+                ) : (
+                  <>
+                    <h3>{t('حسب الخط', 'By line')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
+                    <BarList bars={group((r) => r.line_uid, (k) => `${lineIcon(k)} ${nameOf.get(k) ?? ''}`)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== '' && setLine(String(b.key))} empty={t('لا شيء', 'Nothing')} />
+                  </>
+                )}
+              </div>
+            )}
+            <div className="panel">
+              <h3>{t('شهراً بشهر', 'Month by month')} <span className="muted small">· {unit}</span></h3>
+              <MonthColumns
+                labels={months.map((m) => shortMonth(m, many))}
+                series={[{ name: title, color, values: months.map((m) => rows.filter((r) => r.date.startsWith(m)).reduce((a, r) => a + val(r), 0)) }]}
+                fmt={(n) => (measure === 'SYP' ? fmtSyp(n) : Math.round(n).toLocaleString('en-US'))} unit={unit} />
+            </div>
+            {scope === 'all' && centre == null && (
+              <div className="panel">
+                <h3>{t('حسب المركز', 'By centre')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
+                <BarList bars={group((r) => r.centre, centreName)} color={color} fmt={fmtM} unit={unit} onPick={(b) => b.key !== '' && setCentre(String(b.key))} empty={t('لا شيء', 'Nothing')} />
+              </div>
+            )}
+            <div className="panel">
+              <h3>{t('حسب المشروع', 'By project')} <span className="muted small">· {unit} · {t('اضغط لتفتح', 'click to open')}</span></h3>
+              <BarList bars={group(projectOf, projectName)} color={color} fmt={fmtM} unit={unit} onPick={(b) => setProject(String(b.key))} empty={t('لا شيء', 'Nothing')} />
+            </div>
+            <div className="panel">
+              <h3>{t('حسب الصندوق', 'By holder')} <span className="muted small">· {unit}</span></h3>
+              <BarList bars={group((r) => (scope === 'all' ? `${r.organisation} · ${r.book ?? ''}` : r.book), (k) => k)} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
+            </div>
+            <div className="panel">
+              <h3>{kind === 'Exp' ? t('لمن دُفع', 'Paid to') : t('ممّن قُبض', 'Received from')} <span className="muted small">· {unit} · {t('أعلى 12', 'top 12')}</span></h3>
+              <BarList bars={byParty} color={color} fmt={fmtM} unit={unit} empty={t('لا شيء', 'Nothing')} />
+            </div>
+          </div>
+
+          <div className="panel">
+            <h3>{t('السطور', 'The rows')} <span className="muted small">· {rows.length}</span></h3>
+            <div className="tbl-wrap" style={{ maxHeight: 420 }}>
+              <table className="t">
+                <thead><tr><th>N</th><th>{t('التاريخ', 'Date')}</th>{scope === 'all' && <th>{t('المركز', 'Centre')}</th>}<th>{t('الصندوق', 'Holder')}</th><th>{t('الخط', 'Line')}</th><th>{t('المشروع', 'Project')}</th><th>{t('الشرح', 'Explanation')}</th><th>{t('الجهة', 'Party')}</th><th className="n">{unit}</th></tr></thead>
+                <tbody>
+                  {[...rows].sort((a, b) => (a.date < b.date ? 1 : -1)).map((r) => {
+                    const mine = scope === 'here' ? local.get(r.id) : undefined;
+                    return (
+                      <tr key={`${r.centre}-${r.id}`} className={mine ? 'click' : ''} onClick={() => mine && nav.entry(mine)}>
+                        <td className="code">{mine && d.attachments.some((x) => x.trx_id === r.id) ? '📎' : ''}{r.n == null ? '' : String(r.n).padStart(4, '0')}</td>
+                        <td className="nowrap">{fmtDate(r.date)}</td>{scope === 'all' && <td className="nowrap">{centreName(r.centre)}</td>}<td>{r.book}</td><td>{r.line_uid ? lineIcon(r.line_uid) : ''} {r.line}</td>
+                        <td className={r.project == null && kind === 'Exp' ? 'bad small' : 'small'}>{projectName(projectOf(r))}</td>
+                        <td>{r.explanation}</td><td>{r.party}</td><td className="n">{fmtM(val(r))}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="total"><td colSpan={scope === 'all' ? 8 : 7}>{t('المجموع', 'Total')}</td><td className="n">{fmtM(total)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

@@ -1032,7 +1032,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const key = (await getMeta(x.handle.db, 'centre')) ?? guessCentre(org);
         const comp = computeAll(rows, d.lists);
         inputs.push({ slug: x.slug, organisation: org, centre: key, rows, comp, lists: d.lists, grants: d.grants, grantParts: d.grantParts, grantShares: d.grantShares });
-        // (Explore: the incomes and expenses with names, so the centres go together)
+        // (Explore: the incomes and expenses, with names and the common list's identities, so the centres go together)
         if (url === '/api/all-centres/rows') explore.push(...exploreRows({ rows, comp, lists: d.lists, centre: key, organisation: org, period }));
       }
       if (url === '/api/all-centres/rows') return send(res, 200, explore);

@@ -69,7 +69,7 @@ export function allCentresReport(inputs: CentreInput[], period: Period): { centr
   return { centres, grants: [...grants.values()].sort((a, b) => a.donor.localeCompare(b.donor)) };
 }
 
-/** One income or expense for the Explore report, with names (so the rows of several centres go together). */
+/** One income or expense for Explore, with names and the common identities (so the rows of several centres go together). */
 export interface ExploreRow {
   id: string;
   /** jaramana | aleppo | homs | other */
@@ -78,10 +78,14 @@ export interface ExploreRow {
   n: number | null;
   date: string;
   type: 'Exp' | 'Income';
+  /** the heading and line: the same uid in every centre of the common list */
+  heading_uid: string | null;
   heading: string | null;
+  line_uid: string | null;
   line: string | null;
-  /** the project (null: not funded, or the centre's own income) */
+  /** the project (null: an expense not funded, or the centre's own income) */
   project: string | null;
+  outside: boolean;
   book: string | null;
   party: string | null;
   explanation: string | null;
@@ -91,19 +95,24 @@ export interface ExploreRow {
   eq: number;
 }
 
-/** A centre's incomes and expenses of a period, for Explore. */
+/** A centre's incomes and expenses of a period, for Explore (the register without the Respo book). */
 export function exploreRows(a: { rows: Trx[]; comp: Map<string, Computed>; lists: Pick<Lists, 'accounts' | 'headings' | 'lines' | 'books' | 'parties'>; centre: string; organisation: string; period: Period }): ExploreRow[] {
-  const name = (arr: { id: number; name: string }[], id: number | null | undefined) => (id == null ? null : arr.find((x) => x.id === id)?.name ?? null);
+  const byId = <T extends { id: number }>(arr: T[]) => new Map(arr.map((x) => [x.id, x]));
+  const H = byId(a.lists.headings), Ln = byId(a.lists.lines), A = byId(a.lists.accounts), B = byId(a.lists.books), P = byId(a.lists.parties);
   return a.rows
-    .filter((r) => (r.type === 'Exp' || r.type === 'Income') && r.date && r.date.slice(0, 7) >= a.period.from && r.date.slice(0, 7) <= a.period.to)
+    .filter((r) => (r.type === 'Exp' || r.type === 'Income') && r.date && !r.private_total && r.date.slice(0, 7) >= a.period.from && r.date.slice(0, 7) <= a.period.to)
     .map((r) => {
       const exp = r.type === 'Exp';
       const c = a.comp.get(r.id);
+      const h = r.heading_id != null ? H.get(r.heading_id) : undefined;
+      const l = r.line_id != null ? Ln.get(r.line_id) : undefined;
+      const acc = r.account_id != null ? A.get(r.account_id) : undefined;
       return {
         id: r.id, centre: a.centre, organisation: a.organisation, n: r.n ?? null, date: r.date!, type: r.type as 'Exp' | 'Income',
-        heading: name(a.lists.headings, r.heading_id), line: name(a.lists.lines, r.line_id), project: name(a.lists.accounts, r.account_id),
-        book: name(a.lists.books, r.book_id), party: name(a.lists.parties, r.party_id), explanation: r.explanation ?? null,
-        syp: exp ? r.exp_syp : r.inc_syp, usd: exp ? r.exp_usd : r.inc_usd, eq: (exp ? c?.expUsdTot : c?.incUsdTot) ?? 0,
+        heading_uid: h?.uid ?? (h ? `h${h.id}` : null), heading: h?.name ?? null, line_uid: l?.uid ?? (l ? `l${l.id}` : null), line: l?.name ?? null,
+        project: acc?.name ?? null, outside: !!acc?.outside_budget,
+        book: r.book_id != null ? B.get(r.book_id)?.name ?? null : null, party: r.party_id != null ? P.get(r.party_id)?.name ?? null : null,
+        explanation: r.explanation ?? null, syp: exp ? r.exp_syp : r.inc_syp, usd: exp ? r.exp_usd : r.inc_usd, eq: (exp ? c?.expUsdTot : c?.incUsdTot) ?? 0,
       };
     });
 }

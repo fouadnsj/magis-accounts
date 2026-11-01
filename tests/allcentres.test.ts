@@ -41,13 +41,13 @@ async function centre(org: string, key: 'aleppo' | 'homs', funded: boolean) {
   await op('budget.saveAmounts', { versionId: v, cells: [{ line_id: line.id, amount_usd: 1000 }] });
   if (funded) await op('budget.setFund', { versionId: v, line_ids: [line.id], account_id: L.accounts.find((a: { name: string }) => a.name === `SEN ${key}`).id });
   expect((await op('trx.save', { rows: [{ ...blankTrx(), id: `e-${key}`, date: '2026-05-01', type: 'Exp', book_id: L.books[0].id, city_id: L.cities[0].id, account_id: null, heading_id: line.heading_id, line_id: line.id, exp_usd: 100, explanation: 'x' }] })).status).toBe(200);
-  return { ck, clerk: await login('Clerk', 'clerk-all-1') };
+  return { ck, op, clerk: await login('Clerk', 'clerk-all-1') };
 }
 
 describe('all centres together', () => {
   it('each centre, and the same grant across the centres by its contract number; only for who keeps the grants', async () => {
     const a = await centre('MAGIS Aleppo', 'aleppo', true);
-    await centre('MAGIS Homs', 'homs', false);
+    const h = await centre('MAGIS Homs', 'homs', false);
     const r = await call('/api/all-centres', { from: '2026-01', to: '2026-12' }, a.ck);
     expect(r.status).toBe(200);
     expect(r.body.centres.map((c: { centre: string; spent: number; withProject: number; notFunded: number }) => [c.centre, c.spent, c.withProject, c.notFunded])).toEqual([['aleppo', 100, 100, 0], ['homs', 100, 0, 100]]);
@@ -56,5 +56,18 @@ describe('all centres together', () => {
     expect([g.donor, g.reference, g.amount, g.shares.length]).toEqual(['SEN', 'SEN-1', 9000, 2]);
     expect(g.centres.map((c: { centre: string; project: string; spentAll: number }) => [c.centre, c.project, c.spentAll])).toEqual([['aleppo', 'SEN aleppo', 100], ['homs', 'SEN homs', 0]]);
     expect((await call('/api/all-centres', {}, a.clerk)).status).toBe(403);
+
+    // Explore: before the common list, the two Reception lines are two lines; once Homs joins Aleppo's list, one
+    const lineUids = async () => [...new Set(((await call('/api/all-centres/rows', { from: '2026-01', to: '2026-12' }, a.ck)).body as { line: string; line_uid: string }[]).filter((r) => r.line === 'Reception').map((r) => r.line_uid))];
+    expect(await lineUids()).toHaveLength(2);
+    expect((await a.op('common.start')).status).toBe(200);
+    const list = (await a.op('common.export')).body;
+    const hl = (await h.op('data')).body.lists;
+    const recUid = list.lines.find((l: { name: string }) => l.name === 'Reception').uid;
+    const join = await h.op('common.join', { list, headings: {}, lines: { [hl.lines.find((l: { name: string }) => l.name === 'Reception').id]: recUid } });
+    expect(join.status).toBe(200);
+    expect(await lineUids()).toEqual([recUid]);
+    const rows = (await call('/api/all-centres/rows', { from: '2026-01', to: '2026-12' }, a.ck)).body as { centre: string; project: string | null; eq: number }[];
+    expect(rows.map((r) => [r.centre, r.project, r.eq]).sort()).toEqual([['aleppo', 'SEN aleppo', 100], ['homs', null, 100]]);
   });
 });

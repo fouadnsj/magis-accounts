@@ -166,14 +166,15 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
   for (const [, uid] of [...Object.entries(map.headings), ...Object.entries(map.lines)]) {
     if (uid != null && !lh.has(uid) && !ll.has(uid)) throw new UserError(m('مطابقة غير صالحة: أعد فتح الشاشة', 'A match is not valid: open the screen again', 'Une correspondance n’est pas valide : rouvrez l’écran'));
   }
-  // the Income, Transfer and Exchange headings: by their type, when not chosen
+  // when not chosen: the common heading of the same name, else (Income, Transfer, Exchange) of the same type
   const onlyType = (hid: number, t: TrxType) => types.filter((x) => x.heading_id === hid).every((x) => x.type === t) && types.some((x) => x.heading_id === hid);
   const hMap = new Map<number, string | null>();
   for (const h of heads) {
     let uid = map.headings[h.id];
     if (uid === undefined) {
       const t = (['Income', 'Transfer', 'Exchange'] as TrxType[]).find((x) => onlyType(h.id, x));
-      uid = t ? list.headings.find((x) => x.types.length === 1 && x.types[0] === t)?.uid ?? null : null;
+      uid = list.headings.find((x) => x.name.trim().toLowerCase() === h.name.trim().toLowerCase())?.uid
+        ?? (t ? list.headings.find((x) => x.types.length === 1 && x.types[0] === t)?.uid : undefined) ?? null;
     }
     hMap.set(h.id, uid ?? null);
   }
@@ -195,7 +196,10 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
       // a heading of its own, added to the common list: its name, a free code of its type
       const t = types.find((x) => x.heading_id === h.id)?.type ?? 'Exp';
       const code = newCode(headingCodes, ({ Income: 'I', Exp: 'E', Transfer: 'T', Exchange: 'X' } as Record<TrxType, string>)[t]);
-      s('UPDATE heading SET name = ?, code = ? WHERE id = ?', [h.name, code, h.id]);
+      // (a common heading of the same name kept apart: its name gets a mark)
+      let name = h.name;
+      while (list.headings.some((x) => x.name.trim().toLowerCase() === name.trim().toLowerCase())) name = `${name} (2)`;
+      s('UPDATE heading SET name = ?, code = ? WHERE id = ?', [name, code, h.id]);
       finalHeading.set(h.id, h.id);
       codeOf.set(h.id, code);
       continue;
@@ -225,7 +229,10 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
   // heading id | name: the common lines (a line kept as it is never takes a common line's name) and those done
   const lineNames = new Set<string>(list.lines.map((c) => `${headingOfUid(c.heading_uid)}|${c.name.toLowerCase()}`));
   for (const l of lines) {
-    const uid = map.lines[l.id] ?? null;
+    // when not chosen: the common line of the same name under the common heading its heading became
+    const hu = hMap.get(l.heading_id);
+    const uid = map.lines[l.id] !== undefined ? map.lines[l.id]
+      : list.lines.find((c) => hu != null && c.heading_uid === hu && c.name.trim().toLowerCase() === l.name.trim().toLowerCase())?.uid ?? null;
     if (uid == null) {
       // a line of its own, added to the common list under the heading its heading became
       const hid = finalHeading.get(l.heading_id)!;

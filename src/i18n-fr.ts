@@ -4,6 +4,14 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // bill code, a grant over several projects (2026-11-02)
+  "Bill code": "Code de facture",
+  "A new project": "Un nouveau projet",
+  "The projects here": "Les projets ici",
+  "Name of the project (e.g. running, furniture)": "Nom du projet (ex. fonctionnement, mobilier)",
+  "Another project (divide the share)": "Un autre projet (partager la part)",
+  "A project never has two grants; a grant may be divided between several projects here (e.g. running costs and furniture). In the budget, each line has one project.": "Un projet n'a jamais deux subventions ; une subvention peut être partagée entre plusieurs projets ici (ex. fonctionnement et mobilier). Dans le budget, chaque ligne a un seul projet.",
+
   // checks before closing, project dates (2026-11-02)
   "Checks before closing": "Vérifications avant de clôturer",
   "What to look at before closing a month or the year. Nothing changes here; each line says where to correct it.": "Ce qu'il faut regarder avant de clôturer un mois ou l'année. Rien ne change ici ; chaque ligne dit où corriger.",

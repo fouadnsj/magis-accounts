@@ -169,10 +169,15 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
     for (const x of start ? d.grantShares.filter((y) => y.grant_id === start.id) : []) o[x.centre] = String(x.amount);
     return o;
   });
-  const [fund, setFund] = useState<number | null>(oldParts.length === 1 && oldParts[0].account_id != null ? oldParts[0].account_id : start ? null : NEW_FUND);
-  const [fundName, setFundName] = useState('');
-  // the project's dates here: the grant's period (outside them, its lines' expenses are not funded)
-  const fundNow = d.lists.accounts.find((a) => a.id === fund);
+  // this centre's share goes to one project, or is divided between several (each with its amount)
+  type Row = { fund: number | null; name: string; amount: string };
+  const [rows, setRows] = useState<Row[]>(() => {
+    const own = oldParts.filter((p) => p.account_id != null);
+    return own.length ? own.map((p) => ({ fund: p.account_id, name: '', amount: String(p.amount) })) : [{ fund: start ? null : NEW_FUND, name: '', amount: '' }];
+  });
+  const setRow = (i: number, r: Partial<Row>) => setRows(rows.map((x, j) => (j === i ? { ...x, ...r } : x)));
+  // the projects' dates here: the grant's period (outside them, its lines' expenses are not funded)
+  const fundNow = d.lists.accounts.find((a) => a.id === rows[0]?.fund);
   const [pStart, setPStart] = useState(fundNow?.start_date ?? '');
   const [pEnd, setPEnd] = useState(fundNow?.end_date ?? '');
   const total = parseAmount(amount);
@@ -181,18 +186,21 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
   const hereAmount = split ? shareOf(here) : total;
   // a fund has one grant: the funds already taken by another grant are not offered
   const taken = new Set(d.grantParts.filter((p) => p.grant_id !== start?.id && p.account_id != null).map((p) => p.account_id!));
-  const funds = [
-    ...d.lists.accounts.filter((a) => (a.active && !taken.has(a.id)) || a.id === fund).map((a) => ({ value: a.id, label: a.name })),
-    { value: NEW_FUND, label: `＋ ${t('مشروع جديد باسم المنحة', 'A new project with the grant\'s name')}` },
+  const funds = (current: number | null) => [
+    ...d.lists.accounts.filter((a) => (a.active && !taken.has(a.id)) || a.id === current).map((a) => ({ value: a.id, label: a.name })),
+    { value: NEW_FUND, label: `＋ ${t('مشروع جديد', 'A new project')}` },
   ];
   const autoName = [donor.trim(), reference.trim()].filter(Boolean).join(' ');
-  const ok = !!donor.trim() && total > 0 && (!split || Math.abs(sum - total) <= 0.01) && (hereAmount <= 0 || fund != null);
+  const several = rows.length > 1;
+  const rowsSum = rows.reduce((a, r) => a + (parseAmount(r.amount) || 0), 0);
+  const ok = !!donor.trim() && total > 0 && (!split || Math.abs(sum - total) <= 0.01)
+    && (hereAmount <= 0 || (rows.every((r) => r.fund != null) && (!several || Math.abs(rowsSum - hereAmount) <= 0.01)));
   const save = async () => {
     try {
       await s.api.call('grant.save', {
         id: start?.id, donor: donor.trim(), amount: total, currency, reference: reference.trim() || null, note: note.trim() || null,
         here, shares: split ? SHARE_CENTRES.filter((k) => shareOf(k) > 0).map((k) => ({ centre: k, amount: shareOf(k) })) : [],
-        fund_id: fund === NEW_FUND ? null : fund, new_fund: fund === NEW_FUND ? (fundName.trim() || autoName) : null,
+        projects: rows.map((r, i) => ({ fund_id: r.fund === NEW_FUND ? null : r.fund, new_fund: r.fund === NEW_FUND ? (r.name.trim() || (several ? `${autoName} ${i + 1}` : autoName)) : null, amount: several ? parseAmount(r.amount) : null })),
         start_date: pStart || null, end_date: pEnd || null,
       });
       toast(t('حُفظ', 'Saved'));
@@ -245,16 +253,25 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
 
       {hereAmount > 0 ? (
         <>
-          <h3 style={{ marginTop: 12 }}>{t('المشروع هنا', 'The project here')} <span className="muted small ltr">{money(hereAmount, currency)}</span></h3>
-          {oldParts.length > 1 && <div className="alert warn small">{t('كانت هذه المنحة مقسومة على عدة حسابات: تذهب الآن كلها إلى مشروع واحد.', 'This grant was split over several accounts: it now goes to one project.')}</div>}
-          <div className="grid2">
-            <Field label={t('المشروع', 'Project')}><Select value={fund} options={funds} onChange={setFund} /></Field>
-            {fund === NEW_FUND && <Field label={t('اسم المشروع', 'Name of the project')}><input value={fundName} placeholder={autoName} onChange={(e) => setFundName(e.target.value)} /></Field>}
+          <h3 style={{ marginTop: 12 }}>{several ? t('المشاريع هنا', 'The projects here') : t('المشروع هنا', 'The project here')} <span className="muted small ltr">{money(hereAmount, currency)}</span></h3>
+          {rows.map((r, i) => (
+            <div key={i} className="row" style={{ marginBottom: 6, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px' }}><Select value={r.fund} options={funds(r.fund)} onChange={(v) => setRow(i, { fund: v })} /></div>
+              {r.fund === NEW_FUND && <input style={{ flex: '1 1 180px' }} value={r.name} placeholder={several ? t('اسم المشروع (مثلاً: تشغيل، أثاث)', 'Name of the project (e.g. running, furniture)') : autoName} onChange={(e) => setRow(i, { name: e.target.value })} />}
+              {several && <input className="ltr" inputMode="decimal" placeholder={currency} value={r.amount} onChange={(e) => setRow(i, { amount: e.target.value })} style={{ width: 120 }} />}
+              {several && <button className="btn small ghost" onClick={() => setRows(rows.filter((_, j) => j !== i))}>✕</button>}
+            </div>
+          ))}
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <button className="btn small" onClick={() => setRows([...rows.map((x) => (several ? x : { ...x, amount: String(hereAmount) })), { fund: NEW_FUND, name: '', amount: '' }])}>＋ {t('مشروع آخر (تقسيم الحصة)', 'Another project (divide the share)')}</button>
+            {several && <span className={`small ${Math.abs(rowsSum - hereAmount) > 0.01 ? 'bad' : 'ok'}`}>{t('المجموع', 'Total')}: <span className="ltr">{money(rowsSum, currency)} / {money(hereAmount, currency)}</span></span>}
+          </div>
+          <div className="grid2" style={{ marginTop: 8 }}>
             <Field label={t('بداية المشروع', 'Project starts')}><input type="date" value={pStart} onChange={(e) => setPStart(e.target.value)} /></Field>
             <Field label={t('نهاية المشروع', 'Project ends')}><input type="date" value={pEnd} onChange={(e) => setPEnd(e.target.value)} /></Field>
           </div>
           <p className="muted small" style={{ marginTop: 0 }}>{t('خارج هذين التاريخين، نفقات خطوط المشروع غير ممولة.', "Outside these dates, the expenses on the project's lines are not funded.")}</p>
-          <p className="muted small">{t('المشروع لا يكون لمنحتين. في الموازنة، كل خط له مشروع واحد.', 'A project never has two grants. In the budget, each line has one project.')}</p>
+          <p className="muted small">{t('المشروع لا يكون لمنحتين، والمنحة قد تُقسم بين عدة مشاريع هنا (مثلاً التشغيل والأثاث). في الموازنة، كل خط له مشروع واحد.', 'A project never has two grants; a grant may be divided between several projects here (e.g. running costs and furniture). In the budget, each line has one project.')}</p>
         </>
       ) : split && <p className="muted small">{t('لا حصة لهذا المركز: لا مشروع هنا.', 'No share for this centre: no project here.')}</p>}
 

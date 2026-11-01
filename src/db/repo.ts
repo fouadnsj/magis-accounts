@@ -74,6 +74,19 @@ async function loadSettings(db: Db): Promise<Settings> {
 
 // ---------------------------------------------------------------- lists
 
+/** The centre's two letters for the bill codes: Homs HO, Aleppo AL, Jaramana JA; else the organisation's first two letters. */
+export async function billPrefixOf(db: Db): Promise<string> {
+  const key = await getMeta(db, 'centre');
+  const known: Record<string, string> = { homs: 'HO', aleppo: 'AL', jaramana: 'JA' };
+  if (key && known[key]) return known[key];
+  const org = (await getMeta(db, 'organisation')) ?? '';
+  if (/homs|حمص/i.test(org)) return 'HO';
+  if (/alep|aleppo|حلب/i.test(org)) return 'AL';
+  if (/jaramana|جرمانا/i.test(org)) return 'JA';
+  const letters = org.replace(/magis/i, '').replace(/[^A-Za-z]/g, '').toUpperCase();
+  return letters.slice(0, 2) || 'XX';
+}
+
 export async function loadLists(db: Db): Promise<Lists> {
   const named = (t: string) => db.query<Named>(`SELECT id, name, active, sort FROM ${t} ORDER BY sort, name`);
   const [cities, accounts, projects, parties, books, headings, headingTypes, lines, donors, rules, settings] = await Promise.all([
@@ -89,7 +102,7 @@ export async function loadLists(db: Db): Promise<Lists> {
     db.query<ProjectRule>('SELECT * FROM project_rule ORDER BY id'),
     loadSettings(db),
   ]);
-  return { cities, accounts, projects, parties, books, headings, headingTypes, lines, donors, rules, settings };
+  return { cities, accounts, projects, parties, books, headings, headingTypes, lines, donors, rules, settings, billPrefix: await billPrefixOf(db) };
 }
 
 /** Which table + column of the register uses each list (to refuse deleting a used value). */
@@ -323,9 +336,8 @@ export function insertTrxStmt(t: Trx): Stmt {
 function updateTrxStmt(t: Trx): Stmt {
   const cols = TRX_COLS.filter((c) => c !== 'id' && c !== 'created_at' && c !== 'created_by');
   return {
-    // a kept bill code stays while the line, receipt and date stay; changed, it is worked out again
-    sql: `UPDATE trx SET bill_code = CASE WHEN line_id IS ? AND receipt IS ? AND date IS ? THEN bill_code ELSE NULL END, ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,
-    params: [t.line_id ?? null, t.receipt ?? null, t.date ?? null, ...cols.map((c) => (t[c] ?? null) as SqlValue), t.id],
+    sql: `UPDATE trx SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,
+    params: [...cols.map((c) => (t[c] ?? null) as SqlValue), t.id],
   };
 }
 

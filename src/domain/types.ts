@@ -42,8 +42,6 @@ export interface Trx {
   private_total?: boolean;
   /** an expense whose fund comes from its line in the budget (account_id: that fund, null = not funded) */
   from_line?: boolean;
-  /** the bill code kept as it was when the line codes changed (null: worked out from the line) */
-  bill_code?: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string | null;
@@ -119,6 +117,8 @@ export interface Lists {
   /** outside_budget: an account outside the centre (e.g. Deir), left out of its budget */
   /** outside_budget: an account outside the centre (e.g. Deir); start/end_date: a project's dates (a grant's period) */
   accounts: (Named & { outside_budget?: number; start_date?: string | null; end_date?: string | null })[];
+  /** the centre's two letters at the head of the bill codes (HO, AL, JA) */
+  billPrefix?: string;
   projects: Named[];
   books: Book[];
   parties: Named[];

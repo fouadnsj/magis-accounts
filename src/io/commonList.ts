@@ -5,8 +5,7 @@
 // The list travels between the databases of one server ("make the lists the same"), or as a file for a centre that
 // works on its own computer.
 import type { Db, Stmt } from '../db/db';
-import { auditStmt, getMeta, loadLists, loadTrx, setMetaStmt, UserError } from '../db/repo';
-import { computeAll } from '../domain/compute';
+import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { m } from '../i18n';
 import type { TrxType } from '../domain/types';
 
@@ -59,7 +58,7 @@ export function parseCommonList(text: string): CommonList {
  * database's. A heading or line of the same name under another uid is the same thing: it takes the list's uid.
  * When a code is already used here by something else, the newcomer gets the next free code (the uid is the key).
  */
-export async function applyCommonList(db: Db, list: CommonList, who: string, opts: { lead: boolean }): Promise<{ headings: number; lines: number; renamed: number }> {
+export async function applyCommonList(db: Db, list: CommonList, who: string, opts: { lead: boolean; /** what comes in is switched on (a new database starting from the list) */ on?: boolean }): Promise<{ headings: number; lines: number; renamed: number }> {
   const out = { headings: 0, lines: 0, renamed: 0 };
   type H = { id: number; uid: string; code: string; name: string };
   type L = { id: number; uid: string; heading_id: number; code: string; name: string };
@@ -99,7 +98,7 @@ export async function applyCommonList(db: Db, list: CommonList, who: string, opt
     headCodes.add(code);
     const id = nextHeadingId++;
     // (what comes from another centre arrives switched off: each centre switches on what it uses)
-    stmts.push({ sql: 'INSERT INTO heading (id, uid, name, code, sort, active) VALUES (?, ?, ?, ?, ?, 0)', params: [id, h.uid, h.name, code, id] });
+    stmts.push({ sql: 'INSERT INTO heading (id, uid, name, code, sort, active) VALUES (?, ?, ?, ?, ?, ?)', params: [id, h.uid, h.name, code, id, opts.on ? 1 : 0] });
     for (const t of h.types) stmts.push({ sql: 'INSERT INTO heading_type (heading_id, type) VALUES (?, ?)', params: [id, t] });
     heads.push({ id, uid: h.uid, code, name: h.name });
     out.headings++;
@@ -131,26 +130,15 @@ export async function applyCommonList(db: Db, list: CommonList, who: string, opt
     if (lines.some((x) => x.heading_id === head.id && lower(x.name) === lower(l.name))) continue; // (its uid is used twice in the list: kept once)
     const code = freeCode(lineCodes, l.code);
     lineCodes.add(code);
-    stmts.push({ sql: 'INSERT INTO budget_line (uid, heading_id, name, code, is_project_fund, active) VALUES (?, ?, ?, ?, ?, 0)', params: [l.uid, head.id, l.name, code, l.is_project_fund ? 1 : 0] });
+    stmts.push({ sql: 'INSERT INTO budget_line (uid, heading_id, name, code, is_project_fund, active) VALUES (?, ?, ?, ?, ?, ?)', params: [l.uid, head.id, l.name, code, l.is_project_fund ? 1 : 0, opts.on ? 1 : 0] });
     lines.push({ id: -1, uid: l.uid, heading_id: head.id, code, name: l.name });
     out.lines++;
   }
   if (stmts.length) {
-    // the codes change: the old rows keep their bill codes
-    if (out.renamed) await freezeBillCodes(db);
     stmts.push(auditStmt(who, 'common_list', 'heading', null, null, { from: list.from, lead: opts.lead, ...out }));
     await db.batch(stmts);
   }
   return out;
-}
-
-/** The bill code of every row, kept as it is now (the line codes are about to change). */
-export async function freezeBillCodes(db: Db) {
-  const lists = await loadLists(db);
-  const rows = await loadTrx(db);
-  const comp = computeAll(rows, lists);
-  const stmts: Stmt[] = rows.filter((r) => !r.bill_code && comp.get(r.id)?.billCode).map((r) => ({ sql: 'UPDATE trx SET bill_code = ? WHERE id = ?', params: [comp.get(r.id)!.billCode, r.id] }));
-  if (stmts.length) await db.batch(stmts);
 }
 
 /** This database joins the common list; the first one leads it (its list becomes the common list). */
@@ -178,6 +166,8 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
   for (const [, uid] of [...Object.entries(map.headings), ...Object.entries(map.lines)]) {
     if (uid != null && !lh.has(uid) && !ll.has(uid)) throw new UserError(m('مطابقة غير صالحة: أعد فتح الشاشة', 'A match is not valid: open the screen again', 'Une correspondance n’est pas valide : rouvrez l’écran'));
   }
+  // a new database (nothing written in its register yet): the common list comes switched on
+  const fresh = !(await db.query('SELECT 1 FROM trx LIMIT 1')).length;
   // when not chosen: the common heading of the same name, else (Income, Transfer, Exchange) of the same type
   const onlyType = (hid: number, t: TrxType) => types.filter((x) => x.heading_id === hid).every((x) => x.type === t) && types.some((x) => x.heading_id === hid);
   const hMap = new Map<number, string | null>();
@@ -190,8 +180,6 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
     }
     hMap.set(h.id, uid ?? null);
   }
-  // the line codes change: the rows keep the bill codes written on their papers
-  await freezeBillCodes(db);
   const stmts: Stmt[] = [];
   const s = (sql: string, params: (string | number | null)[] = []) => stmts.push({ sql, params });
   // 1. every old heading and line on a temporary name and code (so that the common ones are free)
@@ -231,7 +219,7 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
   for (const c of list.headings) {
     if (keeperH.has(c.uid)) continue;
     const id = nextId.h++;
-    s('INSERT INTO heading (id, uid, name, code, sort, active) VALUES (?, ?, ?, ?, ?, 0)', [id, c.uid, c.name, c.code, id]);
+    s('INSERT INTO heading (id, uid, name, code, sort, active) VALUES (?, ?, ?, ?, ?, ?)', [id, c.uid, c.name, c.code, id, fresh ? 1 : 0]);
     for (const t of c.types) s('INSERT INTO heading_type (heading_id, type) VALUES (?, ?)', [id, t]);
     keeperH.set(c.uid, id);
     codeOf.set(id, c.code);
@@ -299,7 +287,7 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
   for (const c of list.headings) for (const t of c.types) s('INSERT OR IGNORE INTO heading_type (heading_id, type) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM heading WHERE id = ?)', [headingOfUid(c.uid), t, headingOfUid(c.uid)]);
   stmts.push(setMetaStmt('common_list', 'yes'), auditStmt(who, 'common_list', 'meta', null, null, { joined: 'yes', from: list.from, headings: map.headings, lines: map.lines }));
   await db.batch([{ sql: 'PRAGMA defer_foreign_keys = ON' }, ...stmts]);
-  // the common lines no old one became
-  const added = await applyCommonList(db, list, who, { lead: true });
+  // the common lines no old one became (a new database, with nothing written yet, takes them switched on)
+  const added = await applyCommonList(db, list, who, { lead: true, on: fresh });
   return { matched: Object.values(map.lines).filter(Boolean).length, kept: Object.values(map.lines).filter((x) => x == null).length, added: added.headings + added.lines };
 }

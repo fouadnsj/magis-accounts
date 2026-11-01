@@ -133,5 +133,14 @@ describe('budget funds', () => {
     const v1 = (await op('budget.get', { budgetId: 1 })).body.current.id;
     expect((await op('budget.fundCheck', { versionId: v1, line_ids: [line('Reception')] })).body.closed).toEqual(['2027-02']);
     expect((await op('budget.setFund', { versionId: v1, line_ids: [line('Reception')], account_id: null })).status).toBe(400);
+
+    // one grant divided between two projects here: running costs and furniture (each project still one grant)
+    const g = { donor: 'SEN', amount: 1000, currency: 'USD', reference: 'SEN-9', here: 'aleppo', shares: [] };
+    expect((await op('grant.save', { ...g, projects: [{ fund_id: null, new_fund: 'SEN running', amount: 600 }, { fund_id: null, new_fund: 'SEN furniture', amount: 300 }] })).status).toBe(400); // 900 ≠ 1000
+    expect((await op('grant.save', { ...g, projects: [{ fund_id: acc('Furniture'), amount: 600 }, { fund_id: null, new_fund: 'SEN furniture', amount: 400 }] })).status).toBe(200);
+    const d2 = (await op('data')).body;
+    const sen = d2.grants.find((x: { reference: string }) => x.reference === 'SEN-9').id;
+    expect(d2.grantParts.filter((p: { grant_id: string }) => p.grant_id === sen).map((p: { account_id: number; amount: number }) => [d2.lists.accounts.find((a: { id: number }) => a.id === p.account_id).name, p.amount]).sort())
+      .toEqual([['Furniture', 600], ['SEN furniture', 400]]);
   });
 });

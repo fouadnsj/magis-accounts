@@ -61,7 +61,10 @@ export function projectReport(a: {
     }
     const part = id == null ? undefined : a.grantParts.find((p) => p.account_id === id);
     const grant = part ? a.grants.find((g) => g.id === part.grant_id) ?? null : null;
-    const received = grant?.status === 'hand' ? grant.hand_usd ?? 0 : null;
+    // in hand: the dollars received, divided between the grant's projects here by their amounts
+    const parts = grant ? a.grantParts.filter((x) => x.grant_id === grant.id) : [];
+    const whole = parts.reduce((t, x) => t + x.amount, 0);
+    const received = grant?.status === 'hand' ? (grant.hand_usd ?? 0) * (whole > 0 && part ? part.amount / whole : 1) : null;
     const spentAll = all.reduce((s, r) => s + usd(r), 0);
     return {
       id, name, outside, grant, share: part?.amount ?? null,

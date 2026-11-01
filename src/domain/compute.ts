@@ -86,16 +86,19 @@ function rateFor(t: Trx, idx: RateIndex, fallback: number): number {
   return fallback;
 }
 
-/** V — Bill_Code: code (or TYP) - last 3 digits of the receipt - MMYY */
-export function billCode(t: Trx, code: string, month: number | null, year: number | null): string {
+/**
+ * V — Bill_Code, written on the paper bill (Fouad, 2026-11-02): the centre's two letters - the register number - the
+ * last 3 digits of the receipt - DDMM, e.g. HO-0123-345-0910. Unique by its register number (never given twice), and
+ * the same whatever the line or its code. A row not numbered yet (a keeper's file not yet in) shows ····.
+ */
+export function billCode(t: Trx, prefix: string): string {
   if (!t.type) return '';
-  const head = code !== '' ? code : t.type.slice(0, 3).toUpperCase();
   const right3 = (t.receipt ?? '').toString().slice(-3).trim();
   const num = right3 === '' ? NaN : Number(right3);
   const rec = Number.isFinite(num) ? String(Math.round(num)).padStart(3, '0') : '000';
-  const mm = month == null ? '01' : String(month).padStart(2, '0');
-  const yy = year == null ? '00' : String(year % 100).padStart(2, '0');
-  return `${head}-${rec}-${mm}${yy}`;
+  const n = t.n != null ? String(t.n).padStart(4, '0') : '····';
+  const ddmm = t.date ? `${t.date.slice(8, 10)}${t.date.slice(5, 7)}` : '0000';
+  return `${prefix || 'XX'}-${n}-${rec}-${ddmm}`;
 }
 
 export function computeAll(rows: Trx[], lists: Lists): Map<string, Computed> {
@@ -114,8 +117,7 @@ export function computeAll(rows: Trx[], lists: Lists): Map<string, Computed> {
       incUsdTot: t.inc_usd + div(t.inc_syp),
       expUsdTot: t.exp_usd + div(t.exp_syp),
       code,
-      // (kept as it was when the line codes changed, else worked out)
-      billCode: t.bill_code || billCode(t, code, month, year),
+      billCode: billCode(t, lists.billPrefix ?? ''),
       month,
       monthEn: month ? MONTHS_EN[month - 1] : '',
       year,

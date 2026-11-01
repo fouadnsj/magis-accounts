@@ -523,11 +523,19 @@ describe('a centre joins the common list', () => {
     expect(A.headings.some((h) => h.name === 'Staff_Salary')).toBe(false);
     // the lines merged stay, switched off, pointing to Reception (a keeper's file written on them still comes in)
     expect(A.lines.filter((l) => l.merged_into === rec.id).map((l) => [l.name, l.active])).toEqual([['Fatima → Reception', 0]]);
-    // the rows keep the bill codes they had (the line codes changed)
-    expect((await aleppo.query<{ id: string; bill_code: string }>("SELECT id, bill_code FROM trx WHERE id IN ('s1', 'p1') ORDER BY id")).map((x) => x.bill_code)).toEqual(['E02.1-000-0526', 'E01.1-000-0526']);
+
     // the Transfer heading is the same one everywhere now
     const tr = (db: Db) => db.query<{ uid: string }>("SELECT uid FROM heading WHERE name = 'Transfer'");
     expect((await tr(aleppo))[0].uid).toBe((await tr(homs))[0].uid);
+  });
+});
+
+describe('the bill code', () => {
+  it('the centre, the register number, the receipt, the day and month: HO-0123-345-0910', async () => {
+    const { billCode } = await import('../src/domain/compute');
+    const t = { ...blankTrx(), type: 'Exp' as const, n: 123, receipt: 'F-12345', date: '2026-10-09' };
+    expect(billCode(t, 'HO')).toBe('HO-0123-345-0910');
+    expect(billCode({ ...t, n: null, receipt: null }, 'AL')).toBe('AL-····-000-0910'); // not numbered yet, no receipt
   });
 });
 

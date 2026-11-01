@@ -61,8 +61,9 @@ export function allCentresReport(inputs: CentreInput[], period: Period): { centr
       const x = grants.get(key) ?? { donor, reference: g.reference?.trim() || null, currency: g.currency, amount: g.amount, shares: [], centres: [] };
       // the shares as written in the first centre that has them
       if (!x.shares.length) x.shares = c.grantShares.filter((s) => s.grant_id === g.id);
-      const p = rep.find((r) => r.grant?.id === g.id);
-      x.centres.push({ slug: c.slug, organisation: c.organisation, centre: c.centre, project: p?.name ?? null, received: g.status === 'hand' ? g.hand_usd ?? 0 : null, spent: p?.spent ?? 0, spentAll: p?.spentAll ?? 0 });
+      // (a grant may be divided between several projects here)
+      const ps = rep.filter((r) => r.grant?.id === g.id);
+      x.centres.push({ slug: c.slug, organisation: c.organisation, centre: c.centre, project: ps.length ? ps.map((p) => p.name).join(' · ') : null, received: g.status === 'hand' ? g.hand_usd ?? 0 : null, spent: ps.reduce((t, p) => t + p.spent, 0), spentAll: ps.reduce((t, p) => t + p.spentAll, 0) });
       grants.set(key, x);
     }
   }

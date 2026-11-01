@@ -910,8 +910,12 @@ const goodDate = (x: unknown) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.
  */
 async function saveGrant(c: OpCtx, a: {
   id?: string; donor: string; amount: number; currency: 'USD' | 'EUR'; reference?: string | null; note?: string | null;
-  here: string | null; shares: { centre: string; amount: number }[]; fund_id: number | null; new_fund?: string | null; promised_on?: string | null;
-  /** the project's dates here (the grant's period) */
+  here: string | null; shares: { centre: string; amount: number }[]; promised_on?: string | null;
+  /** this centre's share: to one project, or divided between several (Fouad, 2026-11-02: running costs and furniture) */
+  projects?: { fund_id: number | null; new_fund?: string | null; amount?: number | null }[];
+  /** (one project: as before) */
+  fund_id?: number | null; new_fund?: string | null;
+  /** the projects' dates here (the grant's period) */
   start_date?: string | null; end_date?: string | null;
 }) {
   const donorName = (a.donor ?? '').trim();
@@ -927,21 +931,29 @@ async function saveGrant(c: OpCtx, a: {
   const id = a.id ?? uuid();
   const before = a.id ? await one<GrantCard>(c.db, 'SELECT * FROM grant_card WHERE id = ?', [a.id]) : null;
   if (a.id && !before) throw new UserError(m('المنحة غير موجودة', 'Grant not found'));
-  // the fund of this centre's share
-  const newFund = (a.new_fund ?? '').trim();
-  let fundId: number | null = null;
-  if (hereAmount > 0) {
-    if (newFund) {
-      if (await one(c.db, 'SELECT 1 FROM account WHERE name = ?', [newFund])) throw new UserError(m(`المشروع «${newFund}» موجود: اختره من القائمة`, `The project "${newFund}" exists: choose it in the list`, `Le projet « ${newFund} » existe : choisissez-le dans la liste`));
-    } else {
-      fundId = a.fund_id ?? null;
-      if (fundId == null || !(await one(c.db, 'SELECT 1 FROM account WHERE id = ?', [fundId]))) throw new UserError(m('اختر المشروع', 'Choose the project', 'Choisissez le projet'));
-      const other = await one<{ donor: string; reference: string | null }>(c.db,
-        'SELECT d.name AS donor, g.reference FROM grant_part p JOIN grant_card g ON g.id = p.grant_id JOIN donor d ON d.id = g.donor_id WHERE p.account_id = ? AND p.grant_id <> ? LIMIT 1', [fundId, id]);
-      if (other) {
-        const o = `${other.donor}${other.reference ? ` · ${other.reference}` : ''}`;
-        throw new UserError(m(`لهذا المشروع منحة أخرى (${o}): المشروع لا يكون لمنحتين`, `This project already has a grant (${o}): a project never has two grants`, `Ce projet a déjà une subvention (${o}) : un projet n'a jamais deux subventions`));
-      }
+  // the projects of this centre's share: one takes all of it; several, each its amount (they add up to the share)
+  const asked = a.projects?.length ? a.projects : [{ fund_id: a.fund_id ?? null, new_fund: a.new_fund ?? null, amount: null }];
+  const projects = hereAmount > 0 ? asked.map((p) => ({ fundId: p.fund_id ?? null, newFund: (p.new_fund ?? '').trim(), amount: asked.length === 1 ? hereAmount : Number(p.amount) || 0 })) : [];
+  if (projects.length > 1) {
+    if (projects.some((p) => !(p.amount > 0))) throw new UserError(m('اكتب مبلغ كل مشروع', 'Write the amount of each project', 'Écrivez le montant de chaque projet'));
+    const total = projects.reduce((t, p) => t + p.amount, 0);
+    if (Math.abs(total - hereAmount) > 0.01) throw new UserError(m(`مجموع المشاريع (${total}) لا يساوي حصة هذا المركز (${hereAmount})`, `The projects add up to ${total}, not this centre's share (${hereAmount})`, `Les projets font ${total}, pas la part de ce centre (${hereAmount})`));
+  }
+  const seen = new Set<string>();
+  for (const p of projects) {
+    const key = p.newFund ? `n:${p.newFund.toLowerCase()}` : `f:${p.fundId}`;
+    if (seen.has(key)) throw new UserError(m('مشروع مكرر', 'A project is chosen twice', 'Un projet est choisi deux fois'));
+    seen.add(key);
+    if (p.newFund) {
+      if (await one(c.db, 'SELECT 1 FROM account WHERE name = ?', [p.newFund])) throw new UserError(m(`المشروع «${p.newFund}» موجود: اختره من القائمة`, `The project "${p.newFund}" exists: choose it in the list`, `Le projet « ${p.newFund} » existe : choisissez-le dans la liste`));
+      continue;
+    }
+    if (p.fundId == null || !(await one(c.db, 'SELECT 1 FROM account WHERE id = ?', [p.fundId]))) throw new UserError(m('اختر المشروع', 'Choose the project', 'Choisissez le projet'));
+    const other = await one<{ donor: string; reference: string | null }>(c.db,
+      'SELECT d.name AS donor, g.reference FROM grant_part p JOIN grant_card g ON g.id = p.grant_id JOIN donor d ON d.id = g.donor_id WHERE p.account_id = ? AND p.grant_id <> ? LIMIT 1', [p.fundId, id]);
+    if (other) {
+      const o = `${other.donor}${other.reference ? ` · ${other.reference}` : ''}`;
+      throw new UserError(m(`لهذا المشروع منحة أخرى (${o}): المشروع لا يكون لمنحتين`, `This project already has a grant (${o}): a project never has two grants`, `Ce projet a déjà une subvention (${o}) : un projet n'a jamais deux subventions`));
     }
   }
   // the donor: found by its name, or added
@@ -950,26 +962,33 @@ async function saveGrant(c: OpCtx, a: {
     await saveDonor(c.db, { name: donorName, default_project_id: null }, c.who);
     donor = await one<{ id: number }>(c.db, 'SELECT id FROM donor WHERE name = ?', [donorName]);
   }
-  const maxSort = (await one<{ s: number | null }>(c.db, 'SELECT MAX(sort) AS s FROM account'))?.s ?? 0;
+  let sort = (await one<{ s: number | null }>(c.db, 'SELECT MAX(sort) AS s FROM account'))?.s ?? 0;
   const start = a.start_date || null, end = a.end_date || null;
   if ((start && !goodDate(start)) || (end && !goodDate(end))) throw new UserError(m('تاريخ غير صالح', 'Not a valid date', 'Date non valide'));
   if (start && end && end < start) throw new UserError(m('نهاية المشروع قبل بدايته', "The project's end is before its start", 'La fin du projet est avant son début'));
-  const fundRef = newFund ? { sql: '(SELECT id FROM account WHERE name = ?)', param: newFund } : { sql: '?', param: fundId };
-  await c.db.batch([
-    ...(hereAmount > 0 && newFund ? [
-      { sql: 'INSERT INTO account (name, sort, start_date, end_date) VALUES (?, ?, ?, ?)', params: [newFund, maxSort + 1, start, end] },
-      auditStmt(c.who, 'add', 'account', null, null, { name: newFund, grant: id }),
-    ] : []),
+  const stmts: Stmt[] = [];
+  for (const p of projects) if (p.newFund) stmts.push(
+    { sql: 'INSERT INTO account (name, sort, start_date, end_date) VALUES (?, ?, ?, ?)', params: [p.newFund, ++sort, start, end] },
+    auditStmt(c.who, 'add', 'account', null, null, { name: p.newFund, grant: id }),
+  );
+  stmts.push(
     before
       ? { sql: 'UPDATE grant_card SET donor_id = ?, amount = ?, currency = ?, reference = ?, note = ? WHERE id = ?', params: [donor!.id, a.amount, a.currency, a.reference ?? null, a.note ?? null, id] }
       : { sql: "INSERT INTO grant_card (id, donor_id, amount, currency, reference, note, status, promised_on, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, 'promised', ?, ?, ?)", params: [id, donor!.id, a.amount, a.currency, a.reference ?? null, a.note ?? null, a.promised_on ?? nowIso().slice(0, 10), nowIso(), c.who] },
     { sql: 'DELETE FROM grant_part WHERE grant_id = ?', params: [id] },
-    ...(hereAmount > 0 ? [{ sql: `INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, ${fundRef.sql}, ?)`, params: [id, fundRef.param, hereAmount] }] : []),
-    ...(hereAmount > 0 && !newFund && (start || end) ? [{ sql: 'UPDATE account SET start_date = ?, end_date = ? WHERE id = ?', params: [start, end, fundId] }] : []),
+  );
+  for (const p of projects) {
+    stmts.push(p.newFund
+      ? { sql: 'INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, (SELECT id FROM account WHERE name = ?), ?)', params: [id, p.newFund, p.amount] }
+      : { sql: 'INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, ?, ?)', params: [id, p.fundId, p.amount] });
+    if (!p.newFund && (start || end)) stmts.push({ sql: 'UPDATE account SET start_date = ?, end_date = ? WHERE id = ?', params: [start, end, p.fundId] });
+  }
+  stmts.push(
     { sql: 'DELETE FROM grant_share WHERE grant_id = ?', params: [id] },
     ...shares.map((x) => ({ sql: 'INSERT INTO grant_share (grant_id, centre, amount) VALUES (?, ?, ?)', params: [id, x.centre, x.amount] })),
     auditStmt(c.who, before ? 'edit' : 'add', 'grant_card', id, before, { ...a, donor_id: donor!.id }),
-  ]);
+  );
+  await c.db.batch(stmts);
   return id;
 }
 
@@ -1060,7 +1079,7 @@ const bytesToB64 = (bytes: Uint8Array) => {
   return btoa(s);
 };
 
-/** Stores a document under the row's Bill_Code (e.g. E03.5-751-0826_N0587.pdf). */
+/** Stores a document under the row's Bill_Code (e.g. HO-0587-751-0910.pdf). */
 async function addDocument(c: OpCtx, a: { trxId: string; base64: string; mime: string }) {
   const r = await docRights(c, a.trxId, true);
   const ext = DOC_TYPES[a.mime];
@@ -1068,10 +1087,8 @@ async function addDocument(c: OpCtx, a: { trxId: string; base64: string; mime: s
   const bytes = b64ToBytes(a.base64);
   if (bytes.length > MAX_DOC) throw new UserError(m('الملف أكبر من 15 م.ب', 'The file is larger than 15 MB'));
   const lists = await loadLists(c.db);
-  const code = lists.lines.find((l) => l.id === r.line_id)?.code ?? '';
-  const month = r.date ? Number(r.date.slice(5, 7)) : null;
   const year = r.date ? Number(r.date.slice(0, 4)) : null;
-  const base = `${billCode(r, code, month, year)}${r.n != null ? `_N${String(r.n).padStart(4, '0')}` : ''}`.replace(/[^\w.-]/g, '_');
+  const base = billCode(r, lists.billPrefix ?? '').replace(/[^\w.-]/g, '_');
   const folder = year ? String(year) : 'undated';
   let rel = `${folder}/${base}.${ext}`;
   for (let i = 2; await c.files.docExists(rel); i++) rel = `${folder}/${base}-${i}.${ext}`;

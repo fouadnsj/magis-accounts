@@ -67,7 +67,7 @@ export function Register() {
       if (type && r.type !== type) return false;
       if (heading != null && r.heading_id !== heading) return false;
       if (qq) {
-        const hay = [r.explanation, r.receipt, names.party(r.party_id), names.line(r.line_id), names.heading(r.heading_id), r.n == null ? '' : String(r.n).padStart(4, '0'),
+        const hay = [r.explanation, r.receipt, names.party(r.party_id), names.line(r.line_id), names.heading(r.heading_id), r.n == null ? '' : String(r.n).padStart(4, '0'), d.comp.get(r.id)?.billCode ?? '',
           r.inc_syp, r.exp_syp, r.inc_usd, r.exp_usd, r.trf_syp, r.trf_usd].join(' ').toLowerCase();
         if (!hay.includes(qq)) return false;
       }
@@ -136,6 +136,8 @@ export function Register() {
   const COLS: Col[] = [
     { key: 'n', label: 'N', td: (r) => <>{withDocs.has(r.id) ? '📎' : ''}{r.review ? '⚠ ' : ''}{r.n == null ? (r.sent_at ? '✓' : '·') : String(r.n).padStart(4, '0')}</> },
     { key: 'date', label: t('التاريخ', 'Date'), td: (r) => <span className="ltr">{fmtDate(r.date)}</span> },
+    // the code written on the paper bill (centre - register number - receipt - day and month)
+    { key: 'bill', label: t('رمز الفاتورة', 'Bill code'), td: (r) => <span className="ltr code small">{r.private_total ? '' : d.comp.get(r.id)?.billCode}</span> },
     ...(holder ? [] : [{ key: 'book', label: t('الدفتر', 'Book'), td: (r: Trx) => names.book(r.book_id) }]),
     { key: 'account', label: t('المشروع', 'Project'), td: (r) => (r.type === 'Exp' && r.account_id == null && !r.private_total ? <span className="bad small">{fundOf(r)}</span> : fundOf(r)) },
     { key: 'type', label: t('النوع', 'Type'), td: (r) => <>{r.type ? tx(TYPE_LABEL[r.type]) : '?'}{r.type === 'Transfer' && (r.disputed_at ? ' ✗' : r.received_at ? ' ✓' : ' ⏳')}</> },

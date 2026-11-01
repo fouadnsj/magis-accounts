@@ -541,7 +541,7 @@ describe('server: attached documents', () => {
     const pdf = Buffer.from('%PDF-1.4\n% test document\n').toString('base64');
     const r = await op('doc.add', { trxId: mine.id, base64: pdf, mime: 'application/pdf' }, roula);
     expect(r.status).toBe(200);
-    expect(r.body.name).toMatch(new RegExp(`_N${String(mine.n).padStart(4, '0')}\\.pdf$`));
+    expect(r.body.name).toMatch(new RegExp(`^[A-Z]{2}-${String(mine.n).padStart(4, '0')}-\\d{3}-\\d{4}\\.pdf$`));
     // the file is on disk, next to the database
     expect(fs.existsSync(path.join(dir, 'dbs', DB, 'attachments', '2026', r.body.name))).toBe(true);
     // listed with the row

@@ -1011,11 +1011,15 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { lead: lead.c.slug, centres: out });
     }
 
+    // who may see every centre together (Fouad, 2026-11-02): the administrator only — the directory's administrator; a
+    // server with no directory yet: whoever manages the users, on the server computer itself
+    const allCentresAllowed = () => !!dirPerson?.admin || (!directory.people.length && isLocal(req) && !!found && has(found[1].profile, 'users.manage'));
+    if (url === '/api/all-centres/allowed' && method === 'GET') return send(res, 200, { allowed: !!found && allCentresAllowed() });
     // ---- All centres together (Fouad, 2026-11-01; /rows: their incomes and expenses for Explore): every centre database on this server (a copy of another centre's,
     // brought here, counts like the others), joined by project and by grant. For who keeps the grants and manages the
     // users of the database they are in; with the directory, only the centres given to the person.
     if ((url === '/api/all-centres' || url === '/api/all-centres/rows') && method === 'POST') {
-      if (!found || !has(found[1].profile, 'lists.donors') || !has(found[1].profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (!found || !allCentresAllowed()) throw new HttpError(403, { ar: 'لمدير الخادم فقط', en: 'For the administrator only' });
       const body = (await readBody(req)) as { from?: string; to?: string };
       const ym = (x: unknown, d: string) => (typeof x === 'string' && /^\d{4}-\d{2}$/.test(x) ? x : d);
       const year = new Date().toISOString().slice(0, 4);

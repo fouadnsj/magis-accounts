@@ -24,10 +24,20 @@ const monthName = (ym: string) => {
   return `${monthWord(m, MONTHS_AR, MONTHS_EN)} ${ym.slice(0, 4)}`;
 };
 
+/** Every centre of this server together: for the administrator only (the server says so). */
+function useAllCentres() {
+  const { s } = useApp();
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    if (s.mode !== 'server') return;
+    fetch('/api/all-centres/allowed', { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : { allowed: false })).then((j: { allowed: boolean }) => setOk(!!j.allowed)).catch(() => setOk(false));
+  }, [s]);
+  return ok;
+}
+
 export function Reports() {
-  const { d, s, can } = useApp();
-  // every centre of this server together: for who keeps the grants and manages the users, on the server
-  const allCentres = s.mode === 'server' && can('lists.donors') && can('users.manage');
+  const { d, can } = useApp();
+  const allCentres = useAllCentres();
   const names = useNames();
   const years = useMemo(() => [...new Set(d.centreRows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort(), [d.centreRows]);
   const lastYear = years[years.length - 1] ?? String(new Date().getFullYear());
@@ -122,10 +132,10 @@ const shortMonth = (ym: string, many: boolean) => `${MONTHS_EN[Number(ym.slice(5
  * (Fouad, 2026-11-02): every centre of this server together, the headings and lines matched by the common list.
  */
 function ExploreTab({ p }: { p: Period }) {
-  const { d, s, can } = useApp();
+  const { d, s } = useApp();
   const icons = useIcons();
   const nav = useNav();
-  const mayAll = s.mode === 'server' && can('lists.donors') && can('users.manage');
+  const mayAll = useAllCentres();
   const [scope, setScope] = useState<'here' | 'all'>('here');
   const [kind, setKind] = useState<'Exp' | 'Income'>('Exp');
   const [heading, setHeading] = useState<string | null>(null);

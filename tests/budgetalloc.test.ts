@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { startServer, type Running } from '../server/server';
 import { blankTrx } from '../src/db/repo';
+import { createRequire } from 'node:module';
 
 let srv: Running, base: string, dir: string, ck = '';
 beforeAll(async () => {
@@ -117,5 +118,20 @@ describe('budget funds', () => {
     expect(after.rows.find((r: { id: string }) => r.id === 'e-net').account_id).toBe(acc('Running SEN'));
     expect(after.lists.accounts.find((a: { id: number }) => a.id === net).active).toBe(0);
     expect(after.lists.books[0].account_id).toBe(acc('Running SEN'));
+
+    // a project's dates: after its end, its lines' expenses are not funded
+    expect((await op('account.setDates', { id: acc('Running SEN'), start_date: '2027-01-01', end_date: '2027-02-05' })).status).toBe(200);
+    expect((await op('account.setDates', { id: acc('Running SEN'), start_date: '2027-03-01', end_date: '2027-02-05' })).status).toBe(400);
+    expect(((await op('data')).body.rows as { id: string; account_id: number | null }[]).find((r) => r.id === 'e-reception')!.account_id).toBeNull();
+    await op('account.setDates', { id: acc('Running SEN'), start_date: null, end_date: null });
+
+    // a closed month keeps its projects: changing the project of a line spent on in it asks to reopen it first
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    const raw = new DatabaseSync(path.join(dir, 'dbs', slug, 'magis.db'));
+    raw.prepare("INSERT INTO closed_month (ym, closed_at, closed_by) VALUES ('2027-02', 'x', 'test')").run();
+    raw.close();
+    const v1 = (await op('budget.get', { budgetId: 1 })).body.current.id;
+    expect((await op('budget.fundCheck', { versionId: v1, line_ids: [line('Reception')] })).body.closed).toEqual(['2027-02']);
+    expect((await op('budget.setFund', { versionId: v1, line_ids: [line('Reception')], account_id: null })).status).toBe(400);
   });
 });

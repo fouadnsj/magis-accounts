@@ -124,6 +124,12 @@ export async function importEntries(db: Db, text: string, fileName: string, who:
       skipped.push(raw.id);
       continue;
     }
+    // a line merged into another when the centre joined the common list: the row goes on that line
+    const merged = t.line_id != null ? lists.lines.find((l) => l.id === t.line_id)?.merged_into : null;
+    if (merged != null) {
+      t.line_id = merged;
+      t.heading_id = lists.lines.find((l) => l.id === merged)?.heading_id ?? t.heading_id;
+    }
     // Check again with the office's lists and register: they may have changed.
     const reasons: string[] = [];
     const nameCheck: [string, { id: number; name: string }[], number | null][] = [
@@ -134,7 +140,7 @@ export async function importEntries(db: Db, text: string, fileName: string, who:
       ['party', lists.parties, t.party_id],
     ];
     for (const [k, arr, id] of nameCheck) {
-      if (id == null) continue;
+      if (id == null || (merged != null && (k === 'line' || k === 'heading'))) continue;
       const here = arr.find((x) => x.id === id)?.name;
       if (!here || (_names[k] && here.toLowerCase() !== _names[k]!.toLowerCase())) {
         reasons.push(`${k}: "${_names[k]}" in the holder's file is "${here ?? 'missing'}" here`);

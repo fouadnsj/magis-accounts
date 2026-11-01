@@ -708,7 +708,8 @@ function FundingTab({ p }: { p: Period }) {
     <>
       <div className="alert info small">{t(
         'سرّي · نفقات المركز (كل الدفاتر، ومنها دفترك) وكيف تُدفع: بإيراد المركز الذاتي، وبما يرسله دفتر المسؤول (المنح، الرهبنة). دفتر المسؤول خارج المركز.',
-        "Confidential · The centre's expenses (every book, yours too) and how they are paid: by the centre's own income, and by what the Respo book sends (grants, the Province). The Respo book is outside the centre.")}</div>
+        "Confidential · The centre's expenses (every book, yours too) and how they are paid: by the centre's own income, and by what the Respo book sends (grants, the Province). The Respo book is outside the centre.")}
+        {' '}{t('(لمعرفة ما صُرف من كل منحة ومشروع: «حسب المشروع».)', '(For what each grant and project spent: "By project".)')}</div>
       {d.grantsBookId == null && <div className="alert warn small">{t('لا دفتر للمسؤول بعد', 'No Respo book yet')}</div>}
       <div className="cards">
         <Card k={t('نفقات المركز', "Centre's expenses")} v={fmtUsd(s.expenses)} />

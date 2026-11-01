@@ -78,7 +78,7 @@ export async function loadLists(db: Db): Promise<Lists> {
   const named = (t: string) => db.query<Named>(`SELECT id, name, active, sort FROM ${t} ORDER BY sort, name`);
   const [cities, accounts, projects, parties, books, headings, headingTypes, lines, donors, rules, settings] = await Promise.all([
     named('city'),
-    db.query<Named & { outside_budget: number }>('SELECT id, name, active, sort, outside_budget FROM account ORDER BY sort, name'),
+    db.query<Named & { outside_budget: number; start_date: string | null; end_date: string | null }>('SELECT id, name, active, sort, outside_budget, start_date, end_date FROM account ORDER BY sort, name'),
     named('project'),
     named('party'),
     db.query<Book>('SELECT * FROM book ORDER BY is_main DESC, sort, name'),
@@ -323,8 +323,9 @@ export function insertTrxStmt(t: Trx): Stmt {
 function updateTrxStmt(t: Trx): Stmt {
   const cols = TRX_COLS.filter((c) => c !== 'id' && c !== 'created_at' && c !== 'created_by');
   return {
-    sql: `UPDATE trx SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,
-    params: [...cols.map((c) => (t[c] ?? null) as SqlValue), t.id],
+    // a kept bill code stays while the line, receipt and date stay; changed, it is worked out again
+    sql: `UPDATE trx SET bill_code = CASE WHEN line_id IS ? AND receipt IS ? AND date IS ? THEN bill_code ELSE NULL END, ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,
+    params: [t.line_id ?? null, t.receipt ?? null, t.date ?? null, ...cols.map((c) => (t[c] ?? null) as SqlValue), t.id],
   };
 }
 

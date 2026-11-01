@@ -106,7 +106,8 @@ export async function exportWorkbook(rows: Trx[], comp: Map<string, Computed>, l
     ref: 'A2',
     headerRow: true,
     style: { theme: 'TableStyleLight1', showRowStripes: false },
-    columns: headers.map((h) => ({ name: h, filterButton: true })),
+    // the column of the project ("Account" only for pasting into the old workbook)
+    columns: headers.map((h) => ({ name: h === 'Account' && !o.registerOnly ? 'Project' : h, filterButton: true })),
     rows: data.length ? data : [headers.map(() => null)],
   });
 

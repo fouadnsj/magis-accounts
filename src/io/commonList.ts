@@ -5,7 +5,8 @@
 // The list travels between the databases of one server ("make the lists the same"), or as a file for a centre that
 // works on its own computer.
 import type { Db, Stmt } from '../db/db';
-import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
+import { auditStmt, getMeta, loadLists, loadTrx, setMetaStmt, UserError } from '../db/repo';
+import { computeAll } from '../domain/compute';
 import { m } from '../i18n';
 import type { TrxType } from '../domain/types';
 
@@ -33,7 +34,7 @@ export async function exportCommonList(db: Db): Promise<CommonList> {
   const heads = await db.query<{ id: number; uid: string; code: string; name: string }>('SELECT id, uid, code, name FROM heading ORDER BY code');
   const types = await db.query<{ heading_id: number; type: TrxType }>('SELECT heading_id, type FROM heading_type');
   const lines = await db.query<{ uid: string; heading_uid: string; code: string; name: string; is_project_fund: number }>(
-    'SELECT l.uid, h.uid AS heading_uid, l.code, l.name, l.is_project_fund FROM budget_line l JOIN heading h ON h.id = l.heading_id ORDER BY l.code');
+    'SELECT l.uid, h.uid AS heading_uid, l.code, l.name, l.is_project_fund FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.merged_into IS NULL ORDER BY l.code');
   return {
     kind: COMMON_LIST, from: await getMeta(db, 'organisation'), lead: (await commonListState(db)) === 'lead', made_at: new Date().toISOString(),
     headings: heads.map((h) => ({ uid: h.uid, code: h.code, name: h.name, types: types.filter((t) => t.heading_id === h.id).map((t) => t.type) })),
@@ -64,7 +65,7 @@ export async function applyCommonList(db: Db, list: CommonList, who: string, opt
   type L = { id: number; uid: string; heading_id: number; code: string; name: string };
   const stmts: Stmt[] = [];
   const heads = await db.query<H>('SELECT id, uid, code, name FROM heading');
-  const lines = await db.query<L>('SELECT id, uid, heading_id, code, name FROM budget_line');
+  const lines = await db.query<L>('SELECT id, uid, heading_id, code, name FROM budget_line WHERE merged_into IS NULL');
   const listUids = new Set([...list.headings.map((h) => h.uid), ...list.lines.map((l) => l.uid)]);
   const lower = (x: string) => x.trim().toLowerCase();
   let nextHeadingId = Math.max(0, ...heads.map((h) => h.id)) + 1;
@@ -135,10 +136,21 @@ export async function applyCommonList(db: Db, list: CommonList, who: string, opt
     out.lines++;
   }
   if (stmts.length) {
+    // the codes change: the old rows keep their bill codes
+    if (out.renamed) await freezeBillCodes(db);
     stmts.push(auditStmt(who, 'common_list', 'heading', null, null, { from: list.from, lead: opts.lead, ...out }));
     await db.batch(stmts);
   }
   return out;
+}
+
+/** The bill code of every row, kept as it is now (the line codes are about to change). */
+export async function freezeBillCodes(db: Db) {
+  const lists = await loadLists(db);
+  const rows = await loadTrx(db);
+  const comp = computeAll(rows, lists);
+  const stmts: Stmt[] = rows.filter((r) => !r.bill_code && comp.get(r.id)?.billCode).map((r) => ({ sql: 'UPDATE trx SET bill_code = ? WHERE id = ?', params: [comp.get(r.id)!.billCode, r.id] }));
+  if (stmts.length) await db.batch(stmts);
 }
 
 /** This database joins the common list; the first one leads it (its list becomes the common list). */
@@ -178,6 +190,8 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
     }
     hMap.set(h.id, uid ?? null);
   }
+  // the line codes change: the rows keep the bill codes written on their papers
+  await freezeBillCodes(db);
   const stmts: Stmt[] = [];
   const s = (sql: string, params: (string | number | null)[] = []) => stmts.push({ sql, params });
   // 1. every old heading and line on a temporary name and code (so that the common ones are free)
@@ -264,7 +278,8 @@ export async function joinWithMatching(db: Db, list: CommonList, map: { headings
     s('DELETE FROM budget_amount WHERE line_id = ?', [l.id]);
     s('UPDATE budget_item SET line_id = ? WHERE line_id = ?', [keeper, l.id]);
     s('UPDATE budget_alloc SET line_id = ? WHERE line_id = ?', [keeper, l.id]);
-    s('DELETE FROM budget_line WHERE id = ?', [l.id]);
+    // the old line stays, switched off, pointing to its line (a keeper's file written on it still comes in)
+    s('UPDATE budget_line SET heading_id = ?, name = ?, code = ?, active = 0, merged_into = ? WHERE id = ?', [hid, `${l.name} → ${c.name}`, `${c.code}~${l.id}`, keeper, l.id]);
   }
   // the headings merged into another: what pointed to them goes to it, with their types; then they go
   for (const h of heads) {

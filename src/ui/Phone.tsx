@@ -10,13 +10,15 @@ import type { Trx, TrxType } from '../domain/types';
 import type { TransferInfo } from '../domain/transfers';
 import { TYPE_LABEL, getLang, tx } from '../i18n';
 import { brandStyle } from '../brand';
-import { errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
+import { Modal, errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
 import { holderBalance } from './Cash';
 import { TYPE_ICON } from './Home';
 import { LangPick } from './LangPick';
 import type { EntryStart } from './EntryForm';
 import { Envelopes } from './Envelopes';
 import '../community/ui/cty.css';
+import { GuideSun, GuideView } from '../guide/GuideView';
+import { ACCOUNTS_GUIDE } from '../guide/content';
 
 type View = 'month' | 'records';
 
@@ -57,6 +59,8 @@ export function PhoneShell({ onComputer, onToggleLang, onCloseDb, onDatabases, o
   const types: TrxType[] = fileHolder ? ['Exp', 'Income', 'Exchange'] : ['Exp', 'Income', 'Transfer', 'Exchange'];
   const book = d.lists.books.find((b) => b.id === bookId) ?? null;
 
+  // the guide on the phone too (Fouad, 2026-11-02), opened at the register
+  const [guide, setGuide] = useState(false);
   return (
     <div className="cty magis-phone" style={theme}>
       <header className="cty-top">
@@ -68,6 +72,7 @@ export function PhoneShell({ onComputer, onToggleLang, onCloseDb, onDatabases, o
           </span>
         </div>
         <span className="cty-topbtns">
+          <button className="cty-signout" title={t('الدليل', 'Guide')} onClick={() => setGuide(true)}><GuideSun size={18} /> {t('الدليل', 'Guide')}</button>
           <LangPick onChange={onToggleLang} compact />
           <button className="cty-signout" onClick={logout}>⏻ {t('خروج', 'Sign out')}</button>
         </span>
@@ -103,6 +108,7 @@ export function PhoneShell({ onComputer, onToggleLang, onCloseDb, onDatabases, o
           <button className={view === 'records' ? 'on' : ''} onClick={() => setView('records')}><span className="cty-tab-icon">☰</span><span>{t('كل القيود', 'Records')}</span></button>
         </nav>
       )}
+      {guide && <Modal title={t('الدليل', 'Guide')} onClose={() => setGuide(false)}><GuideView sections={ACCOUNTS_GUIDE} initial="register" /></Modal>}
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { TYPE_LABEL, tx } from '../i18n';
 import { notesOf } from './Cash';
 import { pickFile, saveFile } from '../platform';
 import type { CommonList } from '../io/commonList';
-import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
+import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 import { GuideCtx, GuideLink, GuideSun } from '../guide/GuideView';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
@@ -451,6 +451,7 @@ function FundsTab() {
   };
   const add = async () => (await act(() => s.api.call('list.add', { table: 'account', name }), t('أضيف', 'Added'))) && setName('');
   const [merging, setMerging] = useState<{ id: number; name: string } | null>(null);
+  const [dating, setDating] = useState<{ id: number; name: string; start_date?: string | null; end_date?: string | null } | null>(null);
   return (
     <div className="panel" style={{ maxWidth: 900 }}>
       <p className="muted small" style={{ marginTop: 0 }}>{t('حصة كل منحة في هذا المركز مشروع. المشروع بلا منحة مال خاص. مشروع المنحة يُنشأ من صفحة المنح.', "Each grant's share in this centre is a project. A project without a grant is private money. A grant's project is made from the Grants page.")}</p>
@@ -461,7 +462,7 @@ function FundsTab() {
         </div>
       )}
       <table className="t">
-        <thead><tr><th>{t('المشروع', 'Project')}</th><th>{t('المنحة', 'Grant')}</th><th className="n">{t('الحصة هنا', 'Share here')}</th><th className="n">{t('مستعمل', 'Used')}</th>{edit && <th />}</tr></thead>
+        <thead><tr><th>{t('المشروع', 'Project')}</th><th>{t('المنحة', 'Grant')}</th><th>{t('المدة', 'Dates')}</th><th className="n">{t('الحصة هنا', 'Share here')}</th><th className="n">{t('مستعمل', 'Used')}</th>{edit && <th />}</tr></thead>
         <tbody>
           {d.lists.accounts.map((x) => {
             const gr = grantOf(x.id);
@@ -469,6 +470,10 @@ function FundsTab() {
               <tr key={x.id} className={x.active ? '' : 'off'}>
                 <td>{x.name}{!x.active && <span className="small"> · {t('موقوف', 'deactivated')}</span>}{x.outside_budget ? <span className="small muted"> · {t('خارج الموازنة', 'outside the budget')}</span> : null}</td>
                 <td>{gr ? <>{d.lists.donors.find((y) => y.id === gr.g.donor_id)?.name ?? ''}{gr.g.reference ? <span className="muted"> · {gr.g.reference}</span> : null}</> : edit ? <span className="muted">{t('خاص', 'Private')}</span> : ''}</td>
+                <td className="small nowrap">
+                  {x.start_date || x.end_date ? <span className="ltr">{fmtDate(x.start_date ?? null) || '…'} → {fmtDate(x.end_date ?? null) || '…'}</span> : <span className="muted">—</span>}
+                  {edit && <button className="btn small ghost" title={t('مدة المشروع', "The project's dates")} onClick={() => setDating(x)}>✎</button>}
+                </td>
                 <td className="n ltr">{gr ? money(gr.here, gr.g.currency) : ''}</td>
                 <td className="n">{used(x.id)}</td>
                 {edit && (
@@ -501,7 +506,29 @@ function FundsTab() {
       </table>
       {edit && <p className="muted small">{t('الحسابات القديمة (مثل الشبكة والبناء) تُدمج في مشروع آخر بزر «دمج»: كل ما كُتب عليها ينتقل إليه.', 'Old accounts (like Network or Building) are merged into another project with "Merge": everything written on them moves to it.')}</p>}
       {merging && <MergeModal from={merging} onClose={() => setMerging(null)} onDone={() => setMerging(null)} />}
+      {dating && <DatesModal p={dating} onClose={() => setDating(null)} />}
     </div>
+  );
+}
+
+/** A project's dates (a grant's period): outside them, its lines' expenses are not funded (Fouad, 2026-11-02). */
+function DatesModal({ p, onClose }: { p: { id: number; name: string; start_date?: string | null; end_date?: string | null }; onClose: () => void }) {
+  const { s } = useApp();
+  const act = useAct();
+  const [start, setStart] = useState(p.start_date ?? '');
+  const [end, setEnd] = useState(p.end_date ?? '');
+  return (
+    <Modal narrow title={t(`مدة «${p.name}»`, `The dates of "${p.name}"`)} onClose={onClose}>
+      <div className="grid2">
+        <Field label={t('البداية', 'Start')}><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
+        <Field label={t('النهاية', 'End')}><input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+      </div>
+      <p className="muted small">{t('خارج هذين التاريخين، نفقات خطوط المشروع غير ممولة. فارغ = بلا حد.', "Outside these dates, the expenses on the project's lines are not funded. Empty = no limit.")}</p>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" onClick={async () => { if (await act(() => s.api.call('account.setDates', { id: p.id, start_date: start || null, end_date: end || null }), t('حُفظ', 'Saved'))) onClose(); }}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -551,12 +578,12 @@ function BooksTab() {
         <button className="btn primary" onClick={() => setEdit({ name: '' })}>＋ {t('دفتر جديد', 'New book')}</button>
       </div>
       <table className="t">
-        <thead><tr><th>{t('الدفتر', 'Book')}</th><th>{t('الأمين', 'Keeper')}</th><th>{t('المدينة', 'City')}</th><th>{t('الحساب', 'Account')}</th><th className="n">{t('افتتاحي ل.س', 'Opening SYP')}</th><th className="n">{t('افتتاحي $', 'Opening USD')}</th><th className="n">{t('سطور', 'Rows')}</th><th /></tr></thead>
+        <thead><tr><th>{t('الدفتر', 'Book')}</th><th>{t('الأمين', 'Keeper')}</th><th>{t('المدينة', 'City')}</th><th className="n">{t('افتتاحي ل.س', 'Opening SYP')}</th><th className="n">{t('افتتاحي $', 'Opening USD')}</th><th className="n">{t('سطور', 'Rows')}</th><th /></tr></thead>
         <tbody>
           {L.books.map((b) => (
             <tr key={b.id} className={b.active ? '' : 'off'}>
               <td><b>{b.name}</b>{b.is_main ? <span className="muted small"> · {t('رئيسي', 'main')}</span> : null}{b.private ? <span className="muted small"> · 🔒 {t('خاص', 'private')}</span> : null}</td>
-              <td>{b.keeper_name}</td><td>{name(L.cities, b.city_id)}</td><td>{name(L.accounts, b.account_id)}</td>
+              <td>{b.keeper_name}</td><td>{name(L.cities, b.city_id)}</td>
               <td className="n">{fmtSyp(b.opening_syp)}</td><td className="n">{fmtUsd(b.opening_usd)}</td><td className="n">{counts.book.get(b.id) ?? 0}</td>
               <td className="nowrap right">
                 <button className="btn small ghost" onClick={() => setEdit(b)}>✎</button>
@@ -592,7 +619,6 @@ function BookModal({ book, onClose }: { book: Partial<Book>; onClose: () => void
         <Field label={t('اسم الدفتر', 'Book name')}><input value={b.name ?? ''} disabled={!!b.is_main} onChange={(e) => setB({ ...b, name: e.target.value })} /></Field>
         <Field label={t('الأمين', 'Keeper')}><input value={b.keeper_name ?? ''} onChange={(e) => setB({ ...b, keeper_name: e.target.value })} /></Field>
         <Field label={t('المدينة (افتراضي)', 'City (default)')}><Select value={b.city_id ?? null} options={opts(d.lists.cities)} onChange={(v) => setB({ ...b, city_id: v })} /></Field>
-        <Field label={t('الحساب (افتراضي)', 'Account (default)')}><Select value={b.account_id ?? null} options={opts(d.lists.accounts)} onChange={(v) => setB({ ...b, account_id: v })} /></Field>
         <Field label={t('رصيد افتتاحي ل.س', 'Opening SYP')}><input className="num" value={os} onChange={(e) => setOs(e.target.value)} /></Field>
         <Field label={t('رصيد افتتاحي $', 'Opening USD')}><input className="num" value={ou} onChange={(e) => setOu(e.target.value)} /></Field>
       </div>
@@ -643,7 +669,6 @@ function SettingsTab() {
           }} />
         </Field>
         <Field label={t('المدينة الافتراضية', 'Default city')}><Select value={st.def_city_id} options={opt(d.lists.cities)} onChange={(v) => act(() => s.api.call('settings.save', { def_city_id: v }))} /></Field>
-        <Field label={t('الحساب الافتراضي', 'Default account')}><Select value={st.def_account_id} options={opt(d.lists.accounts)} onChange={(v) => act(() => s.api.call('settings.save', { def_account_id: v }))} /></Field>
         <Field label={t('الدفتر الافتراضي', 'Default book')}><Select value={st.def_book_id} options={opt(d.lists.books)} onChange={(v) => act(() => s.api.call('settings.save', { def_book_id: v }))} /></Field>
         <Field label={t('بداية السنة المالية (لا تواريخ قبلها)', 'Fiscal year start (no dates before it)')}>
           <input type="date" value={fs} onChange={(e) => setFs(e.target.value)} onBlur={() => fs !== (st.fiscal_start ?? '') && act(() => s.api.call('settings.save', { fiscal_start: fs || null }), t('حُفظ', 'Saved'))} />

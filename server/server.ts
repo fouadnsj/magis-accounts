@@ -1053,18 +1053,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
       return send(res, 200, out);
     }
-    if (url === '/api/hr/import-lists' && method === 'POST') {
-      if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      const body = (await readBody(req)) as { from?: string };
-      const src = centres.get(String(body.from));
-      if (!src || (config.inactive ?? []).includes(src.slug) || ((await getMeta(src.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, src.slug)))
-        throw new HttpError(404, { ar: 'قاعدة المصدر غير موجودة', en: 'Source database not found' });
+    // ---- HR: the lists of a centre copied into HR (Fouad, 30 October 2026; 2 November: by the lines' identity, and by
+    // itself when the centre's budget changed). Names and codes only, never amounts: the centre, its projects with
+    // their donor, its lines with each line's project. A line renamed or recoded keeps its people; a line merged into
+    // another when the centre joined the common list takes its people to that line.
+    const hrListsOf = async (src: Centre) => {
       const org = (await getMeta(src.handle.db, 'organisation')) ?? src.slug;
       const centreKey = (await getMeta(src.handle.db, 'centre')) ?? guessCentre(org);
-      // an HR keeper of some centres fills the lists of those centres only
-      const hrScope = found[1].profile.hrCentres;
-      if (hrScope?.length && !hrScope.includes(centreKey)) throw new HttpError(403, { ar: 'خارج مراكزك', en: 'Outside your centres' });
-      const CITY: Record<string, [string, string]> = { aleppo: ['حلب', 'Aleppo'], homs: ['حمص', 'Homs'], jaramana: ['جرمانا', 'Jaramana'] };
       const accounts = await src.handle.db.query<{ name: string }>('SELECT name FROM account WHERE active = 1 ORDER BY sort, name');
       // the donor of each project: the donor (and contract) of its grant (Fouad, 2026-11-01: a project has one grant)
       const grants = await src.handle.db.query<{ donor: string; reference: string | null; account: string }>('SELECT d.name AS donor, g.reference, a.name AS account FROM grant_card g JOIN donor d ON d.id = g.donor_id JOIN grant_part p ON p.grant_id = g.id JOIN account a ON a.id = p.account_id');
@@ -1073,11 +1068,24 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const now = new Date().toISOString().slice(0, 7);
       const budget = (await src.handle.db.query<{ id: number; start_ym: string; months: number }>('SELECT id, start_ym, months FROM budget ORDER BY start_ym, id'))
         .reduce<{ id: number } | null>((best, b) => (now >= b.start_ym ? b : best ?? b), null);
-      const lines = await src.handle.db.query<{ name: string; code: string; heading: string; project: string | null }>(
-        `SELECT l.name, l.code, h.name AS heading,
+      const lines = await src.handle.db.query<{ uid: string; name: string; code: string; heading: string; project: string | null }>(
+        `SELECT l.uid, l.name, l.code, h.name AS heading,
                 (SELECT a.name FROM budget_amount x JOIN account a ON a.id = x.account_id
                   WHERE x.line_id = l.id AND x.version_id = (SELECT v.id FROM budget_version v WHERE v.budget_id = ? ORDER BY v.rev DESC LIMIT 1)) AS project
            FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.active = 1 ORDER BY h.sort, l.code`, [budget?.id ?? -1]);
+      const merged = await src.handle.db.query<{ uid: string; into: string }>('SELECT l.uid, t.uid AS "into" FROM budget_line l JOIN budget_line t ON t.id = l.merged_into');
+      const hash = JSON.stringify([lines, accounts.map((a) => [a.name, donorsOf(a.name)])]);
+      return { org, centreKey, accounts, donorsOf, lines, merged, hash };
+    };
+    const copyHrLists = async (hdb: Db, src: Centre, who: string) => {
+      const { org, centreKey, accounts, donorsOf, lines, merged, hash } = await hrListsOf(src);
+      const CITY: Record<string, [string, string]> = { aleppo: ['حلب', 'Aleppo'], homs: ['حمص', 'Homs'], jaramana: ['جرمانا', 'Jaramana'] };
+      const label = (l: { code: string | null; name: string }) => (l.code ? `${l.code} · ${l.name}` : l.name);
+      const have = await hdb.query<{ id: number; uid: string | null; code: string | null; name: string }>("SELECT id, uid, code, name FROM hr_list WHERE kind = 'line' AND source = ?", [src.slug]);
+      const byUid = new Map(lines.map((l) => [l.uid, l]));
+      const mergedInto = new Map(merged.map((x) => [x.uid, x.into]));
+      // the people of this centre (a label like "E01.8 · Reception" may be the same in another centre)
+      const people = `centre IN (SELECT name FROM hr_list WHERE kind = 'centre' AND source = ?)`;
       const stmts: Stmt[] = [
         // the centre with its mark and city; the first party and who signs are filled for Aleppo from Fouad's agreement
         // (the others are written by hand in the Lists page)
@@ -1085,26 +1093,68 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         // (an account has no code, and NULL codes are all different for UNIQUE: so a copy again checks by name and source)
         ...accounts.map((a) => ({ sql: "INSERT INTO hr_list (kind, name, source) SELECT 'account', ?, ? WHERE NOT EXISTS (SELECT 1 FROM hr_list WHERE kind = 'account' AND name = ? AND source = ?)", params: [a.name, src.slug, a.name, src.slug] })),
         ...accounts.map((a) => ({ sql: "UPDATE hr_list SET donors = ? WHERE kind = 'account' AND name = ? AND source = ?", params: [donorsOf(a.name), a.name, src.slug] })),
-        ...lines.map((l) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source) VALUES ('line', ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug] })),
-        ...lines.map((l) => ({ sql: "UPDATE hr_list SET account = ? WHERE kind = 'line' AND source = ? AND code = ? AND name = ?", params: [l.project, src.slug, l.code, l.name] })),
       ];
+      const kept = new Set<string>();
+      for (const h of have) {
+        // a line copied before the identities: known by its code and name
+        const uid = h.uid ?? lines.find((l) => l.code === h.code && l.name === h.name)?.uid ?? null;
+        const now = uid ? byUid.get(uid) ?? (mergedInto.has(uid) ? byUid.get(mergedInto.get(uid)!) : undefined) : undefined;
+        if (!now) continue; // gone from the centre: removed below
+        if (label(h) !== label(now)) stmts.push({ sql: `UPDATE hr_person SET budget_line = ? WHERE budget_line = ? AND ${people}`, params: [label(now), label(h), src.slug] });
+        if (kept.has(now.uid)) { stmts.push({ sql: 'DELETE FROM hr_list WHERE id = ?', params: [h.id] }); continue; }
+        kept.add(now.uid);
+        stmts.push({ sql: 'UPDATE hr_list SET uid = ?, name = ?, code = ?, heading = ?, account = ? WHERE id = ?', params: [now.uid, now.name, now.code, now.heading, now.project, h.id] });
+      }
+      for (const l of lines) if (!kept.has(l.uid)) stmts.push({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source, uid, account) VALUES ('line', ?, ?, ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug, l.uid, l.project] });
       // what the centre no longer has (a line or an account switched off or removed) leaves the HR lists too
       stmts.push(
-        { sql: `DELETE FROM hr_list WHERE kind = 'line' AND source = ? AND (code || '|' || name) NOT IN (${lines.map(() => '?').join(',') || "''"})`, params: [src.slug, ...lines.map((l) => `${l.code}|${l.name}`)] },
+        { sql: `DELETE FROM hr_list WHERE kind = 'line' AND source = ? AND (uid IS NULL OR uid NOT IN (${lines.map(() => '?').join(',') || "''"}))`, params: [src.slug, ...lines.map((l) => l.uid)] },
         { sql: `DELETE FROM hr_list WHERE kind = 'account' AND source = ? AND name NOT IN (${accounts.map(() => '?').join(',') || "''"})`, params: [src.slug, ...accounts.map((a) => a.name)] },
       );
-      // the heading that holds the salaries, and the centre's usual account (its default in the accounts), when not set yet
+      // the heading that holds the salaries, when not set yet
       const hs = lines.map((l) => l.heading);
       // the staff heading(s): one with both words, else those with "salary", else those with "staff" (e.g. Implementation staff | Operational staff)
       const uniq = [...new Set(hs)];
       const both = uniq.filter((h) => /staff/i.test(h) && /salar/i.test(h)), sal = uniq.filter((h) => /salar|رات/i.test(h)), staff = uniq.filter((h) => /staff/i.test(h) && !/care/i.test(h));
       const salaryHeading = (both.length ? both : sal.length ? sal : staff).join(' | ') || null;
-      const defAcc = await one<{ name: string }>(src.handle.db, "SELECT a.name FROM account a JOIN setting s ON s.key = 'def_account_id' AND CAST(s.value AS INTEGER) = a.id");
-      stmts.push({ sql: "UPDATE hr_list SET salary_heading = COALESCE(salary_heading, ?), account = COALESCE(account, ?) WHERE kind = 'centre' AND source = ?", params: [salaryHeading, defAcc?.name ?? accounts[0]?.name ?? null, src.slug] });
-      await found[2].handle.db.batch(stmts);
+      stmts.push({ sql: "UPDATE hr_list SET salary_heading = COALESCE(salary_heading, ?), copied_hash = ? WHERE kind = 'centre' AND source = ?", params: [salaryHeading, hash, src.slug] });
+      await hdb.batch(stmts);
+      log(`HR lists filled from ${src.slug}: ${accounts.length} projects, ${lines.length} lines (by ${who})`);
+      return { accounts: accounts.length, lines: lines.length };
+    };
+    // a centre this HR keeper may copy from
+    const hrSource = async (slug: unknown, profile: Profile) => {
+      const src = centres.get(String(slug));
+      if (!src || (config.inactive ?? []).includes(src.slug) || ((await getMeta(src.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, src.slug))) return null;
+      const org = (await getMeta(src.handle.db, 'organisation')) ?? src.slug;
+      const key = (await getMeta(src.handle.db, 'centre')) ?? guessCentre(org);
+      // an HR keeper of some centres fills the lists of those centres only
+      if (profile.hrCentres?.length && !profile.hrCentres.includes(key)) return null;
+      return src;
+    };
+    if (url === '/api/hr/import-lists' && method === 'POST') {
+      if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const body = (await readBody(req)) as { from?: string };
+      const src = await hrSource(body.from, found[1].profile);
+      if (!src) throw new HttpError(404, { ar: 'قاعدة المصدر غير موجودة أو خارج مراكزك', en: 'Source database not found, or outside your centres' });
+      const r = await copyHrLists(found[2].handle.db, src, found[1].profile.name);
       found[2].version++;
-      log(`HR lists filled from ${src.slug}: ${accounts.length} accounts, ${lines.length} lines (by ${found[1].profile.name})`);
-      return send(res, 200, { centres: 1, accounts: accounts.length, lines: lines.length });
+      return send(res, 200, { centres: 1, ...r });
+    }
+    // HR opened: the centres whose budget or lists changed since the last copy are copied again, by themselves
+    if (url === '/api/hr/refresh-lists' && method === 'POST') {
+      if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.manage')) return send(res, 200, { refreshed: [] });
+      const hdb = found[2].handle.db;
+      const refreshed: string[] = [];
+      for (const c of await hdb.query<{ name: string; source: string; copied_hash: string | null }>("SELECT name, source, copied_hash FROM hr_list WHERE kind = 'centre' AND source IS NOT NULL")) {
+        const src = await hrSource(c.source, found[1].profile);
+        if (!src) continue;
+        if ((await hrListsOf(src)).hash === c.copied_hash) continue;
+        await copyHrLists(hdb, src, `${found[1].profile.name} (by itself)`);
+        refreshed.push(c.name);
+      }
+      if (refreshed.length) found[2].version++;
+      return send(res, 200, { refreshed });
     }
 
     // ---- HR: the positions of the scale can come from the salary lines of the centres' budgets (Fouad, 30 October 2026).

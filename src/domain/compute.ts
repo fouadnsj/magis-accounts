@@ -114,7 +114,8 @@ export function computeAll(rows: Trx[], lists: Lists): Map<string, Computed> {
       incUsdTot: t.inc_usd + div(t.inc_syp),
       expUsdTot: t.exp_usd + div(t.exp_syp),
       code,
-      billCode: billCode(t, code, month, year),
+      // (kept as it was when the line codes changed, else worked out)
+      billCode: t.bill_code || billCode(t, code, month, year),
       month,
       monthEn: month ? MONTHS_EN[month - 1] : '',
       year,

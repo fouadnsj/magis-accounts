@@ -457,6 +457,34 @@ function FollowUp({ b }: { b: BudgetPayload }) {
 
 // ---------------------------------------------------------------- the budget of the centre
 
+/**
+ * Gives a project to lines. A closed month with expenses on them would change after its closing (Fouad, 2026-11-02):
+ * it is said first, and whoever may reopen months reopens them here (to close again afterwards).
+ */
+function useGiveFund(versionId: number, budget: Pick<Budget, 'start_ym' | 'months'>) {
+  const { s, d, can } = useApp();
+  return async (lineIds: number[], fundId: number | null): Promise<boolean> => {
+    if (!lineIds.length) return true;
+    // the project's dates should cover the budget: outside them its lines' expenses are not funded
+    const p = fundId != null && fundId !== NOFUND ? d.lists.accounts.find((a) => a.id === fundId) : undefined;
+    const from = `${budget.start_ym}-01`, to = `${periodEnd(budget)}-31`;
+    if (p && ((p.start_date && p.start_date > from) || (p.end_date && p.end_date < to))
+      && !(await confirmBox(t(`مدة «${p.name}» (${p.start_date ?? '…'} → ${p.end_date ?? '…'}) لا تغطي الموازنة كلها (${budget.start_ym} → ${periodEnd(budget)}): النفقات خارجها تبقى غير ممولة. متابعة؟`, `The dates of "${p.name}" (${p.start_date ?? '…'} → ${p.end_date ?? '…'}) do not cover the whole budget (${budget.start_ym} → ${periodEnd(budget)}): the expenses outside them stay not funded. Continue?`)))) return false;
+    const { closed } = await s.api.call('budget.fundCheck', { versionId, line_ids: lineIds });
+    if (closed.length) {
+      if (!can('month.reopen')) {
+        toast(t(`أشهر مغلقة فيها نفقات على هذه الخطوط: ${closed.join('، ')}. اطلب إعادة فتحها ممن يستطيع.`, `Closed months have expenses on these lines: ${closed.join(', ')}. Ask whoever may reopen them.`), true);
+        return false;
+      }
+      if (!(await confirmBox(t(`نفقات هذه الخطوط في أشهر مغلقة: ${closed.join('، ')}. تغيير المشروع يغيّر هذه الأشهر: تُعاد فتحها الآن، ثم تُغلق من جديد في الإدارة ← إغلاق الأشهر. متابعة؟`, `The expenses of these lines are in closed months: ${closed.join(', ')}. Changing the project changes these months: they are reopened now, then closed again in Admin → Month closing. Continue?`)))) return false;
+      for (const ym of closed) await s.api.call('month.reopen', { ym });
+      toast(t(`أُعيد فتح: ${closed.join('، ')}. أغلقها من جديد بعد التغيير.`, `Reopened: ${closed.join(', ')}. Close them again after the change.`));
+    }
+    await s.api.call('budget.setFund', { versionId, line_ids: lineIds, account_id: fundId === NOFUND ? null : fundId });
+    return true;
+  };
+}
+
 /** The funds a line can have: those inside the budget, and "not funded". */
 function useFundOptions(current: number[] = []) {
   const { d } = useApp();
@@ -558,8 +586,14 @@ function EditBudget({ b, reload, onDeleted }: { b: BudgetPayload; reload: () => 
     if (!(await confirmBox(t(`استبدال موازنة خطوط «${h.name}» بما صُرف فعلاً خلال فترة هذه الموازنة؟`, `Replace the budget of the lines of "${h.name}" with what was really spent during this budget's period?`)))) return;
     await act(() => s.api.call('budget.fillActual', { versionId: v.id, heading_id: h.id }), t('حُفظ', 'Saved'));
   };
-  const giveFund = (lineIds: number[], fundId: number | null) =>
-    act(() => s.api.call('budget.setFund', { versionId: v.id, line_ids: lineIds, account_id: fundId === NOFUND ? null : fundId }), t('حُفظ', 'Saved'));
+  const give = useGiveFund(v.id, B);
+  const giveFund = async (lineIds: number[], fundId: number | null) => {
+    try {
+      if (await give(lineIds, fundId)) { toast(t('حُفظ', 'Saved')); await reload(); }
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
 
   return (
     <>
@@ -994,7 +1028,7 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
               const diff = mo ? mo.usd - lines : null;
               return (
                 <tr key={f.id}>
-                  <td><b>{f.name}</b></td>
+                  <td><b>{f.name}</b>{f.start_date || f.end_date ? <div className="muted small ltr">{f.start_date ?? '…'} → {f.end_date ?? '…'}</div> : null}</td>
                   <td className="small">{mo ? <>{d.lists.donors.find((x) => x.id === mo.grant.donor_id)?.name}{mo.grant.reference ? <span className="muted"> · {mo.grant.reference}</span> : null}{mo.grant.currency === 'EUR' ? <span className="muted ltr"> · €{fmtUsd(mo.share)}</span> : null}</> : <span className="muted">{t('خاص', 'Private')}</span>}</td>
                   <td className="n">{mo ? fmtUsd(mo.usd) : '—'}</td>
                   <td className="n">{fmtUsd(lines)}</td>
@@ -1028,7 +1062,8 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
 
 /** A fund given to whole headings or single lines; a line ticked here leaves its former fund. */
 function GiveLines({ b, fundId, onClose, onDone }: { b: BudgetPayload; fundId: number; onClose: () => void; onDone: () => Promise<void> }) {
-  const { s, d } = useApp();
+  const { d } = useApp();
+  const give = useGiveFund(b.current!.id, b.budget!);
   const fundName = useFundName();
   const fund = new Map(b.amounts.map((x) => [x.line_id, x.account_id]));
   const amount = new Map(b.amounts.map((x) => [x.line_id, x.amount_usd]));
@@ -1046,8 +1081,8 @@ function GiveLines({ b, fundId, onClose, onDone }: { b: BudgetPayload; fundId: n
       const was = b.amounts.filter((x) => x.account_id === fundId).map((x) => x.line_id);
       const add = [...pick].filter((id) => fund.get(id) !== fundId);
       const drop = was.filter((id) => !pick.has(id));
-      if (add.length) await s.api.call('budget.setFund', { versionId: b.current!.id, line_ids: add, account_id: fundId });
-      if (drop.length) await s.api.call('budget.setFund', { versionId: b.current!.id, line_ids: drop, account_id: null });
+      if (add.length && !(await give(add, fundId))) return;
+      if (drop.length && !(await give(drop, null))) return;
       toast(t('حُفظ', 'Saved'));
       await onDone();
     } catch (e) {

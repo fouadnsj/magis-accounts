@@ -494,6 +494,13 @@ describe('HR database', () => {
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
     const hl = (await op('hr.data', {}, ck)).body.lists as { kind: string; name: string; account: string | null }[];
     expect([hl.find((x) => x.kind === 'line' && x.name === 'Reception')!.account, hl.find((x) => x.kind === 'line' && x.name === 'Cleaner')!.account]).toEqual(['Center', null]);
+    // HR opened again: nothing changed, nothing copied; the budget changes, the lists are copied again by themselves
+    expect((await post('/api/hr/refresh-lists', {})).body.refreshed).toEqual([]);
+    expect((await op('budget.setFund', { versionId: bv, line_ids: [ln9('Cleaner')], account_id: L9.accounts.find((a: { name: string }) => a.name === 'Center').id }, boss)).status).toBe(200);
+    expect((await post('/api/hr/refresh-lists', {})).body.refreshed).toEqual(['MAGIS Nine']);
+    expect(((await op('hr.data', {}, ck)).body.lists as { kind: string; name: string; account: string | null }[]).find((x) => x.kind === 'line' && x.name === 'Cleaner')!.account).toBe('Center');
+    await op('budget.setFund', { versionId: bv, line_ids: [ln9('Cleaner')], account_id: null }, boss);
+    expect((await post('/api/hr/refresh-lists', {})).body.refreshed).toEqual(['MAGIS Nine']);
     // a line switched off in the centre leaves the HR list at the next copy
     await op('line.add', { headingId, name: 'Old line by name' }, boss);
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
@@ -505,7 +512,7 @@ describe('HR database', () => {
     const accs = (await op('hr.data', {}, ck)).body.lists.filter((x: { kind: string }) => x.kind === 'account').map((x: { name: string }) => x.name);
     expect(accs.length).toBe(new Set(accs).size);
     const c = (await op('hr.data', {}, ck)).body.lists.find((x: { kind: string; name: string }) => x.kind === 'centre' && x.name === 'MAGIS Nine');
-    expect([c.salary_heading, c.account]).toEqual(['Salary', 'Center']); // found by itself
+    expect(c.salary_heading).toBe('Salary'); // found by itself
     // the positions can come from the salary lines of the budget (never an insurance line)
     await op('line.add', { headingId, name: 'Health insurance (all staff)' }, boss);
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);

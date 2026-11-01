@@ -17,13 +17,15 @@ import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
 import { notesOf } from './Cash';
 import { GuideLink } from '../guide/GuideView';
+import { Checks } from './Checks';
 
-type Tab = 'months' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
+type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
 
 export function Admin() {
   const { s, can, myBooks } = useApp();
   const tabs: { value: Tab; label: string; hidden?: boolean }[] = [
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
+    { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
     { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
     { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore')) || s.mode === 'preview' },
     { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : can('users.passwords') ? t('كلمات السر', 'Passwords') : t('كلمة السر', 'Password') },
@@ -35,10 +37,11 @@ export function Admin() {
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
   return (
     <>
-      <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' ? 'months' : 'admin'} /></h1></div>
+      <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' || tab === 'checks' ? 'months' : 'admin'} /></h1></div>
       {s.mode === 'desktop' && <p className="muted small ltr" style={{ textAlign: 'start' }}>{s.dbPath}</p>}
       <Tabs value={tab} onChange={setTab} tabs={tabs} />
       {tab === 'months' && <Months />}
+      {tab === 'checks' && <Checks />}
       {tab === 'controls' && can('users.manage') && <Controls />}
       {tab === 'backups' && <Backups />}
       {tab === 'users' && <Users />}

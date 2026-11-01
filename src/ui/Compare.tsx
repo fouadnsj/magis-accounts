@@ -12,7 +12,7 @@ import { Modal, Select, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, promptBox,
 import { tx as txMsg } from '../i18n';
 
 const FIELD_LABEL: Record<EntryField, () => string> = {
-  date: () => t('التاريخ', 'Date'), type: () => t('النوع', 'Type'), book_id: () => t('الدفتر', 'Book'), account_id: () => t('الحساب', 'Account'),
+  date: () => t('التاريخ', 'Date'), type: () => t('النوع', 'Type'), book_id: () => t('الدفتر', 'Book'), account_id: () => t('المشروع', 'Project'),
   city_id: () => t('المدينة', 'City'), heading_id: () => t('البند', 'Heading'), line_id: () => t('الخط', 'Line'), party_id: () => t('الجهة', 'Party'),
   explanation: () => t('الشرح', 'Explanation'), receipt: () => t('الوصل', 'Receipt'),
   inc_syp: () => 'Inc SYP', exp_syp: () => 'Exp SYP', inc_usd: () => 'Inc USD', exp_usd: () => 'Exp USD', trf_syp: () => 'Trf SYP', trf_usd: () => 'Trf USD',

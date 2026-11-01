@@ -6,7 +6,7 @@ import { has } from '../../auth';
 import type { Session } from '../../state';
 import type { CentreKey } from '../../brand';
 import { getLang } from '../../i18n';
-import { Field, Modal, fmtDate, todayIso, errText } from '../../ui/kit';
+import { Field, Modal, fmtDate, todayIso, errText, toast } from '../../ui/kit';
 import { WhoIs } from '../../community/ui/CtyApp';
 import { t3 } from '../../community/ui/text';
 import type { HrAlert, HrData, HrPerson } from '../hr';
@@ -24,6 +24,7 @@ import { rightsOf, SortTh, TwoNames, centreLabel, centreOf, centreVars, chooseSc
 import './hr.css';
 import { GuideCtx, GuideLink, GuideSun, GuideView } from '../../guide/GuideView';
 import { HR_GUIDE } from '../../guide/content';
+import { accountFor, lineFor } from '../link';
 
 type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'sessions' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log' | 'guide';
 
@@ -62,6 +63,18 @@ export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { sess
     } catch (e) { setErr(errText(e)); }
   }, [session]);
   useEffect(() => { void reload(); }, [reload]);
+  // on the server: the centres whose budget or lists changed since the last copy are copied again, by themselves
+  useEffect(() => {
+    if (session.mode !== 'server' || !manage) return;
+    fetch('/api/hr/refresh-lists', { method: 'POST', credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : { refreshed: [] }))
+      .then((j: { refreshed: string[] }) => {
+        if (!j.refreshed?.length) return;
+        toast(t3(`نُسخت القوائم من جديد (تغيّرت الموازنة): ${j.refreshed.join('، ')}`, `The lists were copied again (the budget changed): ${j.refreshed.join(', ')}`, `Les listes ont été recopiées (le budget a changé) : ${j.refreshed.join(', ')}`));
+        void reload();
+      })
+      .catch(() => undefined);
+  }, [session, manage, reload]);
   if (!all) return <div className="hr"><div /><main className="hr-main">{err ? <div className="alert err">{err}</div> : '…'}</main></div>;
   // the centres this user sees; one only: it is always that one, and there is nothing to choose
   const mineCentres = centreChoices(all);
@@ -165,8 +178,32 @@ function Home({ d, pd, open, go, centres, choose }: Ctx & { pd: HrPayData | null
       <div className="hr-panel">
         <b>{t3('ما يحتاج انتباهاً', 'What needs attention', 'À surveiller')}</b>
         {d.alerts.length ? <Attention d={d} open={open} /> : <p className="ok">✓ {t3('كل شيء في موضعه', 'Everything is in order', 'Tout est en ordre')}</p>}
+        <Funding d={d} open={open} />
       </div>
     </>
+  );
+}
+
+/** Who has no budget line in their centre, or a line with no project (Fouad, 2026-11-02: checks before closing). */
+function Funding({ d, open }: { d: HrData; open: (p: HrPerson) => void }) {
+  const [shown, setShown] = useState<string | null>(null);
+  const staff = d.people.filter((p) => p.active && p.category !== 'tutor' && p.centre);
+  const noLine = staff.filter((p) => !lineFor(d.lists, p).line);
+  const notFunded = staff.filter((p) => lineFor(d.lists, p).line && !accountFor(d.lists, p));
+  const rows: [string, string, HrPerson[]][] = [
+    ['line', t3('بلا خط موازنة في مركزه', 'No budget line in their centre', 'Pas de ligne budgétaire dans son centre'), noLine],
+    ['funded', t3('خطه بلا مشروع (غير ممول)', 'Their line has no project (not funded)', "Sa ligne n'a pas de projet (non financé)"), notFunded],
+  ];
+  if (!noLine.length && !notFunded.length) return null;
+  return (
+    <div style={{ marginTop: 8 }}>
+      {rows.filter(([, , ps]) => ps.length).map(([k, label, ps]) => (
+        <div key={k}>
+          <button className="link" onClick={() => setShown(shown === k ? null : k)}>⚠ {label} · {ps.length}</button>
+          {shown === k && <div className="small" style={{ margin: '4px 0 8px 18px' }}>{ps.map((p) => <button key={p.id} className="link" style={{ marginInlineEnd: 10 }} onClick={() => open(p)}>{p.name_ar || p.name}</button>)}</div>}
+        </div>
+      ))}
+    </div>
   );
 }
 

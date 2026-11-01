@@ -82,7 +82,7 @@ function OfficeFiles() {
           <Field label={t('إلى شهر', 'To month')}><input type="month" disabled={allPeriod} value={to} onChange={(e) => setTo(e.target.value)} /></Field>
           <div />
           <Field label={t('الدفتر', 'Book')}><Select value={book} options={books} onChange={setBook} placeholder={t('الكل', 'All')} /></Field>
-          <Field label={t('الحساب', 'Account')}><Select value={account} options={accounts} onChange={setAccount} placeholder={t('الكل', 'All')} /></Field>
+          <Field label={t('المشروع', 'Project')}><Select value={account} options={accounts} onChange={setAccount} placeholder={t('الكل', 'All')} /></Field>
         </div>
         <div className="row" style={{ marginTop: 12, gap: 18 }}>
           <label className="row"><input type="checkbox" checked={registerOnly} onChange={(e) => setRegisterOnly(e.target.checked)} /> {t('السجل فقط (B:Q + Entry_ID) للصق في الملف القديم', 'Register only (B:Q + Entry_ID) to paste into the old workbook')}</label>

@@ -1607,4 +1607,22 @@ CREATE TRIGGER budget_line_uid_new AFTER INSERT ON budget_line WHEN NEW.uid IS N
 BEGIN UPDATE budget_line SET uid = lower(hex(randomblob(8))) WHERE id = NEW.id; END;
 `,
   },
+  {
+    n: 43,
+    name: 'bill codes kept when line codes change; merged lines kept (switched off, pointing to their line); project dates; HR lines by identity',
+    sql: `
+-- The bill code of a row (line code - receipt - MMYY) is written on the paper bill: when the line codes change (a
+-- centre joins the common list), the old rows keep theirs (Fouad, 2026-11-02). Empty = worked out from the line.
+ALTER TABLE trx ADD COLUMN bill_code TEXT;
+-- A line merged into another when joining the common list stays, switched off, pointing to it: a keeper's file
+-- written on it still comes in (on that line).
+ALTER TABLE budget_line ADD COLUMN merged_into INTEGER REFERENCES budget_line(id);
+-- A project's dates (a grant's period): outside them, its lines' expenses are not funded.
+ALTER TABLE account ADD COLUMN start_date TEXT;
+ALTER TABLE account ADD COLUMN end_date TEXT;
+-- HR: a line copied from a centre is known by its identity there; and what was copied, to copy again by itself.
+ALTER TABLE hr_list ADD COLUMN uid TEXT;
+ALTER TABLE hr_list ADD COLUMN copied_hash TEXT;
+`,
+  },
 ];

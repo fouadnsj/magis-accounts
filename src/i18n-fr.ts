@@ -4,6 +4,28 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // checks before closing, project dates (2026-11-02)
+  "Checks before closing": "Vérifications avant de clôturer",
+  "What to look at before closing a month or the year. Nothing changes here; each line says where to correct it.": "Ce qu'il faut regarder avant de clôturer un mois ou l'année. Rien ne change ici ; chaque ligne dit où corriger.",
+  "Dates": "Dates",
+  "The project's dates": "Les dates du projet",
+  "Outside these dates, the expenses on the project's lines are not funded. Empty = no limit.": "Hors de ces dates, les dépenses des lignes du projet ne sont pas financées. Vide = sans limite.",
+  "Project starts": "Début du projet",
+  "Project ends": "Fin du projet",
+  "Outside these dates, the expenses on the project's lines are not funded.": "Hors de ces dates, les dépenses des lignes du projet ne sont pas financées.",
+  "Every grant has its project here": "Chaque subvention a son projet ici",
+  "Grants → Edit": "Subventions → Modifier",
+  "Budget → Projects": "Budget → Projets",
+  "Budget → Budget": "Budget → Budget",
+  "Lists → Projects → Dates": "Listes → Projets → Dates",
+  "Lists → Projects → Merge": "Listes → Projets → Fusionner",
+  "Admin → Month closing": "Administration → Clôture des mois",
+  "Register → To review": "Registre → À revoir",
+  "Register → Project: Not funded": "Registre → Projet : Non financé",
+  "Lists → Projects → Dates, or the Register": "Listes → Projets → Dates, ou le Registre",
+  "counted as not funded": "comptée comme non financée",
+
+  "(For what each grant and project spent: \"By project\".)": "(Pour ce que chaque subvention et projet a dépensé : « Par projet ».)",
   // the guide, and the common list's buttons explained (2026-11-02)
   "Guide": "Guide",
   "All the steps in the Guide": "Toutes les étapes dans le Guide",

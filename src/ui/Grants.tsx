@@ -4,8 +4,8 @@
 // (confirmed by the Accountant) and spent on the accounts it is for.
 import { useMemo, useState } from 'react';
 import { useApp, useNames } from '../state';
-import { GRANT_STEPS, grantFlows, type GrantCard, type GrantStep } from '../domain/grants';
-import { Field, Modal, Seg, Select, confirmBox, errText, fmtDate, fmtUsd, parseAmount, promptBox, t, toast, todayIso } from './kit';
+import { GRANT_STEPS, grantFlows, type GrantCard, type GrantPart, type GrantShare, type GrantStep } from '../domain/grants';
+import { Field, Modal, Seg, Select, confirmBox, errText, fmtDate, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 import { CENTRES, centreStyle, type CentreKey } from '../brand';
 import { tx } from '../i18n';
 import { GuideLink } from '../guide/GuideView';
@@ -20,21 +20,29 @@ const STEP_LABEL: Record<GrantStep, () => string> = {
 const STEP_DATE: Record<GrantStep, keyof GrantCard> = { promised: 'promised_on', approved: 'approved_on', transferred: 'transferred_on', bank: 'bank_on', hand: 'hand_on' };
 const money = (n: number, cur: string) => (cur === 'EUR' ? `€${fmtUsd(n)}` : `$${fmtUsd(n)}`);
 
+/** What of a grant comes to this centre: its share here (the grant's parts here), else the whole grant when it is not divided. */
+export function shareHere(g: GrantCard, parts: GrantPart[], shares: GrantShare[]) {
+  const mine = parts.filter((p) => p.grant_id === g.id).reduce((a, p) => a + p.amount, 0);
+  if (mine > 0) return mine;
+  return shares.some((x) => x.grant_id === g.id) ? 0 : g.amount;
+}
+
 export function Grants() {
   const { s, d, reload } = useApp();
   const names = useNames();
   const [editing, setEditing] = useState<GrantCard | 'new' | null>(null);
   const [stepping, setStepping] = useState<{ g: GrantCard; to: GrantStep } | null>(null);
   const [showDone, setShowDone] = useState(false);
-  const [donorsOpen, setDonorsOpen] = useState(false);
   const [donorF, setDonorF] = useState<number | null>(null);
   const flows = useMemo(() => grantFlows(d.grants, d.grantParts, d.rows, d.comp), [d]);
   const done = (g: GrantCard) => g.status === 'hand' && (flows.get(g.id)?.left ?? 1) <= 0.5;
   const shown = d.grants.filter((g) => (showDone || !done(g)) && (donorF == null || g.donor_id === donorF));
   const sum = (f: (g: GrantCard) => number) => d.grants.reduce((a, g) => a + f(g), 0);
+  const here = (g: GrantCard) => shareHere(g, d.grantParts, d.grantShares);
   const tot = {
-    coming: sum((g) => (g.status !== 'hand' ? (g.currency === 'USD' ? g.amount : 0) : 0)),
-    comingEur: sum((g) => (g.status !== 'hand' && g.currency === 'EUR' ? g.amount : 0)),
+    // a grant divided between centres: only this centre's share comes here
+    coming: sum((g) => (g.status !== 'hand' ? (g.currency === 'USD' ? here(g) : 0) : 0)),
+    comingEur: sum((g) => (g.status !== 'hand' && g.currency === 'EUR' ? here(g) : 0)),
     withSup: sum((g) => flows.get(g.id)?.withSup ?? 0),
     sent: sum((g) => (flows.get(g.id)?.sent ?? 0) + (flows.get(g.id)?.sentWaiting ?? 0)),
     left: sum((g) => flows.get(g.id)?.left ?? 0),
@@ -58,7 +66,6 @@ export function Grants() {
         <div className="row">
           <label className="row small"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> {t('مع المنح المصروفة كلها', 'Include fully spent grants')}</label>
           <div style={{ minWidth: 170 }} className="field"><Select value={donorF} options={d.lists.donors.map((x) => ({ value: x.id, label: x.name }))} onChange={setDonorF} placeholder={t('كل المانحين', 'All donors')} /></div>
-          <button className="btn" onClick={() => setDonorsOpen(true)}>👥 {t('المانحون', 'Donors')}</button>
           <button className="btn primary" onClick={() => setEditing('new')}>＋ {t('منحة', 'Grant')}</button>
         </div>
       </div>
@@ -131,72 +138,9 @@ export function Grants() {
         {!shown.length && <p className="muted">{t('لا منح بعد.', 'No grants yet.')}</p>}
       </div>
       <p className="muted small">{t('لإرسال مال منحة إلى الرئيسي: سجّل «تحويلاً» من دفتر المسؤول إلى الرئيسي واختر المنحة فيه. كل نفقة على حساب المنحة تُخصم من أقدم منحة لهذا الحساب.', 'To send a grant\'s money to Main: record a "Transfer" from the Respo book to Main and choose the grant in it. Each expense on a grant\'s account uses the oldest grant for that account.')}</p>
-      {donorsOpen && <DonorsModal onClose={() => setDonorsOpen(false)} />}
       {editing && <GrantModal start={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />}
       {stepping && <StepModal g={stepping.g} to={stepping.to} onClose={() => setStepping(null)} onDone={async () => { setStepping(null); await reload(); }} />}
     </>
-  );
-}
-
-/** The donors, here with the grants (Fouad, 28 October 2026): add, rename, switch off; what each is expected to give in the budget, and what came. */
-function DonorsModal({ onClose }: { onClose: () => void }) {
-  const { s, d, reload } = useApp();
-  const [name, setName] = useState('');
-  const act = async (f: () => Promise<unknown>, ok?: string) => {
-    try {
-      await f();
-      await reload();
-      if (ok) toast(ok);
-      return true;
-    } catch (e) {
-      toast(errText(e), true);
-      return false;
-    }
-  };
-  const usdOf = (g: GrantCard) => (g.currency === 'USD' ? g.amount : 0);
-  return (
-    <Modal title={t('المانحون', 'Donors')} onClose={onClose}>
-      <div className="row" style={{ marginBottom: 10 }}>
-        <input className="inp" style={{ flex: 1 }} placeholder={t('مانح جديد', 'New donor')} value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="btn primary" disabled={!name.trim()} onClick={async () => (await act(() => s.api.call('donor.save', { name, default_project_id: null }), t('أضيف', 'Added'))) && setName('')}>＋</button>
-      </div>
-      <table className="t">
-        <thead><tr><th>{t('المانح', 'Donor')}</th><th className="n">{t('منح', 'Grants')} $</th><th className="n">{t('باليد', 'In hand')} $</th><th /></tr></thead>
-        <tbody>
-          {d.lists.donors.map((x) => {
-            const gs = d.grants.filter((g) => g.donor_id === x.id);
-            return (
-              <tr key={x.id} className={x.active ? '' : 'off'}>
-                <td>{x.name}</td>
-                <td className="n ltr">{gs.length ? [gs.some((g) => g.currency === 'USD') ? fmtUsd(gs.reduce((a, g) => a + usdOf(g), 0)) : '', gs.some((g) => g.currency === 'EUR') ? `€${fmtUsd(gs.reduce((a, g) => a + (g.currency === 'EUR' ? g.amount : 0), 0))}` : ''].filter(Boolean).join(' + ') : '—'}</td>
-                <td className="n ltr">{gs.some((g) => g.status === 'hand') ? fmtUsd(gs.reduce((a, g) => a + (g.status === 'hand' ? g.hand_usd ?? 0 : 0), 0)) : '—'}</td>
-                <td className="nowrap right">
-                  <button className="btn small ghost" onClick={async () => {
-                    const n = await promptBox(t('الاسم الجديد', 'New name'), x.name);
-                    if (n && n !== x.name) void act(() => s.api.call('donor.save', { id: x.id, name: n, default_project_id: x.default_project_id }));
-                  }}>✎</button>
-                  {x.active
-                    ? <button className="btn small ghost" title={t('حذف (أو إيقاف إن كان مستعملاً)', 'Delete (or deactivate if used)')} onClick={async () => {
-                        // a donor with grants or budget allocations is only deactivated: they stay in the history
-                        if (!(await confirmBox(t(`حذف المانح «${x.name}»؟`, `Delete the donor "${x.name}"?`), true))) return;
-                        try {
-                          await s.api.call('list.delete', { table: 'donor', id: x.id });
-                          await reload();
-                          toast(t('حُذف', 'Deleted'));
-                        } catch {
-                          if (await confirmBox(t(`لـ«${x.name}» منح أو تخصيصات في الموازنة: لا يُحذف. إيقافه بدلاً من ذلك؟ (يبقى في السجل ويختفي من القوائم)`, `"${x.name}" has grants or budget allocations: it cannot be deleted. Deactivate it instead? (it stays in the history and leaves the lists)`)))
-                            await act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: false }), t('أوقف', 'Deactivated'));
-                        }
-                      }}>✕</button>
-                    : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'donor', id: x.id, active: true }))}>↺</button>}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <div className="modal-foot"><button className="btn primary" onClick={onClose}>{t('تم', 'Done')}</button></div>
-    </Modal>
   );
 }
 
@@ -227,6 +171,10 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
   });
   const [fund, setFund] = useState<number | null>(oldParts.length === 1 && oldParts[0].account_id != null ? oldParts[0].account_id : start ? null : NEW_FUND);
   const [fundName, setFundName] = useState('');
+  // the project's dates here: the grant's period (outside them, its lines' expenses are not funded)
+  const fundNow = d.lists.accounts.find((a) => a.id === fund);
+  const [pStart, setPStart] = useState(fundNow?.start_date ?? '');
+  const [pEnd, setPEnd] = useState(fundNow?.end_date ?? '');
   const total = parseAmount(amount);
   const shareOf = (k: string) => parseAmount(shares[k] ?? '') || 0;
   const sum = SHARE_CENTRES.reduce((a, k) => a + shareOf(k), 0);
@@ -245,6 +193,7 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
         id: start?.id, donor: donor.trim(), amount: total, currency, reference: reference.trim() || null, note: note.trim() || null,
         here, shares: split ? SHARE_CENTRES.filter((k) => shareOf(k) > 0).map((k) => ({ centre: k, amount: shareOf(k) })) : [],
         fund_id: fund === NEW_FUND ? null : fund, new_fund: fund === NEW_FUND ? (fundName.trim() || autoName) : null,
+        start_date: pStart || null, end_date: pEnd || null,
       });
       toast(t('حُفظ', 'Saved'));
       await onSaved();
@@ -301,7 +250,10 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
           <div className="grid2">
             <Field label={t('المشروع', 'Project')}><Select value={fund} options={funds} onChange={setFund} /></Field>
             {fund === NEW_FUND && <Field label={t('اسم المشروع', 'Name of the project')}><input value={fundName} placeholder={autoName} onChange={(e) => setFundName(e.target.value)} /></Field>}
+            <Field label={t('بداية المشروع', 'Project starts')}><input type="date" value={pStart} onChange={(e) => setPStart(e.target.value)} /></Field>
+            <Field label={t('نهاية المشروع', 'Project ends')}><input type="date" value={pEnd} onChange={(e) => setPEnd(e.target.value)} /></Field>
           </div>
+          <p className="muted small" style={{ marginTop: 0 }}>{t('خارج هذين التاريخين، نفقات خطوط المشروع غير ممولة.', "Outside these dates, the expenses on the project's lines are not funded.")}</p>
           <p className="muted small">{t('المشروع لا يكون لمنحتين. في الموازنة، كل خط له مشروع واحد.', 'A project never has two grants. In the budget, each line has one project.')}</p>
         </>
       ) : split && <p className="muted small">{t('لا حصة لهذا المركز: لا مشروع هنا.', 'No share for this centre: no project here.')}</p>}
@@ -316,9 +268,10 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
 
 /** Moving a grant to a step, with its date; "in hand" asks the dollars really received. */
 function StepModal({ g, to, onClose, onDone }: { g: GrantCard; to: GrantStep; onClose: () => void; onDone: () => Promise<void> }) {
-  const { s } = useApp();
+  const { s, d } = useApp();
   const [date, setDate] = useState(todayIso());
-  const [usd, setUsd] = useState(g.currency === 'USD' ? String(g.amount) : '');
+  // the dollars that come here: this centre's share of the grant
+  const [usd, setUsd] = useState(g.currency === 'USD' ? String(shareHere(g, d.grantParts, d.grantShares)) : '');
   const back = GRANT_STEPS.indexOf(to) < GRANT_STEPS.indexOf(g.status);
   const go = async () => {
     try {

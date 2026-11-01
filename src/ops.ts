@@ -279,12 +279,18 @@ async function fundsFromLines(c: OpCtx, lists: Lists, rows: Trx[]): Promise<Trx[
   const inside = (r: Trx) => r.account_id == null || !outside.has(r.account_id);
   const assigned = assignExpenses(rows, computeAll(rows, lists), books, inside);
   const fundOf = new Map(books.map((b) => [b.budget.id, new Map(b.cells.map((x) => [x.line_id, x.account_id]))]));
+  // a project's dates (a grant's period): outside them, its lines' expenses are not funded (Fouad, 2026-11-02)
+  const dates = new Map(lists.accounts.map((a) => [a.id, a]));
+  const inDates = (fund: number, day: string) => {
+    const a = dates.get(fund);
+    return !a || ((!a.start_date || day >= a.start_date) && (!a.end_date || day <= a.end_date));
+  };
   return rows.map((r) => {
     if (r.type !== 'Exp' || !r.date || !inside(r)) return r;
     const b = assigned.get(r.id);
     if (b == null && !budgets.some((x) => inPeriod(x, r.date!.slice(0, 7)))) return r;
     const fund = b == null ? NOFUND : fundOf.get(b)!.get(r.line_id!) ?? NOFUND;
-    return { ...r, account_id: fund === NOFUND ? null : fund, from_line: true };
+    return { ...r, account_id: fund === NOFUND || !inDates(fund, r.date) ? null : fund, from_line: true };
   });
 }
 
@@ -308,7 +314,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     const book = lists.books.find((b) => b.id === r.book_id);
     const tot = totals.get(key) ?? {
       ...blankTrx(), id: key, book_id: r.book_id, type: 'Exp', date: r.date, created_at: r.created_at,
-      account_id: book?.account_id ?? null, city_id: book?.city_id ?? null,
+      account_id: null, city_id: book?.city_id ?? null,
       explanation: `${t2('مصاريف خاصة', 'Private expenses')} (${book?.name ?? ''})`, private_book: true, private_total: true,
     };
     tot.exp_syp += r.exp_syp;
@@ -810,8 +816,22 @@ async function saveBudgetItems(c: OpCtx, a: { versionId: number; line_id: number
  * The fund of some lines (Fouad, 2026-11-01): a fund is given to whole headings or single lines;
  * each line has at most one fund (null: not funded). A fund outside the budget is not given to lines.
  */
+/** The closed months with expenses on some lines, within a budget's period: their project would change after closing. */
+async function closedWithExpenses(c: OpCtx, v: BudgetVersion, lineIds: number[]): Promise<string[]> {
+  if (!lineIds.length) return [];
+  const b = await budgetOfVersion(c, v);
+  const rows = await c.db.query<{ ym: string }>(
+    `SELECT DISTINCT substr(t.date, 1, 7) AS ym FROM trx t JOIN closed_month m ON m.ym = substr(t.date, 1, 7)
+      WHERE t.type = 'Exp' AND t.line_id IN (${lineIds.map(() => '?').join(',')}) AND substr(t.date, 1, 7) BETWEEN ? AND ? ORDER BY ym`,
+    [...lineIds, b.start_ym, periodEnd(b)]);
+  return rows.map((r) => r.ym);
+}
+
 async function setLineFund(c: OpCtx, a: { versionId: number; line_ids: number[]; account_id: number | null }) {
   const v = await latestVersion(c, a.versionId);
+  // a closed month keeps its projects (Fouad, 2026-11-02): reopen it first, change, close it again
+  const closed = await closedWithExpenses(c, v, (a.line_ids ?? []).map(Number));
+  if (closed.length) throw new UserError(m(`أشهر مغلقة فيها نفقات على هذه الخطوط: ${closed.join('، ')}. أعد فتحها أولاً.`, `Closed months have expenses on these lines: ${closed.join(', ')}. Reopen them first.`, `Des mois clôturés ont des dépenses sur ces lignes : ${closed.join(', ')}. Rouvrez-les d'abord.`));
   if (a.account_id != null) {
     const acc = await one<{ outside_budget: number }>(c.db, 'SELECT outside_budget FROM account WHERE id = ?', [a.account_id]);
     if (!acc) throw new UserError(m('المشروع غير موجود', 'Project not found', 'Projet introuvable'));
@@ -891,6 +911,8 @@ const goodDate = (x: unknown) => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.
 async function saveGrant(c: OpCtx, a: {
   id?: string; donor: string; amount: number; currency: 'USD' | 'EUR'; reference?: string | null; note?: string | null;
   here: string | null; shares: { centre: string; amount: number }[]; fund_id: number | null; new_fund?: string | null; promised_on?: string | null;
+  /** the project's dates here (the grant's period) */
+  start_date?: string | null; end_date?: string | null;
 }) {
   const donorName = (a.donor ?? '').trim();
   if (!donorName) throw new UserError(m('اكتب المانح', 'Write the donor', 'Écrivez le donateur'));
@@ -929,10 +951,13 @@ async function saveGrant(c: OpCtx, a: {
     donor = await one<{ id: number }>(c.db, 'SELECT id FROM donor WHERE name = ?', [donorName]);
   }
   const maxSort = (await one<{ s: number | null }>(c.db, 'SELECT MAX(sort) AS s FROM account'))?.s ?? 0;
+  const start = a.start_date || null, end = a.end_date || null;
+  if ((start && !goodDate(start)) || (end && !goodDate(end))) throw new UserError(m('تاريخ غير صالح', 'Not a valid date', 'Date non valide'));
+  if (start && end && end < start) throw new UserError(m('نهاية المشروع قبل بدايته', "The project's end is before its start", 'La fin du projet est avant son début'));
   const fundRef = newFund ? { sql: '(SELECT id FROM account WHERE name = ?)', param: newFund } : { sql: '?', param: fundId };
   await c.db.batch([
     ...(hereAmount > 0 && newFund ? [
-      { sql: 'INSERT INTO account (name, sort) VALUES (?, ?)', params: [newFund, maxSort + 1] },
+      { sql: 'INSERT INTO account (name, sort, start_date, end_date) VALUES (?, ?, ?, ?)', params: [newFund, maxSort + 1, start, end] },
       auditStmt(c.who, 'add', 'account', null, null, { name: newFund, grant: id }),
     ] : []),
     before
@@ -940,6 +965,7 @@ async function saveGrant(c: OpCtx, a: {
       : { sql: "INSERT INTO grant_card (id, donor_id, amount, currency, reference, note, status, promised_on, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, 'promised', ?, ?, ?)", params: [id, donor!.id, a.amount, a.currency, a.reference ?? null, a.note ?? null, a.promised_on ?? nowIso().slice(0, 10), nowIso(), c.who] },
     { sql: 'DELETE FROM grant_part WHERE grant_id = ?', params: [id] },
     ...(hereAmount > 0 ? [{ sql: `INSERT INTO grant_part (grant_id, account_id, amount) VALUES (?, ${fundRef.sql}, ?)`, params: [id, fundRef.param, hereAmount] }] : []),
+    ...(hereAmount > 0 && !newFund && (start || end) ? [{ sql: 'UPDATE account SET start_date = ?, end_date = ? WHERE id = ?', params: [start, end, fundId] }] : []),
     { sql: 'DELETE FROM grant_share WHERE grant_id = ?', params: [id] },
     ...shares.map((x) => ({ sql: 'INSERT INTO grant_share (grant_id, centre, amount) VALUES (?, ?, ?)', params: [id, x.centre, x.amount] })),
     auditStmt(c.who, before ? 'edit' : 'add', 'grant_card', id, before, { ...a, donor_id: donor!.id }),
@@ -985,7 +1011,8 @@ async function stepGrant(c: OpCtx, a: { id: string; status: GrantStep; date: str
     const donor = lists.donors.find((d) => d.id === g.donor_id)?.name ?? '';
     const row: Trx = {
       ...(income ?? blankTrx()), type: 'Income', date: a.date, book_id: book.id,
-      account_id: (accounts.length === 1 ? accounts[0] : null) ?? lists.settings.def_account_id ?? book.account_id ?? lists.accounts[0]?.id ?? null,
+      // the grant's project here (none: the money is not yet given to a project)
+      account_id: accounts.length === 1 ? accounts[0] : null,
       city_id: book.city_id ?? lists.settings.def_city_id ?? lists.cities[0]?.id ?? null,
       heading_id: incomeHeading.id, line_id: line.id, inc_usd: Number(a.hand_usd), inc_syp: 0,
       explanation: `${t2('منحة', 'Grant')} ${donor}${g.reference ? ` · ${g.reference}` : ''}`, grant_id: g.id,
@@ -1634,6 +1661,10 @@ export const OPS = {
   'budget.importItems': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: Parameters<typeof importBudgetItems>[1]) => importBudgetItems(c, a) },
   'budget.fillActual': { check: (c: OpCtx) => need(c, 'budget.manage'), run: (c: OpCtx, a: { versionId: number; heading_id: number }) => fillFromActual(c, a) },
   // giving a fund to lines: who keeps the grants (the Superior, the Administrator)
+  'budget.fundCheck': {
+    check: (c: OpCtx) => need(c, 'budget.manage'),
+    run: async (c: OpCtx, a: { versionId: number; line_ids: number[] }) => ({ closed: await closedWithExpenses(c, await latestVersion(c, a.versionId), (a.line_ids ?? []).map(Number)) }),
+  },
   'budget.setFund': { check: (c: OpCtx) => { need(c, 'budget.manage'); need(c, 'lists.donors'); }, run: (c: OpCtx, a: Parameters<typeof setLineFund>[1]) => setLineFund(c, a) },
   'budget.setContingency': {
     check: (c: OpCtx) => need(c, 'budget.manage'),
@@ -1744,6 +1775,21 @@ export const OPS = {
       return { rows: moved };
     },
   },
+  /** a project's dates (a grant's period): outside them, its lines' expenses are not funded */
+  'account.setDates': {
+    check: (c: OpCtx) => need(c, 'lists.donors'),
+    run: async (c: OpCtx, a: { id: number; start_date: string | null; end_date: string | null }) => {
+      const d = (x: unknown) => (x == null || x === '' ? null : goodDate(x) ? (x as string) : (() => { throw new UserError(m('تاريخ غير صالح', 'Not a valid date', 'Date non valide')); })());
+      const start = d(a.start_date), end = d(a.end_date);
+      if (start && end && end < start) throw new UserError(m('النهاية قبل البداية', 'The end is before the start', 'La fin est avant le début'));
+      const before = await one(c.db, 'SELECT start_date, end_date FROM account WHERE id = ?', [a.id]);
+      if (!before) throw new UserError(m('المشروع غير موجود', 'Project not found', 'Projet introuvable'));
+      await c.db.batch([
+        { sql: 'UPDATE account SET start_date = ?, end_date = ? WHERE id = ?', params: [start, end, a.id] },
+        auditStmt(c.who, 'dates', 'account', String(a.id), before, { start_date: start, end_date: end }),
+      ]);
+    },
+  },
   'account.setOutside': {
     check: (c: OpCtx) => need(c, 'lists.manage'),
     run: (c: OpCtx, a: { id: number; outside: boolean }) =>
@@ -1806,7 +1852,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'budget.get', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

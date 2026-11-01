@@ -248,6 +248,7 @@ function FundsTab() {
     return g && p ? { g, here: p.amount } : null;
   };
   const add = async () => (await act(() => s.api.call('list.add', { table: 'account', name }), t('أضيف', 'Added'))) && setName('');
+  const [merging, setMerging] = useState<{ id: number; name: string } | null>(null);
   return (
     <div className="panel" style={{ maxWidth: 900 }}>
       <p className="muted small" style={{ marginTop: 0 }}>{t('حصة كل منحة في هذا المركز مشروع. المشروع بلا منحة مال خاص. مشروع المنحة يُنشأ من صفحة المنح.', "Each grant's share in this centre is a project. A project without a grant is private money. A grant's project is made from the Grants page.")}</p>
@@ -270,6 +271,7 @@ function FundsTab() {
                 <td className="n">{used(x.id)}</td>
                 {edit && (
                   <td className="nowrap right">
+                    {can('lists.manage') && x.active ? <button className="btn small ghost" title={t('دمجه في مشروع آخر', 'Merge it into another project')} onClick={() => setMerging(x)}>⇢ {t('دمج', 'Merge')}</button> : null}
                     {can('lists.manage') && <button className="btn small ghost" title={t('خارج الموازنة (مثل الدير): ما يُصرف منه ليس من موازنة المركز', 'Outside the budget (like Deir): what it spends is not in the centre\'s budget')} onClick={() => act(() => s.api.call('account.setOutside', { id: x.id, outside: !x.outside_budget }))}>{x.outside_budget ? t('إلى الموازنة', 'Into the budget') : t('خارج الموازنة', 'Outside the budget')}</button>}
                     <button className="btn small ghost" title="↑" onClick={() => act(() => s.api.call('list.move', { table: 'account', id: x.id, dir: -1 }))}>▲</button>
                     <button className="btn small ghost" title="↓" onClick={() => act(() => s.api.call('list.move', { table: 'account', id: x.id, dir: 1 }))}>▼</button>
@@ -295,7 +297,39 @@ function FundsTab() {
           })}
         </tbody>
       </table>
+      {edit && <p className="muted small">{t('الحسابات القديمة (مثل الشبكة والبناء) تُدمج في مشروع آخر بزر «دمج»: كل ما كُتب عليها ينتقل إليه.', 'Old accounts (like Network or Building) are merged into another project with "Merge": everything written on them moves to it.')}</p>}
+      {merging && <MergeModal from={merging} onClose={() => setMerging(null)} onDone={() => setMerging(null)} />}
     </div>
+  );
+}
+
+/** One project merged into another: the register, the budget lines, its grant and the defaults move; it is switched off. */
+function MergeModal({ from, onClose, onDone }: { from: { id: number; name: string }; onClose: () => void; onDone: () => void }) {
+  const { s, d, reload } = useApp();
+  const [into, setInto] = useState<number | null>(null);
+  const target = d.lists.accounts.find((a) => a.id === into);
+  const go = async () => {
+    if (!target || !(await confirmBox(t(`دمج «${from.name}» في «${target.name}»؟ تُؤخذ نسخة احتياطية أولاً.`, `Merge "${from.name}" into "${target.name}"? A backup is taken first.`), true))) return;
+    try {
+      const r = await s.api.call('account.merge', { from: from.id, into: target.id });
+      toast(t(`دُمج: انتقل ${r.rows} قيداً`, `Merged: ${r.rows} rows moved`));
+      await reload();
+      onDone();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <Modal narrow title={t(`دمج «${from.name}»`, `Merge "${from.name}"`)} onClose={onClose}>
+      <Field label={t('في المشروع', 'Into the project')}>
+        <Select value={into} options={d.lists.accounts.filter((a) => a.active && a.id !== from.id).map((a) => ({ value: a.id, label: a.name }))} onChange={setInto} />
+      </Field>
+      <p className="muted small">{t(`قيوده في السجل، وخطوط الموازنة ومنحته (إن كانت له) تنتقل. ثم يُوقف «${from.name}».`, `Its rows in the register, its budget lines and its grant (if it has one) move. Then "${from.name}" is switched off.`)}</p>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={into == null} onClick={go}>{t('دمج', 'Merge')}</button>
+      </div>
+    </Modal>
   );
 }
 

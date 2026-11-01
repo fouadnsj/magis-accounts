@@ -1673,6 +1673,38 @@ export const OPS = {
         auditStmt(c.who, 'edit', 'book', String(a.id), null, { private: a.private }),
       ]),
   },
+  /**
+   * One project merged into another (Fouad, 2026-11-01: the old accounts Network and Building become Center). Everything
+   * written on it moves: the register, the budget lines, its grant, the books' and settings' default; it is then switched
+   * off (kept, so a holder's file that still names it can come in). A backup is taken first.
+   */
+  'account.merge': {
+    check: (c: OpCtx) => { need(c, 'lists.donors'); need(c, 'lists.manage'); },
+    run: async (c: OpCtx, a: { from: number; into: number }) => {
+      const from = await one<{ id: number; name: string }>(c.db, 'SELECT id, name FROM account WHERE id = ?', [a.from]);
+      const into = await one<{ id: number; name: string; active: number }>(c.db, 'SELECT id, name, active FROM account WHERE id = ?', [a.into]);
+      if (!from || !into) throw new UserError(m('المشروع غير موجود', 'Project not found', 'Projet introuvable'));
+      if (from.id === into.id) throw new UserError(m('اختر مشروعاً آخر', 'Choose another project', 'Choisissez un autre projet'));
+      const grantOf = (id: number) => one(c.db, 'SELECT 1 FROM grant_part WHERE account_id = ?', [id]);
+      if ((await grantOf(from.id)) && (await grantOf(into.id)))
+        throw new UserError(m('لكل منهما منحة: المشروع لا يكون لمنحتين', 'Both have a grant: a project never has two grants', 'Les deux ont une subvention : un projet n’a jamais deux subventions'));
+      await c.files.backupNow('before-project-merge');
+      const moved = (await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM trx WHERE account_id = ?', [from.id]))?.n ?? 0;
+      const move = (table: string) => ({ sql: `UPDATE ${table} SET account_id = ? WHERE account_id = ?`, params: [into.id, from.id] });
+      await c.db.batch([
+        move('trx'), move('budget_amount'), move('grant_part'), move('book'), move('budget_alloc'),
+        // (the old per-account tables: what the merged one had is dropped where the other already has its own)
+        { sql: 'DELETE FROM budget_account WHERE account_id = ? AND version_id IN (SELECT version_id FROM budget_account WHERE account_id = ?)', params: [from.id, into.id] },
+        move('budget_account'),
+        { sql: 'DELETE FROM project_rule WHERE account_id = ?', params: [from.id] },
+        { sql: "UPDATE setting SET value = CAST(? AS TEXT) WHERE key = 'def_account_id' AND value = CAST(? AS TEXT)", params: [into.id, from.id] },
+        { sql: 'UPDATE account SET active = 0 WHERE id = ?', params: [from.id] },
+        { sql: 'UPDATE account SET active = 1 WHERE id = ?', params: [into.id] },
+        auditStmt(c.who, 'merge', 'account', String(from.id), { name: from.name }, { into: into.name, rows: moved }),
+      ]);
+      return { rows: moved };
+    },
+  },
   'account.setOutside': {
     check: (c: OpCtx) => need(c, 'lists.manage'),
     run: (c: OpCtx, a: { id: number; outside: boolean }) =>

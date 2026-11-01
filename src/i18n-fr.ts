@@ -4,6 +4,14 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // merging old accounts into projects (2026-11-01)
+  "Merge": "Fusionner",
+  "Merge it into another project": "Le fusionner dans un autre projet",
+  "Into the project": "Dans le projet",
+  "Merged": "Fusionné",
+  "Merge \"{0}\"": "Fusionner « {0} »",
+  "Old accounts (like Network or Building) are merged into another project with \"Merge\": everything written on them moves to it.": "Les anciens comptes (comme Network ou Building) se fusionnent dans un autre projet avec « Fusionner » : tout ce qui y est écrit passe dans celui-ci.",
+
   // the centre by project (2026-11-01)
   "By project": "Par projet",
   "Received in hand": "Reçu en main",

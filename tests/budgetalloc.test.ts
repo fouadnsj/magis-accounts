@@ -105,5 +105,17 @@ describe('budget funds', () => {
     // the chairs get their grant: the expense already written follows
     expect((await op('budget.setFund', { versionId: (await op('budget.get', { budgetId: 1 })).body.current.id, line_ids: [line('Chairs')], account_id: acc('Furniture') })).status).toBe(200);
     expect(((await op('data')).body.rows as { id: string; account_id: number | null }[]).find((r) => r.id === 'e-chairs')!.account_id).toBe(acc('Furniture'));
+
+    // an old account merged into a project: its rows, its budget lines and the books' default move; it is switched off
+    expect((await op('list.add', { table: 'account', name: 'Network' })).status).toBe(200);
+    const net = (await op('data')).body.lists.accounts.find((a: { name: string }) => a.name === 'Network').id;
+    await op('book.save', { ...L.books[0], account_id: net });
+    expect((await op('trx.save', { rows: [exp('e-net', '2026-04-01', 'Chairs', net)] })).status).toBe(200);
+    expect((await op('account.merge', { from: net, into: net })).status).toBe(400);
+    expect((await op('account.merge', { from: net, into: acc('Running SEN') })).body).toEqual({ rows: 1 });
+    const after = (await op('data')).body;
+    expect(after.rows.find((r: { id: string }) => r.id === 'e-net').account_id).toBe(acc('Running SEN'));
+    expect(after.lists.accounts.find((a: { id: number }) => a.id === net).active).toBe(0);
+    expect(after.lists.books[0].account_id).toBe(acc('Running SEN'));
   });
 });

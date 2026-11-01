@@ -52,15 +52,27 @@ export async function migrate(db: Db): Promise<number[]> {
 }
 
 /** Splits a migration into statements. Comments are removed first, because a
- *  comment may hold a semicolon (no "--" or ";" inside our string literals). */
+ *  comment may hold a semicolon (no "--" or ";" inside our string literals).
+ *  A trigger (CREATE TRIGGER … BEGIN …; END) stays one statement. */
 export function splitSql(sql: string): string[] {
-  return sql
+  const parts = sql
     .split('\n')
     .map((l) => l.replace(/--.*$/, ''))
     .join('\n')
     .split(';')
     .map((s) => s.trim())
     .filter(Boolean);
+  const out: string[] = [];
+  let trigger: string | null = null;
+  for (const p of parts) {
+    if (trigger != null) {
+      trigger += `; ${p}`;
+      if (/\bEND$/i.test(p)) { out.push(trigger); trigger = null; }
+    } else if (/^CREATE\s+TRIGGER\b/i.test(p) && !/\bEND$/i.test(p)) trigger = p;
+    else out.push(p);
+  }
+  if (trigger != null) out.push(trigger);
+  return out;
 }
 
 export function nowIso(): string {

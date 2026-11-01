@@ -68,3 +68,42 @@ export function allCentresReport(inputs: CentreInput[], period: Period): { centr
   }
   return { centres, grants: [...grants.values()].sort((a, b) => a.donor.localeCompare(b.donor)) };
 }
+
+/** One income or expense for the Explore report, with names (so the rows of several centres go together). */
+export interface ExploreRow {
+  id: string;
+  /** jaramana | aleppo | homs | other */
+  centre: string;
+  organisation: string;
+  n: number | null;
+  date: string;
+  type: 'Exp' | 'Income';
+  heading: string | null;
+  line: string | null;
+  /** the project (null: not funded, or the centre's own income) */
+  project: string | null;
+  book: string | null;
+  party: string | null;
+  explanation: string | null;
+  syp: number;
+  usd: number;
+  /** all in dollars */
+  eq: number;
+}
+
+/** A centre's incomes and expenses of a period, for Explore. */
+export function exploreRows(a: { rows: Trx[]; comp: Map<string, Computed>; lists: Pick<Lists, 'accounts' | 'headings' | 'lines' | 'books' | 'parties'>; centre: string; organisation: string; period: Period }): ExploreRow[] {
+  const name = (arr: { id: number; name: string }[], id: number | null | undefined) => (id == null ? null : arr.find((x) => x.id === id)?.name ?? null);
+  return a.rows
+    .filter((r) => (r.type === 'Exp' || r.type === 'Income') && r.date && r.date.slice(0, 7) >= a.period.from && r.date.slice(0, 7) <= a.period.to)
+    .map((r) => {
+      const exp = r.type === 'Exp';
+      const c = a.comp.get(r.id);
+      return {
+        id: r.id, centre: a.centre, organisation: a.organisation, n: r.n ?? null, date: r.date!, type: r.type as 'Exp' | 'Income',
+        heading: name(a.lists.headings, r.heading_id), line: name(a.lists.lines, r.line_id), project: name(a.lists.accounts, r.account_id),
+        book: name(a.lists.books, r.book_id), party: name(a.lists.parties, r.party_id), explanation: r.explanation ?? null,
+        syp: exp ? r.exp_syp : r.inc_syp, usd: exp ? r.exp_usd : r.inc_usd, eq: (exp ? c?.expUsdTot : c?.incUsdTot) ?? 0,
+      };
+    });
+}

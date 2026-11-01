@@ -83,6 +83,8 @@ export interface Book extends Named {
 
 export interface Heading extends Named {
   code: string;
+  /** the same in every centre's database (the common list) */
+  uid?: string | null;
 }
 
 export interface BudgetLine {
@@ -92,6 +94,8 @@ export interface BudgetLine {
   code: string;
   is_project_fund: number;
   active: number;
+  /** the same in every centre's database (the common list) */
+  uid?: string | null;
 }
 
 export interface Donor extends Named {

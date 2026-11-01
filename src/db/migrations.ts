@@ -1586,4 +1586,25 @@ ALTER TABLE budget_item_new RENAME TO budget_item;
 CREATE INDEX budget_item_line ON budget_item(version_id, line_id);
 `,
   },
+  {
+    n: 42,
+    name: 'one list for every centre: each heading and line has an identity that is the same in every database',
+    sql: `
+-- (Fouad, 2026-11-01: one common list of headings and lines for all the centres.) The id of a heading or a line is
+-- this database's own; uid is the same in every database that has it, so the centres' reports go together. Given
+-- by the program to every new heading or line; the common list (taken from Homs) and the matching come next (the
+-- Income, Transfer and Exchange headings are then recognised by their type).
+ALTER TABLE heading ADD COLUMN uid TEXT;
+ALTER TABLE budget_line ADD COLUMN uid TEXT;
+UPDATE heading SET uid = lower(hex(randomblob(8))) WHERE uid IS NULL;
+UPDATE budget_line SET uid = lower(hex(randomblob(8))) WHERE uid IS NULL;
+CREATE UNIQUE INDEX heading_uid ON heading(uid);
+CREATE UNIQUE INDEX budget_line_uid ON budget_line(uid);
+-- a new heading or line gets its identity by itself (a copy of the common list brings its own)
+CREATE TRIGGER heading_uid_new AFTER INSERT ON heading WHEN NEW.uid IS NULL
+BEGIN UPDATE heading SET uid = lower(hex(randomblob(8))) WHERE id = NEW.id; END;
+CREATE TRIGGER budget_line_uid_new AFTER INSERT ON budget_line WHEN NEW.uid IS NULL
+BEGIN UPDATE budget_line SET uid = lower(hex(randomblob(8))) WHERE id = NEW.id; END;
+`,
+  },
 ];

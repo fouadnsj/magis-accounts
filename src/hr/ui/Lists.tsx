@@ -58,7 +58,7 @@ function ListsTab({ s, d, reload }: { s: Session; d: HrData; reload: () => Promi
     <>
       <div className="hr-panel">
         <b>{t3('ملء القوائم من موازنة مركز', 'Fill the lists from the budget of a centre', "Remplir les listes depuis le budget d'un centre")}</b>
-        <p className="muted small">{t3('تُنسخ مع الحسابات أسماء المانحين الذين لهم منح لكل حساب. ', "With the accounts come the names of the donors whose grants are for each account. ", "Avec les comptes viennent les noms des bailleurs dont les subventions sont pour chaque compte. ")}{t3('تُنسخ الأسماء والرموز فقط، لا المبالغ. أعد النسخ بعد تغيير موازنة المركز. ثم اضغط على المركز لتختار بند الرواتب والحساب المعتاد.', "Only names and codes are copied, never amounts. Copy again after the centre's budget changes. Then click the centre to choose its salary heading and usual account.", "Seuls les noms et codes sont copiés, jamais les montants. Recopiez après un changement du budget du centre. Puis cliquez le centre pour choisir sa rubrique des salaires et son compte habituel.")}</p>
+        <p className="muted small">{t3('مع الخطوط يُنسخ مشروع كل خط في موازنة المركز، ومع المشاريع اسم المانح ورقم العقد. ', "With the lines comes the project of each line in the centre's budget, and with the projects the donor and contract. ", "Avec les lignes vient le projet de chaque ligne dans le budget du centre, et avec les projets le bailleur et le contrat. ")}{t3('تُنسخ الأسماء والرموز فقط، لا المبالغ. أعد النسخ بعد تغيير موازنة المركز. ثم اضغط على المركز لتختار بند الرواتب.', "Only names and codes are copied, never amounts. Copy again after the centre's budget changes. Then click the centre to choose its salary heading.", "Seuls les noms et codes sont copiés, jamais les montants. Recopiez après un changement du budget du centre. Puis cliquez le centre pour choisir sa rubrique des salaires.")}</p>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <select value={from} onChange={(e) => setFrom(e.target.value)}><option value="">{t3('— اختر المركز —', '— choose the centre —', '— choisissez le centre —')}</option>{sources.map((x) => <option key={x.slug} value={x.slug}>{x.organisation}</option>)}</select>
           <button className="btn primary" disabled={!from} onClick={async () => {
@@ -82,7 +82,7 @@ function ListsTab({ s, d, reload }: { s: Session; d: HrData; reload: () => Promi
           return (
             <button key={c.id} className="hr-card" style={centreVars(key)} onClick={() => setEdit(c)}>
               <div className="mark"><img src={markOf(key)} alt="" /></div>
-              <div className="body"><b>{c.name}</b><div className="meta" dir="rtl">{p.partyAr}</div><div className="meta">{c.salary_heading ? `💼 ${c.salary_heading} (${d.lists.filter((x) => x.kind === 'line' && x.source === c.source && x.heading === c.salary_heading).length})${c.account ? ` · ${c.account}` : ''}` : c.source ? <span className="desk-alert">{t3('أي بند للرواتب؟', 'Which salary heading?', 'Quelle rubrique des salaires ?')}</span> : ''}</div><div className="meta">{c.rep_ar || c.rep_en ? `✍ ${[c.rep_ar, c.rep_en].filter(Boolean).join(' · ')}` : <span className="desk-alert">{t3('من يوقّع؟', 'Who signs?', 'Qui signe ?')}</span>}</div></div>
+              <div className="body"><b>{c.name}</b><div className="meta" dir="rtl">{p.partyAr}</div><div className="meta">{c.salary_heading ? `💼 ${c.salary_heading} (${d.lists.filter((x) => x.kind === 'line' && x.source === c.source && x.heading === c.salary_heading).length})` : c.source ? <span className="desk-alert">{t3('أي بند للرواتب؟', 'Which salary heading?', 'Quelle rubrique des salaires ?')}</span> : ''}</div><div className="meta">{c.rep_ar || c.rep_en ? `✍ ${[c.rep_ar, c.rep_en].filter(Boolean).join(' · ')}` : <span className="desk-alert">{t3('من يوقّع؟', 'Who signs?', 'Qui signe ?')}</span>}</div></div>
             </button>
           );
         })}
@@ -97,7 +97,6 @@ function ListsTab({ s, d, reload }: { s: Session; d: HrData; reload: () => Promi
 function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; item: HrListItem | null; onClose: () => void; reload: () => Promise<void> }) {
   const [f, setF] = useState({ name: item?.name ?? '', code: (item?.code ?? 'aleppo') as CentreKey, city_ar: item?.city_ar ?? '', city_en: item?.city_en ?? '', party_ar: item?.party_ar ?? '', party_en: item?.party_en ?? '', rep_ar: item?.rep_ar ?? '', rep_en: item?.rep_en ?? '', salary_heading: item?.salary_heading ?? '', account: item?.account ?? '' });
   const headings = [...new Set(d.lists.filter((x) => x.kind === 'line' && x.source && x.source === item?.source).map((x) => x.heading).filter((h): h is string => !!h))];
-  const accounts = d.lists.filter((x) => x.kind === 'account' && x.source && x.source === item?.source);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const preview = partyOf({ ...(item ?? { id: 0, kind: 'centre', heading: null, source: null }), ...f } as HrListItem);
   return (
@@ -126,9 +125,6 @@ function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; i
             <div>{headings.map((h) => { const on = f.salary_heading.split('|').map((x) => x.trim()).includes(h); return (
               <label key={h} className="row" style={{ gap: 6 }}><input type="checkbox" checked={on} onChange={() => { const cur = f.salary_heading.split('|').map((x) => x.trim()).filter(Boolean); setF({ ...f, salary_heading: (on ? cur.filter((x) => x !== h) : [...cur, h]).join(' | ') }); }} /> {h}</label>
             ); })}</div>
-          </Field>
-          <Field label={t3('الحساب المعتاد (من يدفع)', 'The usual account (who pays)', 'Le compte habituel (qui paie)')}>
-            <select value={f.account} onChange={(e) => setF({ ...f, account: e.target.value })}><option value="">—</option>{accounts.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}</select>
           </Field>
         </div>
       )}

@@ -87,76 +87,6 @@ function InsModal({ s, people, row, personId, family: fam, onClose, onDone }: { 
   );
 }
 
-/**
- * Who pays a person's stipend (Fouad, 31 October 2026: the donors are those of the accounts and the budgets). The
- * accounts of the person's centre are its projects; each shows the donors whose grants fund it. A person paid by one
- * project only needs nothing here (the centre's usual account, or the one on their card); a person paid by several is
- * split in percent, from a date (the earlier splits stay as history). The voucher and the reports follow it.
- */
-export function FundingPanel({ s, hr, pd, person }: { s: Session; hr: HrData; pd: HrPayData | null; person: HrPerson }) {
-  const [all, setAll] = useState<HrAlloc[] | null>(null);
-  const load = useCallback(async () => { try { setAll((await s.api.call('hr.alloc.list', {})).filter((a) => a.person_id === person.id)); } catch (e) { fail(e); } }, [s, person.id]);
-  useEffect(() => { void load(); }, [load]);
-  const accounts = centreAccounts(hr.lists, person);
-  const donorsOf = (name: string) => accounts.find((a) => a.name.toLowerCase() === name.toLowerCase())?.donors ?? null;
-  const dates = useMemo(() => [...new Set((all ?? []).map((a) => a.valid_from))].sort().reverse(), [all]);
-  const today = todayIso();
-  const now = allocOn(all ?? [], person.id, today);
-  const monthly = pd ? payOn(pd, person.id, today)?.monthly ?? null : null;
-  const [form, setForm] = useState<{ from: string; parts: { target: string; pct: string }[] } | null>(null);
-  const sum = (form?.parts ?? []).reduce((a, p) => a + (Number(p.pct) || 0), 0);
-  const usual = accountFor(hr.lists, person);
-  return (
-    <div className="hr-panel">
-      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <b>{t3('من يموّل هذا الشخص اليوم', 'Who funds this person today', "Qui finance cette personne aujourd'hui")}</b>
-        <button className="btn gold" onClick={() => setForm({ from: today.slice(0, 8) + '01', parts: now.length ? now.map((a) => ({ target: a.target, pct: String(a.pct) })) : [{ target: usual ?? '', pct: '100' }] })}>{now.length ? t3('تغيير التوزيع…', 'Change the split…', 'Changer la répartition…') : t3('توزيع بين مشاريع…', 'Split between projects…', 'Répartir entre projets…')}</button>
-      </div>
-      <table className="desk-table" style={{ marginTop: 8 }}>
-        <thead><tr><th>{t3('المشروع (الحساب)', 'Project (account)', 'Projet (compte)')}</th><th>{t3('المانحون', 'Donors', 'Bailleurs')}</th><th className="n">%</th>{monthly != null && <th className="n">{t3('شهرياً USD', 'Monthly USD', 'Mensuel USD')}</th>}</tr></thead>
-        <tbody>
-          {(now.length ? now : usual ? [{ target: usual, pct: 100 }] : []).map((a) => (
-            <tr key={a.target}><td><b>{a.target}</b>{!now.length && <div className="muted small">{t3('حساب المركز المعتاد (بلا توزيع)', "the centre's usual account (no split)", 'le compte habituel du centre (sans répartition)')}</div>}{!accounts.some((x) => x.name.toLowerCase() === a.target.toLowerCase()) && accounts.length > 0 && <div className="desk-alert small">⚠ {t3('ليس حساباً لهذا المركز', 'not an account of this centre', "pas un compte de ce centre")}</div>}</td><td>{donorsOf(a.target)?.split(' | ').join(' · ') ?? <span className="muted">—</span>}</td><td className="n">{a.pct}%</td>{monthly != null && <td className="n">{usd(Math.round(monthly * a.pct) / 100)}</td>}</tr>
-          ))}
-          {!now.length && !usual && <tr><td colSpan={4} className="desk-alert">{t3('لا حساب: اختر الحساب المعتاد للمركز في «الإعدادات».', "No account: choose the centre's usual account in Settings.", 'Pas de compte : choisissez le compte habituel du centre dans Réglages.')}</td></tr>}
-        </tbody>
-      </table>
-      {dates.length > 0 && (
-        <>
-          <div className="muted small" style={{ marginTop: 10 }}>{t3('التوزيعات (من تاريخ)', 'The splits (from a date)', 'Les répartitions (à partir d’une date)')}</div>
-          <table className="desk-table"><tbody>
-            {dates.map((d) => <tr key={d}><td>{t3('من', 'From', 'Dès le')} {fmtDate(d)}</td><td>{(all ?? []).filter((a) => a.valid_from === d).map((a) => `${a.target} ${a.pct}%`).join(' · ')}</td><td className="right nowrap"><button className="btn small" onClick={() => setForm({ from: d, parts: (all ?? []).filter((a) => a.valid_from === d).map((a) => ({ target: a.target, pct: String(a.pct) })) })}>{t3('تعديل', 'Edit', 'Modifier')}</button>{' '}<button className="btn small danger" onClick={async () => { if (await confirmBox(t3('حذف هذا التوزيع؟', 'Delete this split?', 'Supprimer cette répartition ?'), true)) { try { await s.api.call('hr.alloc.delete', { personId: person.id, validFrom: d }); await load(); } catch (e) { fail(e); } } }}>✕</button></td></tr>)}
-          </tbody></table>
-        </>
-      )}
-      <p className="muted small">{t3('المشاريع هي حسابات المركز في المحاسبة، والمانحون هم أصحاب المنح لكل مشروع (تُنسخ مع القوائم في «الإعدادات»).', "The projects are the centre's accounts in the accounts; the donors are those whose grants fund each project (copied with the lists in Settings).", "Les projets sont les comptes du centre en comptabilité ; les bailleurs sont ceux dont les subventions financent chaque projet (copiés avec les listes dans Réglages).")}</p>
-      {form && (
-        <Modal title={`${t3('توزيع التكلفة', 'Cost split', 'Répartition du coût')} · ${person.name_ar || person.name}`} onClose={() => setForm(null)}>
-          <p className="muted small">{t3('نسبة من تكلفة هذا الشخص لكل مشروع (المجموع 100%).', "The share of this person's cost for each project (total 100%).", 'La part du coût de cette personne pour chaque projet (total 100 %).')}</p>
-          <Field label={t3('ابتداءً من', 'From', 'À partir du')}><input type="date" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} /></Field>
-          {form.parts.map((p, i) => (
-            <div key={i} className="row" style={{ gap: 6, marginBottom: 4 }}>
-              {accounts.length
-                ? <select style={{ flex: 1 }} value={p.target} onChange={(e) => setForm({ ...form, parts: form.parts.map((x, j) => (j === i ? { ...x, target: e.target.value } : x)) })}><option value="">{t3('— المشروع —', '— project —', '— projet —')}</option>{[...(p.target && !accounts.some((a) => a.name === p.target) ? [{ name: p.target, donors: null }] : []), ...accounts].map((a) => <option key={a.name} value={a.name}>{a.name}{a.donors ? ` — ${a.donors.split(' | ').join(', ')}` : ''}</option>)}</select>
-                : <input style={{ flex: 1 }} placeholder={t3('المشروع', 'Project', 'Projet')} value={p.target} onChange={(e) => setForm({ ...form, parts: form.parts.map((x, j) => (j === i ? { ...x, target: e.target.value } : x)) })} />}
-              <input style={{ width: 80 }} inputMode="decimal" value={p.pct} onChange={(e) => setForm({ ...form, parts: form.parts.map((x, j) => (j === i ? { ...x, pct: e.target.value } : x)) })} /> %
-              {form.parts.length > 1 && <button className="btn small" onClick={() => setForm({ ...form, parts: form.parts.filter((_, j) => j !== i) })}>✕</button>}
-            </div>
-          ))}
-          <button className="btn small" onClick={() => setForm({ ...form, parts: [...form.parts, { target: '', pct: String(Math.max(0, 100 - sum)) }] })}>＋ {t3('مشروع', 'Add a project', 'Ajouter un projet')}</button>
-          <p className={Math.abs(sum - 100) < 0.01 ? 'ok' : 'desk-alert'}>{t3('المجموع', 'Total', 'Total')}: {usd(sum)}%</p>
-          <div className="modal-foot">
-            <button className="btn" onClick={() => setForm(null)}>{t3('إلغاء', 'Cancel', 'Annuler')}</button>
-            <button className="btn primary" disabled={Math.abs(sum - 100) > 0.01 || form.parts.some((p) => !p.target.trim())} onClick={async () => {
-              try { await s.api.call('hr.alloc.save', { personId: person.id, validFrom: form.from, parts: form.parts.map((p) => ({ target: p.target, pct: Number(p.pct) })) }); toast(t3('حُفظ', 'Saved', 'Enregistré')); setForm(null); await load(); } catch (e) { fail(e); }
-            }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
 type FundSort = 'project' | 'donors' | 'people' | 'monthly';
 
 /**
@@ -219,17 +149,17 @@ export function DonorsPage({ s, hr, pd, open }: { s: Session; hr: HrData; pd: Hr
       </div>
       {tab === 'paid' ? <PaidByProject s={s} /> : (
         <>
-          <p className="muted small">{t3('كل مشروع هو حساب في محاسبة المركز؛ المانحون هم أصحاب المنح لهذا الحساب. يُغيَّر التوزيع على بطاقة الشخص ← التمويل.', "Each project is an account in the centre's accounts; the donors are those whose grants are for that account. A person's split is changed on their card → Funding.", 'Chaque projet est un compte de la comptabilité du centre ; les bailleurs sont ceux dont les subventions sont pour ce compte. La répartition se change sur la fiche → Financement.')}</p>
+          <p className="muted small">{t3('مكافأة كل شخص يدفعها مشروع خط موازنته في المركز؛ المانح هو صاحب منحة هذا المشروع. أعد نسخ القوائم في «الإعدادات» بعد تغيير مشاريع الموازنة.', "Each person's stipend is paid by the project of their budget line in the centre; the donor is the one whose grant funds that project. Copy the lists again in Settings after the budget's projects change.", "La gratification de chacun est payée par le projet de sa ligne budgétaire dans le centre ; le bailleur est celui dont la subvention finance ce projet. Recopiez les listes dans Réglages après un changement des projets du budget.")}</p>
           <div className="hr-panel desk-scroll">
             <table className="desk-table">
-              <thead><tr><SortTh k="project" sort={sort}>{t3('المشروع (الحساب)', 'Project (account)', 'Projet (compte)')}</SortTh><SortTh k="donors" sort={sort}>{t3('المانحون', 'Donors', 'Bailleurs')}</SortTh><SortTh k="people" sort={sort} n>{t3('الأشخاص', 'People', 'Personnes')}</SortTh><SortTh k="monthly" sort={sort} n>{t3('شهرياً USD', 'Monthly USD', 'Mensuel USD')}</SortTh><th className="n">{t3(`سنوياً ×${pd.settings.paymentsPerYear}`, `Yearly ×${pd.settings.paymentsPerYear}`, `Annuel ×${pd.settings.paymentsPerYear}`)}</th></tr></thead>
+              <thead><tr><SortTh k="project" sort={sort}>{t3('المشروع', 'Project', 'Projet')}</SortTh><SortTh k="donors" sort={sort}>{t3('المانحون', 'Donors', 'Bailleurs')}</SortTh><SortTh k="people" sort={sort} n>{t3('الأشخاص', 'People', 'Personnes')}</SortTh><SortTh k="monthly" sort={sort} n>{t3('شهرياً USD', 'Monthly USD', 'Mensuel USD')}</SortTh><th className="n">{t3(`سنوياً ×${pd.settings.paymentsPerYear}`, `Yearly ×${pd.settings.paymentsPerYear}`, `Annuel ×${pd.settings.paymentsPerYear}`)}</th></tr></thead>
               <tbody>
                 {sorted.map((r) => {
                   const k = `${r.centre}|${r.project}`;
                   return (
                     <Fragment key={k}>
                       <tr className="click" onClick={() => setShown(shown === k ? null : k)}>
-                        <td><b>{shown === k ? '▾' : '▸'} {r.project || <span className="desk-alert">{t3('بلا حساب', 'no account', 'sans compte')}</span>}</b><div className="muted small">{r.centre ?? ''}</div></td>
+                        <td><b>{shown === k ? '▾' : '▸'} {r.project || <span className="desk-alert">{t3('غير ممول', 'Not funded', 'Non financé')}</span>}</b><div className="muted small">{r.centre ?? ''}</div></td>
                         <td>{r.donors ? r.donors.split(' | ').join(' · ') : <span className="muted">—</span>}</td>
                         <td className="n">{r.people.length}</td><td className="n"><b>{usd(r.monthly)}</b></td><td className="n">{usd(r.monthly * pd.settings.paymentsPerYear)}</td>
                       </tr>

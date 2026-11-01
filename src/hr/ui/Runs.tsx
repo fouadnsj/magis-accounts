@@ -12,7 +12,7 @@ import { payslipsDoc, type DocHead } from '../docs';
 import { SortTh, TwoNames, centreLabel, centreVars, headOf, markOf, centreChoices, sortRows, useSort } from './common';
 import type { HrPayData } from '../payOps';
 import { rateOf } from '../pay';
-import { accountFor, centreItem, lineFor, lineLabel } from '../link';
+import { centreItem, lineFor, lineLabel } from '../link';
 import type { CentreKey } from '../../brand';
 import { t3 } from '../../community/ui/text';
 import type { HrData } from '../hr';
@@ -160,7 +160,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
                 <td className="right nowrap"><button className="btn small" onClick={() => saveSlips(hr, run, lines.filter((x) => x.person_id === l.person_id))}>📄</button>{draft && <>{' '}<button className="btn small danger" onClick={async () => { try { await s.api.call('hr.run.line.delete', { id: l.id }); await load(); } catch (e) { fail(e); } }}>✕</button></>}</td>
               </tr>
             ))}
-            <tr><td colSpan={5}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(total)}</b></td><td colSpan={3} /></tr>
+            <tr><td colSpan={4}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(total)}</b></td><td colSpan={3} /></tr>
           </tbody>
         </table>
       </div>
@@ -203,27 +203,27 @@ function Voucher({ org, v, onClose }: { org: string; v: { run: { ym: string; kin
     ws.addRow([`${org} · ${KIND(v.run.kind)} · ${v.run.ym}`]).font = { bold: true };
     ws.addRow([`Dollar rate: ${v.run.rate_syp} · Approved by: ${v.run.approved_by ?? ''}${v.run.paid_on ? ` · Paid on: ${v.run.paid_on}` : ''}`]);
     ws.addRow([]);
-    ws.addRow(['Account', 'Budget line', 'Donor / project', 'Paid in', 'Amount paid', 'USD']).font = { bold: true };
-    for (const r of v.rows) ws.addRow([r.account ?? '', r.budget_line ?? '', r.target ?? '', r.paid_in, r.amount_paid, r.total_usd]);
+    ws.addRow(['Project', 'Budget line', 'Paid in', 'Amount paid', 'USD']).font = { bold: true };
+    for (const r of v.rows) ws.addRow([r.account ?? 'Not funded', r.budget_line ?? '', r.paid_in, r.amount_paid, r.total_usd]);
     const first = 5, last = 4 + v.rows.length;
-    const tot = ws.addRow(['Total', '', '', '', '', { formula: `SUM(F${first}:F${last})`, result: v.total_usd }]);
+    const tot = ws.addRow(['Total', '', '', '', { formula: `SUM(E${first}:E${last})`, result: v.total_usd }]);
     tot.font = { bold: true };
-    ws.columns = [{ width: 16 }, { width: 28 }, { width: 22 }, { width: 10 }, { width: 16 }, { width: 14 }];
-    ws.getColumn(5).numFmt = '#,##0';
-    ws.getColumn(6).numFmt = '#,##0.00';
+    ws.columns = [{ width: 22 }, { width: 28 }, { width: 10 }, { width: 16 }, { width: 14 }];
+    ws.getColumn(4).numFmt = '#,##0';
+    ws.getColumn(5).numFmt = '#,##0.00';
     await saveFile(`HR-voucher-${v.run.ym}-${v.run.kind}.xlsx`, ['xlsx'], new Uint8Array(await wb.xlsx.writeBuffer()), 'Voucher');
   };
   return (
     <Modal title={t3('قسيمة للمحاسبة', 'Voucher for Accounts', 'Bon pour la comptabilité')} onClose={onClose}>
       <p className="muted small">{t3('مجاميع فقط: لا أسماء ولا رواتب فردية. تُسجَّل في الحسابات كنفقة.', 'Totals only: no names, no individual pay. It is entered in Accounts as an expense.', 'Totaux seulement : ni noms ni paies individuelles. Elle est saisie en comptabilité comme une dépense.')}</p>
       <table className="desk-table">
-        <thead><tr><th>{t3('الحساب', 'Account', 'Compte')}</th><th>{t3('بند الموازنة', 'Budget line', 'Ligne budgétaire')}</th><th>{t3('المانح / المشروع', 'Donor / project', 'Bailleur / projet')}</th><th>{t3('بـ', 'In', 'En')}</th><th className="n">{t3('المبلغ', 'Amount', 'Montant')}</th><th className="n">USD</th></tr></thead>
+        <thead><tr><th>{t3('المشروع', 'Project', 'Projet')}</th><th>{t3('بند الموازنة', 'Budget line', 'Ligne budgétaire')}</th><th>{t3('بـ', 'In', 'En')}</th><th className="n">{t3('المبلغ', 'Amount', 'Montant')}</th><th className="n">USD</th></tr></thead>
         <tbody>
-          {v.rows.map((r, i) => <tr key={i}><td>{r.account ?? '—'}</td><td>{r.budget_line ?? '—'}</td><td>{r.target ?? '—'}</td><td>{r.paid_in}</td><td className="n">{usd(r.amount_paid)}</td><td className="n">{usd(r.total_usd)}</td></tr>)}
+          {v.rows.map((r, i) => <tr key={i}><td>{r.account ?? <span className="desk-alert">{t3('غير ممول', 'Not funded', 'Non financé')}</span>}</td><td>{r.budget_line ?? '—'}</td><td>{r.paid_in}</td><td className="n">{usd(r.amount_paid)}</td><td className="n">{usd(r.total_usd)}</td></tr>)}
           <tr><td colSpan={5}><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n"><b>{usd(v.total_usd)}</b></td></tr>
         </tbody>
       </table>
-      {v.rows.some((r) => !r.account || !r.budget_line) && <p className="desk-alert small">{t3('بعض الأسطر بلا حساب أو بند: أكملهما في بطاقة الشخص.', "Some lines have no account or budget line: fill them in on the person's card.", "Certaines lignes n'ont pas de compte ou de ligne budgétaire : complétez-les sur la fiche de la personne.")}</p>}
+      {v.rows.some((r) => !r.budget_line) && <p className="desk-alert small">{t3('بعض الأسطر بلا بند: أكمله في بطاقة الشخص.', "Some lines have no budget line: fill it in on the person's card.", "Certaines lignes n'ont pas de ligne budgétaire : complétez-la sur la fiche de la personne.")}</p>}
       <div className="modal-foot"><button className="btn" onClick={onClose}>{t3('إغلاق', 'Close', 'Fermer')}</button><button className="btn primary" onClick={download}>{t3('تنزيل Excel', 'Download Excel', 'Télécharger Excel')}</button></div>
     </Modal>
   );
@@ -287,7 +287,6 @@ function ToAccounts({ hr, runId, lines, sent, busy, setBusy, post, reload }: { h
       const line = lineFor(hr.lists, p).line;
       if (!line) g.missing.push(t3(`${who}: خط الموازنة`, `${who}: budget line`, `${who} : ligne budgétaire`));
       else if (!g.lines.includes(lineLabel(line))) g.lines.push(lineLabel(line));
-      if (!accountFor(hr.lists, p)) g.missing.push(t3(`${who}: الحساب`, `${who}: account`, `${who} : compte`));
     } else g.missing.push(t3(`${who}: المركز`, `${who}: centre`, `${who} : centre`));
     groups.set(key, g);
   }

@@ -1,7 +1,7 @@
 // Where a person's stipend goes in the accounts of their centre (Fouad, 30 October 2026), the same on the server and
-// on the screens: the budget line (one of the lines of the centre's salary heading) and the account. Chosen on the
-// person's card, or guessed: the line named like their position (Homs: "Reception") or like them (Aleppo: one line per
-// person); the account of the centre when the person has none.
+// on the screens: the budget line (one of the lines of the centre's salary heading), chosen on the person's card or
+// guessed (the line named like their position, Homs "Reception", or like them, Aleppo: one line per person); and the
+// project of that line in the centre's budget (Fouad, 2026-11-01: a salary follows its line; none = not funded).
 import type { HrListItem, HrPerson } from './hr';
 
 export const lineLabel = (l: Pick<HrListItem, 'code' | 'name'>) => (l.code ? `${l.code} · ${l.name}` : l.name);
@@ -58,8 +58,7 @@ export function lineFor(lists: HrListItem[], p: Pick<HrPerson, 'centre' | 'budge
   return { line: null, guessed: false };
 }
 
-/** the account for a person: theirs, else their centre's usual account */
-export function accountFor(lists: HrListItem[], p: { centre?: string | null; account?: string | null }): string | null {
-  const own = p.account && centreAccounts(lists, p).some((a) => a.name === p.account) ? p.account : null;
-  return own || centreItem(lists, p)?.account || null;
+/** the project for a person: the project of their budget line (null: not funded) */
+export function accountFor(lists: HrListItem[], p: Parameters<typeof lineFor>[1]): string | null {
+  return lineFor(lists, p).line?.account ?? null;
 }

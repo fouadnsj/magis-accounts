@@ -1,6 +1,5 @@
 // HR stage 4 (Fouad, 30 October 2026): the health insurance of the staff and their family (paid yearly, with a
-// reminder before it ends), and the split of each person's cost by donor or project (percent), used by the
-// voucher and the donor report. Everything here needs 'hr.pay'.
+// reminder before it ends), and the cost of staff time by project (the project of each person's budget line).
 import { nowIso, one } from '../db/db';
 import { auditStmt, UserError } from '../db/repo';
 import { has } from '../auth';
@@ -76,35 +75,9 @@ export const HR_STAGE4_OPS = {
     },
   },
 
-  'hr.alloc.list': { check: (c: OpCtx) => needRight(c, 'hr.salary'), run: async (c: OpCtx) => mine(c, await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc ORDER BY person_id, valid_from DESC, pct DESC')) },
-  // the whole split of a person from a date (replaces the one of the same date); it must make 100%
-  'hr.alloc.save': {
-    check: needPay,
-    run: async (c: OpCtx, a: { personId: number; validFrom: string; parts: { target: string; pct: number }[] }) => {
-      if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
-      await needPerson(c, a.personId);
-      const from = day(a.validFrom);
-      if (!from) throw new UserError(m('اكتب التاريخ', 'Write the date', 'Écrivez la date'));
-      const parts = (a.parts ?? []).map((p) => ({ target: String(p.target ?? '').trim(), pct: Number(p.pct) })).filter((p) => p.target || p.pct);
-      if (!parts.length || parts.some((p) => !p.target || !(p.pct > 0 && p.pct <= 100))) throw new UserError(m('اكتب الجهة والنسبة لكل سطر', 'Write the donor or project and the percentage on every line', 'Écrivez le bailleur ou projet et le pourcentage sur chaque ligne'));
-      if (new Set(parts.map((p) => p.target.toLowerCase())).size !== parts.length) throw new UserError(m('جهة مكررة', 'A donor or project is written twice', 'Un bailleur ou projet est écrit deux fois'));
-      if (Math.abs(parts.reduce((s, p) => s + p.pct, 0) - 100) > 0.01) throw new UserError(m('المجموع يجب أن يكون 100%', 'The total must be 100%', 'Le total doit faire 100 %'));
-      await c.db.batch([
-        { sql: 'DELETE FROM hr_alloc WHERE person_id = ? AND valid_from = ?', params: [a.personId, from] },
-        ...parts.map((p) => ({ sql: 'INSERT INTO hr_alloc (person_id, valid_from, target, pct, created_at, created_by) VALUES (?,?,?,?,?,?)', params: [a.personId, from, p.target, p.pct, nowIso(), c.who] })),
-        auditStmt(c.who, 'update', 'hr_alloc', `${a.personId}/${from}`, null, parts),
-      ]);
-      return { ok: true };
-    },
-  },
-  'hr.alloc.delete': {
-    check: needPay,
-    run: async (c: OpCtx, a: { personId: number; validFrom: string }) => {
-      await needPerson(c, a.personId);
-      await c.db.batch([{ sql: 'DELETE FROM hr_alloc WHERE person_id = ? AND valid_from = ?', params: [a.personId, a.validFrom] }, auditStmt(c.who, 'delete', 'hr_alloc', `${a.personId}/${a.validFrom}`, null, null)]);
-      return { ok: true };
-    },
-  },
+  // the split by percentages is gone (Fouad, 2026-11-01): a salary follows the project of its budget line. The old
+  // splits stay in hr_alloc for the record; nothing reads them any more.
+  'hr.alloc.list': { check: (c: OpCtx) => needRight(c, 'hr.salary'), run: async (): Promise<HrAlloc[]> => [] },
 
   // the cost of staff time by donor or project, by month, from the approved and paid runs of a year
   'hr.alloc.report': {
@@ -112,14 +85,10 @@ export const HR_STAGE4_OPS = {
     run: async (c: OpCtx, a: { year: number }) => {
       const y = Number(a.year);
       if (!(y >= 2000 && y <= 2100)) throw new UserError(m('سنة غير صالحة', 'Not a valid year', 'Année non valide'));
-      const lines = await mine(c, await c.db.query<{ ym: string; person_id: number; total_usd: number }>("SELECT r.ym, l.person_id, l.total_usd FROM hr_run_line l JOIN hr_run r ON r.id = l.run_id WHERE r.status IN ('approved','paid') AND r.ym LIKE ?", [`${y}-%`]));
-      const all = await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc');
+      // by the project each line was paid on
+      const lines = await mine(c, await c.db.query<{ ym: string; person_id: number; account: string | null; total_usd: number }>("SELECT r.ym, l.person_id, l.account, l.total_usd FROM hr_run_line l JOIN hr_run r ON r.id = l.run_id WHERE r.status IN ('approved','paid') AND r.ym LIKE ?", [`${y}-%`]));
       const acc = new Map<string, number>();
-      for (const l of lines) {
-        const parts = allocOn(all, l.person_id, `${l.ym}-28`);
-        const vals = parts.length ? splitAmount(l.total_usd, parts) : [l.total_usd];
-        (parts.length ? parts.map((p) => p.target) : ['']).forEach((t, i) => acc.set(`${l.ym}|${t}`, r2((acc.get(`${l.ym}|${t}`) ?? 0) + vals[i])));
-      }
+      for (const l of lines) acc.set(`${l.ym}|${l.account ?? ''}`, r2((acc.get(`${l.ym}|${l.account ?? ''}`) ?? 0) + l.total_usd));
       return [...acc].map(([k, total_usd]) => { const [ym, target] = k.split('|'); return { ym, target: target || null, total_usd }; }).sort((x, y2) => x.ym.localeCompare(y2.ym) || (x.target ?? '').localeCompare(y2.target ?? ''));
     },
   },

@@ -9,6 +9,8 @@ import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import { needAll, needCentre, needPerson, needRight, seenPeople } from './scope';
+import { accountFor } from './link';
+import type { HrListItem, HrPerson } from './hr';
 
 export interface HrSession { id: number; person_id: number; on_date: string; activity: string | null; note: string | null; source: string; run_line_id: number | null }
 export interface HrSessionPrice { id: number; valid_from: string; amount: number; currency: 'USD' | 'SYP' }
@@ -35,6 +37,16 @@ const notPaid = (x: HrSession) => {
   if (x.run_line_id) throw new UserError(m('هذه الجلسة في كشف دفع: احذف سطرها من الكشف أولاً', 'This session is in a payroll run: remove its line from the run first', "Cette séance est dans une paie : retirez d'abord sa ligne de la paie"));
 };
 
+/** The project of each person's budget line (Fouad, 2026-11-01): what a payroll line is written on. */
+export async function projectsOf(c: Pick<OpCtx, 'db'>): Promise<(personId: number) => string | null> {
+  const lists = await c.db.query<HrListItem>('SELECT * FROM hr_list');
+  const people = new Map((await c.db.query<HrPerson>('SELECT * FROM hr_person')).map((p) => [p.id, p]));
+  return (id) => {
+    const p = people.get(id);
+    return p ? accountFor(lists, p) : null;
+  };
+}
+
 /**
  * The lines that pay a centre's tutors in a run: every session up to the end of the run's month not paid yet (a session
  * written late is paid in the next run), one line per tutor and currency, each session at the price of its own date.
@@ -42,8 +54,9 @@ const notPaid = (x: HrSession) => {
 export async function sessionLineStmts(c: OpCtx, run: { /** null: the run made just before, in the same batch */ id: number | null; ym: string; centre: string | null; rate_syp: number }): Promise<{ stmts: Stmt[]; lines: number }> {
   if (!run.centre) return { stmts: [], lines: 0 };
   const last = lastDay(run.ym);
-  const rows = await c.db.query<{ id: number; person_id: number; on_date: string; account: string | null; budget_line: string | null }>(
-    `SELECT s.id, s.person_id, s.on_date, p.account, p.budget_line FROM hr_session s JOIN hr_person p ON p.id = s.person_id
+  const projectOf = await projectsOf(c);
+  const rows = await c.db.query<{ id: number; person_id: number; on_date: string; budget_line: string | null }>(
+    `SELECT s.id, s.person_id, s.on_date, p.budget_line FROM hr_session s JOIN hr_person p ON p.id = s.person_id
       WHERE s.run_line_id IS NULL AND s.on_date <= ? AND p.centre IN (SELECT name FROM hr_list WHERE kind = 'centre' AND code = ?) ORDER BY p.name, s.on_date`, [last, run.centre]);
   if (!rows.length) return { stmts: [], lines: 0 };
   const prices = await pricesOf(c);
@@ -52,7 +65,7 @@ export async function sessionLineStmts(c: OpCtx, run: { /** null: the run made j
     const p = priceOn(prices, s.on_date);
     if (!p) throw new UserError(m(`لا سعر للجلسة في ${s.on_date}: اكتبه في الإعدادات`, `No price of a session on ${s.on_date}: write it in Settings`, `Pas de prix de séance au ${s.on_date} : écrivez-le dans Réglages`));
     const k = `${s.person_id}/${p.currency}`;
-    const g = groups.get(k) ?? { person: s.person_id, currency: p.currency, ids: [], amount: 0, unit: new Set<number>(), account: s.account, line: s.budget_line };
+    const g = groups.get(k) ?? { person: s.person_id, currency: p.currency, ids: [], amount: 0, unit: new Set<number>(), account: projectOf(s.person_id), line: s.budget_line };
     g.ids.push(s.id);
     g.amount += p.amount;
     g.unit.add(p.amount);

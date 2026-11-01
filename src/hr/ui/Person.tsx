@@ -11,15 +11,14 @@ import type { HrAlert, HrCheckItem, HrData, HrPaper, HrPerson } from '../hr';
 import type { HrPay, HrPayData } from '../payOps';
 import { hourlyFromMonthly, payOn, rateOf, yearlyCost } from '../pay';
 import { getLang } from '../../i18n';
-import { allocOn, type HrAlloc } from '../stage4';
 import { agreementDoc, stipendDoc } from '../docs';
-import { FundingPanel, InsurancePage } from './Stage4';
+import { InsurancePage } from './Stage4';
 import { TwoNames, centreOf, centreVars, chooseScan, codeOf, fail, headOf, markOf, openScan, positionsFor, seenCentres, centreChoices, mainCentreName, usd, type HrRights } from './common';
-import { accountFor, centreAccounts, lineFor, lineLabel, linesFor } from '../link';
+import { accountFor, lineFor, lineLabel, linesFor } from '../link';
 import { TutorSessions } from './Sessions';
 import { priceOn, type HrSession, type HrSessionPrice } from '../sessions';
 
-type Section = 'overview' | 'identity' | 'sessions' | 'agreement' | 'funding' | 'letters' | 'insurance' | 'documents' | 'checklist' | 'conduct';
+type Section = 'overview' | 'identity' | 'sessions' | 'agreement' | 'letters' | 'insurance' | 'documents' | 'checklist' | 'conduct';
 
 interface P { s: Session; d: HrData; pd: HrPayData | null; reload: () => Promise<void>; manage: boolean; vault: boolean; pay: boolean; /** the HR rights in detail (Fouad, 1 November 2026) */ r: HrRights }
 
@@ -45,14 +44,12 @@ export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & {
     ['overview', '◎', t3('نظرة عامة', 'Overview', "Vue d'ensemble")],
     ['identity', '👤', t3('الهوية', 'Identity', 'Identité')],
     ...(x.r.sessions ? [['sessions', '🎓', t3('الجلسات', 'Sessions', 'Séances')] as [Section, string, string]] : []),
-    ...(x.pay ? [['funding', '🤝', t3('التمويل (المانحون)', 'Funding (donors)', 'Financement (bailleurs)')] as [Section, string, string]] : []),
     ...(x.vault ? [['documents', '🪪', t3('الوثائق', 'Documents', 'Documents'), has('doc_expiring') ? <i className="dot" /> : <span className="count">{docs.length || ''}</span>] as [Section, string, string, ReactNode]] : []),
     ['conduct', '🤝', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'), has('conduct_unsigned') ? <i className="dot" /> : null],
   ] : [
     ['overview', '◎', t3('نظرة عامة', 'Overview', "Vue d'ensemble")],
     ['identity', '👤', t3('الهوية', 'Identity', 'Identité')],
     ['agreement', '📝', t3('الاتفاقية والمكافأة', 'Agreement & stipend', 'Accord et gratification'), has('agreement_missing', 'agreement_ending', 'unsigned_paper') ? <i className="dot" /> : null],
-    ...(x.pay ? [['funding', '🤝', t3('التمويل (المانحون)', 'Funding (donors)', 'Financement (bailleurs)')] as [Section, string, string]] : []),
     ['letters', '✉️', t3('رسائل المكافأة', 'Stipend letters', 'Lettres de gratification'), <span className="count">{x.d.papers.filter((q) => q.person_id === person.id && q.kind === 'stipend').length || ''}</span>],
     ...(x.pay ? [['insurance', '🩺', t3('التأمين الصحي', 'Health insurance', 'Assurance maladie'), has('insurance_ending') ? <i className="dot" /> : null] as [Section, string, string, ReactNode]] : []),
     ...(x.vault ? [['documents', '🪪', t3('الوثائق', 'Documents', 'Documents'), has('doc_expiring') ? <i className="dot" /> : <span className="count">{docs.length || ''}</span>] as [Section, string, string, ReactNode]] : []),
@@ -81,7 +78,6 @@ export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & {
           {sec === 'sessions' && x.r.sessions && <TutorSessions s={x.s} hr={x.d} pd={x.pd} person={person} manage={x.r.sessions} reload={x.reload} />}
           {sec === 'identity' && <Identity {...x} person={person} onCreated={() => undefined} onDeleted={onBack} />}
           {sec === 'agreement' && <Agreement {...x} person={person} />}
-          {sec === 'funding' && x.pay && <FundingPanel s={x.s} hr={x.d} pd={x.pd} person={person} />}
           {sec === 'letters' && <Letters {...x} person={person} />}
           {sec === 'insurance' && <InsurancePage s={x.s} hr={x.d} only={person.id} />}
           {sec === 'documents' && <Vault {...x} person={person} />}
@@ -147,8 +143,7 @@ function Overview({ s, d, pd, reload, manage, pay, vault, person, go, r: { paper
   const sign = latest ? d.signs.find((q) => q.person_id === person.id && q.conduct_id === latest.id) : null;
   const docs = (d.docs ?? []).filter((q) => q.person_id === person.id);
   const check = checkState(d, person);
-  const [split, setSplit] = useState<HrAlloc[] | null>(null);
-  useEffect(() => { if (pay) s.api.call('hr.alloc.list', {}).then((xs) => setSplit(allocOn(xs, person.id, today))).catch(() => setSplit([])); }, [s, pay, person.id, today]);
+  const project = accountFor(d.lists, person);
   const tile = (sec: Section, label: string, body: ReactNode, sub?: ReactNode, warn?: boolean) => (
     <button className="tile" onClick={() => go(sec)} style={warn ? { borderColor: '#e2b4a6', background: '#FFF8F5' } : undefined}>
       <small>{label}</small>{body}{sub ? <div className="sub">{sub}</div> : null}
@@ -164,9 +159,9 @@ function Overview({ s, d, pd, reload, manage, pay, vault, person, go, r: { paper
         {salary && pd && tile('agreement', t3('المكافأة الشهرية', 'Monthly stipend', 'Gratification mensuelle'),
           now?.syp != null ? <b className="big">{usd(now.syp)} SYP</b> : now?.monthly != null ? <b className="big">{usd(now.monthly)} USD</b> : <b className="muted">—</b>,
           now?.syp != null ? (now.monthly != null ? `≈ ${usd(now.monthly)} USD` : t3('بلا سعر دولار', 'no dollar rate', 'pas de taux')) : now?.weekly ? `${now.weekly} ${t3('س/أسبوع', 'h/week', 'h/sem')}` : null)}
-        {pay && tile('funding', t3('من يموّل', 'Who funds it', 'Qui finance'),
-          split == null ? <b className="muted">…</b> : split.length ? <b>{split.map((a) => `${a.target} ${a.pct}%`).join(' · ')}</b> : <b>{accountFor(d.lists, person) ?? '—'}</b>,
-          split && !split.length ? <>{t3('حساب المركز المعتاد، غير موزَّع', "the centre's usual account, not split", 'le compte habituel du centre, non réparti')}<br />{donorsText(d, [{ target: accountFor(d.lists, person) ?? '' }])}</> : donorsText(d, split ?? []))}
+        {pay && tile('identity', t3('من يموّل', 'Who funds it', 'Qui finance'),
+          project ? <b>{project}</b> : <b className="desk-alert">{t3('غير ممول', 'Not funded', 'Non financé')}</b>,
+          <>{t3('مشروع خط الموازنة', 'the project of the budget line', 'le projet de la ligne budgétaire')}{project ? <><br />{donorsText(d, [{ target: project }])}</> : null}</>, !project)}
         {tile('checklist', person.active ? t3('قائمة الوصول', 'Arrival list', "Liste d'arrivée") : t3('قائمة المغادرة', 'Leaving list', 'Liste de départ'),
           <><b className="big">{check.done}/{check.items.length}</b><div className="hr-bar" style={{ marginTop: 6 }}><i style={{ width: `${check.items.length ? (check.done * 100) / check.items.length : 0}%` }} /></div></>,
           check.items.length > check.done ? check.items.find((i) => !check.ticks.has(i.id))?.[lang() === 'ar' ? 'label_ar' : 'label_en'] ?? '' : t3('كل شيء تمّ', 'all done', 'tout est fait'), check.items.length > check.done && !person.active)}
@@ -264,12 +259,12 @@ function NewPerson({ preset, kind: kind0, onBack, onOpen, ...x }: P & { preset: 
   // the newly made person, as the data now holds them
   const person = made ? x.d.people.find((p) => p.id === made.id) ?? made : null;
   const { key } = centreOf(x.d, person ?? (preset ? { centre: mainCentreName(x.d, preset) } : null));
-  // a tutor: who, then funding; no agreement and no arrival list
+  // a tutor: who only; no agreement and no arrival list (who funds a person: the project of their budget line)
   const tutor = kind === 'tutor';
-  const steps = tutor ? [t3('من هو', 'Who', 'Qui'), ...(x.pay ? [t3('التمويل', 'Funding', 'Financement')] : [])]
-    : [t3('من هو', 'Who', 'Qui'), ...(x.r.papers ? [t3('الاتفاقية والمكافأة', 'Agreement & stipend', 'Accord et gratification')] : []), ...(x.pay ? [t3('التمويل', 'Funding', 'Financement')] : []), t3('قائمة الوصول', 'Arrival list', "Liste d'arrivée")];
-  // the step of each part (the agreement and the funding steps are there only for who may write them)
-  const agreeStep = x.r.papers ? 2 : -1, fundStep = x.pay ? (x.r.papers ? 3 : 2) : -1;
+  const steps = tutor ? [t3('من هو', 'Who', 'Qui')]
+    : [t3('من هو', 'Who', 'Qui'), ...(x.r.papers ? [t3('الاتفاقية والمكافأة', 'Agreement & stipend', 'Accord et gratification')] : []), t3('قائمة الوصول', 'Arrival list', "Liste d'arrivée")];
+  // the step of the agreement (there only for who may write it)
+  const agreeStep = x.r.papers ? 2 : -1;
   const last = steps.length;
   const restart = () => { setMade(null); setStep(1); setAgain(again + 1); window.scrollTo({ top: 0 }); };
   return (
@@ -278,12 +273,6 @@ function NewPerson({ preset, kind: kind0, onBack, onOpen, ...x }: P & { preset: 
       <div className="hr-head" style={{ marginTop: 8 }}><div><div className="hr-eyebrow">{tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}</div><h1>{person ? <TwoNames p={person} /> : tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}</h1></div></div>
       <div className="hr-steps">{steps.map((t, i) => <span key={t} className={step === i + 1 ? 'on' : step > i + 1 ? 'done' : ''}>{step > i + 1 ? '✓ ' : `${i + 1}. `}{t}</span>)}</div>
       {step === 1 && <Essentials key={again} {...x} preset={preset} kind={kind} setKind={setKind} onMade={(p) => { setMade(p); setStep(2); }} />}
-      {tutor && step === 2 && person && x.pay && (
-        <>
-          <FundingPanel s={x.s} hr={x.d} pd={x.pd} person={person} />
-          <div className="modal-foot"><button className="btn primary" onClick={() => setStep(3)}>{t3('التالي', 'Next', 'Suivant')} →</button></div>
-        </>
-      )}
       {tutor && step > last && person && (
         <div className="hr-panel" style={{ marginTop: 14 }}>
           <p className="ok" style={{ marginTop: 0 }}>✓ {t3('أُضيف', 'Added', 'Ajouté')}: <b>{person.name_ar || person.name}</b> · {t3('تُسجَّل جلساته في «جلسات المدرّبين» أو على بطاقته.', "Their sessions are recorded in Tutors' sessions, or on their card.", 'Ses séances se notent dans Séances des animateurs, ou sur sa fiche.')}</p>
@@ -298,12 +287,6 @@ function NewPerson({ preset, kind: kind0, onBack, onOpen, ...x }: P & { preset: 
         <div className="hr-panel">
           <AgreementForm {...x} person={person} paper={null} firstOne onDone={() => setStep(agreeStep + 1)} onCancel={() => setStep(agreeStep + 1)} cancelLabel={t3('لاحقاً', 'Later', 'Plus tard')} />
         </div>
-      )}
-      {!tutor && step === fundStep && person && (
-        <>
-          <FundingPanel s={x.s} hr={x.d} pd={x.pd} person={person} />
-          <div className="modal-foot"><button className="btn primary" onClick={() => setStep(fundStep + 1)}>{t3('التالي', 'Next', 'Suivant')} →</button></div>
-        </>
       )}
       {!tutor && step === last && last > 1 && person && (
         <>
@@ -425,8 +408,8 @@ function Identity({ s, d, reload, manage, person, preset, onCreated, onDeleted, 
 
 /**
  * Where the stipend goes in the centre's accounts, found by the program: the line of the person's position in their
- * centre's salary heading, and the centre's usual account. Changed here only for an exception; a person paid by a
- * project or a donor is split between accounts on the Agreement tab.
+ * centre's salary heading (changed here only for an exception), and the project of that line in the centre's budget
+ * (Fouad, 2026-11-01: a salary follows its line; there is no other choice and no split).
  */
 function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF: (f: Partial<HrPerson>) => void; manage: boolean }) {
   const [open, setOpen] = useState(false);
@@ -441,7 +424,7 @@ function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF:
         <span>
           <span className="muted small">{tutor ? t3('تذهب الجلسات في الحسابات إلى', 'In the accounts, the sessions go to', 'Dans la comptabilité, les séances vont à') : t3('تذهب المكافأة في الحسابات إلى', 'In the accounts, the stipend goes to', 'Dans la comptabilité, la gratification va à')}: </span>
           {!f.centre ? <span className="desk-alert">{t3('اختر المركز', 'choose the centre', 'choisissez le centre')}</span>
-            : line.line ? <b>{lineLabel(line.line)}{acc ? ` · ${acc}` : ''}</b>
+            : line.line ? <b>{lineLabel(line.line)} · {acc ?? <span className="desk-alert">{t3('غير ممول', 'Not funded', 'Non financé')}</span>}</b>
             : tutor ? <span className="desk-alert">⚠ {t3('اختر خط الموازنة (مثلاً الورشات أو الجلسات الأكاديمية)', 'choose the budget line (e.g. workshops, or academic sessions)', 'choisissez la ligne budgétaire (ex. ateliers, ou séances académiques)')}</span>
             : <span className="desk-alert">⚠ {t3(`لا خط لهذه الوظيفة في موازنة ${centreName}: أضفه في الحسابات، أو اختر خطاً`, `no line for this position in the budget of ${centreName}: add it in the accounts, or choose one`, `pas de ligne pour ce poste dans le budget de ${centreName} : ajoutez-la en comptabilité, ou choisissez-en une`)}</span>}
           {line.line && <span className="muted small"> {own ? t3('(مختار باليد)', '(chosen by hand)', '(choisi à la main)') : t3('(تلقائياً)', '(automatic)', '(automatique)')}</span>}
@@ -451,7 +434,6 @@ function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF:
       {(open || (!line.line && !!f.centre && manage)) && (
         <div className="grid2" style={{ marginTop: 8 }}>
           <Pick label={t3('خط الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={linesFor(d.lists, f).map((l) => ({ value: lineLabel(l), label: [lineLabel(l), l.heading].filter(Boolean).join(' · ') }))} onChange={(v) => setF({ ...f, budget_line: v || null })} empty={tutor ? t3('— اختر —', '— choose —', '— choisir —') : t3('— تلقائياً حسب الوظيفة —', '— automatic, from the position —', '— automatique, selon le poste —')} />
-          <Pick label={t3('الحساب', 'Account', 'Compte')} value={f.account ?? ''} options={centreAccounts(d.lists, f).map((x) => ({ value: x.name, label: x.name }))} onChange={(v) => setF({ ...f, account: v || null })} empty={t3('— حساب المركز المعتاد —', "— the centre's usual account —", '— le compte habituel du centre —')} />
         </div>
       )}
     </div>

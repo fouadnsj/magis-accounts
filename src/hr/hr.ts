@@ -292,7 +292,7 @@ export const HR_OPS = {
         ]);
         return { id: a.id };
       }
-      await c.db.batch([{ sql: 'INSERT OR IGNORE INTO hr_list (kind, name, code, heading, party_ar, party_en, rep_ar, rep_en, city_ar, city_en) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [a.kind, name, txt(a.code), txt(a.heading), ...doc] }]);
+      await c.db.batch([{ sql: 'INSERT OR IGNORE INTO hr_list (kind, name, code, heading, party_ar, party_en, rep_ar, rep_en, city_ar, city_en, account) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [a.kind, name, txt(a.code), txt(a.heading), ...doc, txt(a.account)] }]);
       return { ok: true };
     },
   },

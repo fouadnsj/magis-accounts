@@ -32,7 +32,6 @@ import { createCommunity, type CommunitySetup } from '../src/community/setup';
 import { createCountry, type CountrySetup } from '../src/community/country';
 import { createHr, type HrListItem, type HrPerson } from '../src/hr/hr';
 import { accountFor, centreItem, lineFor } from '../src/hr/link';
-import { allocOn, splitAmount, type HrAlloc } from '../src/hr/stage4';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx } from '../src/domain/types';
@@ -995,11 +994,18 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (hrScope?.length && !hrScope.includes(centreKey)) throw new HttpError(403, { ar: 'خارج مراكزك', en: 'Outside your centres' });
       const CITY: Record<string, [string, string]> = { aleppo: ['حلب', 'Aleppo'], homs: ['حمص', 'Homs'], jaramana: ['جرمانا', 'Jaramana'] };
       const accounts = await src.handle.db.query<{ name: string }>('SELECT name FROM account WHERE active = 1 ORDER BY sort, name');
-      // the donors of each account (a project): those whose grants are for it, or for the whole centre (Fouad, 31 October
-      // 2026: the donors are the same as in the accounts and the budgets)
-      const grants = await src.handle.db.query<{ donor: string; account: string | null }>('SELECT DISTINCT d.name AS donor, a.name AS account FROM grant_card g JOIN donor d ON d.id = g.donor_id LEFT JOIN grant_part p ON p.grant_id = g.id LEFT JOIN account a ON a.id = p.account_id');
-      const donorsOf = (acc: string) => [...new Set(grants.filter((g) => g.account == null || g.account.toLowerCase() === acc.toLowerCase()).map((g) => g.donor))].sort().join(' | ') || null;
-      const lines = await src.handle.db.query<{ name: string; code: string; heading: string }>('SELECT l.name, l.code, h.name AS heading FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.active = 1 ORDER BY h.sort, l.code');
+      // the donor of each project: the donor (and contract) of its grant (Fouad, 2026-11-01: a project has one grant)
+      const grants = await src.handle.db.query<{ donor: string; reference: string | null; account: string }>('SELECT d.name AS donor, g.reference, a.name AS account FROM grant_card g JOIN donor d ON d.id = g.donor_id JOIN grant_part p ON p.grant_id = g.id JOIN account a ON a.id = p.account_id');
+      const donorsOf = (acc: string) => [...new Set(grants.filter((g) => g.account.toLowerCase() === acc.toLowerCase()).map((g) => (g.reference ? `${g.donor} ${g.reference}` : g.donor)))].sort().join(' | ') || null;
+      // each line with its project in the centre's budget (the one running today, else the latest): a salary follows it
+      const now = new Date().toISOString().slice(0, 7);
+      const budget = (await src.handle.db.query<{ id: number; start_ym: string; months: number }>('SELECT id, start_ym, months FROM budget ORDER BY start_ym, id'))
+        .reduce<{ id: number } | null>((best, b) => (now >= b.start_ym ? b : best ?? b), null);
+      const lines = await src.handle.db.query<{ name: string; code: string; heading: string; project: string | null }>(
+        `SELECT l.name, l.code, h.name AS heading,
+                (SELECT a.name FROM budget_amount x JOIN account a ON a.id = x.account_id
+                  WHERE x.line_id = l.id AND x.version_id = (SELECT v.id FROM budget_version v WHERE v.budget_id = ? ORDER BY v.rev DESC LIMIT 1)) AS project
+           FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.active = 1 ORDER BY h.sort, l.code`, [budget?.id ?? -1]);
       const stmts: Stmt[] = [
         // the centre with its mark and city; the first party and who signs are filled for Aleppo from Fouad's agreement
         // (the others are written by hand in the Lists page)
@@ -1008,6 +1014,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         ...accounts.map((a) => ({ sql: "INSERT INTO hr_list (kind, name, source) SELECT 'account', ?, ? WHERE NOT EXISTS (SELECT 1 FROM hr_list WHERE kind = 'account' AND name = ? AND source = ?)", params: [a.name, src.slug, a.name, src.slug] })),
         ...accounts.map((a) => ({ sql: "UPDATE hr_list SET donors = ? WHERE kind = 'account' AND name = ? AND source = ?", params: [donorsOf(a.name), a.name, src.slug] })),
         ...lines.map((l) => ({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source) VALUES ('line', ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug] })),
+        ...lines.map((l) => ({ sql: "UPDATE hr_list SET account = ? WHERE kind = 'line' AND source = ? AND code = ? AND name = ?", params: [l.project, src.slug, l.code, l.name] })),
       ];
       // what the centre no longer has (a line or an account switched off or removed) leaves the HR lists too
       stmts.push(
@@ -1073,12 +1080,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (run.status === 'draft') throw new HttpError(400, { ar: 'اعتمد الكشف أولاً', en: 'Approve the run first' });
       const lists = await hdb.query<HrListItem>('SELECT * FROM hr_list');
       const people = await hdb.query<HrPerson>('SELECT * FROM hr_person');
-      const allocs = await hdb.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc');
       const lines = await hdb.query<{ person_id: number; paid_in: 'USD' | 'SYP'; amount_paid: number; total_usd: number }>('SELECT person_id, paid_in, amount_paid, total_usd FROM hr_run_line WHERE run_id = ?', [run.id]);
       const sent = new Set((await hdb.query<{ centre: string }>('SELECT centre FROM hr_run_sent WHERE run_id = ?', [run.id])).map((x) => x.centre));
       const last = `${run.ym}-${String(new Date(Date.UTC(Number(run.ym.slice(0, 4)), Number(run.ym.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0')}`;
-      // every line: its centre, its account (the donor split, when it names accounts of the centre) and its budget line
-      type Part = { account: string; line: string; cur: 'USD' | 'SYP'; amount: number; usd: number; person: number };
+      // every line: its centre, its budget line, and the project of that line (none: not funded)
+      type Part = { account: string | null; line: string; cur: 'USD' | 'SYP'; amount: number; usd: number; person: number };
       const byCentre = new Map<string, Part[]>();
       const missing: string[] = [];
       for (const l of lines) {
@@ -1090,13 +1096,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const line = lineFor(lists, p).line;
         const own = accountFor(lists, p);
         if (!line) missing.push(`${who}: budget line`);
-        const split = allocOn(allocs, p.id, last);
-        const accs = lists.filter((x) => x.kind === 'account' && x.source === c.source).map((x) => x.name);
-        const parts = split.length && split.every((x) => accs.some((a) => a.toLowerCase() === x.target.toLowerCase())) ? split.map((x) => ({ acc: accs.find((a) => a.toLowerCase() === x.target.toLowerCase())!, pct: x.pct })) : own ? [{ acc: own, pct: 100 }] : [];
-        if (!parts.length) missing.push(`${who}: account`);
-        if (!line || !parts.length) continue;
-        const amounts = splitAmount(l.amount_paid, parts, l.paid_in === 'SYP' ? 0 : 2), usds = splitAmount(l.total_usd, parts);
-        parts.forEach((x, i) => byCentre.set(c.source!, [...(byCentre.get(c.source!) ?? []), { account: x.acc, line: line.code ?? line.name, cur: l.paid_in, amount: amounts[i], usd: usds[i], person: p.id }]));
+        if (!line) continue;
+        byCentre.set(c.source!, [...(byCentre.get(c.source!) ?? []), { account: own, line: line.code ?? line.name, cur: l.paid_in, amount: l.amount_paid, usd: l.total_usd, person: p.id }]);
       }
       if (missing.length) throw new HttpError(400, { ar: `ينقص: ${missing.join('، ')}`, en: `Missing: ${missing.join(' · ')}` });
       const done: { centre: string; rows: number; total_usd: number }[] = [];
@@ -1107,7 +1108,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const cl = await loadLists(cc.handle.db);
         const book = cl.settings.def_book_id ?? cl.books.find((b) => b.is_main)?.id ?? null;
         const city = cl.settings.def_city_id ?? cl.cities[0]?.id ?? null;
-        const groups = new Map<string, { account: string; line: string; cur: 'USD' | 'SYP'; amount: number; usd: number; people: Set<number> }>();
+        const groups = new Map<string, { account: string | null; line: string; cur: 'USD' | 'SYP'; amount: number; usd: number; people: Set<number> }>();
         for (const x of parts) {
           const k = JSON.stringify([x.account, x.line, x.cur]);
           const g = groups.get(k) ?? { account: x.account, line: x.line, cur: x.cur, amount: 0, usd: 0, people: new Set<number>() };
@@ -1116,10 +1117,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         }
         const what = run.kind === 'thirteenth' ? `13th payment ${run.ym.slice(0, 4)} · الدفعة الثالثة عشرة` : `Stipends ${run.ym} · مكافآت`;
         const rows = [...groups.values()].map((g) => {
-          const acc = cl.accounts.find((a) => a.name.toLowerCase() === g.account.toLowerCase());
+          // (the project of an expense comes from its line in the accounts; it is written here as the HR lists knew it)
+          const acc = g.account ? cl.accounts.find((a) => a.name.toLowerCase() === g.account!.toLowerCase()) : null;
           const bl = cl.lines.find((l) => l.code === g.line) ?? cl.lines.find((l) => l.name === g.line);
-          if (!acc || !bl) throw new HttpError(400, { ar: `غير موجود في حسابات ${slug}: ${!acc ? g.account : g.line}`, en: `Not in the accounts of ${slug}: ${!acc ? g.account : g.line}` });
-          return { ...blankTrx(), date: run.paid_on ?? last, type: 'Exp' as const, book_id: book, city_id: city, account_id: acc.id, heading_id: bl.heading_id, line_id: bl.id,
+          if (!bl) throw new HttpError(400, { ar: `غير موجود في حسابات ${slug}: ${g.line}`, en: `Not in the accounts of ${slug}: ${g.line}` });
+          return { ...blankTrx(), date: run.paid_on ?? last, type: 'Exp' as const, book_id: book, city_id: city, account_id: acc && !acc.outside_budget ? acc.id : null, heading_id: bl.heading_id, line_id: bl.id,
             explanation: `${what} · HR (${g.people.size})`, exp_syp: g.cur === 'SYP' ? Math.round(g.amount) : 0, exp_usd: g.cur === 'USD' ? Math.round(g.amount * 100) / 100 : 0, source_file: `hr-run:${run.id}` };
         });
         const ctx: OpCtx = { db: cc.handle.db, profile: { id: 0, name: `HR · ${hs.profile.name}`, role: 'com', book_id: null, active: 1, access_id: null, access_name: 'HR', perms: ['register.edit', 'register.view'], books: [] }, who: `HR · ${whoOf(hs)}`, install: 'office', files: cc.files };

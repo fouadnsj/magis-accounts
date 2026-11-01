@@ -171,6 +171,8 @@ describe('HR database', () => {
     const profiles = (await call(`/api/profiles?db=${slug}`)).body;
     const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
     await op('hr.list.save', { kind: 'centre', name: 'Test centre', code: 'other' }, ck); // a run is made for one centre
+    // the lines with their project (as copied from the centre's budget): a salary follows the project of its line
+    for (const n of ['Staff - Guards', 'Staff - Reception']) await op('hr.list.save', { kind: 'line', name: n, account: 'CJF' }, ck);
     const mk = async (name: string, extra: object) => (await op('hr.person.save', { name, started: '2026-01-01', centre: 'Test centre', ...extra }, ck)).body.id as number;
     const g = await mk('Guard One', { account: 'CJF', budget_line: 'Staff - Guards' });
     const r = await mk('Reception One', { account: 'CJF', budget_line: 'Staff - Reception' });
@@ -224,7 +226,7 @@ describe('HR database', () => {
     expect(th.map((x: { ym: string; kind: string; status: string; total_usd: number }) => [x.ym, x.kind, x.status, x.total_usd])).toEqual([['2026-12', 'thirteenth', 'draft', 410], ['2026-11', 'monthly', 'paid', 495]]);
   });
 
-  it('insurance with its reminder; split by donor or project in the voucher and the donor report', async () => {
+  it('insurance with its reminder; the voucher and the report by the project of each line (no split any more)', async () => {
     const { splitAmount, allocOn } = await import('../src/hr/stage4');
     expect(splitAmount(100, [{ pct: 33.33 }, { pct: 33.33 }, { pct: 33.34 }])).toEqual([33.33, 33.33, 33.34]);
     expect(splitAmount(10, [{ pct: 33.33 }, { pct: 66.67 }]).reduce((a, b) => a + b, 0)).toBeCloseTo(10, 5); // the parts always add up
@@ -237,7 +239,8 @@ describe('HR database', () => {
     const profiles = (await call(`/api/profiles?db=${slug}`)).body;
     const ck = (await call('/api/login', { db: slug, profileId: profiles[0].id, password: 'fouad-hr-1' }, '')).set!;
     await op('hr.list.save', { kind: 'centre', name: 'Test centre', code: 'other' }, ck); // a run is made for one centre
-    const pid = (await op('hr.person.save', { name: 'Salma', started: '2026-01-01', account: 'CJF', budget_line: 'Staff', centre: 'Test centre' }, ck)).body.id;
+    await op('hr.list.save', { kind: 'line', name: 'Staff', account: 'CJF' }, ck);
+    const pid = (await op('hr.person.save', { name: 'Salma', started: '2026-01-01', account: 'Other', budget_line: 'Staff', centre: 'Test centre' }, ck)).body.id;
     await op('hr.pay.save', { personId: pid, validFrom: '2026-01-01', monthlyUsd: 200, weeklyHours: 40 }, ck);
 
     // insurance: the person and a family member; the end date raises a reminder
@@ -250,27 +253,20 @@ describe('HR database', () => {
     expect(al).toHaveLength(1); // only the one ending within 60 days
     expect(al[0].days).toBe(41);
 
-    // the split must make 100%
-    expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'Project B', pct: 30 }] }, ck)).status).toBe(400);
-    expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'donor a', pct: 40 }] }, ck)).status).toBe(400);
-    expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 60 }, { target: 'Project B', pct: 40 }] }, ck)).status).toBe(200);
-
+    // no split any more (Fouad, 2026-11-01): the salary goes to the project of the person's line, whatever the card said
+    expect((await op('hr.alloc.save', { personId: pid, validFrom: '2026-01-01', parts: [{ target: 'Donor A', pct: 100 }] }, ck)).status).toBe(400); // no such operation
     const run = (await op('hr.run.create', { centre: 'other', ym: '2026-10', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     await op('hr.run.approve', { id: run }, ck);
     const v = (await op('hr.run.voucher', { id: run }, ck)).body;
-    expect(v.rows.map((r: { target: string; total_usd: number; amount_paid: number }) => [r.target, r.total_usd, r.amount_paid])).toEqual([['Donor A', 120, 120], ['Project B', 80, 80]]);
+    expect(v.rows.map((r: { account: string; total_usd: number; amount_paid: number }) => [r.account, r.total_usd, r.amount_paid])).toEqual([['CJF', 200, 200]]);
     expect(v.total_usd).toBe(200);
     expect(JSON.stringify(v)).not.toContain('Salma');
 
-    // from July the split changes; the report follows the date of each month
-    await op('hr.alloc.save', { personId: pid, validFrom: '2026-11-01', parts: [{ target: 'Donor A', pct: 100 }] }, ck);
+    // the report: what each project paid, month by month
     const run2 = (await op('hr.run.create', { centre: 'other', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;
     await op('hr.run.approve', { id: run2 }, ck);
-    expect((await op('hr.alloc.report', { year: 2026 }, ck)).body).toEqual([
-      { ym: '2026-10', target: 'Donor A', total_usd: 120 }, { ym: '2026-10', target: 'Project B', total_usd: 80 }, { ym: '2026-11', target: 'Donor A', total_usd: 200 },
-    ]);
-    expect((await op('hr.alloc.delete', { personId: pid, validFrom: '2026-11-01' }, ck)).status).toBe(200);
-    expect((await op('hr.alloc.list', {}, ck)).body).toHaveLength(2);
+    expect((await op('hr.alloc.report', { year: 2026 }, ck)).body).toEqual([{ ym: '2026-10', target: 'CJF', total_usd: 200 }, { ym: '2026-11', target: 'CJF', total_usd: 200 }]);
+    expect((await op('hr.alloc.list', {}, ck)).body).toEqual([]);
 
     // a reader sees none of it
     await op('user.save', { name: 'Reader', access_id: 2, books: [], pin: 'reader-pass-1' }, ck);
@@ -488,7 +484,16 @@ describe('HR database', () => {
     const hrId = (await call(`/api/profiles?db=${slug}`)).body[0].id;
     const ck = (await call('/api/login', { db: slug, profileId: hrId, password: 'fouad-hr-1' }, '')).set!;
     const post = async (url: string, body: unknown) => { const r = await fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: ck }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+    // the centre's budget: Reception has the project Center, Cleaner is not funded
+    await op('budget.create', { start_ym: '2026-01', months: 12, rate_syp: 13000, rate_eur: 0.9, from: 'empty' }, boss);
+    const bv = (await op('budget.get', {}, boss)).body.current.id;
+    const L9 = (await op('data', {}, boss)).body.lists;
+    const ln9 = (n: string) => L9.lines.find((l: { name: string }) => l.name === n).id;
+    expect((await op('budget.saveAmounts', { versionId: bv, cells: [{ line_id: ln9('Reception'), amount_usd: 4000 }, { line_id: ln9('Cleaner'), amount_usd: 2000 }] }, boss)).status).toBe(200);
+    expect((await op('budget.setFund', { versionId: bv, line_ids: [ln9('Reception')], account_id: L9.accounts.find((a: { name: string }) => a.name === 'Center').id }, boss)).status).toBe(200);
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
+    const hl = (await op('hr.data', {}, ck)).body.lists as { kind: string; name: string; account: string | null }[];
+    expect([hl.find((x) => x.kind === 'line' && x.name === 'Reception')!.account, hl.find((x) => x.kind === 'line' && x.name === 'Cleaner')!.account]).toEqual(['Center', null]);
     // a line switched off in the centre leaves the HR list at the next copy
     await op('line.add', { headingId, name: 'Old line by name' }, boss);
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
@@ -558,7 +563,8 @@ describe('HR database', () => {
     expect(lineFor(two, { ...tutor, budget_line: 'E04.1 · English courses' }).line?.code).toBe('E04.1');
     expect(lineFor(two, { ...tutor, budget_line: null }).line).toBeNull();
     expect(lineFor(two, { ...tutor, category: 'staff', budget_line: 'E04.1 · English courses' }).line).toBeNull();
-    expect(accountFor(lists, stray)).toBe('Center');
+    expect(accountFor(lists, stray)).toBeNull(); // its line, Cleaner, is not funded: the card's account does not count
+    expect(accountFor(lists, { ...stray, role: 'Reception' })).toBe('Center');
     // a person without a line that fits says what is missing
     await mk('Odd', 'Cook', 200);
     const run2 = (await op('hr.run.create', { centre: 'homs', ym: '2026-11', kind: 'monthly', rateSyp: 13000 }, ck)).body.id;

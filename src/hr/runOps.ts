@@ -8,7 +8,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import { payData } from './payOps';
 import { payOn } from './pay';
-import { allocOn, splitAmount, type HrAlloc } from './stage4';
+import { projectsOf } from './sessions';
 import { needCentre, needPerson, needRight, scopeOf } from './scope';
 import { pendingSessions, sessionLineStmts } from './sessions';
 
@@ -78,7 +78,8 @@ export const HR_RUN_OPS = {
       const d = await payData(c);
       const first = `${a.ym}-01`, last = lastDay(a.ym);
       const inCentre = "centre IN (SELECT name FROM hr_list WHERE kind = 'centre' AND code = ?)";
-      const people = await c.db.query<{ id: number; account: string | null; budget_line: string | null }>(`SELECT id, account, budget_line FROM hr_person WHERE category = 'staff' AND (started IS NULL OR started <= ?) AND (ended IS NULL OR ended >= ?) AND ${inCentre} ORDER BY name`, [last, first, centre]);
+      const projectOf = await projectsOf(c);
+      const people = await c.db.query<{ id: number; budget_line: string | null }>(`SELECT id, budget_line FROM hr_person WHERE category = 'staff' AND (started IS NULL OR started <= ?) AND (ended IS NULL OR ended >= ?) AND ${inCentre} ORDER BY name`, [last, first, centre]);
       const hours = await c.db.query<{ person_id: number; hours: number }>('SELECT person_id, hours FROM hr_hours WHERE ym = ?', [a.ym]);
       // the tutors' sessions not paid yet (Fouad, 31 October 2026), one line per tutor: worked out first, so that a
       // missing price stops before anything is written
@@ -95,16 +96,16 @@ export const HR_RUN_OPS = {
         const inPounds = cur.syp != null;
         const base = inPounds ? r2(cur.syp! / rate) : cur.monthly!;
         const { total, paid } = lineAmounts(base, 0, 0, inPounds ? 'SYP' : 'USD', rate);
-        lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, weekly_hours, hours_worked, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [runId, p.id, a.kind === 'thirteenth' ? '13th payment' : null, cur.weekly, hours.find((h) => h.person_id === p.id)?.hours ?? null, base, total, inPounds ? 'SYP' : 'USD', inPounds ? cur.syp! : paid, p.account, p.budget_line] });
+        lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, weekly_hours, hours_worked, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [runId, p.id, a.kind === 'thirteenth' ? '13th payment' : null, cur.weekly, hours.find((h) => h.person_id === p.id)?.hours ?? null, base, total, inPounds ? 'SYP' : 'USD', inPounds ? cur.syp! : paid, projectOf(p.id), p.budget_line] });
       }
       // the one-time stipend letters paid this month and not yet in a run
       if (a.kind === 'monthly') {
-        const letters = await c.db.query<{ id: number; person_id: number; service: string | null; amount: number; currency: 'USD' | 'SYP'; account: string | null; budget_line: string | null }>(
-          `SELECT s.id, s.person_id, s.service, s.amount, s.currency, p.account, p.budget_line FROM hr_paper s JOIN hr_person p ON p.id = s.person_id
+        const letters = await c.db.query<{ id: number; person_id: number; service: string | null; amount: number; currency: 'USD' | 'SYP'; budget_line: string | null }>(
+          `SELECT s.id, s.person_id, s.service, s.amount, s.currency, p.budget_line FROM hr_paper s JOIN hr_person p ON p.id = s.person_id
             WHERE s.kind = 'stipend' AND s.deleted_at IS NULL AND s.amount IS NOT NULL AND s.paid_on >= ? AND s.paid_on <= ? AND s.id NOT IN (SELECT paper_id FROM hr_run_line WHERE paper_id IS NOT NULL) AND p.${inCentre}`, [first, last, centre]);
         for (const s of letters) {
           const usd = s.currency === 'USD' ? s.amount : r2(s.amount / rate);
-          lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, paper_id, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [runId, s.person_id, `Stipend: ${s.service ?? ''}`, s.id, usd, usd, s.currency, s.amount, s.account, s.budget_line] });
+          lines.push({ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, paper_id, base_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [runId, s.person_id, `Stipend: ${s.service ?? ''}`, s.id, usd, usd, s.currency, s.amount, projectOf(s.person_id), s.budget_line] });
         }
       }
       await c.db.batch([...lines, ...ses.stmts, auditStmt(c.who, 'add', 'hr_run', String(runId), null, { ym: a.ym, kind: a.kind, lines: lines.length + ses.lines })]);
@@ -136,7 +137,7 @@ export const HR_RUN_OPS = {
     run: async (c: OpCtx, a: { runId: number; personId: number; label: string; baseUsd?: number; bonusUsd?: number }) => {
       const run = await runOf(c, a.runId);
       needDraft(run);
-      const p = await one<{ account: string | null; budget_line: string | null; code: string | null }>(c.db, "SELECT p.account, p.budget_line, l.code FROM hr_person p LEFT JOIN hr_list l ON l.kind = 'centre' AND l.name = p.centre WHERE p.id = ?", [a.personId]);
+      const p = await one<{ budget_line: string | null; code: string | null }>(c.db, "SELECT p.budget_line, l.code FROM hr_person p LEFT JOIN hr_list l ON l.kind = 'centre' AND l.name = p.centre WHERE p.id = ?", [a.personId]);
       if (!p) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
       await needPerson(c, a.personId);
       if (run.centre && p.code !== run.centre) throw new UserError(m('هذا الشخص من مركز آخر', 'This person belongs to another centre', 'Cette personne est d’un autre centre'));
@@ -145,7 +146,7 @@ export const HR_RUN_OPS = {
       const base = num(a.baseUsd), bonus = num(a.bonusUsd);
       if (base < 0 || bonus < 0) throw new UserError(m('مبلغ غير صالح', 'Not a valid amount', 'Montant non valide'));
       const { total, paid } = lineAmounts(base, bonus, 0, 'USD', run.rate_syp);
-      await c.db.batch([{ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, base_usd, bonus_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [a.runId, a.personId, label, base, bonus, total, 'USD', paid, p.account, p.budget_line] }, auditStmt(c.who, 'add', 'hr_run_line', null, null, { run: a.runId, person: a.personId, total })]);
+      await c.db.batch([{ sql: 'INSERT INTO hr_run_line (run_id, person_id, label, base_usd, bonus_usd, total_usd, paid_in, amount_paid, account, budget_line) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [a.runId, a.personId, label, base, bonus, total, 'USD', paid, (await projectsOf(c))(a.personId), p.budget_line] }, auditStmt(c.who, 'add', 'hr_run_line', null, null, { run: a.runId, person: a.personId, total })]);
       return { ok: true };
     },
   },
@@ -206,21 +207,15 @@ export const HR_RUN_OPS = {
     run: async (c: OpCtx, a: { id: number }) => {
       const run = await runOf(c, a.id);
       if (run.status === 'draft') throw new UserError(m('اعتمد الكشف أولاً', 'Approve the run first', "Approuvez d'abord la paie"));
-      // each line is split by the donor or project percentages of its person (on the last day of the month); totals only
+      // totals by project (the project of each line's budget line), budget line and currency
       const lines = await c.db.query<{ person_id: number; account: string | null; budget_line: string | null; paid_in: 'USD' | 'SYP'; total_usd: number; amount_paid: number }>('SELECT person_id, account, budget_line, paid_in, total_usd, amount_paid FROM hr_run_line WHERE run_id = ?', [a.id]);
-      const allocs = await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc');
       const acc = new Map<string, HrVoucherRow>();
       for (const l of lines) {
-        const parts = allocOn(allocs, l.person_id, lastDay(run.ym));
-        const usds = parts.length ? splitAmount(l.total_usd, parts) : [l.total_usd];
-        const paids = parts.length ? splitAmount(l.amount_paid, parts, l.paid_in === 'SYP' ? 0 : 2) : [l.amount_paid];
-        (parts.length ? parts.map((p) => p.target) : [null]).forEach((target, i) => {
-          const key = JSON.stringify([l.account, l.budget_line, target, l.paid_in]);
-          const row = acc.get(key) ?? { account: l.account, budget_line: l.budget_line, target, paid_in: l.paid_in, total_usd: 0, amount_paid: 0 };
-          row.total_usd = r2(row.total_usd + usds[i]);
-          row.amount_paid = r2(row.amount_paid + paids[i]);
-          acc.set(key, row);
-        });
+        const key = JSON.stringify([l.account, l.budget_line, l.paid_in]);
+        const row = acc.get(key) ?? { account: l.account, budget_line: l.budget_line, target: null, paid_in: l.paid_in, total_usd: 0, amount_paid: 0 };
+        row.total_usd = r2(row.total_usd + l.total_usd);
+        row.amount_paid = r2(row.amount_paid + l.amount_paid);
+        acc.set(key, row);
       }
       const key = (x: string | null) => x ?? '';
       const rows = [...acc.values()].sort((p, q) => key(p.account).localeCompare(key(q.account)) || key(p.budget_line).localeCompare(key(q.budget_line)) || key(p.target).localeCompare(key(q.target)) || p.paid_in.localeCompare(q.paid_in));

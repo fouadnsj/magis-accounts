@@ -13,6 +13,7 @@ import { BackupsTab, HR_ROWS, RolesTab } from './Roles';
 import { partyOf } from '../docs';
 import { SessionPriceTab } from './Sessions';
 import { SignAsButton } from '../../ui/SignAs';
+import { GuideLink } from '../../guide/GuideView';
 
 type Tab = 'lists' | 'checks' | 'price' | 'leave' | 'users' | 'roles' | 'backups';
 
@@ -33,7 +34,7 @@ export function ListsPage({ s, d, reload, r }: { s: Session; d: HrData; reload: 
   const [tab, setTab] = useState<Tab>(tabs[0]?.[0] ?? 'lists');
   return (
     <>
-      <div className="hr-head"><div><div className="hr-eyebrow">{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</div><h1>{t3('الإعدادات', 'Settings', 'Réglages')}</h1></div></div>
+      <div className="hr-head"><div><div className="hr-eyebrow">{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</div><h1>{t3('الإعدادات', 'Settings', 'Réglages')}<GuideLink id="hr-settings" /></h1></div></div>
       <div className="hr-sheet" style={{ padding: '0 12px', borderTopWidth: 1, marginBottom: 14 }}><div className="hr-tabs">{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div></div>
       {tab === 'lists' && <ListsTab s={s} d={d} reload={reload} />}
       {tab === 'checks' && <ChecksTab s={s} d={d} reload={reload} />}

@@ -16,6 +16,7 @@ import { hourlyWithThirteenth, payOn, yearlyCost } from '../pay';
 import { allocOn, type HrAlloc } from '../stage4';
 import { accountFor, centreAccounts } from '../link';
 import { SortTh, TwoNames, centreOf, centreVars, fail, markOf, sortRows, usd, useSort } from './common';
+import { GuideLink } from '../../guide/GuideView';
 
 type Dim = 'centre' | 'position' | 'project' | 'donor' | 'currency' | 'year';
 type Measure = 'monthly' | 'yearly' | 'people' | 'weekly' | 'hour';
@@ -158,7 +159,7 @@ export function ReportsPage({ s, hr, pd, open, sup }: { s: Session; hr: HrData; 
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('اختر ما تقيسه وكيف تجمعه', 'Choose what to measure and how to group it', 'Choisissez quoi mesurer et comment regrouper')}</div><h1>{t3('التقارير', 'Reports', 'Rapports')}</h1></div>
+        <div><div className="hr-eyebrow">{t3('اختر ما تقيسه وكيف تجمعه', 'Choose what to measure and how to group it', 'Choisissez quoi mesurer et comment regrouper')}</div><h1>{t3('التقارير', 'Reports', 'Rapports')}<GuideLink id="hr-funding" /></h1></div>
         <button className="btn gold" onClick={() => void download()}>⬇ {t3('Excel لما يظهر', 'Excel of what is shown', 'Excel de ce qui est affiché')}</button>
       </div>
       <div className="hr-explore">

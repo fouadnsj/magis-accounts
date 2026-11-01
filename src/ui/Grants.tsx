@@ -8,6 +8,7 @@ import { GRANT_STEPS, grantFlows, type GrantCard, type GrantStep } from '../doma
 import { Field, Modal, Seg, Select, confirmBox, errText, fmtDate, fmtUsd, parseAmount, promptBox, t, toast, todayIso } from './kit';
 import { CENTRES, centreStyle, type CentreKey } from '../brand';
 import { tx } from '../i18n';
+import { GuideLink } from '../guide/GuideView';
 
 const STEP_LABEL: Record<GrantStep, () => string> = {
   promised: () => t('موعودة', 'Promised'),
@@ -53,7 +54,7 @@ export function Grants() {
   return (
     <>
       <div className="page-head">
-        <h1>{t('المنح', 'Grants')}</h1>
+        <h1>{t('المنح', 'Grants')}<GuideLink id="grants" /></h1>
         <div className="row">
           <label className="row small"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> {t('مع المنح المصروفة كلها', 'Include fully spent grants')}</label>
           <div style={{ minWidth: 170 }} className="field"><Select value={donorF} options={d.lists.donors.map((x) => ({ value: x.id, label: x.name }))} onChange={setDonorF} placeholder={t('كل المانحين', 'All donors')} /></div>

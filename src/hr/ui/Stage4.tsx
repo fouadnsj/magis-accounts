@@ -12,6 +12,7 @@ import type { HrPayData } from '../payOps';
 import { payOn } from '../pay';
 import { accountFor, centreAccounts } from '../link';
 import { SortTh, TwoNames, sortRows, useSort } from './common';
+import { GuideLink } from '../../guide/GuideView';
 
 const fail = (e: unknown) => toast(errText(e), true);
 const usd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -35,7 +36,7 @@ export function InsurancePage({ s, hr, only }: { s: Session; hr: HrData; /** one
   const people = only ? hr.people.filter((p) => p.id === only) : hr.people.filter((p) => rows.some((r) => r.person_id === p.id));
   return (
     <>
-      {!only && <div className="hr-head"><div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')}</div><h1>{t3('التأمين الصحي', 'Health insurance', 'Assurance maladie')}</h1></div><button className="btn gold" onClick={() => setEdit({ row: null, personId: null, family: false })}>＋ {t3('تأمين', 'Add an insurance', 'Ajouter une assurance')}</button></div>}
+      {!only && <div className="hr-head"><div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')}</div><h1>{t3('التأمين الصحي', 'Health insurance', 'Assurance maladie')}<GuideLink id="hr-funding" /></h1></div><button className="btn gold" onClick={() => setEdit({ row: null, personId: null, family: false })}>＋ {t3('تأمين', 'Add an insurance', 'Ajouter une assurance')}</button></div>}
       <p className="muted small">{t3('يُدفع سنوياً، بالدولار أو بالليرة. تأمين الموظف نفسه تدفعه المؤسسة، وتأمين عائلته يدفعه هو، ويُسجَّل منفصلاً. يظهر تنبيه قبل انتهائه بـ 60 يوماً.', "Paid yearly, in USD or SYP. The staff member's own insurance is paid by the centre; the family's is paid by the staff member and is kept apart. A reminder appears 60 days before it ends.", "Payée chaque année, en USD ou en SYP. L'assurance du membre du personnel est payée par le centre ; celle de sa famille par lui, et elle est séparée. Un rappel apparaît 60 jours avant la fin.")}</p>
       {people.map((p) => {
         const mine = rows.filter((r) => r.person_id === p.id);
@@ -140,7 +141,7 @@ export function DonorsPage({ s, hr, pd, open }: { s: Session; hr: HrData; pd: Hr
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('كما في المحاسبة والموازنات', 'As in the accounts and the budgets', 'Comme en comptabilité et dans les budgets')}</div><h1>{t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement')}</h1></div>
+        <div><div className="hr-eyebrow">{t3('كما في المحاسبة والموازنات', 'As in the accounts and the budgets', 'Comme en comptabilité et dans les budgets')}</div><h1>{t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement')}<GuideLink id="hr-funding" /></h1></div>
         <div className="desk-filters">
           <button className={`btn small ${tab === 'today' ? 'primary' : ''}`} onClick={() => setTab('today')}>{t3('من يموّل من (اليوم)', 'Who funds whom (today)', "Qui finance qui (aujourd'hui)")}</button>
           <button className={`btn small ${tab === 'paid' ? 'primary' : ''}`} onClick={() => setTab('paid')}>{t3('ما دُفع شهراً بشهر', 'What was paid, month by month', 'Ce qui a été payé, mois par mois')}</button>

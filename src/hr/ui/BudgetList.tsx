@@ -9,6 +9,7 @@ import { t3 } from '../../community/ui/text';
 import type { HrData } from '../hr';
 import type { HrBudgetRow } from '../payOps';
 import { centreLabel, centreOf, centreVars, fail, markOf, usd } from './common';
+import { GuideLink } from '../../guide/GuideView';
 
 export function BudgetListPage({ s, hr, centre }: { s: Session; hr: HrData; /** the centre chosen at the top */ centre?: string | null }) {
   const [year, setYear] = useState(new Date().getFullYear() + 1);
@@ -43,7 +44,7 @@ export function BudgetListPage({ s, hr, centre }: { s: Session; hr: HrData; /** 
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('من الموارد البشرية إلى المالية', 'From HR to finance', 'Des RH aux finances')}</div><h1>{t3('قائمة الفريق للموازنة', 'Staff list for the budget', 'Liste du personnel pour le budget')}</h1></div>
+        <div><div className="hr-eyebrow">{t3('من الموارد البشرية إلى المالية', 'From HR to finance', 'Des RH aux finances')}</div><h1>{t3('قائمة الفريق للموازنة', 'Staff list for the budget', 'Liste du personnel pour le budget')}<GuideLink id="hr-funding" /></h1></div>
         <div className="desk-filters">
           <input type="number" style={{ width: 90 }} value={year} onChange={(e) => setYear(Number(e.target.value))} />
           <button className="btn gold" disabled={!data?.rows.length} onClick={download}>{t3('تنزيل Excel للمالية', 'Download Excel for finance', 'Télécharger Excel pour les finances')}</button>

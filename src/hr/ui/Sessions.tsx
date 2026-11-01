@@ -15,6 +15,7 @@ import { rateOf } from '../pay';
 import { priceOn, type HrSession, type HrSessionPrice } from '../sessions';
 import { TwoNames, centreOf, centreVars, codeOf, fail, markOf, usd, type HrRights } from './common';
 import { has } from '../../auth';
+import { GuideLink } from '../../guide/GuideView';
 
 interface Month { sessions: HrSession[]; prices: HrSessionPrice[]; activities: string[] }
 
@@ -131,7 +132,7 @@ export function SessionsPage({ s, hr, pd, open, addTutor, r: rt }: { s: Session;
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('المدرّبون والمنشّطون', 'Tutors and animators', 'Animateurs et tuteurs')}</div><h1>{t3('الجلسات', 'Sessions', 'Séances')} · {monthLabel(ym)}</h1></div>
+        <div><div className="hr-eyebrow">{t3('المدرّبون والمنشّطون', 'Tutors and animators', 'Animateurs et tuteurs')}</div><h1>{t3('الجلسات', 'Sessions', 'Séances')} · {monthLabel(ym)}<GuideLink id="hr-sessions" /></h1></div>
         <div className="desk-filters">
           <MonthNav ym={ym} set={setYm} />
           {see && <button className="btn" disabled={!sessions.length} onClick={download}>⬇ Excel</button>}

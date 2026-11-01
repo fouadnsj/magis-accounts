@@ -22,8 +22,10 @@ import { ReportsPage } from './Reports';
 import { SessionsPage } from './Sessions';
 import { rightsOf, SortTh, TwoNames, centreLabel, centreOf, centreVars, chooseScan, codeOf, fail, markOf, openScan, centreChoices, sortRows, usd, useSort } from './common';
 import './hr.css';
+import { GuideCtx, GuideLink, GuideView } from '../../guide/GuideView';
+import { HR_GUIDE } from '../../guide/content';
 
-type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'sessions' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log';
+type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'sessions' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log' | 'guide';
 
 interface Ctx { s: Session; d: HrData; reload: () => Promise<void>; open: (p: HrPerson) => void }
 
@@ -41,6 +43,7 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
   const [all, setAll] = useState<HrData | null>(null);
   const [pd, setPd] = useState<HrPayData | null>(null);
   const [page, setPage] = useState<Page>('home');
+  const [guideSection, setGuideSection] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [personId, setPersonId] = useState<number | 'new' | null>(null);
   // a new person: staff (with an agreement) or tutor (paid by session)
@@ -72,6 +75,7 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
   const item = (p: Page, label: string, badge?: number) => <button key={p} className={page === p || (p === 'people' && page === 'person') ? 'on' : ''} onClick={() => go(p)}><span>{label}</span>{badge ? <i className="hr-badge">{badge}</i> : null}</button>;
   const person = typeof personId === 'number' ? all.people.find((p) => p.id === personId) ?? null : null;
   return (
+    <GuideCtx.Provider value={(id) => { setGuideSection(id); go('guide'); }}>
     <div className="hr">
       <nav className="hr-side">
         <div className="hr-side-top">
@@ -93,6 +97,7 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
         {item('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'))}
         {(manage || rt.scale || rt.users || rt.backups) && item('lists', t3('الإعدادات', 'Settings', 'Réglages'))}
         {vault && item('log', t3('سجل فتح الوثائق', 'Document log', 'Journal des documents'))}
+        {item('guide', `📖 ${t3('الدليل', 'Guide', 'Guide')}`)}
         <div className="spacer" />
         <div className="sun"><img src="/brand/magis-sun.png" alt="" /></div>
         {onDatabases && <button onClick={onDatabases}>{t3('قواعد البيانات', 'Databases', 'Bases de données')}</button>}
@@ -123,8 +128,10 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'lists' && <ListsPage s={session} d={all} reload={reload} r={rt} />}
         {page === 'log' && <Log s={session} d={all} />}
+        {page === 'guide' && <><div className="hr-head"><div><div className="hr-eyebrow">{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</div><h1>📖 {t3('الدليل', 'Guide', 'Guide')}</h1></div></div><GuideView key={guideSection ?? ''} sections={HR_GUIDE} initial={guideSection} /></>}
       </main>
     </div>
+    </GuideCtx.Provider>
   );
 }
 
@@ -140,7 +147,7 @@ function Home({ d, pd, open, go, centres, choose }: Ctx & { pd: HrPayData | null
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('الرهبانية اليسوعية · مراكز ماجيس', 'Society of Jesus · MAGIS centres', 'Compagnie de Jésus · centres MAGIS')}</div><h1>{hour < 12 ? t3('صباح الخير', 'Good morning', 'Bonjour') : t3('مساء الخير', 'Good evening', 'Bonsoir')}</h1></div>
+        <div><div className="hr-eyebrow">{t3('الرهبانية اليسوعية · مراكز ماجيس', 'Society of Jesus · MAGIS centres', 'Compagnie de Jésus · centres MAGIS')}</div><h1>{hour < 12 ? t3('صباح الخير', 'Good morning', 'Bonjour') : t3('مساء الخير', 'Good evening', 'Bonsoir')}<GuideLink id="hr-start" /></h1></div>
       </div>
       <div className="hr-people" style={{ marginBottom: 16 }}>
         {(shown.length ? shown : centres).map((c) => {
@@ -211,7 +218,7 @@ function People({ d, pd, open, manage, add }: Ctx & { pd: HrPayData | null; mana
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('المتطوعون والفريق', 'Volunteers and team', 'Bénévoles et équipe')}</div><h1>{t3('الأشخاص', 'People', 'Personnes')} <span className="muted" style={{ fontSize: 15, fontWeight: 400 }}>· {rows.length}</span></h1></div>
+        <div><div className="hr-eyebrow">{t3('المتطوعون والفريق', 'Volunteers and team', 'Bénévoles et équipe')}</div><h1>{t3('الأشخاص', 'People', 'Personnes')} <span className="muted" style={{ fontSize: 15, fontWeight: 400 }}>· {rows.length}</span><GuideLink id="hr-start" /></h1></div>
         <div className="desk-filters">
           <input placeholder={t3('بحث…', 'Search…', 'Chercher…')} value={q} onChange={(e) => setQ(e.target.value)} />
           <select value={sort.key} onChange={(e) => sort.by(e.target.value as PeopleSort)} title={t3('الترتيب', 'Order', 'Ordre')}>
@@ -320,7 +327,7 @@ function Conduct({ s, d, reload, manage, open }: Ctx & { manage: boolean }) {
   };
   return (
     <>
-      <div className="hr-head"><div><div className="hr-eyebrow">{t3('ما نلتزم به معاً', 'What we commit to together', 'Ce à quoi nous nous engageons ensemble')}</div><h1>{t3('مدونة السلوك', 'Code of conduct', 'Code de conduite')}</h1></div>{manage && <button className="btn primary" onClick={() => setForm({ version: '', validFrom: todayIso(), note: '' })}>＋ {t3('نسخة جديدة', 'New version', 'Nouvelle version')}</button>}</div>
+      <div className="hr-head"><div><div className="hr-eyebrow">{t3('ما نلتزم به معاً', 'What we commit to together', 'Ce à quoi nous nous engageons ensemble')}</div><h1>{t3('مدونة السلوك', 'Code of conduct', 'Code de conduite')}<GuideLink id="hr-person" /></h1></div>{manage && <button className="btn primary" onClick={() => setForm({ version: '', validFrom: todayIso(), note: '' })}>＋ {t3('نسخة جديدة', 'New version', 'Nouvelle version')}</button>}</div>
       <div className="cty-card desk-scroll">
         <table className="desk-table">
           <thead><tr><th>{t3('النسخة', 'Version', 'Version')}</th><th>{t3('سارية من', 'In force from', 'En vigueur depuis')}</th><th>{t3('النص', 'Text', 'Texte')}</th></tr></thead>
@@ -384,7 +391,7 @@ function Log({ s, d }: { s: Session; d: HrData }) {
   const verb = useMemo(() => ({ open: t3('فتح', 'opened', 'a ouvert'), add: t3('أضاف', 'added', 'a ajouté'), delete: t3('أزال', 'removed', 'a retiré'), edit: t3('عدّل', 'edited', 'a modifié') } as Record<string, string>), []);
   return (
     <>
-      <div className="desk-head"><h1>{t3('سجل فتح الوثائق', 'Log of document openings', "Journal d'ouverture des documents")}</h1></div>
+      <div className="desk-head"><h1>{t3('سجل فتح الوثائق', 'Log of document openings', "Journal d'ouverture des documents")}<GuideLink id="hr-person" /></h1></div>
       <div className="cty-card desk-scroll">
         <table className="desk-table">
           <thead><tr><th>{t3('متى', 'When', 'Quand')}</th><th>{t3('من', 'Who', 'Qui')}</th><th>{t3('ماذا', 'What', 'Quoi')}</th><th>{t3('الشخص', 'Person', 'Personne')}</th></tr></thead>

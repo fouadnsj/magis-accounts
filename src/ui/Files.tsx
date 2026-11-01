@@ -5,13 +5,14 @@ import type { ImportReport } from '../io/importWorkbook';
 import { pickFile, saveFile, toBase64 } from '../platform';
 import { Field, Select, confirmBox, errText, t, toast, todayIso } from './kit';
 import { MigrationReport } from './Welcome';
+import { GuideLink } from '../guide/GuideView';
 
 // Export to Excel (and, on an empty database, starting from the Excel workbook).
 // Everybody works in the same database (the server), so no files go between holders and the office.
 export function Files() {
   return (
     <>
-      <div className="page-head"><h1>{t('التصدير', 'Export')}</h1></div>
+      <div className="page-head"><h1>{t('التصدير', 'Export')}<GuideLink id="admin" /></h1></div>
       <OfficeFiles />
     </>
   );

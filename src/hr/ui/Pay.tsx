@@ -10,6 +10,7 @@ import type { HrData, HrPerson } from '../hr';
 import type { HrGrade, HrPayData } from '../payOps';
 import { monthlyHours, payOn, yearlyCost } from '../pay';
 import { SortTh, TwoNames, centreLabel, centreOf, centreVars, codeOf, fail, markOf, centreChoices, sortRows, usd, useSort } from './common';
+import { GuideLink } from '../../guide/GuideView';
 
 export { payOn };
 
@@ -66,7 +67,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
   return (
     <>
       <div className="hr-head">
-        <div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')} · {centreLabel(hr, code)}</div><h1>{t3('سلّم الرواتب', 'Salary scale', 'Échelle des gratifications')}</h1></div>
+        <div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')} · {centreLabel(hr, code)}</div><h1>{t3('سلّم الرواتب', 'Salary scale', 'Échelle des gratifications')}<GuideLink id="hr-scale" /></h1></div>
         <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           {!centre && centres.length > 1 && <select value={pick ?? ''} onChange={(e) => setPick(e.target.value || null)}>{centres.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}{!hr.scope && <option value="">{t3('المشترك بين كل المراكز', 'Shared by every centre', 'Commun à tous les centres')}</option>}</select>}
           {edit && code && <button className="btn" onClick={() => setCopy(true)}>{t3('نسخ سلّم آخر…', 'Copy another scale…', 'Copier une autre échelle…')}</button>}

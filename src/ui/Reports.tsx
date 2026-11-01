@@ -15,6 +15,7 @@ import { catIcon } from './catIcons';
 import { centreStyle } from '../brand';
 import { projectXlsx } from '../io/projectExcel';
 import { saveFile } from '../platform';
+import { GuideLink } from '../guide/GuideView';
 
 type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'all' | 'funding' | 'exchange';
 
@@ -56,7 +57,7 @@ export function Reports() {
   return (
     <>
       <div className="page-head">
-        <h1>{t('التقارير', 'Reports')}</h1>
+        <h1>{t('التقارير', 'Reports')}<GuideLink id="reports" /></h1>
         {period}
       </div>
       <Tabs value={tab} onChange={setTab} tabs={[

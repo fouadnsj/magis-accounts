@@ -17,6 +17,7 @@ import { TwoNames, centreOf, centreVars, chooseScan, codeOf, fail, headOf, markO
 import { accountFor, lineFor, lineLabel, linesFor } from '../link';
 import { TutorSessions } from './Sessions';
 import { priceOn, type HrSession, type HrSessionPrice } from '../sessions';
+import { GuideLink } from '../../guide/GuideView';
 
 type Section = 'overview' | 'identity' | 'sessions' | 'agreement' | 'letters' | 'insurance' | 'documents' | 'checklist' | 'conduct';
 
@@ -66,6 +67,7 @@ export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & {
             <TwoNames p={person} big />
             <div className="sub">{[tutor ? `🎓 ${t3('مدرّب، بالجلسة', 'Tutor, paid by session', 'Animateur, à la séance')}${person.activity ? ` · ${person.activity}` : ''}` : person.role ? (x.d.positionsAr[person.role] ? `${x.d.positionsAr[person.role]} · ${person.role}` : person.role) : null, person.centre].filter(Boolean).join(' · ') || '—'}{!person.active ? ` · ${t3('غادر', 'left', 'parti')} ${fmtDate(person.ended)}` : ''}</div>
           </div>
+          <GuideLink id="hr-person" />
           <img className="jesuit" src="/brand/jesuits.png" alt="" />
         </div>
       </div>
@@ -270,7 +272,7 @@ function NewPerson({ preset, kind: kind0, onBack, onOpen, ...x }: P & { preset: 
   return (
     <div style={centreVars(key)}>
       <button className="link" onClick={onBack}>‹ {t3('الأشخاص', 'People', 'Personnes')}</button>
-      <div className="hr-head" style={{ marginTop: 8 }}><div><div className="hr-eyebrow">{tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}</div><h1>{person ? <TwoNames p={person} /> : tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}</h1></div></div>
+      <div className="hr-head" style={{ marginTop: 8 }}><div><div className="hr-eyebrow">{tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}</div><h1>{person ? <TwoNames p={person} /> : tutor ? t3('مدرّب جديد', 'New tutor', 'Nouvel animateur') : t3('شخص جديد', 'New person', 'Nouvelle personne')}<GuideLink id="hr-start" /></h1></div></div>
       <div className="hr-steps">{steps.map((t, i) => <span key={t} className={step === i + 1 ? 'on' : step > i + 1 ? 'done' : ''}>{step > i + 1 ? '✓ ' : `${i + 1}. `}{t}</span>)}</div>
       {step === 1 && <Essentials key={again} {...x} preset={preset} kind={kind} setKind={setKind} onMade={(p) => { setMade(p); setStep(2); }} />}
       {tutor && step > last && person && (

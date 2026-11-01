@@ -11,6 +11,7 @@ import { needsApproval } from '../ops';
 import { PersonIcon } from './icons';
 import { rateOn } from '../domain/compute';
 import { Envelopes } from './Envelopes';
+import { GuideLink } from '../guide/GuideView';
 
 /** The sign of each kind of movement on its button. */
 export const TYPE_ICON: Record<TrxType, string> = { Exp: '−', Income: '+', Transfer: '⇄', Exchange: '💱' };
@@ -84,7 +85,7 @@ export function Home() {
   return (
     <>
       <div className="page-head">
-        <h1>{t('الرئيسية', 'Home')}</h1>
+        <h1>{t('الرئيسية', 'Home')}<GuideLink id="start" /></h1>
         <span className="muted small">
           {d.rows.length} {t('سطر', 'rows')} · {t('آخر تاريخ', 'last date')} {fmtDate(last)}
         </span>

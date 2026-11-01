@@ -6,6 +6,7 @@ import { TYPE_LABEL, tx } from '../i18n';
 import { TYPES, type Trx } from '../domain/types';
 import { useNav } from './Shell';
 import { Select, fmtDate, fmtRate, fmtSyp, fmtUsd, t } from './kit';
+import { GuideLink } from '../guide/GuideView';
 
 const ROW_H = 30;
 
@@ -182,7 +183,7 @@ export function Register() {
   return (
     <>
       <div className="page-head">
-        <h1>{limited ? t('قيودي', 'My entries') : t('السجل', 'Register')}</h1>
+        <h1>{limited ? t('قيودي', 'My entries') : t('السجل', 'Register')}<GuideLink id="register" /></h1>
         <div className="row">
           <span className="muted small">{rows.length} / {d.rows.length}</span>
           <button className="btn" onClick={() => setColsOpen(!colsOpen)}>☰ {t('الأعمدة', 'Columns')}</button>

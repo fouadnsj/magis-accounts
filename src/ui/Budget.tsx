@@ -24,6 +24,7 @@ import { monthWord } from '../i18n';
 import { pickFile } from '../platform';
 import { workbookGrids, type Grid } from '../io/budgetSheet';
 import { Field, Modal, Select, Seg, Tabs, confirmBox, errText, fmtPct, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast } from './kit';
+import { GuideLink } from '../guide/GuideView';
 
 type Tab = 'follow' | 'edit' | 'funds';
 
@@ -74,7 +75,7 @@ export function BudgetPage() {
   return (
     <>
       <div className="page-head">
-        <h1>{t('الموازنة', 'Budget')}</h1>
+        <h1>{t('الموازنة', 'Budget')}<GuideLink id="budget" /></h1>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           {b && b.budgets.length > 0 && (
             <select className="inp" style={{ width: 'auto', minWidth: 220 }} value={creating ? '' : b.budget?.id ?? ''} onChange={(e) => { setCreating(false); setBudgetId(Number(e.target.value)); }}>

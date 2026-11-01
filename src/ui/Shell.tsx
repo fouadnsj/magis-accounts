@@ -15,6 +15,7 @@ import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
 import { Guide } from './Guide';
+import { GuideCtx } from '../guide/GuideView';
 import { draftFor, draftKey } from './draft';
 import { PhoneShell } from './Phone';
 
@@ -50,6 +51,7 @@ export const useNav = () => useContext(NavCtx)!;
 export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void }) {
   const { s, d, logout, can, myBooks, limited } = useApp();
   const [page, setPage] = useState<Page>('home');
+  const [guideSection, setGuideSection] = useState<string | null>(null);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [bookOnly, setBookOnly] = useState<number | null>(null);
   // an entry left half-typed at a sign-out for inactivity comes back
@@ -88,16 +90,16 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
   const phone = pref === 'phone' || (narrow && pref !== 'pc');
   if (phone)
     return (
-      <NavCtx.Provider value={nav}>
+      <NavCtx.Provider value={nav}><GuideCtx.Provider value={(id) => { setGuideSection(id); nav.go('guide'); }}>
         <div style={theme}>
           <PhoneShell onComputer={() => choose('pc')} onToggleLang={onToggleLang} onCloseDb={onCloseDb} onDatabases={onDatabases} onEntry={openEntry} />
           {editing && <EntryForm key={formKey} start={editing} onClose={() => setEditing(null)} onCopy={openEntry} />}
         </div>
-      </NavCtx.Provider>
+      </GuideCtx.Provider></NavCtx.Provider>
     );
 
   return (
-    <NavCtx.Provider value={nav}>
+    <NavCtx.Provider value={nav}><GuideCtx.Provider value={(id) => { setGuideSection(id); nav.go('guide'); }}>
       <div style={theme}>
       <div className="shell">
         <nav className={`side ${menuOpen ? 'open' : ''}`} onClick={(e) => (e.target as HTMLElement).closest('button:not(.menu-toggle)') && setMenuOpen(false)}>
@@ -141,11 +143,11 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases }: { onCloseDb: () 
           {page === 'lists' && <ListsPage />}
           {page === 'files' && <Files />}
           {page === 'admin' && <Admin />}
-          {page === 'guide' && <Guide />}
+          {page === 'guide' && <Guide section={guideSection} />}
         </main>
       </div>
       {editing && <EntryForm key={formKey} start={editing} onClose={() => setEditing(null)} onCopy={openEntry} />}
       </div>
-    </NavCtx.Provider>
+    </GuideCtx.Provider></NavCtx.Provider>
   );
 }

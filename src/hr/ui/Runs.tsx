@@ -17,6 +17,7 @@ import type { CentreKey } from '../../brand';
 import { t3 } from '../../community/ui/text';
 import type { HrData } from '../hr';
 import type { HrRun, HrRunLine, HrVoucherRow } from '../runOps';
+import { GuideLink } from '../../guide/GuideView';
 
 const fail = (e: unknown) => toast(errText(e), true);
 const usd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -38,7 +39,7 @@ export function RunsPage({ s, hr, centre, pd }: { s: Session; hr: HrData; /** th
   const shown = sortRows((runs ?? []).filter((r) => !centre || r.centre === centre || r.centre == null), (r) => (sort.key === 'month' ? r.ym : sort.key === 'centre' ? centreLabel(hr, r.centre) : sort.key === 'kind' ? r.kind : sort.key === 'lines' ? r.lines : sort.key === 'total' ? r.total_usd : r.status), sort.dir);
   return (
     <>
-      <div className="desk-head"><h1>{t3('كشوف الرواتب', 'Payroll runs', 'Paies')}{centre ? ` · ${centreLabel(hr, centre)}` : ''}</h1>{has(s.profile, 'hr.pay') && <button className="btn primary" onClick={() => setForm(true)}>＋ {t3('كشف جديد', 'New run', 'Nouvelle paie')}</button>}</div>
+      <div className="desk-head"><h1>{t3('كشوف الرواتب', 'Payroll runs', 'Paies')}{centre ? ` · ${centreLabel(hr, centre)}` : ''}<GuideLink id="hr-payroll" /></h1>{has(s.profile, 'hr.pay') && <button className="btn primary" onClick={() => setForm(true)}>＋ {t3('كشف جديد', 'New run', 'Nouvelle paie')}</button>}</div>
       <p className="muted small">{t3('لكل مركز كشفه في كل شهر، بسعر الدولار الخاص به، ويعتمده الرئيس.', 'Each centre has its own run every month, with its own dollar rate; the Superior approves it.', "Chaque centre a sa paie chaque mois, avec son propre taux du dollar ; le Supérieur l'approuve.")}</p>
       <div className="cty-card desk-scroll">
         <table className="desk-table">
@@ -124,7 +125,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
   return (
     <>
       <div className="desk-head">
-        <div><button className="link" onClick={onBack}>‹ {t3('الكشوف', 'Runs', 'Paies')}</button><h1>{KIND(run.kind)} · {monthName(run.ym)}{run.centre ? ` · ${centreLabel(hr, run.centre)}` : ''}</h1></div>
+        <div><button className="link" onClick={onBack}>‹ {t3('الكشوف', 'Runs', 'Paies')}</button><h1>{KIND(run.kind)} · {monthName(run.ym)}{run.centre ? ` · ${centreLabel(hr, run.centre)}` : ''}<GuideLink id="hr-payroll" /></h1></div>
         <div className="desk-filters">
           <span className="pill">{STATUS(run.status)}</span>
           {draft && approver && <button className="btn primary" onClick={act('hr.run.approve', t3('اعتُمد', 'Approved', 'Approuvée'))}>{t3('اعتماد', 'Approve', 'Approuver')}</button>}

@@ -16,6 +16,7 @@ import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
 import { notesOf } from './Cash';
+import { GuideLink } from '../guide/GuideView';
 
 type Tab = 'months' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
 
@@ -34,7 +35,7 @@ export function Admin() {
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
   return (
     <>
-      <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}</h1></div>
+      <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' ? 'months' : 'admin'} /></h1></div>
       {s.mode === 'desktop' && <p className="muted small ltr" style={{ textAlign: 'start' }}>{s.dbPath}</p>}
       <Tabs value={tab} onChange={setTab} tabs={tabs} />
       {tab === 'months' && <Months />}

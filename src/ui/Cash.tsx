@@ -6,6 +6,7 @@ import { MONTHS_AR, MONTHS_EN } from '../domain/types';
 import { monthWord } from '../i18n';
 import type { CashCountLog } from '../ops';
 import { Field, Modal, Seg, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
+import { GuideLink } from '../guide/GuideView';
 
 export const NOTES = { SYP: [10000, 5000, 2000, 1000, 500, 200, 100, 50], USD: [100, 50, 20, 10, 5, 2, 1] };
 
@@ -118,7 +119,7 @@ export function Cash() {
   return (
     <>
       <div className="page-head">
-        <h1>{t('النقد · وضع الصناديق', "Cash · holders' position")}</h1>
+        <h1>{t('النقد · وضع الصناديق', "Cash · holders' position")}<GuideLink id="cash" /></h1>
         <CashViewPicker view={view} setView={setView} ym={ym} setYm={setYm} months={months} book={bookSel} setBook={setBookSel} books={bookChoices} />
       </div>
       {view === 'total' && (

@@ -1,7 +1,7 @@
 // All dropdown lists (the Data and Budget sheets), managed here — never in Excel.
 // A value already used is never deleted: it is deactivated, and stays readable
 // in old rows while disappearing from the forms.
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { useApp } from '../state';
 import type { SimpleList } from '../db/repo';
 import { TYPES, type Book, type TrxType } from '../domain/types';
@@ -9,8 +9,8 @@ import { TYPE_LABEL, tx } from '../i18n';
 import { notesOf } from './Cash';
 import { pickFile, saveFile } from '../platform';
 import type { CommonList } from '../io/commonList';
-import { useNav } from './Shell';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
+import { GuideCtx, GuideLink } from '../guide/GuideView';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
 
@@ -18,7 +18,7 @@ export function ListsPage() {
   const [tab, setTab] = useState<Tab>('budget');
   return (
     <>
-      <div className="page-head"><h1>{t('القوائم', 'Lists')}</h1></div>
+      <div className="page-head"><h1>{t('القوائم', 'Lists')}<GuideLink id="lists" /></h1></div>
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'budget', label: t('الموازنة', 'Budget') },
         { value: 'books', label: t('الدفاتر والأمناء', 'Books & keepers') },
@@ -81,7 +81,7 @@ const HELP = {
  */
 function CommonListPanel() {
   const { s, can, reload } = useApp();
-  const nav = useNav();
+  const openGuide = useContext(GuideCtx);
   const [state, setState] = useState<'lead' | 'yes' | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [joining, setJoining] = useState<CommonList | null>(null);
@@ -165,7 +165,7 @@ function CommonListPanel() {
         {state && <li><b>{t('احفظ القائمة ملفاً', 'Save the list as a file')}</b>: {HELP.save()}</li>}
         {state && boss && <li><b>{t('خذ ملف قائمة', 'Take a list file')}</b>: {HELP.take()}</li>}
       </ul>
-      <button className="link small" style={{ marginTop: 6 }} onClick={() => nav.go('guide')}>📖 {t('الخطوات كلها في «الدليل»', 'All the steps in the Guide')}</button>
+      <button className="link small" style={{ marginTop: 6 }} onClick={() => openGuide('common')}>📖 {t('الخطوات كلها في «الدليل»', 'All the steps in the Guide')}</button>
       {joining && <JoinModal list={joining} onClose={() => setJoining(null)} onDone={async () => { setJoining(null); await reload(); await load(); }} />}
     </div>
   );

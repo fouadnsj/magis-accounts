@@ -88,20 +88,53 @@ export const CTY_PERM_GROUPS = [
   },
 ] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
 
-// Only in the HR database (Fouad, 30 October 2026).
+// Only in the HR database (Fouad, 30 October 2026). Made detailed on 1 November 2026: who sees the salaries, who writes
+// the agreements, who changes the scale, who only records the tutors' sessions, who prepares, approves and pays the runs.
 export const HR_PERM_GROUPS = [
   {
     key: 'hr',
-    label: m('الموارد البشرية', 'Human resources', 'Ressources humaines'),
+    label: m('الأشخاص', 'People', 'Personnes'),
     perms: [
-      { key: 'hr.view', label: m('يرى الأشخاص والاتفاقيات ورسائل المكافأة ومدونة السلوك', 'Sees the people, agreements, stipend letters and the code of conduct', 'Voit les personnes, accords, lettres de gratification et le code de conduite') },
-      { key: 'hr.manage', label: m('يضيف ويعدّل الأشخاص والاتفاقيات والرسائل والتوقيعات', 'Adds and changes people, agreements, letters and signatures', 'Ajoute et modifie personnes, accords, lettres et signatures') },
-      { key: 'hr.pay', label: m('يرى ويعدّل سلّم الرواتب والمكافآت الشهرية وساعات العمل', 'Sees and edits the salary scale, the monthly stipends and the hours', "Voit et modifie l'échelle, les gratifications mensuelles et les heures") },
-      { key: 'hr.approve', label: m('يعتمد كشف الرواتب ويسجّل الدفع (الرئيس)', 'Approves the payroll run and marks it paid (the Superior)', 'Approuve la paie et la marque payée (le Supérieur)') },
+      { key: 'hr.view', label: m('يرى أشخاص مراكزه (الاسم، المركز، الوظيفة، التواريخ) ومدونة السلوك', 'Sees the people of their centres (name, centre, position, dates) and the code of conduct', 'Voit les personnes de ses centres (nom, centre, poste, dates) et le code de conduite') },
+      { key: 'hr.details', label: m('يرى التفاصيل الشخصية: الرقم الوطني، الولادة، العنوان، الهاتف', 'Sees the personal details: national number, birth, address, phone', 'Voit les détails personnels : numéro national, naissance, adresse, téléphone') },
+      { key: 'hr.manage', label: m('يضيف ويعدّل الأشخاص، قوائم الوصول والمغادرة، التوقيعات، القوائم في الإعدادات', 'Adds and changes people, the arrival and leaving lists, signatures, the lists in Settings', "Ajoute et modifie les personnes, les listes d'arrivée et de départ, les signatures, les listes des Réglages") },
       { key: 'hr.vault', label: m('يفتح خزانة الوثائق (الهويات وغيرها) — كل فتح يُسجَّل', 'Opens the document vault (IDs and others) — every opening is logged', 'Ouvre le coffre des documents (pièces d\u2019identité, etc.) — chaque ouverture est notée') },
     ],
   },
+  {
+    key: 'hr-salary',
+    label: m('الاتفاقيات والرواتب', 'Agreements and salaries', 'Accords et salaires'),
+    perms: [
+      { key: 'hr.salary', label: m('يرى المبالغ: الاتفاقيات، المكافآت، السلّم، الكشوف، التأمين، التمويل، التقارير', 'Sees the amounts: agreements, stipends, scale, payroll, insurance, funding, reports', 'Voit les montants : accords, gratifications, échelle, paies, assurance, financement, rapports') },
+      { key: 'hr.agreements', label: m('يكتب الاتفاقيات ورسائل المكافأة، ويغيّر المكافأة ابتداءً من تاريخ', 'Writes the agreements and stipend letters, changes a stipend from a date', "Rédige les accords et lettres de gratification, change une gratification à partir d'une date") },
+      { key: 'hr.scale', label: m('يغيّر سلّم الرواتب، سعر الدولار للمركز، وسعر الجلسة', "Changes the salary scale, the centre's dollar rate and the price of a session", "Change l'échelle, le taux du dollar du centre et le prix d'une séance") },
+    ],
+  },
+  {
+    key: 'hr-pay',
+    label: m('الجلسات والكشوف', 'Sessions and payroll', 'Séances et paies'),
+    perms: [
+      { key: 'hr.sessions', label: m('يسجّل جلسات المدرّبين (لا يرى السعر إلا إن كان يرى المبالغ)', "Records the tutors' sessions (sees the price only if they see the amounts)", "Note les séances des animateurs (voit le prix seulement s'il voit les montants)") },
+      { key: 'hr.pay', label: m('يحضّر كشوف الدفع، ساعات العمل، التأمين الصحي، تمويل كل شخص', 'Prepares the payroll runs, the hours worked, health insurance, the funding of each person', 'Prépare les paies, les heures travaillées, l\u2019assurance maladie, le financement de chacun') },
+      { key: 'hr.approve', label: m('يعتمد كشف الدفع أو يعيد فتحه', 'Approves a payroll run or reopens it', 'Approuve une paie ou la rouvre') },
+      { key: 'hr.paid', label: m('يسجّل أن الكشف المعتمد دُفع', 'Marks an approved run as paid', 'Marque une paie approuvée comme payée') },
+    ],
+  },
 ] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
+
+/** The admin ticks that mean something in the HR database (shown under the HR ones on its roles page). */
+export const HR_ADMIN_PERMS = ['users.manage', 'data.backup', 'data.restore', 'data.export', 'audit.view'] as const;
+
+/**
+ * Ticks that bring others with them in the HR database: every HR tick needs to see the people; writing agreements,
+ * changing the scale, preparing, approving or paying a run all show the amounts.
+ */
+export function withImplied(perms: Perm[]): Perm[] {
+  const out = new Set(perms);
+  if (perms.some((p) => p.startsWith('hr.'))) out.add('hr.view');
+  if (perms.some((p) => p === 'hr.agreements' || p === 'hr.scale' || p === 'hr.pay' || p === 'hr.approve' || p === 'hr.paid')) out.add('hr.salary');
+  return [...out];
+}
 
 export type Perm = (typeof PERM_GROUPS)[number]['perms'][number]['key'] | (typeof CTY_PERM_GROUPS)[number]['perms'][number]['key'] | (typeof HR_PERM_GROUPS)[number]['perms'][number]['key'];
 export const ALL_PERMS: Perm[] = [...PERM_GROUPS, ...CTY_PERM_GROUPS, ...HR_PERM_GROUPS].flatMap((g) => g.perms.map((p) => p.key));

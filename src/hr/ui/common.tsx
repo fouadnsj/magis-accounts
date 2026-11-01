@@ -2,6 +2,8 @@
 // documents (the centre mark and the Jesuit logo), and opening or attaching a scan.
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { Session } from '../../state';
+import { has, type Profile } from '../../auth';
+import type { Perm } from '../../perms';
 import { CENTRES, centreStyle, guessCentre, type CentreKey } from '../../brand';
 import { errText, toast } from '../../ui/kit';
 import { pickFile, toBase64 } from '../../platform';
@@ -129,4 +131,15 @@ export function sortRows<T>(rows: T[], val: (r: T) => string | number | null | u
 export function SortTh<K extends string>({ k, sort, children, n }: { k: K; sort: { key: K; dir: SortDir; by: (k: K) => void }; children: ReactNode; n?: boolean }) {
   const on = sort.key === k;
   return <th className={`hr-sort ${n ? 'n' : ''} ${on ? 'on' : ''}`} onClick={() => sort.by(k)} title={t3('اضغط للترتيب', 'Click to sort', 'Cliquez pour trier')}>{children}<span className="arrow">{on ? (sort.dir === 1 ? ' ▲' : ' ▼') : ' ↕'}</span></th>;
+}
+
+/** What the user may see and do in HR (Fouad, 1 November 2026: the rights in detail; the server checks each again). */
+export interface HrRights { details: boolean; manage: boolean; vault: boolean; salary: boolean; papers: boolean; scale: boolean; sessions: boolean; pay: boolean; approve: boolean; paid: boolean; runs: boolean; users: boolean; backups: boolean }
+export function rightsOf(p: Pick<Profile, 'perms'>): HrRights {
+  const h = (k: Perm) => has(p, k);
+  return {
+    details: h('hr.details'), manage: h('hr.manage'), vault: h('hr.vault'), salary: h('hr.salary'), papers: h('hr.agreements'), scale: h('hr.scale'),
+    sessions: h('hr.sessions'), pay: h('hr.pay'), approve: h('hr.approve'), paid: h('hr.paid'), runs: h('hr.pay') || h('hr.approve') || h('hr.paid'),
+    users: h('users.manage'), backups: h('data.backup') || h('data.restore'),
+  };
 }

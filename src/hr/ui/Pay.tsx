@@ -37,6 +37,8 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
   const [copy, setCopy] = useState(false);
   const [shown, setShown] = useState<number | null>(null);
   const sup = has(s.profile, 'hr.approve');
+  // changing the scale and the dollar rate is its own right (Fouad, 1 November 2026); the others only read it
+  const edit = has(s.profile, 'hr.scale');
   const today = todayIso();
   const gs = useSort<GradeSort>('position');
   const ps = useSort<PeopleSort>('name');
@@ -67,15 +69,15 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
         <div><div className="hr-eyebrow">{t3('المكافآت', 'Stipends', 'Gratifications')} · {centreLabel(hr, code)}</div><h1>{t3('سلّم الرواتب', 'Salary scale', 'Échelle des gratifications')}</h1></div>
         <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           {!centre && centres.length > 1 && <select value={pick ?? ''} onChange={(e) => setPick(e.target.value || null)}>{centres.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}{!hr.scope && <option value="">{t3('المشترك بين كل المراكز', 'Shared by every centre', 'Commun à tous les centres')}</option>}</select>}
-          {code && <button className="btn" onClick={() => setCopy(true)}>{t3('نسخ سلّم آخر…', 'Copy another scale…', 'Copier une autre échelle…')}</button>}
-          <button className="btn" onClick={() => setFromBudget(true)}>{t3('من الموازنات…', 'From the budgets…', 'Depuis les budgets…')}</button>
-          <button className="btn gold" onClick={() => setGrade('new')}>＋ {t3('وظيفة', 'Add a position', 'Ajouter un poste')}</button>
+          {edit && code && <button className="btn" onClick={() => setCopy(true)}>{t3('نسخ سلّم آخر…', 'Copy another scale…', 'Copier une autre échelle…')}</button>}
+          {edit && <button className="btn" onClick={() => setFromBudget(true)}>{t3('من الموازنات…', 'From the budgets…', 'Depuis les budgets…')}</button>}
+          {edit && <button className="btn gold" onClick={() => setGrade('new')}>＋ {t3('وظيفة', 'Add a position', 'Ajouter un poste')}</button>}
         </span>
       </div>
       <div className="hr-panel" style={{ marginBottom: 14 }}>
         <b>{t3('السلّم والاتفاقيات الفعلية', 'The scale and the actual agreements', "L'échelle et les accords réels")}</b>
         <p className="muted small" style={{ marginTop: 4 }}>{t3('المرجع اقتراح عند كتابة اتفاقية. «الفعلي» هو ما تعطيه الاتفاقيات اليوم (بالدولار). الفرق = المعدل الفعلي − المرجع. اضغط على وظيفة لترى أصحابها.', 'The reference is a suggestion when an agreement is written. "Actual" is what the agreements give today (in dollars). Difference = actual average − reference. Click a position to see who holds it.', "La référence est une suggestion quand un accord est rédigé. « Réel » est ce que donnent les accords aujourd'hui (en dollars). Écart = moyenne réelle − référence. Cliquez un poste pour voir qui l'occupe.")}</p>
-        {!pd.grades.length ? (
+        {!pd.grades.length ? (!edit ? <p className="muted">—</p> :
           <button className="btn primary" onClick={async () => { try { await s.api.call('hr.grade.seed', {}); await reload(); } catch (e) { fail(e); } }}>{t3('حمّل الوظائف من جدول الرواتب', 'Load the positions from the salary sheet', 'Charger les postes depuis la feuille de salaires')}</button>
         ) : (
           <div className="desk-scroll">
@@ -103,7 +105,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
                         <td className="n">{st.min != null ? (st.min === st.max ? usd(st.min) : `${usd(st.min)} – ${usd(st.max)}`) : '—'}</td>
                         <td className="n">{diffCell(st.diff, g.monthly_usd)}</td>
                         {sup && <td className="n">{usd(st.hour)}</td>}
-                        <td className="right" onClick={(e) => e.stopPropagation()}><button className="btn small" onClick={() => setGrade(g)}>{t3('تعديل', 'Edit', 'Modifier')}</button></td>
+                        <td className="right" onClick={(e) => e.stopPropagation()}>{edit && <button className="btn small" onClick={() => setGrade(g)}>{t3('تعديل', 'Edit', 'Modifier')}</button>}</td>
                       </tr>
                       {shown === g.id && holders(g).map((r) => (
                         <tr key={`${g.id}-${r.p.id}`} className="click" onClick={() => open(r.p)}>
@@ -147,7 +149,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
         </div>
         <p className="muted small">{t3('الدفعة الثالثة عشرة مكافأة بدل الضمان الاجتماعي. اضغط على شخص لتغيير مكافأته.', 'The 13th payment is a bonus instead of social security. Click a person to change their stipend.', 'Le 13e paiement remplace la sécurité sociale. Cliquez une personne pour changer sa gratification.')}</p>
       </div>
-      <Settings s={s} d={pd} hr={hr} code={code} reload={reload} />
+      {edit && <Settings s={s} d={pd} hr={hr} code={code} reload={reload} />}
       {fromBudget && <FromBudget s={s} centre={code} onClose={() => setFromBudget(false)} reload={reload} />}
       {copy && code && <CopyScale s={s} hr={hr} pd={pd} to={code} onClose={() => setCopy(false)} reload={reload} />}
       {grade && <GradeModal s={s} grade={grade === 'new' ? null : grade} centre={code} onClose={() => setGrade(null)} reload={reload} />}

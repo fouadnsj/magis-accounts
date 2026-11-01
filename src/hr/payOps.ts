@@ -2,11 +2,10 @@
 // Everything here needs the permission 'hr.pay'. The rules of the calculation are in pay.ts.
 import { nowIso, one } from '../db/db';
 import { auditStmt, UserError } from '../db/repo';
-import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import { DEFAULT_PAY, payOn, type PaySettings } from './pay';
-import { centreCodes, needAll, needCentre, needPerson, sees, seesAll, seenPeople } from './scope';
+import { centreCodes, needAll, needCentre, needPerson, needRight, sees, seesAll, seenPeople } from './scope';
 
 export interface HrGrade { id: number; name: string; name_ar: string | null; sort: number; note: string | null; active: number; monthly_usd: number | null; /** the centre's code; null = shared by every centre */ centre: string | null }
 export interface HrPay { id: number; person_id: number; valid_from: string; grade_id: number | null; weekly_hours: number | null; monthly_usd: number | null; monthly_syp: number | null; note: string | null; paper_id: number | null }
@@ -15,8 +14,6 @@ export interface HrHours { id: number; person_id: number; ym: string; hours: num
 export interface HrBudgetRow { centre: string | null; position: string; monthly: number; months: number; people: number; times: number; total: number }
 export interface HrPayData { grades: HrGrade[]; pays: HrPay[]; hours: HrHours[]; settings: PaySettings; /** person → the code of their centre */ centreOf: Record<number, string | null> }
 
-const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non permis pour cet utilisateur'));
-const needPay = (c: OpCtx) => { if (!has(c.profile, 'hr.pay')) throw refuse(); };
 const txt = (x: unknown) => (x == null || String(x).trim() === '' ? null : String(x).trim());
 const num = (x: unknown) => (x == null || x === '' ? null : Number(x));
 const date = (x: unknown) => {
@@ -96,13 +93,13 @@ export async function budgetStaff(c: OpCtx, year: number): Promise<{ rows: HrBud
 }
 
 export const HR_PAY_OPS = {
-  'hr.budget.staff': { check: needPay, run: (c: OpCtx, a: { year: number }) => budgetStaff(c, Number(a.year)) },
+  'hr.budget.staff': { check: (c: OpCtx) => needRight(c, 'hr.salary'), run: (c: OpCtx, a: { year: number }) => budgetStaff(c, Number(a.year)) },
 
-  'hr.pay.data': { check: needPay, run: (c: OpCtx) => payData(c) },
+  'hr.pay.data': { check: (c: OpCtx) => needRight(c, 'hr.salary'), run: (c: OpCtx) => payData(c) },
 
   // a position of the scale and its reference monthly amount (a suggestion when an agreement is made)
   'hr.grade.save': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.scale'),
     run: async (c: OpCtx, a: { id?: number | null; name: string; nameAr?: string | null; note?: string | null; monthlyUsd?: number | null; /** the centre's code; null = shared by every centre */ centre?: string | null }) => {
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب اسم الوظيفة', 'Write the name of the position', 'Écrivez le nom du poste'));
@@ -133,7 +130,7 @@ export const HR_PAY_OPS = {
     },
   },
   'hr.grade.delete': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.scale'),
     run: async (c: OpCtx, a: { id: number }) => {
       const g = await one<{ centre: string | null }>(c.db, 'SELECT centre FROM hr_grade WHERE id = ?', [a.id]);
       if (g?.centre) needCentre(c, g.centre); else needAll(c);
@@ -145,7 +142,7 @@ export const HR_PAY_OPS = {
   // the scale taken from Fouad's own sheet "Salary scale": the positions and the monthly amount planned for 2027 (and the two posts of the 2027 budgets) (the
   // agreements of January 2027 start from it); only into an empty scale
   'hr.grade.seed': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.scale'),
     run: async (c: OpCtx) => {
       needAll(c);
       if (await one(c.db, 'SELECT 1 AS x FROM hr_grade')) throw new UserError(m('السلّم غير فارغ', 'The scale is not empty', "L'échelle n'est pas vide"));
@@ -164,7 +161,7 @@ export const HR_PAY_OPS = {
   },
   // a copy of the positions of one scale (a centre's, or the shared one) into a centre's scale: those it has not yet
   'hr.grade.copy': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.scale'),
     run: async (c: OpCtx, a: { from: string | null; to: string }) => {
       const to = txt(a.to), from = txt(a.from);
       if (!to) throw new UserError(m('اختر المركز', 'Choose the centre', 'Choisissez le centre'));
@@ -182,7 +179,7 @@ export const HR_PAY_OPS = {
     },
   },
   'hr.pay.settings': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.scale'),
     run: async (c: OpCtx, a: Partial<PaySettings>) => {
       const cur = await settingsOf(c);
       // the shared settings by those who see every centre; the dollar rate of a centre by those who see it
@@ -203,7 +200,7 @@ export const HR_PAY_OPS = {
 
   // the stipend changes from a date in the middle of the year (the agreement's line stays as history)
   'hr.pay.save': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.agreements'),
     run: async (c: OpCtx, a: { id?: number | null; personId: number; validFrom: string; gradeId?: number | null; weeklyHours?: number | null; monthlyUsd?: number | null; monthlySyp?: number | null; note?: string | null }) => {
       if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
       await needPerson(c, a.personId);
@@ -227,7 +224,7 @@ export const HR_PAY_OPS = {
     },
   },
   'hr.pay.delete': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.agreements'),
     run: async (c: OpCtx, a: { id: number }) => {
       await needPerson(c, (await one<{ person_id: number }>(c.db, 'SELECT person_id FROM hr_pay WHERE id = ?', [a.id]))?.person_id);
       if ((await one<{ paper_id: number | null }>(c.db, 'SELECT paper_id FROM hr_pay WHERE id = ?', [a.id]))?.paper_id) throw new UserError(m('هذا السطر من الاتفاقية: احذف الاتفاقية أو عدّلها', 'This line comes from the agreement: change or delete the agreement', "Cette ligne vient de l'accord : modifiez ou supprimez l'accord"));
@@ -236,7 +233,7 @@ export const HR_PAY_OPS = {
     },
   },
   'hr.hours.save': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.pay'),
     run: async (c: OpCtx, a: { personId: number; ym: string; hours: number | null; note?: string | null }) => {
       if (!/^\d{4}-\d{2}$/.test(a.ym ?? '')) throw new UserError(m('شهر غير صالح', 'Not a valid month', 'Mois non valide'));
       await needPerson(c, a.personId);

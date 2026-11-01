@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer, type Running } from '../server/server';
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+import { createRequire } from 'node:module';
+import { MIGRATIONS } from '../src/db/migrations';
 import { hourlyFromMonthly, hourlyWithThirteenth, monthlyFromRate, monthlyHours, yearlyCost } from '../src/hr/pay';
 
 let srv: Running;
@@ -92,7 +95,9 @@ describe('HR database', () => {
     expect((await op('hr.file.get', { kind: 'doc', id: doc }, rc)).status).toBe(400);
     expect((await op('hr.person.save', { name: 'Nope' }, rc)).status).toBe(400);
     expect((await op('hr.access.list', {}, rc)).status).toBe(400);
-    expect((await op('hr.file.get', { kind: 'paper', id: ag }, rc)).status).toBe(200); // a reader may open a signed paper
+    // a signed paper shows its amount: a reader opens it only with "sees the amounts" (1 November 2026)
+    expect((await op('hr.file.get', { kind: 'paper', id: ag }, rc)).status).toBe(400);
+    expect(rd.papers.every((x: { amount: number | null }) => x.amount == null)).toBe(true);
 
     cookie = keeper; // (the reader's sign-in replaced it)
     // the person leaves: inactive, no longer in the alerts
@@ -619,7 +624,7 @@ describe('HR database', () => {
     // the usual profiles of an HR database are there
     const users = (await op('hr.users.list', {}, ck)).body;
     const keeper = users.access.find((a: { name: string }) => a.name.includes('HR keeper of a centre'));
-    expect(keeper.perms).toEqual(['hr.view', 'hr.manage', 'hr.pay', 'hr.vault']);
+    expect(keeper.perms).toEqual(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay']);
     // the HR keeper of Homs: sees Homs only
     const kid = (await op('hr.user.save', { name: 'Homs HR', accessId: keeper.id, centres: ['homs'], password: 'homs-hr-12' }, ck)).body.id;
     await op('hr.user.save', { id: kid, name: 'Homs HR', accessId: keeper.id, centres: ['homs'] }, ck);
@@ -828,5 +833,82 @@ describe('HR database', () => {
     expect((await op('hr.run.line.delete', { id: usdLine.id }, hk)).status).toBe(200);
     expect((await op('hr.session.delete', { id: ses[0].id }, hk)).status).toBe(200);
     expect((await op('hr.run.get', { id: rh }, hk)).body.pendingSessions).toBe(1);
+  });
+  it('the rights in detail: a coordinator records sessions without seeing amounts or details; roles keep what they had', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR rights', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR rights', people: [{ name: 'Manager', password: 'manager-hr-1' }], mustChange: false });
+    const mid = (await call(`/api/profiles?db=${slug}`)).body[0].id;
+    const ck = (await call('/api/login', { db: slug, profileId: mid, password: 'manager-hr-1' }, '')).set!;
+    await op('hr.list.save', { kind: 'centre', name: 'MAGIS Aleppo', code: 'aleppo' }, ck);
+    await op('hr.session.price.save', { validFrom: '2026-01-01', amount: 10, currency: 'USD' }, ck);
+    const t = (await op('hr.person.save', { first_name: 'Rami', centre: 'MAGIS Aleppo', category: 'tutor', phone: '0999', national_id: '123', started: '2026-01-01' }, ck)).body.id;
+    const st = (await op('hr.person.save', { first_name: 'Hala', centre: 'MAGIS Aleppo', national_id: '456', started: '2026-01-01' }, ck)).body.id;
+    await op('hr.paper.save', { personId: st, kind: 'agreement', start: '2026-01-01', end: '2026-12-31', amount: 180, currency: 'USD' }, ck);
+
+    // a role made here: the coordinator only records the sessions; seeing the people comes with it
+    expect((await op('access.save', { name: 'Workshop coordinator', perms: ['hr.sessions'] }, ck)).status).toBe(200);
+    const roles = (await op('access.list', {}, ck)).body;
+    const coord = roles.find((a: { name: string }) => a.name === 'Workshop coordinator');
+    expect(coord.perms.sort()).toEqual(['hr.sessions', 'hr.view']);
+    // preparing the payroll shows the amounts
+    expect((await op('access.save', { id: coord.id, name: coord.name, perms: ['hr.sessions', 'hr.pay'] }, ck)).status).toBe(200);
+    expect((await op('access.list', {}, ck)).body.find((a: { id: number }) => a.id === coord.id).perms.sort()).toEqual(['hr.pay', 'hr.salary', 'hr.sessions', 'hr.view']);
+    await op('access.save', { id: coord.id, name: coord.name, perms: ['hr.view', 'hr.sessions'] }, ck);
+
+    const cid = (await op('hr.user.save', { name: 'Coordinator', accessId: coord.id, centres: ['aleppo'], password: 'coord-hr-12' }, ck)).body.id;
+    const cc = (await call('/api/login', { db: slug, profileId: cid, password: 'coord-hr-12' }, '')).set!;
+    await op('profile.setPin', { id: cid, pin: 'coord-hr-13' }, cc);
+    // records a session; sees neither the price nor the agreement's amount nor the personal details
+    expect((await op('hr.session.add', { personId: t, date: '2026-11-03', activity: 'Theatre' }, cc)).status).toBe(200);
+    const m = (await op('hr.sessions.get', { ym: '2026-11' }, cc)).body;
+    expect(m.sessions.length).toBe(1);
+    expect(m.prices).toEqual([]);
+    const d = (await op('hr.data', {}, cc)).body;
+    expect(d.papers.find((x: { person_id: number }) => x.person_id === st).amount).toBeNull();
+    expect(d.people.find((x: { id: number }) => x.id === t)).toMatchObject({ phone: null, national_id: null });
+    // and nothing else
+    for (const [name, args] of [
+      ['hr.pay.data', {}], ['hr.session.prices', {}], ['hr.run.list', {}], ['hr.ins.list', {}],
+      ['hr.paper.save', { personId: st, kind: 'agreement', start: '2027-01-01', end: '2027-12-31' }],
+      ['hr.grade.save', { name: 'Tutor', monthlyUsd: 1, centre: 'aleppo' }], ['hr.person.save', { first_name: 'X', centre: 'MAGIS Aleppo' }],
+      ['hr.run.create', { centre: 'aleppo', ym: '2026-11', kind: 'monthly', rateSyp: 15000 }],
+    ] as [string, object][]) expect([name, (await op(name, args, cc)).status]).toEqual([name, 400]);
+
+    // an HR keeper without the personal details: changing a person keeps the details they did not see
+    expect((await op('access.save', { name: 'Keeper, no details', perms: ['hr.view', 'hr.manage'] }, ck)).status).toBe(200);
+    const nd = (await op('access.list', {}, ck)).body.find((a: { name: string }) => a.name === 'Keeper, no details');
+    const kid = (await op('hr.user.save', { name: 'Keeper', accessId: nd.id, centres: ['aleppo'], password: 'keep-hr-12' }, ck)).body.id;
+    const kc = (await call('/api/login', { db: slug, profileId: kid, password: 'keep-hr-12' }, '')).set!;
+    await op('profile.setPin', { id: kid, pin: 'keep-hr-13' }, kc);
+    const seen = (await op('hr.data', {}, kc)).body.people.find((x: { id: number }) => x.id === st);
+    expect(seen.national_id).toBeNull();
+    expect((await op('hr.person.save', { ...seen, last_name: 'Haddad' }, kc)).status).toBe(200);
+    expect((await op('hr.data', {}, ck)).body.people.find((x: { id: number }) => x.id === st)).toMatchObject({ last_name: 'Haddad', national_id: '456' });
+
+    // marking paid is its own right: approve without it cannot mark paid
+    await op('hr.pay.save', { personId: st, validFrom: '2026-01-01', monthlyUsd: 200, weeklyHours: 30 }, ck);
+    const run = (await op('hr.run.create', { centre: 'aleppo', ym: '2026-11', kind: 'monthly', rateSyp: 15000 }, ck)).body.id;
+    expect((await op('access.save', { name: 'Approver', perms: ['hr.approve'] }, ck)).status).toBe(200);
+    const ap = (await op('access.list', {}, ck)).body.find((a: { name: string }) => a.name === 'Approver');
+    const aid = (await op('hr.user.save', { name: 'Approver', accessId: ap.id, centres: null, password: 'appr-hr-12' }, ck)).body.id;
+    const ac = (await call('/api/login', { db: slug, profileId: aid, password: 'appr-hr-12' }, '')).set!;
+    await op('profile.setPin', { id: aid, pin: 'appr-hr-13' }, ac);
+    expect((await op('hr.run.approve', { id: run }, ac)).status).toBe(200);
+    expect((await op('hr.run.paid', { id: run, paidOn: '2026-11-30' }, ac)).status).toBe(400);
+    expect((await op('hr.run.paid', { id: run, paidOn: '2026-11-30' }, ck)).status).toBe(200);
+  });
+
+  it('the old roles keep what they could do: each old tick brings the new ticks it held', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE access_profile (id INTEGER PRIMARY KEY, name TEXT, perms TEXT, sort INTEGER)');
+    const old = { 1: ['hr.view'], 2: ['hr.view', 'hr.manage', 'hr.pay', 'hr.vault'], 3: ['hr.view', 'hr.manage', 'hr.pay', 'hr.approve', 'hr.vault', 'audit.view'], 4: ['book.own', 'register.view'] };
+    for (const [id, perms] of Object.entries(old)) db.prepare('INSERT INTO access_profile (id, name, perms, sort) VALUES (?, ?, ?, ?)').run(Number(id), `r${id}`, JSON.stringify(perms), Number(id));
+    db.exec(MIGRATIONS.find((x) => x.n === 39)!.sql);
+    const now = Object.fromEntries((db.prepare('SELECT id, perms FROM access_profile').all() as { id: number; perms: string }[]).map((r) => [r.id, (JSON.parse(r.perms) as string[]).sort()]));
+    expect(now[1]).toEqual(['hr.details', 'hr.view']);
+    expect(now[2]).toEqual(['hr.agreements', 'hr.details', 'hr.manage', 'hr.pay', 'hr.salary', 'hr.scale', 'hr.sessions', 'hr.vault', 'hr.view']);
+    expect(now[3]).toEqual(['audit.view', 'hr.agreements', 'hr.approve', 'hr.details', 'hr.manage', 'hr.paid', 'hr.pay', 'hr.salary', 'hr.scale', 'hr.sessions', 'hr.vault', 'hr.view']);
+    expect(now[4]).toEqual(['book.own', 'register.view']);
   });
 });

@@ -8,13 +8,11 @@ import { auditStmt, UserError } from '../db/repo';
 import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
-import { needAll, needCentre, needPerson, seenPeople } from './scope';
+import { needAll, needCentre, needPerson, needRight, seenPeople } from './scope';
 
 export interface HrSession { id: number; person_id: number; on_date: string; activity: string | null; note: string | null; source: string; run_line_id: number | null }
 export interface HrSessionPrice { id: number; valid_from: string; amount: number; currency: 'USD' | 'SYP' }
 
-const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non permis pour cet utilisateur'));
-const needPay = (c: OpCtx) => { if (!has(c.profile, 'hr.pay')) throw refuse(); };
 const txt = (x: unknown) => (x == null || String(x).trim() === '' ? null : String(x).trim());
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const isDay = (x: unknown): x is string => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
@@ -76,20 +74,21 @@ export async function sessionLineStmts(c: OpCtx, run: { /** null: the run made j
 export const HR_SESSION_OPS = {
   // the sessions of a month (of the tutors the user sees), the prices, the activities already used
   'hr.sessions.get': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.sessions', 'hr.salary'),
     run: async (c: OpCtx, a: { ym: string }) => {
       if (!/^\d{4}-\d{2}$/.test(a.ym ?? '')) throw new UserError(m('شهر غير صالح', 'Not a valid month', 'Mois non valide'));
       const seen = await seenPeople(c);
       const mine = <T extends { person_id: number }>(xs: T[]) => (seen ? xs.filter((x) => seen.has(x.person_id)) : xs);
       const sessions = mine(await c.db.query<HrSession>('SELECT id, person_id, on_date, activity, note, source, run_line_id FROM hr_session WHERE on_date >= ? AND on_date <= ? ORDER BY on_date, id', [`${a.ym}-01`, lastDay(a.ym)]));
       const activities = mine(await c.db.query<{ person_id: number; activity: string }>('SELECT DISTINCT person_id, activity FROM hr_session WHERE activity IS NOT NULL'));
-      return { sessions, prices: await pricesOf(c), activities: [...new Set(activities.map((x) => x.activity))].sort() };
+      // the price of a session is an amount: only for those who see the amounts
+      return { sessions, prices: has(c.profile, 'hr.salary') ? await pricesOf(c) : [], activities: [...new Set(activities.map((x) => x.activity))].sort() };
     },
   },
-  'hr.session.prices': { check: needPay, run: (c: OpCtx) => pricesOf(c) },
+  'hr.session.prices': { check: (c: OpCtx) => needRight(c, 'hr.salary'), run: (c: OpCtx) => pricesOf(c) },
 
   'hr.session.add': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.sessions'),
     run: async (c: OpCtx, a: { personId: number; date: string; activity?: string | null; note?: string | null }) => {
       const p = await one<{ category: string }>(c.db, 'SELECT category FROM hr_person WHERE id = ?', [a.personId]);
       if (!p) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
@@ -107,7 +106,7 @@ export const HR_SESSION_OPS = {
     },
   },
   'hr.session.save': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.sessions'),
     run: async (c: OpCtx, a: { id: number; activity?: string | null; note?: string | null }) => {
       const x = await sessionOf(c, a.id);
       notPaid(x);
@@ -116,7 +115,7 @@ export const HR_SESSION_OPS = {
     },
   },
   'hr.session.delete': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.sessions'),
     run: async (c: OpCtx, a: { id: number }) => {
       const x = await sessionOf(c, a.id);
       notPaid(x);
@@ -127,7 +126,7 @@ export const HR_SESSION_OPS = {
 
   // the price of a session (one for every centre), from a date
   'hr.session.price.save': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.scale'),
     run: async (c: OpCtx, a: { validFrom: string; amount: number; currency: 'USD' | 'SYP' }) => {
       needAll(c);
       if (!isDay(a.validFrom)) throw new UserError(m('تاريخ غير صالح', 'Not a valid date', 'Date non valide'));
@@ -143,7 +142,7 @@ export const HR_SESSION_OPS = {
     },
   },
   'hr.session.price.delete': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.scale'),
     run: async (c: OpCtx, a: { id: number }) => {
       needAll(c);
       await c.db.batch([{ sql: 'DELETE FROM hr_session_price WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'hr_session_price', String(a.id), null, null)]);
@@ -153,7 +152,7 @@ export const HR_SESSION_OPS = {
 
   // sessions written after the run was made: add them to it (while it is a draft)
   'hr.run.sessions.add': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.pay'),
     run: async (c: OpCtx, a: { runId: number }) => {
       const run = await one<{ id: number; ym: string; kind: string; centre: string | null; rate_syp: number; status: string }>(c.db, 'SELECT id, ym, kind, centre, rate_syp, status FROM hr_run WHERE id = ?', [a.runId]);
       if (!run) throw new UserError(m('الكشف غير موجود', 'Run not found', 'Paie introuvable'));

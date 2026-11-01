@@ -9,10 +9,10 @@ import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { checkSecretShape, has, hashSecret, profileStmt } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
-import type { Perm } from '../perms';
-import { centreCodes, needAll, needCentre, needPerson, scopeOf, sees, seesAll, seenPeople } from './scope';
+import { HR_ADMIN_PERMS, HR_PERM_GROUPS, type Perm } from '../perms';
+import { centreCodes, needAll, needCentre, needPerson, needRight, scopeOf, sees, seesAll, seenPeople } from './scope';
 
-export const HR_PERMS: Perm[] = ['hr.view', 'hr.manage', 'hr.pay', 'hr.approve', 'hr.vault', 'users.manage', 'data.backup', 'data.restore', 'data.export', 'audit.view'];
+export const HR_PERMS: Perm[] = [...HR_PERM_GROUPS.flatMap((g) => g.perms.map((p) => p.key)), ...HR_ADMIN_PERMS];
 
 export interface HrSetup {
   organisation: string;
@@ -28,10 +28,10 @@ export async function createHr(db: Db, s: HrSetup): Promise<void> {
   await db.batch([
     { sql: 'DELETE FROM access_profile' },
     { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (1, ?, ?, 1)', params: ['مسؤول الموارد البشرية · HR keeper · Responsable RH', JSON.stringify(HR_PERMS)] },
-    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (2, ?, ?, 2)', params: ['قارئ · Reader · Lecteur', JSON.stringify(['hr.view'])] },
+    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (2, ?, ?, 2)', params: ['قارئ · Reader · Lecteur', JSON.stringify(['hr.view', 'hr.details'])] },
     // the HR keeper of a centre (sees only the centres given to the user), the Superior, the MAGIS manager (Fouad, 31 October 2026)
-    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (3, ?, ?, 3)', params: ["مسؤول الموارد البشرية في مركز · HR keeper of a centre · Responsable RH d'un centre", JSON.stringify(['hr.view', 'hr.manage', 'hr.pay', 'hr.vault'])] },
-    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (4, ?, ?, 4)', params: ['الرئيس · Superior · Supérieur', JSON.stringify(['hr.view', 'hr.manage', 'hr.pay', 'hr.approve', 'hr.vault', 'audit.view'])] },
+    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (3, ?, ?, 3)', params: ["مسؤول الموارد البشرية في مركز · HR keeper of a centre · Responsable RH d'un centre", JSON.stringify(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay'])] },
+    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (4, ?, ?, 4)', params: ['الرئيس · Superior · Supérieur', JSON.stringify(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay', 'hr.approve', 'hr.paid', 'audit.view'])] },
     { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (5, ?, ?, 5)', params: ['مدير ماجيس · MAGIS manager · Directeur MAGIS', JSON.stringify(HR_PERMS)] },
     setMetaStmt('install', 'office'),
     setMetaStmt('kind', 'hr'),
@@ -98,8 +98,12 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
   // only the people of the user's centres, and what is theirs
   const seen = await seenPeople(c);
   const mine = <T extends { person_id: number }>(xs: T[]) => (seen ? xs.filter((x) => seen.has(x.person_id)) : xs);
-  const people = (await c.db.query<HrPerson>('SELECT id, name, first_name, last_name, father_name, first_name_ar, last_name_ar, father_name_ar, address_ar, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, category, activity FROM hr_person ORDER BY active DESC, name')).filter((p) => !seen || seen.has(p.id)).map((p) => ({ ...p, name_ar: [p.first_name_ar, p.last_name_ar].filter(Boolean).join(' ') || null }));
-  const papers = mine(await c.db.query<HrPaper>(`SELECT ${PAPER_COLS} FROM hr_paper WHERE deleted_at IS NULL ORDER BY COALESCE(start_date, paid_on, created_at) DESC, id DESC`));
+  const people = (await c.db.query<HrPerson>('SELECT id, name, first_name, last_name, father_name, first_name_ar, last_name_ar, father_name_ar, address_ar, national_id, birth_place, birth_date, address, phone, role, centre, account, budget_line, started, ended, active, note, category, activity FROM hr_person ORDER BY active DESC, name')).filter((p) => !seen || seen.has(p.id)).map((p) => ({ ...p, name_ar: [p.first_name_ar, p.last_name_ar].filter(Boolean).join(' ') || null }))
+    // the personal details only for those who see them (Fouad, 1 November 2026)
+    .map((p) => (has(c.profile, 'hr.details') ? p : { ...p, national_id: null, birth_place: null, birth_date: null, address: null, address_ar: null, phone: null }));
+  const papers = mine(await c.db.query<HrPaper>(`SELECT ${PAPER_COLS} FROM hr_paper WHERE deleted_at IS NULL ORDER BY COALESCE(start_date, paid_on, created_at) DESC, id DESC`))
+    // the amounts only for those who see them
+    .map((x) => (has(c.profile, 'hr.salary') ? x : { ...x, amount: null }));
   const conducts = await c.db.query<HrConduct>('SELECT id, version, valid_from, note, file_name, size FROM hr_conduct ORDER BY valid_from DESC, id DESC');
   const signs = mine(await c.db.query<HrSign>('SELECT id, conduct_id, person_id, signed_on, file_name, size FROM hr_conduct_sign WHERE deleted_at IS NULL'));
   const vault = has(c.profile, 'hr.vault');
@@ -226,6 +230,8 @@ export const HR_OPS = {
       if (a.id) {
         const before = await one<HrPerson>(c.db, 'SELECT * FROM hr_person WHERE id = ?', [a.id]);
         if (!before) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
+        // who does not see the personal details does not change them (they came to the screen empty)
+        if (!has(c.profile, 'hr.details')) { v[2] = before.national_id; v[3] = before.birth_place; v[4] = before.birth_date; v[5] = before.address; v[6] = before.phone; v[20] = before.address_ar; }
         await c.db.batch([
           { sql: 'UPDATE hr_person SET name=?, father_name=?, national_id=?, birth_place=?, birth_date=?, address=?, phone=?, role=?, centre=?, account=?, budget_line=?, started=?, ended=?, active=?, note=?, first_name=?, last_name=?, first_name_ar=?, last_name_ar=?, father_name_ar=?, address_ar=?, category=COALESCE(?, category), activity=? WHERE id=?', params: [...v, category, a.activity === undefined ? before.activity : txt(a.activity), a.id] },
           auditStmt(c.who, 'update', 'hr_person', String(a.id), { name: before.name, active: before.active }, { name, active: v[ACT] }),
@@ -309,7 +315,7 @@ export const HR_OPS = {
   },
 
   'hr.paper.save': {
-    check: needManage,
+    check: (c: OpCtx) => needRight(c, 'hr.agreements'),
     run: async (c: OpCtx, a: { id?: number | null; personId: number; kind: 'agreement' | 'stipend'; start?: string | null; end?: string | null; service?: string | null; amount?: number | null; currency?: 'USD' | 'SYP'; paidOn?: string | null; note?: string | null; position?: string | null; weeklyHours?: number | null }) => {
       await requireHr(c.db);
       if (!(await one(c.db, 'SELECT 1 AS x FROM hr_person WHERE id = ?', [a.personId]))) throw new UserError(m('الشخص غير موجود', 'Person not found', 'Personne introuvable'));
@@ -360,7 +366,7 @@ export const HR_OPS = {
     },
   },
   'hr.paper.delete': {
-    check: needManage,
+    check: (c: OpCtx) => needRight(c, 'hr.agreements'),
     run: async (c: OpCtx, a: { id: number }) => {
       const p = await one<{ person_id: number }>(c.db, 'SELECT person_id FROM hr_paper WHERE id = ? AND deleted_at IS NULL', [a.id]);
       if (!p) throw new UserError(m('الورقة غير موجودة', 'Paper not found', 'Document introuvable'));
@@ -414,11 +420,13 @@ export const HR_OPS = {
 
   // a scan on a paper, a version of the code of conduct, or a signature
   'hr.file.add': {
-    check: needManage,
+    check: (c: OpCtx) => needRight(c, 'hr.manage', 'hr.agreements'),
     run: async (c: OpCtx, a: { kind: 'paper' | 'conduct' | 'sign'; id: number; base64: string; mime: string; name?: string }) => {
       if (!(a.kind in TABLE) || (a.kind as string) === 'doc') throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
       const row = await one<{ id: number }>(c.db, `SELECT id FROM ${TABLE[a.kind]} WHERE id = ?`, [a.id]);
       if (!row) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+      // the scan of an agreement or a letter: by who writes them; a version of the code or a signature: by who manages
+      needRight(c, a.kind === 'paper' ? 'hr.agreements' : 'hr.manage');
       if (a.kind === 'conduct') needAll(c);
       else await needPerson(c, await personOf(c, a.kind, a.id));
       const f = await storeFile(c, a);
@@ -434,6 +442,8 @@ export const HR_OPS = {
     run: async (c: OpCtx, a: { kind: FileKind; id: number }) => {
       if (!(a.kind in TABLE)) throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
       if (a.kind === 'doc') needVault(c);
+      // a signed agreement or letter shows its amount
+      if (a.kind === 'paper') needRight(c, 'hr.salary');
       await needPerson(c, await personOf(c, a.kind, a.id));
       const d = await one<{ file: string | null; file_name: string | null; mime: string | null }>(c.db, `SELECT file, file_name, mime FROM ${TABLE[a.kind]} WHERE id = ?${a.kind === 'conduct' ? '' : ' AND deleted_at IS NULL'}`, [a.id]);
       if (!d?.file) throw new UserError(m('لا ملف', 'No file', 'Pas de fichier'));

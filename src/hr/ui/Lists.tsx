@@ -8,25 +8,29 @@ import { CENTRES, type CentreKey } from '../../brand';
 import { Field, Modal, confirmBox, toast } from '../../ui/kit';
 import { t3 } from '../../community/ui/text';
 import type { HrCheckItem, HrData, HrLeaveType, HrListItem } from '../hr';
-import { centreChoices, centreLabel, centreVars, fail, markOf } from './common';
+import { centreChoices, centreLabel, centreVars, fail, markOf, type HrRights } from './common';
+import { BackupsTab, HR_ROWS, RolesTab } from './Roles';
 import { partyOf } from '../docs';
 import { SessionPriceTab } from './Sessions';
 import { SignAsButton } from '../../ui/SignAs';
 
-type Tab = 'lists' | 'checks' | 'price' | 'leave' | 'users';
+type Tab = 'lists' | 'checks' | 'price' | 'leave' | 'users' | 'roles' | 'backups';
 
 /** The settings of HR (Fouad, 31 October 2026): the lists and the centres, what is done when someone arrives or leaves, the
  *  kinds of leave (prepared for later), and the users with the centres each one sees. */
-export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () => Promise<void> }) {
-  const [tab, setTab] = useState<Tab>('lists');
+export function ListsPage({ s, d, reload, r }: { s: Session; d: HrData; reload: () => Promise<void>; r: HrRights }) {
   const users = has(s.profile, 'users.manage');
-  const tabs: [Tab, string][] = [
-    ['lists', t3('القوائم والمراكز', 'Lists & centres', 'Listes et centres')],
-    ['checks', t3('الوصول والمغادرة', 'Arrival & leaving', 'Arrivée et départ')],
-    ['price', t3('سعر الجلسة', 'Session price', 'Prix de la séance')],
-    ['leave', t3('الإجازات (لاحقاً)', 'Leave (later)', 'Congés (plus tard)')],
-    ...(users ? [['users', t3('المستخدمون والمراكز', 'Users & centres', 'Utilisateurs et centres')] as [Tab, string]] : []),
-  ];
+  // each tab for who may use it (Fouad, 1 November 2026); the roles are changed by who manages users and sees every centre
+  const tabs = ([
+    ['lists', t3('القوائم والمراكز', 'Lists & centres', 'Listes et centres'), r.manage],
+    ['checks', t3('الوصول والمغادرة', 'Arrival & leaving', 'Arrivée et départ'), r.manage],
+    ['price', t3('سعر الجلسة', 'Session price', 'Prix de la séance'), r.scale],
+    ['leave', t3('الإجازات (لاحقاً)', 'Leave (later)', 'Congés (plus tard)'), r.manage],
+    ['users', t3('المستخدمون والمراكز', 'Users & centres', 'Utilisateurs et centres'), users],
+    ['roles', t3('الأدوار والصلاحيات', 'Roles and rights', 'Rôles et droits'), users && !d.scope],
+    ['backups', t3('النسخ الاحتياطية', 'Backups', 'Sauvegardes'), r.backups],
+  ] as [Tab, string, boolean][]).filter((x) => x[2]);
+  const [tab, setTab] = useState<Tab>(tabs[0]?.[0] ?? 'lists');
   return (
     <>
       <div className="hr-head"><div><div className="hr-eyebrow">{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</div><h1>{t3('الإعدادات', 'Settings', 'Réglages')}</h1></div></div>
@@ -36,6 +40,8 @@ export function ListsPage({ s, d, reload }: { s: Session; d: HrData; reload: () 
       {tab === 'price' && <SessionPriceTab s={s} d={d} />}
       {tab === 'leave' && <LeaveTab s={s} d={d} reload={reload} />}
       {tab === 'users' && users && <UsersTab s={s} d={d} />}
+      {tab === 'roles' && users && !d.scope && <RolesTab s={s} />}
+      {tab === 'backups' && r.backups && <BackupsTab s={s} />}
     </>
   );
 }
@@ -267,6 +273,7 @@ function UserModal({ s, d, user, access, centres, onClose, onDone }: { s: Sessio
     <Modal title={user ? user.name : t3('مستخدم جديد', 'New user', 'Nouvel utilisateur')} onClose={onClose} narrow>
       <Field label={t3('الاسم', 'Name', 'Nom')}><input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
       <Field label={t3('الصلاحيات', 'Rights', 'Droits')}><select value={f.accessId} onChange={(e) => setF({ ...f, accessId: Number(e.target.value) })}>{access.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+      <ul className="muted small" style={{ marginTop: 0, paddingInlineStart: 18 }}>{HR_ROWS.flatMap((g) => g.perms).filter((p) => access.find((a) => a.id === f.accessId)?.perms.includes(p.key)).map((p) => <li key={p.key}>{p.label}</li>)}</ul>
       <Field label={t3('المراكز التي يراها', 'Centres seen', 'Centres vus')}>
         <div>
           {!d.scope && <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={f.all} onChange={(e) => setF({ ...f, all: e.target.checked })} /><b>{t3('كل المراكز (مدير ماجيس)', 'Every centre (MAGIS manager)', 'Tous les centres (directeur MAGIS)')}</b></label>}

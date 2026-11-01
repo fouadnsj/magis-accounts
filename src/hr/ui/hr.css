@@ -214,3 +214,8 @@
 @media (max-width: 700px) { .hr-kind { grid-template-columns: 1fr; } }
 .hr-reg .tot { background: #FBF8F1; border-inline-end: 1px solid var(--hr-line); }
 .hr-reg .who { box-shadow: inset -1px 0 0 var(--hr-line); }
+
+/* the roles page (1 November 2026): short role names over narrow columns, room for what each right does */
+.hr .roles-matrix th.c { white-space: normal; max-width: 120px; vertical-align: bottom; }
+.hr .roles-matrix td:first-child { min-width: 300px; }
+.hr .roles-matrix td.c { min-width: 80px; }

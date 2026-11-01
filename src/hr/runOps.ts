@@ -9,7 +9,7 @@ import type { OpCtx } from '../ops';
 import { payData } from './payOps';
 import { payOn } from './pay';
 import { allocOn, splitAmount, type HrAlloc } from './stage4';
-import { needCentre, needPerson, scopeOf } from './scope';
+import { needCentre, needPerson, needRight, scopeOf } from './scope';
 import { pendingSessions, sessionLineStmts } from './sessions';
 
 export interface HrRun { id: number; ym: string; kind: 'monthly' | 'thirteenth'; /** the centre's code (null: an older run of every centre) */ centre: string | null; rate_syp: number; status: 'draft' | 'approved' | 'paid'; note: string | null; created_by: string | null; approved_at: string | null; approved_by: string | null; paid_on: string | null; paid_by: string | null; lines: number; total_usd: number }
@@ -45,7 +45,7 @@ const needDraft = (r: HrRun) => {
 
 export const HR_RUN_OPS = {
   'hr.run.list': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.pay', 'hr.approve', 'hr.paid'),
     run: async (c: OpCtx) => {
       const sc = scopeOf(c);
       const rows = await c.db.query<HrRun>('SELECT r.*, (SELECT COUNT(*) FROM hr_run_line l WHERE l.run_id = r.id) AS lines, (SELECT COALESCE(SUM(total_usd), 0) FROM hr_run_line l WHERE l.run_id = r.id) AS total_usd FROM hr_run r ORDER BY ym DESC, kind, centre');
@@ -53,7 +53,7 @@ export const HR_RUN_OPS = {
     },
   },
   'hr.run.get': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.pay', 'hr.approve', 'hr.paid'),
     run: async (c: OpCtx, a: { id: number }) => {
       const run = await runOf(c, a.id);
       const lines = await c.db.query<HrRunLine>('SELECT l.*, p.name AS person_name, p.national_id, p.role FROM hr_run_line l JOIN hr_person p ON p.id = l.person_id WHERE l.run_id = ? ORDER BY p.name, l.id', [a.id]);
@@ -182,7 +182,7 @@ export const HR_RUN_OPS = {
     },
   },
   'hr.run.paid': {
-    check: needApprove,
+    check: (c: OpCtx) => needRight(c, 'hr.paid'),
     run: async (c: OpCtx, a: { id: number; paidOn: string }) => {
       const run = await runOf(c, a.id);
       if (run.status !== 'approved') throw new UserError(m('يجب اعتماد الكشف أولاً', 'Approve the run first', "Approuvez d'abord la paie"));
@@ -202,7 +202,7 @@ export const HR_RUN_OPS = {
 
   // what Accounts receives: totals only, by account and budget line and currency; never a name
   'hr.run.voucher': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.pay', 'hr.approve', 'hr.paid'),
     run: async (c: OpCtx, a: { id: number }) => {
       const run = await runOf(c, a.id);
       if (run.status === 'draft') throw new UserError(m('اعتمد الكشف أولاً', 'Approve the run first', "Approuvez d'abord la paie"));

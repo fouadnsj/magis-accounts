@@ -5,6 +5,7 @@ import { one } from '../db/db';
 import { UserError } from '../db/repo';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
+import type { Perm } from '../perms';
 
 /** The centres the user sees (codes); null = every centre. */
 export const scopeOf = (c: Pick<OpCtx, 'profile'>): string[] | null => c.profile.hrCentres ?? null;
@@ -46,4 +47,9 @@ export async function seenPeople(c: OpCtx): Promise<Set<number> | null> {
   const codes = await centreCodes(c);
   const rows = await c.db.query<{ id: number; centre: string | null }>('SELECT id, centre FROM hr_person');
   return new Set(rows.filter((p) => sees(c, p.centre ? codes.get(p.centre) : null)).map((p) => p.id));
+}
+
+/** refuses a user who has none of these rights (Fouad, 1 November 2026: the HR rights in detail) */
+export function needRight(c: Pick<OpCtx, 'profile'>, ...perms: Perm[]) {
+  if (!perms.some((p) => c.profile.perms.includes(p))) throw new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non permis pour cet utilisateur'));
 }

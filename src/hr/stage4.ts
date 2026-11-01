@@ -6,7 +6,7 @@ import { auditStmt, UserError } from '../db/repo';
 import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
-import { needPerson, seenPeople } from './scope';
+import { needPerson, needRight, seenPeople } from './scope';
 
 /** only the rows of the people the user sees */
 async function mine<T extends { person_id: number }>(c: OpCtx, rows: T[]): Promise<T[]> {
@@ -46,7 +46,7 @@ export function splitAmount(total: number, parts: { pct: number }[], decimals = 
 }
 
 export const HR_STAGE4_OPS = {
-  'hr.ins.list': { check: needPay, run: async (c: OpCtx) => mine(c, await c.db.query<HrInsurance>('SELECT id, person_id, member_name, relation, amount_usd, currency, paid_by, end_date, paid_on, note FROM hr_insurance WHERE deleted_at IS NULL ORDER BY person_id, member_name IS NOT NULL, member_name')) },
+  'hr.ins.list': { check: (c: OpCtx) => needRight(c, 'hr.salary'), run: async (c: OpCtx) => mine(c, await c.db.query<HrInsurance>('SELECT id, person_id, member_name, relation, amount_usd, currency, paid_by, end_date, paid_on, note FROM hr_insurance WHERE deleted_at IS NULL ORDER BY person_id, member_name IS NOT NULL, member_name')) },
   'hr.ins.save': {
     check: needPay,
     run: async (c: OpCtx, a: { id?: number | null; personId: number; memberName?: string | null; relation?: string | null; amountUsd: number; currency?: 'USD' | 'SYP'; paidBy?: 'centre' | 'staff'; endDate?: string | null; paidOn?: string | null; note?: string | null }) => {
@@ -76,7 +76,7 @@ export const HR_STAGE4_OPS = {
     },
   },
 
-  'hr.alloc.list': { check: needPay, run: async (c: OpCtx) => mine(c, await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc ORDER BY person_id, valid_from DESC, pct DESC')) },
+  'hr.alloc.list': { check: (c: OpCtx) => needRight(c, 'hr.salary'), run: async (c: OpCtx) => mine(c, await c.db.query<HrAlloc>('SELECT person_id, valid_from, target, pct FROM hr_alloc ORDER BY person_id, valid_from DESC, pct DESC')) },
   // the whole split of a person from a date (replaces the one of the same date); it must make 100%
   'hr.alloc.save': {
     check: needPay,
@@ -108,7 +108,7 @@ export const HR_STAGE4_OPS = {
 
   // the cost of staff time by donor or project, by month, from the approved and paid runs of a year
   'hr.alloc.report': {
-    check: needPay,
+    check: (c: OpCtx) => needRight(c, 'hr.salary'),
     run: async (c: OpCtx, a: { year: number }) => {
       const y = Number(a.year);
       if (!(y >= 2000 && y <= 2100)) throw new UserError(m('سنة غير صالحة', 'Not a valid year', 'Année non valide'));

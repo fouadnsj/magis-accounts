@@ -20,7 +20,7 @@ import { PersonPage } from './Person';
 import { BudgetListPage } from './BudgetList';
 import { ReportsPage } from './Reports';
 import { SessionsPage } from './Sessions';
-import { SortTh, TwoNames, centreLabel, centreOf, centreVars, chooseScan, codeOf, fail, markOf, openScan, centreChoices, sortRows, usd, useSort } from './common';
+import { rightsOf, SortTh, TwoNames, centreLabel, centreOf, centreVars, chooseScan, codeOf, fail, markOf, openScan, centreChoices, sortRows, usd, useSort } from './common';
 import './hr.css';
 
 type Page = 'home' | 'people' | 'person' | 'scale' | 'runs' | 'sessions' | 'budget' | 'insurance' | 'donors' | 'reports' | 'lists' | 'conduct' | 'log';
@@ -47,14 +47,14 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
   const [newKind, setNewKind] = useState<'staff' | 'tutor'>('staff');
   // the centre chosen at the top (null = every centre the user sees); kept for the next visit
   const [cx, setCx] = useState<string | null>(() => { try { return localStorage.getItem('hr-centre') || null; } catch { return null; } });
-  const manage = has(session.profile, 'hr.manage');
-  const vault = has(session.profile, 'hr.vault');
-  const pay = has(session.profile, 'hr.pay');
-  const sup = pay && has(session.profile, 'hr.approve');
+  // the rights in detail (Fouad, 1 November 2026): each part of the menu for who may use it
+  const rt = rightsOf(session.profile);
+  const { manage, vault, pay } = rt;
+  const sup = rt.salary && rt.approve;
   const reload = useCallback(async () => {
     try {
       setAll(await session.api.call('hr.data', {}));
-      if (has(session.profile, 'hr.pay')) setPd(await session.api.call('hr.pay.data', {}));
+      if (has(session.profile, 'hr.salary')) setPd(await session.api.call('hr.pay.data', {}));
       setErr(null);
     } catch (e) { setErr(errText(e)); }
   }, [session]);
@@ -81,17 +81,17 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
         <div style={{ padding: '0 10px 8px' }}><WhoIs profile={session.profile} light /></div>
         {item('home', t3('البداية', 'Home', 'Accueil'), d.alerts.length)}
         {item('people', t3('الأشخاص', 'People', 'Personnes'))}
-        {pay && <div className="group">{t3('المكافآت', 'Stipends', 'Gratifications')}</div>}
-        {pay && item('scale', t3('سلّم الرواتب', 'Salary scale', 'Échelle'))}
-        {pay && item('sessions', t3('جلسات المدرّبين', "Tutors' sessions", 'Séances des animateurs'))}
-        {pay && item('runs', t3('كشوف الدفع', 'Payroll', 'Paies'))}
-        {pay && item('donors', t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement'))}
+        {(rt.salary || rt.sessions || rt.runs) && <div className="group">{t3('المكافآت', 'Stipends', 'Gratifications')}</div>}
+        {rt.salary && item('scale', t3('سلّم الرواتب', 'Salary scale', 'Échelle'))}
+        {rt.sessions && item('sessions', t3('جلسات المدرّبين', "Tutors' sessions", 'Séances des animateurs'))}
+        {rt.runs && item('runs', t3('كشوف الدفع', 'Payroll', 'Paies'))}
+        {rt.salary && item('donors', t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement'))}
         {pay && item('insurance', t3('التأمين الصحي', 'Health insurance', 'Assurance maladie'))}
-        {pay && item('budget', t3('القائمة للموازنة', 'List for the budget', 'Liste pour le budget'))}
-        {pay && item('reports', t3('التقارير و Excel', 'Reports & Excel', 'Rapports et Excel'))}
+        {rt.salary && item('budget', t3('القائمة للموازنة', 'List for the budget', 'Liste pour le budget'))}
+        {rt.salary && item('reports', t3('التقارير و Excel', 'Reports & Excel', 'Rapports et Excel'))}
         <div className="group">{t3('أخرى', 'More', 'Plus')}</div>
         {item('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'))}
-        {manage && item('lists', t3('الإعدادات', 'Settings', 'Réglages'))}
+        {(manage || rt.scale || rt.users || rt.backups) && item('lists', t3('الإعدادات', 'Settings', 'Réglages'))}
         {vault && item('log', t3('سجل فتح الوثائق', 'Document log', 'Journal des documents'))}
         <div className="spacer" />
         <div className="sun"><img src="/brand/magis-sun.png" alt="" /></div>
@@ -111,17 +111,17 @@ export function HrApp({ session, onLogout, onDatabases }: { session: Session; on
         {page === 'home' && <Home {...ctx} pd={pd} go={go} centres={mineCentres} choose={choose} />}
         {page === 'people' && <People {...ctx} pd={pd} manage={manage} add={() => { setNewKind('staff'); setPersonId('new'); setPage('person'); }} />}
         {page === 'person' && (personId === 'new' || person) && (
-          <PersonPage key={`${personId ?? 'x'}${newKind}`} s={session} d={all} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} person={person} preset={centre} kind={newKind} onBack={() => go('people')} onOpen={(id) => { setPersonId(id); setPage('person'); }} />
+          <PersonPage key={`${personId ?? 'x'}${newKind}`} s={session} d={all} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} r={rt} person={person} preset={centre} kind={newKind} onBack={() => go('people')} onOpen={(id) => { setPersonId(id); setPage('person'); }} />
         )}
         {page === 'scale' && pd && <ScalePage s={session} hr={d} pd={pd} reload={reload} open={open} centre={centre} />}
-        {page === 'sessions' && <SessionsPage s={session} hr={d} pd={pd} open={open} addTutor={() => { setNewKind('tutor'); setPersonId('new'); setPage('person'); }} />}
+        {page === 'sessions' && <SessionsPage r={rt} s={session} hr={d} pd={pd} open={open} addTutor={() => { setNewKind('tutor'); setPersonId('new'); setPage('person'); }} />}
         {page === 'runs' && <RunsPage s={session} hr={d} centre={centre} pd={pd} />}
         {page === 'budget' && <BudgetListPage s={session} hr={d} centre={centre} />}
         {page === 'insurance' && <InsurancePage s={session} hr={d} />}
         {page === 'donors' && pd && <DonorsPage s={session} hr={d} pd={pd} open={open} />}
         {page === 'reports' && pd && <ReportsPage s={session} hr={d} pd={pd} open={open} sup={sup} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
-        {page === 'lists' && <ListsPage s={session} d={all} reload={reload} />}
+        {page === 'lists' && <ListsPage s={session} d={all} reload={reload} r={rt} />}
         {page === 'log' && <Log s={session} d={all} />}
       </main>
     </div>

@@ -13,7 +13,8 @@ import type { HrData, HrPerson } from '../hr';
 import type { HrPayData } from '../payOps';
 import { rateOf } from '../pay';
 import { priceOn, type HrSession, type HrSessionPrice } from '../sessions';
-import { TwoNames, centreOf, centreVars, codeOf, fail, markOf, usd } from './common';
+import { TwoNames, centreOf, centreVars, codeOf, fail, markOf, usd, type HrRights } from './common';
+import { has } from '../../auth';
 
 interface Month { sessions: HrSession[]; prices: HrSessionPrice[]; activities: string[] }
 
@@ -55,7 +56,9 @@ function MonthNav({ ym, set }: { ym: string; set: (ym: string) => void }) {
   );
 }
 
-export function SessionsPage({ s, hr, pd, open, addTutor }: { s: Session; hr: HrData; pd: HrPayData | null; open: (p: HrPerson) => void; addTutor: () => void }) {
+export function SessionsPage({ s, hr, pd, open, addTutor, r: rt }: { s: Session; hr: HrData; pd: HrPayData | null; open: (p: HrPerson) => void; addTutor: () => void; r: HrRights }) {
+  // who only records the sessions sees neither the price nor the amounts (Fouad, 1 November 2026)
+  const see = rt.salary;
   const [ym, setYm] = useState(thisMonth);
   const { m, load } = useMonth(s, ym);
   const [day, setDay] = useState<{ p: HrPerson; date: string } | null>(null);
@@ -131,11 +134,11 @@ export function SessionsPage({ s, hr, pd, open, addTutor }: { s: Session; hr: Hr
         <div><div className="hr-eyebrow">{t3('المدرّبون والمنشّطون', 'Tutors and animators', 'Animateurs et tuteurs')}</div><h1>{t3('الجلسات', 'Sessions', 'Séances')} · {monthLabel(ym)}</h1></div>
         <div className="desk-filters">
           <MonthNav ym={ym} set={setYm} />
-          <button className="btn" disabled={!sessions.length} onClick={download}>⬇ Excel</button>
-          <button className="btn gold" onClick={addTutor}>＋ {t3('مدرّب', 'Tutor', 'Animateur')}</button>
+          {see && <button className="btn" disabled={!sessions.length} onClick={download}>⬇ Excel</button>}
+          {rt.manage && <button className="btn gold" onClick={addTutor}>＋ {t3('مدرّب', 'Tutor', 'Animateur')}</button>}
         </div>
       </div>
-      {m && (now
+      {m && see && (now
         ? <p className="muted small">{t3('سعر الجلسة', 'Price of a session', "Prix d'une séance")}: <b>{priceText(now)}</b> {t3('منذ', 'since', 'depuis')} {fmtDate(now.valid_from)} · {t3('يُغيَّر في «الإعدادات ← سعر الجلسة»', 'changed in Settings → Session price', 'se change dans Réglages → Prix de la séance')}</p>
         : <div className="alert err">{t3('لم يُكتب سعر الجلسة بعد: اكتبه في «الإعدادات ← سعر الجلسة».', 'The price of a session is not written yet: write it in Settings → Session price.', "Le prix d'une séance n'est pas encore écrit : écrivez-le dans Réglages → Prix de la séance.")}</div>)}
       <p className="muted small">{t3('اضغط على يوم لتسجيل جلسة (بالنشاط المعتاد للمدرّب)، واضغط على يوم مسجَّل لرؤية جلساته. 🔒 = في كشف دفع.', "Click a day to record a session (with the tutor's usual activity); click a filled day to see its sessions. 🔒 = in a payroll run.", "Cliquez sur un jour pour noter une séance (avec l'activité habituelle) ; cliquez sur un jour rempli pour voir ses séances. 🔒 = dans une paie.")}</p>
@@ -154,7 +157,7 @@ export function SessionsPage({ s, hr, pd, open, addTutor }: { s: Session; hr: Hr
                   <tr>
                     <th className="who">{t3('المدرّب', 'Tutor', 'Animateur')}</th>
                     <th className="n tot">{t3('جلسات', 'Sessions', 'Séances')}</th>
-                    <th className="n tot">{t3('المبلغ', 'Amount', 'Montant')}</th>
+                    <th className="n tot">{see ? t3('المبلغ', 'Amount', 'Montant') : ''}</th>
                     {Array.from({ length: n }, (_, i) => { const date = dayOf(ym, i + 1); const w = weekday(date); return <th key={i} className={`${w === 5 ? 'fri' : ''} ${date === today ? 'today' : ''}`}><small>{['S', 'M', 'T', 'W', 'T', 'F', 'S'][w]}</small>{i + 1}</th>; })}
                   </tr>
                 </thead>
@@ -166,7 +169,7 @@ export function SessionsPage({ s, hr, pd, open, addTutor }: { s: Session; hr: Hr
                       <tr key={p.id} style={{ opacity: p.active ? 1 : 0.6 }}>
                         <td className="who"><button className="link" onClick={() => open(p)}><TwoNames p={p} /></button><div className="muted small">{p.activity ?? t3('بلا نشاط معتاد', 'no usual activity', "pas d'activité habituelle")}</div></td>
                         <td className="n tot"><b>{mine.length || ''}</b></td>
-                        <td className="n nowrap tot">{mine.length ? amountText(a) : ''}{a.SYP && a.USD + a.SYP && rateFor(p) > 0 ? <div className="muted small">≈ {usd(Math.round(a.usd))} $</div> : null}{a.missing ? <div className="desk-alert small">{a.missing} {t3('بلا سعر', 'no price', 'sans prix')}</div> : null}</td>
+                        <td className="n nowrap tot">{see && <>{mine.length ? amountText(a) : ''}{a.SYP && a.USD + a.SYP && rateFor(p) > 0 ? <div className="muted small">≈ {usd(Math.round(a.usd))} $</div> : null}{a.missing ? <div className="desk-alert small">{a.missing} {t3('بلا سعر', 'no price', 'sans prix')}</div> : null}</>}</td>
                         {Array.from({ length: n }, (_, i) => {
                           const date = dayOf(ym, i + 1);
                           const here = mine.filter((x) => x.on_date === date);
@@ -184,14 +187,14 @@ export function SessionsPage({ s, hr, pd, open, addTutor }: { s: Session; hr: Hr
                   })}
                 </tbody>
                 <tfoot>
-                  <tr><td className="who"><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n tot"><b>{sessions.filter((x) => xs.some((p) => p.id === x.person_id)).length}</b></td><td className="n nowrap tot"><b>{amountText(sub)}</b></td><td colSpan={n} /></tr>
+                  <tr><td className="who"><b>{t3('المجموع', 'Total', 'Total')}</b></td><td className="n tot"><b>{sessions.filter((x) => xs.some((p) => p.id === x.person_id)).length}</b></td><td className="n nowrap tot"><b>{see ? amountText(sub) : ''}</b></td><td colSpan={n} /></tr>
                 </tfoot>
               </table>
             </div>
           </section>
         );
       })}
-      {m && groups.length > 1 && grand && <p style={{ textAlign: 'end' }}><b>{t3('مجموع الشهر', 'Total of the month', 'Total du mois')}: {sessions.length} {t3('جلسة', 'sessions', 'séances')} · {amountText(grand)}</b></p>}
+      {m && groups.length > 1 && grand && <p style={{ textAlign: 'end' }}><b>{t3('مجموع الشهر', 'Total of the month', 'Total du mois')}: {sessions.length} {t3('جلسة', 'sessions', 'séances')}{see ? ` · ${amountText(grand)}` : ''}</b></p>}
       {day && m && <DayModal s={s} p={day.p} date={day.date} m={m} onClose={() => setDay(null)} reload={load} />}
     </>
   );
@@ -235,6 +238,7 @@ export function TutorSessions({ s, hr, pd, person, manage, reload }: { s: Sessio
   const [usual, setUsual] = useState(person.activity ?? '');
   const mine = m ? m.sessions.filter((x) => x.person_id === person.id) : [];
   const a = m ? amounts(mine, m.prices, rateOf(pd?.settings, codeOf(hr, person))) : null;
+  const see = has(s.profile, 'hr.salary');
   const add = async () => { try { await s.api.call('hr.session.add', { personId: person.id, date: f.date, activity: f.activity || null }); if (f.date.slice(0, 7) !== ym) setYm(f.date.slice(0, 7)); else await load(); } catch (e) { fail(e); } };
   return (
     <>
@@ -246,17 +250,17 @@ export function TutorSessions({ s, hr, pd, person, manage, reload }: { s: Sessio
         {!m ? <p className="muted">…</p> : (
           <>
             <table className="desk-table" style={{ marginTop: 8 }}>
-              <thead><tr><th>{t3('التاريخ', 'Date', 'Date')}</th><th>{t3('النشاط', 'Activity', 'Activité')}</th><th className="n">{t3('السعر', 'Price', 'Prix')}</th><th /></tr></thead>
+              <thead><tr><th>{t3('التاريخ', 'Date', 'Date')}</th><th>{t3('النشاط', 'Activity', 'Activité')}</th>{see && <th className="n">{t3('السعر', 'Price', 'Prix')}</th>}<th /></tr></thead>
               <tbody>
                 {mine.map((x) => (
                   <tr key={x.id}>
-                    <td>{fmtDate(x.on_date)}</td><td>{x.activity ?? '—'}</td><td className="n">{priceText(priceOn(m.prices, x.on_date))}</td>
+                    <td>{fmtDate(x.on_date)}</td><td>{x.activity ?? '—'}</td>{see && <td className="n">{priceText(priceOn(m.prices, x.on_date))}</td>}
                     <td className="right">{x.run_line_id ? <span className="muted small">🔒 {t3('في كشف دفع', 'in a payroll run', 'dans une paie')}</span> : manage && <button className="btn small" onClick={async () => { if (await confirmBox(t3('حذف هذه الجلسة؟', 'Remove this session?', 'Retirer cette séance ?'), true)) { try { await s.api.call('hr.session.delete', { id: x.id }); await load(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Remove', 'Retirer')}</button>}</td>
                   </tr>
                 ))}
                 {!mine.length && <tr><td colSpan={4} className="muted">{t3('لا جلسات في هذا الشهر.', 'No sessions this month.', 'Aucune séance ce mois-ci.')}</td></tr>}
               </tbody>
-              {mine.length > 0 && a && <tfoot><tr><td colSpan={2}><b>{mine.length} {t3('جلسة', 'sessions', 'séances')}</b></td><td className="n"><b>{amountText(a)}</b></td><td /></tr></tfoot>}
+              {mine.length > 0 && a && <tfoot><tr><td colSpan={2}><b>{mine.length} {t3('جلسة', 'sessions', 'séances')}</b></td>{see && <td className="n"><b>{amountText(a)}</b></td>}<td /></tr></tfoot>}
             </table>
             {manage && (
               <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 10 }}>

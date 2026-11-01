@@ -38,7 +38,7 @@ export function RunsPage({ s, hr, centre, pd }: { s: Session; hr: HrData; /** th
   const shown = sortRows((runs ?? []).filter((r) => !centre || r.centre === centre || r.centre == null), (r) => (sort.key === 'month' ? r.ym : sort.key === 'centre' ? centreLabel(hr, r.centre) : sort.key === 'kind' ? r.kind : sort.key === 'lines' ? r.lines : sort.key === 'total' ? r.total_usd : r.status), sort.dir);
   return (
     <>
-      <div className="desk-head"><h1>{t3('كشوف الرواتب', 'Payroll runs', 'Paies')}{centre ? ` · ${centreLabel(hr, centre)}` : ''}</h1><button className="btn primary" onClick={() => setForm(true)}>＋ {t3('كشف جديد', 'New run', 'Nouvelle paie')}</button></div>
+      <div className="desk-head"><h1>{t3('كشوف الرواتب', 'Payroll runs', 'Paies')}{centre ? ` · ${centreLabel(hr, centre)}` : ''}</h1>{has(s.profile, 'hr.pay') && <button className="btn primary" onClick={() => setForm(true)}>＋ {t3('كشف جديد', 'New run', 'Nouvelle paie')}</button>}</div>
       <p className="muted small">{t3('لكل مركز كشفه في كل شهر، بسعر الدولار الخاص به، ويعتمده الرئيس.', 'Each centre has its own run every month, with its own dollar rate; the Superior approves it.', "Chaque centre a sa paie chaque mois, avec son propre taux du dollar ; le Supérieur l'approuve.")}</p>
       <div className="cty-card desk-scroll">
         <table className="desk-table">
@@ -102,6 +102,8 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
   const [add, setAdd] = useState(false);
   const [voucher, setVoucher] = useState<{ run: { ym: string; kind: string; rate_syp: number; status: string; approved_by: string | null; paid_on: string | null }; rows: HrVoucherRow[]; total_usd: number } | null>(null);
   const approver = has(s.profile, 'hr.approve');
+  // marking an approved run paid is its own right (Fouad, 1 November 2026); preparing the run is 'hr.pay'
+  const payer = has(s.profile, 'hr.paid'), maker = has(s.profile, 'hr.pay');
   const load = useCallback(async () => { try { setD(await s.api.call('hr.run.get', { id })); } catch (e) { fail(e); } }, [s, id]);
   useEffect(() => { void load(); }, [load]);
   if (!d) return <p className="muted">…</p>;
@@ -126,11 +128,11 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
         <div className="desk-filters">
           <span className="pill">{STATUS(run.status)}</span>
           {draft && approver && <button className="btn primary" onClick={act('hr.run.approve', t3('اعتُمد', 'Approved', 'Approuvée'))}>{t3('اعتماد', 'Approve', 'Approuver')}</button>}
-          {run.status === 'approved' && approver && <button className="btn primary" onClick={async () => {
+          {run.status === 'approved' && payer && <button className="btn primary" onClick={async () => {
             try { await s.api.call('hr.run.paid', { id, paidOn: todayIso() }); await load(); } catch (e) { fail(e); }
           }}>{t3('سُجّل الدفع اليوم', 'Mark paid today', "Marquer payée aujourd'hui")}</button>}
           {run.status === 'approved' && approver && <button className="btn" onClick={act('hr.run.reopen')}>{t3('إعادة فتح', 'Reopen', 'Rouvrir')}</button>}
-          {draft && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('حذف هذا الكشف؟', 'Delete this run?', 'Supprimer cette paie ?'), true)) { try { await s.api.call('hr.run.delete', { id }); onBack(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
+          {draft && maker && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('حذف هذا الكشف؟', 'Delete this run?', 'Supprimer cette paie ?'), true)) { try { await s.api.call('hr.run.delete', { id }); onBack(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Delete', 'Supprimer')}</button>}
         </div>
       </div>
       {draft && d.pendingSessions > 0 && (

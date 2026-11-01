@@ -13,7 +13,7 @@ import {
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, roleFor, type Profile } from './auth';
-import { cleanPerms, type Perm } from './perms';
+import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
 import { billCode, computeAll } from './domain/compute';
@@ -1161,7 +1161,7 @@ async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: strin
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
   if (await one(c.db, 'SELECT 1 FROM access_profile WHERE name = ? AND id <> ?', [name, a.id ?? -1]))
     throw new UserError(m(`"${name}" موجود مسبقاً`, `"${name}" already exists`));
-  const perms = JSON.stringify(cleanPerms(a.perms));
+  const perms = JSON.stringify(withImplied(cleanPerms(a.perms)));
   const before = a.id ? await one(c.db, 'SELECT * FROM access_profile WHERE id = ?', [a.id]) : null;
   if (a.id) {
     await c.db.batch([

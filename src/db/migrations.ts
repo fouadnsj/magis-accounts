@@ -1509,4 +1509,20 @@ CREATE UNIQUE INDEX hr_session_ext ON hr_session(source, ext_id) WHERE ext_id IS
 ALTER TABLE hr_run_line ADD COLUMN sessions INTEGER;
 `,
   },
+  {
+    n: 39,
+    name: 'HR rights in detail: personal details, amounts, agreements, scale, sessions, paid',
+    sql: `
+-- Fouad, 1 November 2026: the HR rights are split so a role can be made for each job (a workshop coordinator who only
+-- records the sessions and does not see the salaries; an HR keeper who does not see the personal details...). Each role
+-- keeps what it could do before: the old tick brings the new ticks it contained. (Only the amounts of the agreements,
+-- once shown to every reader, now need "sees the amounts".)
+UPDATE access_profile SET perms = replace(perms, '"hr.view"', '"hr.view","hr.details"') WHERE perms LIKE '%"hr.view"%' AND perms NOT LIKE '%"hr.details"%';
+UPDATE access_profile SET perms = replace(perms, '"hr.manage"', '"hr.manage","hr.agreements"') WHERE perms LIKE '%"hr.manage"%' AND perms NOT LIKE '%"hr.agreements"%';
+UPDATE access_profile SET perms = replace(perms, '"hr.pay"', '"hr.pay","hr.salary","hr.scale","hr.sessions"') WHERE perms LIKE '%"hr.pay"%' AND perms NOT LIKE '%"hr.salary"%';
+UPDATE access_profile SET perms = replace(perms, '"hr.approve"', '"hr.approve","hr.paid"') WHERE perms LIKE '%"hr.approve"%' AND perms NOT LIKE '%"hr.paid"%';
+-- writing agreements shows their amounts
+UPDATE access_profile SET perms = replace(perms, '"hr.agreements"', '"hr.agreements","hr.salary"') WHERE perms LIKE '%"hr.agreements"%' AND perms NOT LIKE '%"hr.salary"%';
+`,
+  },
 ];

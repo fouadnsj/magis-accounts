@@ -4,6 +4,16 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // all centres together (2026-11-01)
+  "All centres": "Tous les centres",
+  "Grants across the centres": "Les subventions à travers les centres",
+  "no contract number: matched by donor and amount": "pas de numéro de contrat : rapprochée par bailleur et montant",
+  "Share": "Part",
+  "no project": "pas de projet",
+  "not written in this centre": "pas écrite dans ce centre",
+  "No grants": "Pas de subventions",
+  "Every centre database on this server. To add a centre that works on its own computer: bring its backup and add it here as a database beside the others. The same grant is matched by its contract number.": "Toutes les bases des centres sur ce serveur. Pour ajouter un centre qui travaille sur son propre ordinateur : apportez sa sauvegarde et ajoutez-la ici comme base à côté des autres. La même subvention est rapprochée par son numéro de contrat.",
+
   // merging old accounts into projects (2026-11-01)
   "Merge": "Fusionner",
   "Merge it into another project": "Le fusionner dans un autre projet",

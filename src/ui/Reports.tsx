@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp, useNames, useIcons } from '../state';
 import { exchangeLog, funding, monthly, summary, inPeriod, type Period } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
-import { monthWord } from '../i18n';
+import { monthWord, tx } from '../i18n';
 import type { Perm } from '../perms';
 import { Seg, Tabs, errText, fmtDate, fmtPct, fmtRate, fmtSyp, fmtUsd, t, toast } from './kit';
 import { BarList, EXPENSE, INCOME, MonthColumns, type Bar } from './Charts';
@@ -11,10 +11,12 @@ import type { Trx } from '../domain/types';
 import { CurrencyFrame } from './Cash';
 import { QuartersTab } from './Quarters';
 import { projectReport, type ProjectRow } from '../domain/projects';
+import type { CentreSummary, GrantAcross } from '../domain/allCentres';
+import { centreStyle } from '../brand';
 import { projectXlsx } from '../io/projectExcel';
 import { saveFile } from '../platform';
 
-type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'funding' | 'exchange';
+type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'all' | 'funding' | 'exchange';
 
 const monthName = (ym: string) => {
   const m = Number(ym.slice(5, 7)) - 1;
@@ -22,7 +24,9 @@ const monthName = (ym: string) => {
 };
 
 export function Reports() {
-  const { d, can } = useApp();
+  const { d, s, can } = useApp();
+  // every centre of this server together: for who keeps the grants and manages the users, on the server
+  const allCentres = s.mode === 'server' && can('lists.donors') && can('users.manage');
   const names = useNames();
   const years = useMemo(() => [...new Set(d.centreRows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort(), [d.centreRows]);
   const lastYear = years[years.length - 1] ?? String(new Date().getFullYear());
@@ -61,6 +65,7 @@ export function Reports() {
         { value: 'quarters', label: t('الفصول والبنود', 'Quarters & categories'), hidden: !can('reports.summary') },
         { value: 'monthly', label: t('شهرياً', 'Monthly'), hidden: !can('reports.monthly') },
         { value: 'accounts', label: t('حسب المشروع', 'By project'), hidden: !can('reports.accounts') },
+        { value: 'all', label: t('كل المراكز', 'All centres'), hidden: !allCentres },
         { value: 'funding', label: t('التمويل', 'Funding'), hidden: !can('reports.funding') },
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
       ]} />
@@ -71,6 +76,7 @@ export function Reports() {
       {tab === 'quarters' && can('reports.summary') && <QuartersTab />}
       {tab === 'monthly' && can('reports.monthly') && <MonthlyTab year={year} />}
       {tab === 'accounts' && can('reports.accounts') && <ProjectsTab p={p} />}
+      {tab === 'all' && allCentres && <AllCentresTab p={p} />}
       {tab === 'exchange' && can('reports.exchange') && <ExchangeTab p={p} names={names} />}
     </>
   );
@@ -519,6 +525,91 @@ function ProjectsTab({ p }: { p: Period }) {
         </>
       )}
       <p className="muted small">{t('الليرات بالدولار بسعر كل نفقة. «الباقي» = ما استُلم باليد ناقص كل ما صُرف على المشروع منذ البداية. مصروف المشروع يأتي من خط الموازنة.', 'Pounds are in dollars at the rate of each expense. "Left" = what was received in hand minus all that was spent on the project since the beginning. A project\'s spending comes from the budget line.')}</p>
+    </>
+  );
+}
+
+/**
+ * Every centre of this server together (Fouad, 2026-11-01): what each spent, with a project and not funded, its
+ * projects; and each grant across the centres it covers (matched by its contract number), with each centre's share,
+ * project and spending. A copy of another centre's database brought to this server counts like the others.
+ */
+function AllCentresTab({ p }: { p: Period }) {
+  const [r, setR] = useState<{ centres: CentreSummary[]; grants: GrantAcross[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    setR(null);
+    setErr(null);
+    fetch('/api/all-centres', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) })
+      .then(async (x) => (x.ok ? setR(await x.json()) : setErr(t('غير مسموح', 'Not allowed'))))
+      .catch((e) => setErr(String(e)));
+  }, [p]);
+  if (err) return <div className="alert err">{err}</div>;
+  if (!r) return <p className="muted">…</p>;
+  const name = (c: { centre: string; organisation: string }) => `${tx(centreStyle(c.centre).name)} · ${c.organisation}`;
+  const money = (n: number, cur: string) => `${cur === 'EUR' ? '€' : '$'}${fmtUsd(n)}`;
+  const sum = (f: (c: CentreSummary) => number) => r.centres.reduce((a, c) => a + f(c), 0);
+  return (
+    <>
+      <div className="tbl-wrap">
+        <table className="t">
+          <thead><tr><th>{t('المركز', 'Centre')}</th><th className="n">{t('مصاريف الفترة', 'Spent in the period')} $</th><th className="n">{t('لها مشروع', 'With a project')} $</th><th className="n">{t('غير ممول', 'Not funded')} $</th><th className="n">{t('خارج الموازنة', 'Outside the budget')} $</th></tr></thead>
+          <tbody>
+            {r.centres.map((c) => (
+              <tr key={c.slug}><td><b style={{ color: centreStyle(c.centre).deep }}>{name(c)}</b></td><td className="n">{fmtUsd(c.spent)}</td><td className="n">{fmtUsd(c.withProject)}</td><td className={`n ${c.notFunded > 0.5 ? 'bad' : ''}`}>{fmtUsd(c.notFunded)}</td><td className="n muted">{fmtUsd(c.outside)}</td></tr>
+            ))}
+            <tr className="group"><td><b>{t('المجموع', 'Total')}</b></td><td className="n"><b>{fmtUsd(sum((c) => c.spent))}</b></td><td className="n"><b>{fmtUsd(sum((c) => c.withProject))}</b></td><td className="n"><b>{fmtUsd(sum((c) => c.notFunded))}</b></td><td className="n muted">{fmtUsd(sum((c) => c.outside))}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>{t('المنح عبر المراكز', 'Grants across the centres')}</h3>
+      <div className="tbl-wrap">
+        <table className="t">
+          <thead><tr><th>{t('المنحة', 'Grant')}</th><th className="n">{t('المبلغ', 'Amount')}</th>{r.centres.map((c) => <th key={c.slug}>{name(c)}</th>)}</tr></thead>
+          <tbody>
+            {r.grants.map((g, i) => (
+              <tr key={i}>
+                <td><b>{g.donor}</b>{g.reference ? <span className="muted"> · {g.reference}</span> : <div className="muted small">{t('بلا رقم عقد: مطابقة بالمانح والمبلغ', 'no contract number: matched by donor and amount')}</div>}</td>
+                <td className="n ltr">{money(g.amount, g.currency)}</td>
+                {r.centres.map((c) => {
+                  const share = g.shares.find((x) => x.centre === c.centre);
+                  const here = g.centres.find((x) => x.slug === c.slug);
+                  return (
+                    <td key={c.slug} className="small">
+                      {share ? <div className="ltr">{t('الحصة', 'Share')} {money(share.amount, g.currency)}</div> : null}
+                      {here ? <>
+                        <div>{here.project ?? <span className="bad">{t('لا مشروع', 'no project')}</span>}</div>
+                        <div className="muted">{here.received != null ? `${t('استُلم', 'received')} $${fmtUsd(here.received)} · ` : ''}{t('صُرف', 'spent')} ${fmtUsd(here.spentAll)}</div>
+                      </> : share ? <div className="bad">{t('غير مكتوبة في هذا المركز', 'not written in this centre')}</div> : <span className="muted">—</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            {!r.grants.length && <tr><td colSpan={2 + r.centres.length} className="muted">{t('لا منح', 'No grants')}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {r.centres.map((c) => (
+        <div key={c.slug}>
+          <h3 style={{ color: centreStyle(c.centre).deep }}>{name(c)}</h3>
+          <div className="tbl-wrap">
+            <table className="t">
+              <thead><tr><th>{t('المشروع', 'Project')}</th><th>{t('المنحة', 'Grant')}</th><th className="n">{t('استُلم باليد', 'Received in hand')} $</th><th className="n">{t('صُرف في الفترة', 'Spent in the period')} $</th><th className="n">{t('صُرف منذ البداية', 'Spent since the beginning')} $</th><th className="n">{t('الباقي', 'Left')} $</th></tr></thead>
+              <tbody>
+                {c.projects.map((x) => (
+                  <tr key={x.name}><td><b>{x.name}</b></td><td className="small">{x.donor ? <>{x.donor}{x.reference ? <span className="muted"> · {x.reference}</span> : null}</> : <span className="muted">{t('خاص', 'Private')}</span>}</td>
+                    <td className="n">{x.received == null ? '—' : fmtUsd(x.received)}</td><td className="n">{fmtUsd(x.spent)}</td><td className="n muted">{fmtUsd(x.spentAll)}</td><td className={`n ${x.left != null && x.left < -0.5 ? 'bad' : ''}`}>{x.left == null ? '—' : fmtUsd(x.left)}</td></tr>
+                ))}
+                <tr><td><b className="bad">{t('غير ممول', 'Not funded')}</b></td><td /><td /><td className="n">{fmtUsd(c.notFunded)}</td><td /><td /></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+      <p className="muted small">{t('كل قواعد المراكز على هذا الخادم. لإضافة مركز يعمل على حاسوبه: انسخ نسخته الاحتياطية وأضفها هنا قاعدةً بجانب الأخرى. المنحة نفسها تُطابَق برقم العقد.', "Every centre database on this server. To add a centre that works on its own computer: bring its backup and add it here as a database beside the others. The same grant is matched by its contract number.")}</p>
     </>
   );
 }

@@ -1,12 +1,13 @@
 // All dropdown lists (the Data and Budget sheets), managed here — never in Excel.
 // A value already used is never deleted: it is deactivated, and stays readable
 // in old rows while disappearing from the forms.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../state';
 import type { SimpleList } from '../db/repo';
 import { TYPES, type Book, type TrxType } from '../domain/types';
 import { TYPE_LABEL, tx } from '../i18n';
 import { notesOf } from './Cash';
+import { pickFile, saveFile } from '../platform';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
@@ -24,6 +25,7 @@ export function ListsPage() {
         { value: 'city', label: t('المدن', 'Cities') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
+      {tab === 'budget' && <CommonListPanel />}
       {tab === 'budget' && <BudgetTab />}
       {(tab === 'city' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
       {tab === 'account' && <FundsTab />}
@@ -60,6 +62,78 @@ function useCounts() {
 }
 
 // ---------------------------------------------------------------- budget
+
+/**
+ * One list of headings and lines for every centre (Fouad, 2026-11-01). The first database (Homs, on Fouad's server)
+ * starts it and leads it; on the server, "make the lists the same" gathers the new lines of every database in it and
+ * gives the common list to each; for a centre on its own computer, the list travels as a file.
+ */
+function CommonListPanel() {
+  const { s, can, reload } = useApp();
+  const [state, setState] = useState<'lead' | 'yes' | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const load = () => s.api.call('common.status', {}).then((x) => setState(x.state)).catch(() => setState(null));
+  useEffect(() => { void load(); }, [s]);
+  const boss = can('users.manage');
+  const run = async (f: () => Promise<string | null>) => {
+    setBusy(true);
+    try {
+      const msg = await f();
+      if (msg) toast(msg);
+      await reload();
+      await load();
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (state === undefined) return null;
+  return (
+    <div className="panel" style={{ maxWidth: 900, marginBottom: 12, background: '#FBF7EE' }}>
+      <b>{t('القائمة المشتركة لكل المراكز', 'The common list of every centre')}</b>{' '}
+      <span className="muted small">
+        {state === 'lead' ? t('· هذه القاعدة تقودها: أسماؤها ورموزها هي المرجع', "· this database leads it: its names and codes are the reference")
+          : state === 'yes' ? t('· هذه القاعدة فيها', '· this database is in it')
+          : t('· هذه القاعدة ليست فيها بعد', '· this database is not in it yet')}
+      </span>
+      <p className="muted small" style={{ margin: '6px 0' }}>{t('بنود وخطوط واحدة لكل المراكز. يضيف المركز خطاً فيصير للجميع، ويوقف ما لا يستعمله لنفسه فقط.', 'One set of headings and lines for every centre. A centre adds a line and it is for everyone; it switches off what it does not use, for itself only.')}</p>
+      <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+        {!state && boss && (
+          <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
+            if (!(await confirmBox(t('تصير قائمة هذه القاعدة القائمة المشتركة، وتقودها. افعل هذا في حمص فقط. المراكز الأخرى تنضم بعد مطابقة خطوطها.', "This database's list becomes the common list, and it leads it. Do this in Homs only. The other centres join after their lines are matched.")))) return null;
+            await s.api.call('common.start', {});
+            return t('بدأت القائمة المشتركة', 'The common list has started');
+          })}>{t('ابدأ القائمة المشتركة من هذه القاعدة', 'Start the common list from this database')}</button>
+        )}
+        {state && boss && s.mode === 'server' && (
+          <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
+            const r = await fetch('/api/common-list/sync', { method: 'POST', credentials: 'same-origin' });
+            const j = await r.json();
+            if (!r.ok) throw new Error(j?.error?.en ?? 'Error');
+            const parts = (j.centres as { organisation: string; gave: number; took: number }[]).map((x) => `${x.organisation}: +${x.took}${x.gave ? ` (${t('أعطت', 'gave')} ${x.gave})` : ''}`);
+            return `${t('القوائم صارت واحدة', 'The lists are the same')} · ${parts.join(' · ')}`;
+          })}>{t('اجعل القوائم واحدة على هذا الخادم', 'Make the lists the same on this server')}</button>
+        )}
+        {state && (
+          <button className="btn" disabled={busy} onClick={() => void run(async () => {
+            const list = await s.api.call('common.export', {});
+            const path = await saveFile(`common-list-${new Date().toISOString().slice(0, 10)}.json`, ['json'], new TextEncoder().encode(JSON.stringify(list, null, 1)), t('احفظ القائمة المشتركة', 'Save the common list'));
+            return path ? `${t('حُفظ', 'Saved')}: ${path}` : null;
+          })}>⬇ {t('احفظ القائمة ملفاً', 'Save the list as a file')}</button>
+        )}
+        {state && boss && (
+          <button className="btn" disabled={busy} onClick={() => void run(async () => {
+            const f = await pickFile(['json'], t('اختر ملف القائمة المشتركة', 'Choose the common list file'));
+            if (!f) return null;
+            const r = await s.api.call('common.import', { text: new TextDecoder().decode(f.bytes) });
+            return t(`أُضيف ${r.headings} بنداً و${r.lines} خطاً، وتغيّر اسم ${r.renamed}`, `${r.headings} headings and ${r.lines} lines added, ${r.renamed} renamed`);
+          })}>⬆ {t('خذ ملف قائمة', 'Take a list file')}</button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function BudgetTab() {
   const { s, d } = useApp();

@@ -421,6 +421,55 @@ describe('one list for every centre (migration 42)', () => {
   });
 });
 
+describe('the common list between two databases', () => {
+  it('new lines go both ways; the leading names win; what a centre switched off stays off; same name = same line', async () => {
+    const { applyCommonList, exportCommonList, joinCommonList } = await import('../src/io/commonList');
+    const fresh = async () => {
+      const db = nodeDb();
+      await migrate(db);
+      return db;
+    };
+    const homs = await fresh();
+    await addHeading(homs, 'Salary', ['Exp'], 't');
+    const sal = (await loadLists(homs)).headings.find((h) => h.name === 'Salary')!;
+    for (const n of ['Reception', 'Cleaner']) await addLine(homs, sal.id, n, 't');
+    await joinCommonList(homs, 't', true);
+    const aleppo = await fresh();
+    await joinCommonList(aleppo, 't', false);
+    expect(await applyCommonList(aleppo, await exportCommonList(homs), 't', { lead: true })).toEqual({ headings: 1, lines: 2, renamed: 0 });
+    // (every database also has the Transfer heading and line: the same name, so they become the same too)
+    const lines = async (db: Db) => {
+      const L = await loadLists(db);
+      return L.lines.filter((l) => L.headings.find((h) => h.id === l.heading_id)?.name === 'Salary').map((l) => [l.name, l.code, l.active, l.uid]);
+    };
+    expect((await lines(aleppo)).map((x) => x[3]).sort()).toEqual((await lines(homs)).map((x) => x[3]).sort()); // the same lines, by identity
+
+    // Aleppo adds a Cook and switches off the Cleaner; Homs adds a Driver (the same code E01.3) and renames Reception
+    const aSal = (await loadLists(aleppo)).headings.find((h) => h.name === 'Salary')!;
+    await addLine(aleppo, aSal.id, 'Cook', 't');
+    await aleppo.batch([{ sql: "UPDATE budget_line SET active = 0 WHERE name = 'Cleaner'" }]);
+    await addLine(homs, sal.id, 'Driver', 't');
+    await homs.batch([{ sql: "UPDATE budget_line SET name = 'Receptionist' WHERE name = 'Reception'" }]);
+    // Aleppo gives its new line to Homs (Homs keeps its names), then takes the common list (Homs's names win)
+    expect(await applyCommonList(homs, await exportCommonList(aleppo), 't', { lead: false })).toEqual({ headings: 0, lines: 1, renamed: 0 });
+    const common = await exportCommonList(homs);
+    expect(common.lead).toBe(true);
+    expect(await applyCommonList(aleppo, common, 't', { lead: true })).toMatchObject({ lines: 1, renamed: 1 });
+    const a = await lines(aleppo);
+    expect(a.map((x) => x[0]).sort()).toEqual(['Cleaner', 'Cook', 'Driver', 'Receptionist']);
+    expect(a.find((x) => x[0] === 'Cleaner')![2]).toBe(0); // still off in Aleppo
+    expect(a.find((x) => x[0] === 'Driver')![1]).toBe('E01.3-2'); // its code was Cook's here: the next free one
+    expect((await lines(homs)).map((x) => x[0]).sort()).toEqual(['Cleaner', 'Cook', 'Driver', 'Receptionist']);
+
+    // a database with a heading and a line of the same names under other identities: they become the same
+    const jaramana = await fresh();
+    await addHeading(jaramana, 'Salary', ['Exp'], 't');
+    await addLine(jaramana, (await loadLists(jaramana)).headings.find((h) => h.name === 'Salary')!.id, 'Cook', 't');
+    expect(await applyCommonList(jaramana, common, 't', { lead: true })).toMatchObject({ headings: 0, lines: 3 });
+    expect((await loadLists(jaramana)).lines.find((l) => l.name === 'Cook')!.uid).toBe(common.lines.find((l) => l.name === 'Cook')!.uid);
+  });
+});
+
 describe('grants follow the money', () => {
   it('in hand, sent to Main, spent on its account (oldest grant first), what is left; EUR changed to USD', async () => {
     const { grantFlows } = await import('../src/domain/grants');

@@ -4,6 +4,24 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // one list for every centre (2026-11-01)
+  "The common list of every centre": "La liste commune de tous les centres",
+  "· this database leads it: its names and codes are the reference": "· cette base la conduit : ses noms et codes sont la référence",
+  "· this database is in it": "· cette base en fait partie",
+  "· this database is not in it yet": "· cette base n'en fait pas encore partie",
+  "One set of headings and lines for every centre. A centre adds a line and it is for everyone; it switches off what it does not use, for itself only.": "Les mêmes rubriques et lignes pour tous les centres. Un centre ajoute une ligne et elle est pour tous ; il désactive ce qu'il n'utilise pas, pour lui seul.",
+  "This database's list becomes the common list, and it leads it. Do this in Homs only. The other centres join after their lines are matched.": "La liste de cette base devient la liste commune, et elle la conduit. Faites-le à Homs seulement. Les autres centres la rejoignent après la correspondance de leurs lignes.",
+  "The common list has started": "La liste commune a commencé",
+  "Start the common list from this database": "Commencer la liste commune depuis cette base",
+  "gave": "a donné",
+  "The lists are the same": "Les listes sont les mêmes",
+  "Make the lists the same on this server": "Rendre les listes identiques sur ce serveur",
+  "Save the common list": "Enregistrer la liste commune",
+  "Save the list as a file": "Enregistrer la liste dans un fichier",
+  "Choose the common list file": "Choisissez le fichier de la liste commune",
+  "{0} headings and {1} lines added, {2} renamed": "{0} rubriques et {1} lignes ajoutées, {2} renommées",
+  "Take a list file": "Prendre un fichier de liste",
+
   // all centres together (2026-11-01)
   "All centres": "Tous les centres",
   "Grants across the centres": "Les subventions à travers les centres",

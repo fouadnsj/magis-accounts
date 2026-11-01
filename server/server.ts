@@ -27,8 +27,9 @@ import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigra
 import { auditStmt, blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
-import { allCentresReport, type CentreInput } from '../src/domain/allCentres';
+import { allCentresReport, exploreRows, type CentreInput, type ExploreRow } from '../src/domain/allCentres';
 import { computeAll } from '../src/domain/compute';
+import { applyCommonList, commonListState, exportCommonList } from '../src/io/commonList';
 import { createOffice } from '../src/setup';
 import { createCommunity, type CommunitySetup } from '../src/community/setup';
 import { createCountry, type CountrySetup } from '../src/community/country';
@@ -969,16 +970,49 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
 
     // ---- HR: fill the lists (centre, accounts, budget lines) from the budget of a centre database. Names and codes only.
-    // ---- All centres together (Fouad, 2026-11-01): every centre database on this server (a copy of another centre's,
+    // ---- One list for every centre (Fouad, 2026-11-01): "make the lists the same" on this server. The databases in the
+    // common list give their new headings and lines to the one that leads it (Fouad's), then all take its list: the
+    // leading one's names and codes win; each keeps what it switched off. A backup of each first.
+    if (url === '/api/common-list/sync' && method === 'POST') {
+      if (!found || !has(found[1].profile, 'lists.manage') || !has(found[1].profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (!(await commonListState(found[2].handle.db))) throw new HttpError(400, { ar: 'هذه القاعدة ليست في القائمة المشتركة بعد', en: 'This database is not in the common list yet' });
+      const joined: { c: Centre; org: string; state: 'lead' | 'yes' }[] = [];
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, x.slug))) continue;
+        const state = await commonListState(x.handle.db);
+        if (state) joined.push({ c: x, org: (await getMeta(x.handle.db, 'organisation')) ?? x.slug, state });
+      }
+      const lead = joined.find((j) => j.state === 'lead') ?? joined.find((j) => j.c === found[2])!;
+      const who = `${found[1].profile.name} (common list)`;
+      for (const j of joined) await j.c.files.backupNow('before-common-list');
+      const out: { slug: string; organisation: string; gave: number; took: number; renamed: number }[] = [];
+      const gave = new Map<string, number>();
+      for (const j of joined) {
+        if (j === lead) continue;
+        const r = await applyCommonList(lead.c.handle.db, await exportCommonList(j.c.handle.db), who, { lead: false });
+        gave.set(j.c.slug, r.headings + r.lines);
+      }
+      const common = { ...(await exportCommonList(lead.c.handle.db)), lead: true };
+      for (const j of joined) {
+        const r = j === lead ? { headings: 0, lines: 0, renamed: 0 } : await applyCommonList(j.c.handle.db, common, who, { lead: true });
+        j.c.version++;
+        out.push({ slug: j.c.slug, organisation: j.org, gave: gave.get(j.c.slug) ?? 0, took: r.headings + r.lines, renamed: r.renamed });
+      }
+      log(`Common list made the same in ${joined.length} databases, led by ${lead.c.slug} (by ${found[1].profile.name})`);
+      return send(res, 200, { lead: lead.c.slug, centres: out });
+    }
+
+    // ---- All centres together (Fouad, 2026-11-01; /rows: their incomes and expenses for Explore): every centre database on this server (a copy of another centre's,
     // brought here, counts like the others), joined by project and by grant. For who keeps the grants and manages the
     // users of the database they are in; with the directory, only the centres given to the person.
-    if (url === '/api/all-centres' && method === 'POST') {
+    if ((url === '/api/all-centres' || url === '/api/all-centres/rows') && method === 'POST') {
       if (!found || !has(found[1].profile, 'lists.donors') || !has(found[1].profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const body = (await readBody(req)) as { from?: string; to?: string };
       const ym = (x: unknown, d: string) => (typeof x === 'string' && /^\d{4}-\d{2}$/.test(x) ? x : d);
       const year = new Date().toISOString().slice(0, 4);
       const period = { from: ym(body.from, `${year}-01`), to: ym(body.to, `${year}-12`) };
       const inputs: CentreInput[] = [];
+      const explore: ExploreRow[] = [];
       for (const x of centres.values()) {
         if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, x.slug))) continue;
         const org = (await getMeta(x.handle.db, 'organisation')) ?? x.slug;
@@ -986,8 +1020,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const ctx: OpCtx = { db: x.handle.db, profile: { id: 0, name: 'All centres', role: 'sup', book_id: null, active: 1, access_id: null, access_name: 'All centres', perms: ['register.view', 'lists.donors'], books }, who: `All centres · ${found[1].profile.name}`, install: 'office', files: x.files };
         const d = (await runOp(ctx, 'data', {})) as DataPayload;
         const rows = d.rows.filter((r) => r.book_id == null || r.book_id !== d.grantsBookId);
-        inputs.push({ slug: x.slug, organisation: org, centre: (await getMeta(x.handle.db, 'centre')) ?? guessCentre(org), rows, comp: computeAll(rows, d.lists), lists: d.lists, grants: d.grants, grantParts: d.grantParts, grantShares: d.grantShares });
+        const key = (await getMeta(x.handle.db, 'centre')) ?? guessCentre(org);
+        const comp = computeAll(rows, d.lists);
+        inputs.push({ slug: x.slug, organisation: org, centre: key, rows, comp, lists: d.lists, grants: d.grants, grantParts: d.grantParts, grantShares: d.grantShares });
+        // (Explore: the incomes and expenses with names, so the centres go together)
+        if (url === '/api/all-centres/rows') explore.push(...exploreRows({ rows, comp, lists: d.lists, centre: key, organisation: org, period }));
       }
+      if (url === '/api/all-centres/rows') return send(res, 200, explore);
       inputs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre as CentreKey) - CENTRE_KEYS.indexOf(b.centre as CentreKey) || a.organisation.localeCompare(b.organisation));
       return send(res, 200, { period, ...allCentresReport(inputs, period) });
     }

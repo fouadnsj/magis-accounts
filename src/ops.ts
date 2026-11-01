@@ -29,6 +29,7 @@ import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
 } from './io/keeperFiles';
 import { applySeed, readWorkbook, type ImportReport } from './io/importWorkbook';
+import { applyCommonList, commonListState, exportCommonList, joinCommonList, parseCommonList } from './io/commonList';
 import { m, type Msg } from './i18n';
 import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
 import { COUNTRY_OPS, COUNTRY_READ_ONLY } from './community/country';
@@ -1678,6 +1679,34 @@ export const OPS = {
    * written on it moves: the register, the budget lines, its grant, the books' and settings' default; it is then switched
    * off (kept, so a holder's file that still names it can come in). A backup is taken first.
    */
+  // ---------------------------------------------------------------- one list for every centre
+  'common.status': { check: (c: OpCtx) => need(c, 'lists.manage'), run: async (c: OpCtx) => ({ state: await commonListState(c.db) }) },
+  /** the first database: its list becomes the common list, and it leads it */
+  'common.start': {
+    check: (c: OpCtx) => { need(c, 'lists.manage'); need(c, 'users.manage'); },
+    run: async (c: OpCtx) => {
+      if (await commonListState(c.db)) throw new UserError(m('هذه القاعدة في القائمة المشتركة', 'This database is already in the common list', 'Cette base est déjà dans la liste commune'));
+      await joinCommonList(c.db, c.who, true);
+    },
+  },
+  'common.export': {
+    check: (c: OpCtx) => need(c, 'lists.manage'),
+    run: async (c: OpCtx) => {
+      if (!(await commonListState(c.db))) throw new UserError(m('هذه القاعدة ليست في القائمة المشتركة بعد', 'This database is not in the common list yet', "Cette base n'est pas encore dans la liste commune"));
+      return exportCommonList(c.db);
+    },
+  },
+  /** a common list file: its new headings and lines come in; the leading database's names and codes win */
+  'common.import': {
+    check: (c: OpCtx) => { need(c, 'lists.manage'); need(c, 'users.manage'); },
+    run: async (c: OpCtx, a: { text: string }) => {
+      if (!(await commonListState(c.db))) throw new UserError(m('هذه القاعدة ليست في القائمة المشتركة بعد', 'This database is not in the common list yet', "Cette base n'est pas encore dans la liste commune"));
+      const list = parseCommonList(a.text);
+      await c.files.backupNow('before-common-list');
+      return applyCommonList(c.db, list, c.who, { lead: list.lead });
+    },
+  },
+
   'account.merge': {
     check: (c: OpCtx) => { need(c, 'lists.donors'); need(c, 'lists.manage'); },
     run: async (c: OpCtx, a: { from: number; into: number }) => {
@@ -1767,7 +1796,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'budget.get', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

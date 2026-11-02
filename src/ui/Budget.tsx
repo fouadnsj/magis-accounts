@@ -225,6 +225,16 @@ function CreateBudget({ budgets, onCancel, onDone }: { budgets: Budget[]; onCanc
           </Field>
         </div>
       )}
+      {(() => {
+        const end = addMonths(start, months - 1);
+        const over = budgets.filter((x) => x.start_ym <= end && periodEnd(x) >= start);
+        return over.length ? (
+          <div className="alert warn" style={{ marginTop: 12 }}>
+            {t(`هذه الفترة تتداخل مع «${over.map((x) => x.name).join('، ')}». مشروع جديد لا يحتاج موازنة جديدة: أضف خطوطه إلى الموازنة القائمة وأعطها للمشروع («أعطه خطوطاً…» في المشاريع). موازنتان لنفس الأشهر تعدّان الخطوط مرتين.`,
+              `These months overlap "${over.map((x) => x.name).join('", "')}". A new project does not need a new budget: add its lines to the budget that already covers these months and give them to the project (Projects → "Give it lines…"). Two budgets for the same months count the lines twice.`)}
+          </div>
+        ) : null;
+      })()}
       <p className="muted small">{t('بعدها تصحّح كل خط، أو تستورد ورقة من ملف الموازنة.', 'Afterwards you correct each line, or import a sheet from the budget workbook.')}</p>
       <div className="modal-foot">
         {onCancel && <button className="btn" onClick={onCancel}>{t('إلغاء', 'Cancel')}</button>}
@@ -983,12 +993,10 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
   const { assigned, books } = useAssignment(b);
   const mayFund = can('budget.manage') && can('lists.donors');
   const [giving, setGiving] = useState<number | null>(null);
+  // a project's row opens to show its lines and the items inside them (where an item goes)
+  const [open, setOpen] = useState<number | null>(null);
   const headingOf = useMemo(() => new Map(d.lists.lines.map((l) => [l.id, l.heading_id])), [d]);
   const outside = useMemo(() => new Set(d.lists.accounts.filter((a) => a.outside_budget).map((a) => a.id)), [d]);
-  const rows = useMemo(
-    () => followUp({ rows: d.rows, comp: d.comp, budget: B, upToYm: periodEnd(B), amounts: b.amounts, original: null, headingOf, outside, assigned: books.length > 1 ? assigned : undefined }),
-    [d, b, B, headingOf, outside, books, assigned],
-  );
   // the fund's money here, in dollars: a grant's share (euros at the budget's rate); a private fund has no set amount
   const moneyOf = (fundId: number) => {
     const p = d.grantParts.find((x) => x.account_id === fundId);
@@ -998,7 +1006,9 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
   };
   const funds = d.lists.accounts.filter((a) => !a.outside_budget && (b.amounts.some((x) => x.account_id === a.id) || (a.active && moneyOf(a.id))));
   const linesOf = (id: number) => b.amounts.filter((x) => x.account_id === id).reduce((sum, x) => sum + x.amount_usd, 0);
-  const spentOf = (id: number) => rows.filter((r) => r.account_id === id).reduce((sum, r) => sum + r.spent, 0);
+  // what a project spent comes from the register, which already knows the project's dates: an expense outside them is "Not funded"
+  const spentBy = (id: number) => spentInRange(d.rows, d.comp, B.start_ym, periodEnd(B), (r) => (r.account_id == null || !outside.has(r.account_id)) && (books.length <= 1 || assigned.get(r.id) === B.id) && (r.account_id ?? NOFUND) === id).spent;
+  const spentOf = (id: number) => [...spentBy(id).values()].reduce((sum, x) => sum + x, 0);
   const total = b.amounts.reduce((sum, x) => sum + x.amount_usd, 0);
   const notFunded = linesOf(NOFUND);
   return (
@@ -1026,9 +1036,14 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
               const mo = moneyOf(f.id);
               const lines = linesOf(f.id);
               const diff = mo ? mo.usd - lines : null;
-              return (
-                <tr key={f.id}>
-                  <td><b>{f.name}</b>{f.start_date || f.end_date ? <div className="muted small ltr">{f.start_date ?? '…'} → {f.end_date ?? '…'}</div> : null}</td>
+              const sp = spentBy(f.id);
+              const mine = [...new Set([...b.amounts.filter((x) => x.account_id === f.id).map((x) => x.line_id), ...sp.keys()])]
+                .map((line_id) => ({ line_id, heading_id: headingOf.get(line_id) ?? 0, budget: b.amounts.find((x) => x.line_id === line_id && x.account_id === f.id)?.amount_usd ?? 0, spent: sp.get(line_id) ?? 0 }))
+                .filter((r) => r.budget > 0 || r.spent > 0 || b.amounts.some((x) => x.line_id === r.line_id && x.account_id === f.id))
+                .sort((a, c) => a.heading_id - c.heading_id);
+              return [
+                <tr key={f.id} className="click" onClick={() => setOpen(open === f.id ? null : f.id)}>
+                  <td><b>{mine.length ? (open === f.id ? '▾ ' : '▸ ') : ''}{f.name}</b>{f.start_date || f.end_date ? <div className="muted small ltr">{f.start_date ?? '…'} → {f.end_date ?? '…'}</div> : null}</td>
                   <td className="small">{mo ? <>{d.lists.donors.find((x) => x.id === mo.grant.donor_id)?.name}{mo.grant.reference ? <span className="muted"> · {mo.grant.reference}</span> : null}{mo.grant.currency === 'EUR' ? <span className="muted ltr"> · €{fmtUsd(mo.share)}</span> : null}</> : <span className="muted">{t('خاص', 'Private')}</span>}</td>
                   <td className="n">{mo ? fmtUsd(mo.usd) : '—'}</td>
                   <td className="n">{fmtUsd(lines)}</td>
@@ -1039,9 +1054,25 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
                       : <span className="ok">✓ {t('مطابق', 'Matches')}</span>}
                   </td>
                   <td className="n">{fmtUsd(spentOf(f.id))}</td>
-                  {mayFund && <td className="right"><button className="btn small" onClick={() => setGiving(f.id)}>{t('أعطه خطوطاً…', 'Give it lines…')}</button></td>}
-                </tr>
-              );
+                  {mayFund && <td className="right" onClick={(e) => e.stopPropagation()}><button className="btn small" onClick={() => setGiving(f.id)}>{t('أعطه خطوطاً…', 'Give it lines…')}</button></td>}
+                </tr>,
+                ...(open === f.id ? mine.map((r) => {
+                  const line = d.lists.lines.find((l) => l.id === r.line_id);
+                  const its = b.items.filter((i) => i.line_id === r.line_id);
+                  return (
+                    <tr key={`${f.id}-${r.line_id}`} className="sub">
+                      <td colSpan={3} style={{ paddingInlineStart: 22 }}>
+                        {d.lists.headings.find((h) => h.id === r.heading_id)?.name} › <b>{line?.name}</b>
+                        {its.length ? <div className="muted small">{its.map((i) => `${i.name} (${usd(itemTotal(i))})`).join(' · ')}</div> : null}
+                      </td>
+                      <td className="n">{fmtUsd(r.budget)}</td>
+                      <td />
+                      <td className="n">{fmtUsd(r.spent)}</td>
+                      {mayFund && <td />}
+                    </tr>
+                  );
+                }) : []),
+              ];
             })}
             <tr className="group">
               <td><b className="bad">{t('غير ممول', 'Not funded')}</b></td>

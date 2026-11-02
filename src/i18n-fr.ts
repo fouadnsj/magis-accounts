@@ -5,6 +5,7 @@
 
 export const FR: Record<string, string> = {
   // one place to record sessions (2026-11-02)
+  "no amount yet": "pas encore de montant",
   "Record or change sessions in the Tutors' sessions page": "Noter ou changer les séances dans la page Séances des animateurs",
 
   // tutor lines (2026-11-02)

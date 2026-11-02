@@ -97,7 +97,10 @@ function ListsTab({ s, d, reload }: { s: Session; d: HrData; reload: () => Promi
 
 function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; item: HrListItem | null; onClose: () => void; reload: () => Promise<void> }) {
   const [f, setF] = useState({ name: item?.name ?? '', code: (item?.code ?? 'aleppo') as CentreKey, city_ar: item?.city_ar ?? '', city_en: item?.city_en ?? '', party_ar: item?.party_ar ?? '', party_en: item?.party_en ?? '', rep_ar: item?.rep_ar ?? '', rep_en: item?.rep_en ?? '', salary_heading: item?.salary_heading ?? '', account: item?.account ?? '' });
-  const headings = [...new Set(d.lists.filter((x) => x.kind === 'line' && x.source && x.source === item?.source).map((x) => x.heading).filter((h): h is string => !!h))];
+  const centreLines = d.lists.filter((x) => x.kind === 'line' && x.source && x.source === item?.source);
+  const headings = [...new Set(centreLines.map((x) => x.heading).filter((h): h is string => !!h))];
+  // the lines the centre pays its tutors on (a tutor's card offers only these)
+  const [tutor, setTutor] = useState<Set<number>>(() => new Set(centreLines.filter((x) => x.tutor).map((x) => x.id)));
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const preview = partyOf({ ...(item ?? { id: 0, kind: 'centre', heading: null, source: null }), ...f } as HrListItem);
   return (
@@ -121,6 +124,22 @@ function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; i
         </div>
       </div>
       {item?.source && (
+        <div style={{ marginTop: 12 }}>
+          <b>{t3('خطوط المدرّبين', 'Tutor lines', 'Lignes des animateurs')}</b>
+          <p className="muted small" style={{ margin: '2px 0 6px' }}>{t3('الخطوط التي يُدفع منها للمدرّبين (ورشات، دورات…). بطاقة المدرّب تعرض هذه فقط. المدرّب يبقى على خط واحد، ويغيّره من بطاقته إن انتقل (مثلاً من الورشات إلى اللغة الإنكليزية).', "The lines tutors are paid on (workshops, courses…). A tutor's card offers only these. A tutor stays on one line, and changes it on their card when they move (e.g. from workshops to English).", "Les lignes sur lesquelles les animateurs sont payés (ateliers, cours…). La fiche d'un animateur ne propose que celles-ci. Un animateur reste sur une ligne, et la change sur sa fiche quand il passe d'une activité à l'autre.")}</p>
+          <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #E4DED0', borderRadius: 8, padding: '6px 10px' }}>
+            {headings.map((h) => (
+              <div key={h}>
+                <div className="small muted" style={{ marginTop: 4 }}>{h}</div>
+                {centreLines.filter((x) => x.heading === h).map((x) => (
+                  <label key={x.id} className="row" style={{ gap: 6 }}><input type="checkbox" checked={tutor.has(x.id)} onChange={() => { const n = new Set(tutor); if (n.has(x.id)) n.delete(x.id); else n.add(x.id); setTutor(n); }} /> {x.name}</label>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {item?.source && (
         <div className="grid2" style={{ marginTop: 12 }}>
           <Field label={t3('بنود الرواتب في موازنة المركز', "The salary heading(s) of the centre's budget", 'Les rubriques des salaires du budget du centre')}>
             <div>{headings.map((h) => { const on = f.salary_heading.split('|').map((x) => x.trim()).includes(h); return (
@@ -136,7 +155,7 @@ function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; i
       </div>
       <div className="modal-foot">
         {item && <button className="btn danger" onClick={async () => { if (await confirmBox(t3('إزالة هذا المركز من القائمة؟', 'Remove this centre from the list?', 'Retirer ce centre de la liste ?'), true)) { try { await s.api.call('hr.list.delete', { id: item.id }); await reload(); onClose(); } catch (e) { fail(e); } } }}>{t3('إزالة', 'Remove', 'Retirer')}</button>}
-        <button className="btn primary" disabled={!f.name.trim()} onClick={async () => { try { await s.api.call('hr.list.save', { id: item?.id ?? null, kind: 'centre', ...f }); toast(t3('حُفظ', 'Saved', 'Enregistré')); await reload(); onClose(); } catch (e) { fail(e); } }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
+        <button className="btn primary" disabled={!f.name.trim()} onClick={async () => { try { await s.api.call('hr.list.save', { id: item?.id ?? null, kind: 'centre', ...f }); if (item?.source) await s.api.call('hr.list.tutorLines', { centreId: item.id, lineIds: [...tutor] }); toast(t3('حُفظ', 'Saved', 'Enregistré')); await reload(); onClose(); } catch (e) { fail(e); } }}>{t3('حفظ', 'Save', 'Enregistrer')}</button>
       </div>
     </Modal>
   );

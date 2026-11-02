@@ -1122,6 +1122,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const both = uniq.filter((h) => /staff/i.test(h) && /salar/i.test(h)), sal = uniq.filter((h) => /salar|رات/i.test(h)), staff = uniq.filter((h) => /staff/i.test(h) && !/care/i.test(h));
       const salaryHeading = (both.length ? both : sal.length ? sal : staff).join(' | ') || null;
       stmts.push({ sql: "UPDATE hr_list SET salary_heading = COALESCE(salary_heading, ?), copied_hash = ? WHERE kind = 'centre' AND source = ?", params: [salaryHeading, hash, src.slug] });
+      // the lines tutors are paid on: suggested the first time (the courses and the facilitators), then the centre's own choice stays
+      stmts.push({ sql: `UPDATE hr_list SET tutor = 1 WHERE kind = 'line' AND source = ?
+          AND NOT EXISTS (SELECT 1 FROM hr_list x WHERE x.kind = 'line' AND x.source = ? AND x.tutor = 1)
+          AND (heading LIKE '%formation%' OR heading LIKE '%teacher%' OR name LIKE '%facilitator%' OR name LIKE '%teacher%')`, params: [src.slug, src.slug] });
       await hdb.batch(stmts);
       log(`HR lists filled from ${src.slug}: ${accounts.length} projects, ${lines.length} lines (by ${who})`);
       return { accounts: accounts.length, lines: lines.length };

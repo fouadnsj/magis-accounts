@@ -56,7 +56,7 @@ export interface HrSign { id: number; conduct_id: number; person_id: number; sig
 export interface HrDoc { id: number; person_id: number; label: string; expires_on: string | null; file_name: string; mime: string; size: number; created_at: string }
 export interface HrAlert { kind: 'agreement_ending' | 'agreement_missing' | 'doc_expiring' | 'conduct_unsigned' | 'unsigned_paper' | 'insurance_ending'; person_id: number; item_id: number | null; date: string | null; days: number | null }
 /** an item of the lists; a centre also carries its heading on the documents (code = its mark: jaramana | aleppo | homs | other) */
-export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; name: string; code: string | null; heading: string | null; source: string | null; salary_heading: string | null; account: string | null; party_ar: string | null; party_en: string | null; rep_ar: string | null; rep_en: string | null; city_ar: string | null; city_en: string | null; /** an account: the donors who fund it (from the grants in the accounts), joined by " | " */ donors: string | null }
+export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; /** a line a centre pays its tutors on */ tutor: number; name: string; code: string | null; heading: string | null; source: string | null; salary_heading: string | null; account: string | null; party_ar: string | null; party_en: string | null; rep_ar: string | null; rep_en: string | null; city_ar: string | null; city_en: string | null; /** an account: the donors who fund it (from the grants in the accounts), joined by " | " */ donors: string | null }
 /** a thing to do when someone arrives or leaves (the list is kept in the settings) */
 export interface HrCheckItem { id: number; kind: 'arrival' | 'leaving'; label_ar: string | null; label_en: string; sort: number; active: number }
 export interface HrCheckDone { person_id: number; item_id: number; done_on: string; done_by: string | null; note: string | null }
@@ -127,7 +127,7 @@ export async function hrData(c: OpCtx, today = isoDay(new Date())): Promise<HrDa
   if (has(c.profile, 'hr.pay'))
     for (const x of await c.db.query<{ id: number; person_id: number; end_date: string }>('SELECT id, person_id, end_date FROM hr_insurance WHERE deleted_at IS NULL AND end_date IS NOT NULL'))
       if (daysTo(x.end_date, today) <= SOON && people.find((p) => p.id === x.person_id)?.active) alerts.push({ kind: 'insurance_ending', person_id: x.person_id, item_id: x.id, date: x.end_date, days: daysTo(x.end_date, today) });
-  const allLists = await c.db.query<HrListItem>('SELECT id, kind, name, code, heading, source, salary_heading, account, party_ar, party_en, rep_ar, rep_en, city_ar, city_en, donors FROM hr_list ORDER BY kind, code, name');
+  const allLists = await c.db.query<HrListItem>('SELECT id, kind, tutor, name, code, heading, source, salary_heading, account, party_ar, party_en, rep_ar, rep_en, city_ar, city_en, donors FROM hr_list ORDER BY kind, code, name');
   // the centres seen, and the accounts and lines of their budgets
   const seenSources = new Set(allLists.filter((x) => x.kind === 'centre' && sees(c, x.code)).map((x) => x.source).filter(Boolean));
   const lists = seesAll(c) ? allLists : allLists.filter((x) => (x.kind === 'centre' ? sees(c, x.code) : !!x.source && seenSources.has(x.source)));
@@ -293,6 +293,21 @@ export const HR_OPS = {
         return { id: a.id };
       }
       await c.db.batch([{ sql: 'INSERT OR IGNORE INTO hr_list (kind, name, code, heading, party_ar, party_en, rep_ar, rep_en, city_ar, city_en, account) VALUES (?,?,?,?,?,?,?,?,?,?,?)', params: [a.kind, name, txt(a.code), txt(a.heading), ...doc, txt(a.account)] }]);
+      return { ok: true };
+    },
+  },
+  // the lines a centre pays its tutors on (Fouad, 2026-11-02): ticked once per centre, offered on the tutors' cards
+  'hr.list.tutorLines': {
+    check: needManage,
+    run: async (c: OpCtx, a: { centreId: number; lineIds: number[] }) => {
+      const centre = await one<{ code: string | null; source: string | null }>(c.db, "SELECT code, source FROM hr_list WHERE id = ? AND kind = 'centre'", [a.centreId]);
+      if (!centre?.source) throw new UserError(m('مركز غير معروف', 'Unknown centre', 'Centre inconnu'));
+      needCentre(c, centre.code);
+      const ids = [...new Set((a.lineIds ?? []).map(Number).filter(Boolean))];
+      await c.db.batch([
+        { sql: "UPDATE hr_list SET tutor = CASE WHEN id IN (" + (ids.map(() => '?').join(',') || 'NULL') + ") THEN 1 ELSE 0 END WHERE kind = 'line' AND source = ?", params: [...ids, centre.source] },
+        auditStmt(c.who, 'tutor_lines', 'hr_list', String(a.centreId), null, ids),
+      ]);
       return { ok: true };
     },
   },

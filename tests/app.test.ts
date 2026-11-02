@@ -343,7 +343,7 @@ describe('budgets with their own period, overlapping', () => {
       { sql: "INSERT INTO budget_version (year, rev, rate_syp, rate_eur, start_month, months, created_at) VALUES (2026, 0, 130, 0.89, 7, 6, 'x'), (2027, 0, 130, 0.89, 1, 12, 'x'), (2027, 1, 130, 0.89, 1, 12, 'x')" },
       { sql: "INSERT INTO budget_alloc (year, donor_id, account_id, pct, status) VALUES (2027, (SELECT id FROM donor WHERE name = 'Belfast'), 1, 50, 'promised')" },
     ]);
-    expect(await migrate(db)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43]);
+    expect(await migrate(db)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44]);
     expect(await db.query('SELECT id, name, start_ym, months FROM budget ORDER BY id')).toEqual([
       { id: 2026, name: 'Jul 2026 – Dec 2026', start_ym: '2026-07', months: 6 },
       { id: 2027, name: '2027', start_ym: '2027-01', months: 12 },
@@ -372,7 +372,7 @@ describe('one budget for the centre (migration 41)', () => {
       { sql: "INSERT INTO budget_item (version_id, account_id, line_id, name, qty, times, unit_cost) VALUES (1, 3, 502, 'Fridge', 1, 1, 90), (1, 1, 501, 'Deir paint', 1, 1, 30)" },
       { sql: 'INSERT INTO budget_account (version_id, account_id, contingency_pct) VALUES (1, 2, 10)' },
     ]);
-    expect(await migrate(db)).toEqual([41, 42, 43]);
+    expect(await migrate(db)).toEqual([41, 42, 43, 44]);
     expect(await db.query('SELECT line_id, account_id, amount_usd FROM budget_amount ORDER BY line_id')).toEqual([
       { line_id: 501, account_id: 2, amount_usd: 300 }, // Center 200 + harat 100; Deir's 30 left out
       { line_id: 502, account_id: 3, amount_usd: 130 }, // harat had more

@@ -187,7 +187,7 @@ function Home({ d, pd, open, go, centres, choose }: Ctx & { pd: HrPayData | null
 /** Who has no budget line in their centre, or a line with no project (Fouad, 2026-11-02: checks before closing). */
 function Funding({ d, open }: { d: HrData; open: (p: HrPerson) => void }) {
   const [shown, setShown] = useState<string | null>(null);
-  const staff = d.people.filter((p) => p.active && p.category !== 'tutor' && p.centre);
+  const staff = d.people.filter((p) => p.active && p.centre);
   const noLine = staff.filter((p) => !lineFor(d.lists, p).line);
   const notFunded = staff.filter((p) => lineFor(d.lists, p).line && !accountFor(d.lists, p));
   const rows: [string, string, HrPerson[]][] = [

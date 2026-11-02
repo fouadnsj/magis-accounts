@@ -501,6 +501,24 @@ describe('HR database', () => {
     expect(((await op('hr.data', {}, ck)).body.lists as { kind: string; name: string; account: string | null }[]).find((x) => x.kind === 'line' && x.name === 'Cleaner')!.account).toBe('Center');
     await op('budget.setFund', { versionId: bv, line_ids: [ln9('Cleaner')], account_id: null }, boss);
     expect((await post('/api/hr/refresh-lists', {})).body.refreshed).toEqual(['MAGIS Nine']);
+    // the lines tutors are paid on: none yet in this centre's budget, so every line is offered; ticked once, only those
+    const lists0 = (await op('hr.data', {}, ck)).body.lists as { id: number; kind: string; name: string; source: string | null; tutor: number }[];
+    const { tutorLines } = await import('../src/hr/link');
+    const own = lists0.filter((x) => x.kind === 'line' && x.source === centre);
+    const cen = lists0.find((x) => x.kind === 'centre' && x.name === 'MAGIS Nine') as unknown as { id: number };
+    const tutorOf = { centre: 'MAGIS Nine', category: 'tutor' };
+    expect(tutorLines(lists0 as never, tutorOf).length).toBe(own.length);
+    const cleaner = own.find((x) => x.name === 'Cleaner')!;
+    expect((await op('hr.list.tutorLines', { centreId: cen.id, lineIds: [cleaner.id] }, ck)).status).toBe(200);
+    const lists1 = (await op('hr.data', {}, ck)).body.lists as { id: number; kind: string; name: string; source: string | null; tutor: number }[];
+    expect(tutorLines(lists1 as never, tutorOf).map((x) => x.name)).toEqual(['Cleaner']);
+    // copied again: the centre's choice stays
+    expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);
+    expect(((await op('hr.data', {}, ck)).body.lists as { kind: string; name: string; tutor: number }[]).filter((x) => x.kind === 'line' && x.tutor).map((x) => x.name)).toEqual(['Cleaner']);
+    // a line a tutor was given before still counts, though it is not a tutor line
+    const { lineFor: lineForTutor } = await import('../src/hr/link');
+    const rec = own.find((x) => x.name === 'Reception')! as unknown as { code: string | null; name: string };
+    expect(lineForTutor(lists1 as never, { centre: 'MAGIS Nine', category: 'tutor', budget_line: `${rec.code} · ${rec.name}`, role: null, first_name: null, first_name_ar: null, name: 'x' }).line?.name).toBe('Reception');
     // a line switched off in the centre leaves the HR list at the next copy
     await op('line.add', { headingId, name: 'Old line by name' }, boss);
     expect((await post('/api/hr/import-lists', { from: centre })).status).toBe(200);

@@ -427,7 +427,7 @@ function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF:
           <span className="muted small">{tutor ? t3('تذهب الجلسات في الحسابات إلى', 'In the accounts, the sessions go to', 'Dans la comptabilité, les séances vont à') : t3('تذهب المكافأة في الحسابات إلى', 'In the accounts, the stipend goes to', 'Dans la comptabilité, la gratification va à')}: </span>
           {!f.centre ? <span className="desk-alert">{t3('اختر المركز', 'choose the centre', 'choisissez le centre')}</span>
             : line.line ? <b>{lineLabel(line.line)} · {acc ?? <span className="desk-alert">{t3('غير ممول', 'Not funded', 'Non financé')}</span>}</b>
-            : tutor ? <span className="desk-alert">⚠ {t3('اختر خط الموازنة (مثلاً الورشات أو الجلسات الأكاديمية)', 'choose the budget line (e.g. workshops, or academic sessions)', 'choisissez la ligne budgétaire (ex. ateliers, ou séances académiques)')}</span>
+            : tutor ? <span className="desk-alert">⚠ {t3('اختر خط المدرّب (الورشات، الإنكليزية، الأكاديمي…)', 'choose the tutor line (workshops, English, academic…)', "choisissez la ligne de l'animateur (ateliers, anglais, académique…)")}</span>
             : <span className="desk-alert">⚠ {t3(`لا خط لهذه الوظيفة في موازنة ${centreName}: أضفه في الحسابات، أو اختر خطاً`, `no line for this position in the budget of ${centreName}: add it in the accounts, or choose one`, `pas de ligne pour ce poste dans le budget de ${centreName} : ajoutez-la en comptabilité, ou choisissez-en une`)}</span>}
           {line.line && <span className="muted small"> {own ? t3('(مختار باليد)', '(chosen by hand)', '(choisi à la main)') : t3('(تلقائياً)', '(automatic)', '(automatique)')}</span>}
         </span>
@@ -435,7 +435,7 @@ function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF:
       </div>
       {(open || (!line.line && !!f.centre && manage)) && (
         <div className="grid2" style={{ marginTop: 8 }}>
-          <Pick label={t3('خط الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={linesFor(d.lists, f).map((l) => ({ value: lineLabel(l), label: [lineLabel(l), l.heading].filter(Boolean).join(' · ') }))} onChange={(v) => setF({ ...f, budget_line: v || null })} empty={tutor ? t3('— اختر —', '— choose —', '— choisir —') : t3('— تلقائياً حسب الوظيفة —', '— automatic, from the position —', '— automatique, selon le poste —')} />
+          <Pick label={t3('خط الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={[...linesFor(d.lists, f), ...(f.budget_line && !linesFor(d.lists, f).some((l) => lineLabel(l) === f.budget_line) && line.line ? [line.line] : [])].map((l) => ({ value: lineLabel(l), label: [lineLabel(l), l.heading].filter(Boolean).join(' · ') }))} onChange={(v) => setF({ ...f, budget_line: v || null })} empty={tutor ? t3('— اختر —', '— choose —', '— choisir —') : t3('— تلقائياً حسب الوظيفة —', '— automatic, from the position —', '— automatique, selon le poste —')} />
         </div>
       )}
     </div>

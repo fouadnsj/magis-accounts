@@ -1624,4 +1624,12 @@ ALTER TABLE hr_list ADD COLUMN uid TEXT;
 ALTER TABLE hr_list ADD COLUMN copied_hash TEXT;
 `,
   },
+  {
+    n: 44,
+    name: 'HR: the lines a centre pays its tutors on (tutor lines), chosen once per centre',
+    sql: `
+-- A tutor's card offers only the tutor lines of their centre (Fouad, 2026-11-02), as the staff's are the salary lines.
+ALTER TABLE hr_list ADD COLUMN tutor INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

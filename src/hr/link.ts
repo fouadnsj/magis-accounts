@@ -25,8 +25,15 @@ export function centreLines(lists: HrListItem[], p: { centre?: string | null }):
   return c ? lists.filter((x) => x.kind === 'line' && x.source === c.source) : [];
 }
 
-/** the lines a person may be chosen on: a tutor, any line of the centre; staff, the salary lines */
-export const linesFor = (lists: HrListItem[], p: { centre?: string | null; category?: string | null }) => (p.category === 'tutor' ? centreLines(lists, p) : salaryLines(lists, p));
+/** the lines a centre pays its tutors on (ticked in the Settings); none ticked yet: every line of the centre */
+export function tutorLines(lists: HrListItem[], p: { centre?: string | null }): HrListItem[] {
+  const all = centreLines(lists, p);
+  const ticked = all.filter((x) => x.tutor);
+  return ticked.length ? ticked : all;
+}
+
+/** the lines a person may be chosen on: a tutor, the tutor lines of the centre; staff, the salary lines */
+export const linesFor = (lists: HrListItem[], p: { centre?: string | null; category?: string | null }) => (p.category === 'tutor' ? tutorLines(lists, p) : salaryLines(lists, p));
 
 /** the accounts of a person's centre */
 export function centreAccounts(lists: HrListItem[], p: { centre?: string | null }): HrListItem[] {
@@ -39,9 +46,10 @@ const norm = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/
 /** the line for a person: theirs if chosen; else the line named like their position, or like their first name */
 export function lineFor(lists: HrListItem[], p: Pick<HrPerson, 'centre' | 'budget_line' | 'role' | 'first_name' | 'first_name_ar' | 'name'> & { category?: string | null }): { line: HrListItem | null; guessed: boolean } {
   const lines = linesFor(lists, p);
-  // the line chosen on the card counts only if it is a salary line of the person's own centre
+  // the line chosen on the card counts only if it is a line of the person's own centre: a salary line for staff; for a
+  // tutor any line of the centre (one chosen before the tutor lines were ticked still counts)
   if (p.budget_line) {
-    const own = lines.find((x) => lineLabel(x) === p.budget_line);
+    const own = (p.category === 'tutor' ? centreLines(lists, p) : lines).find((x) => lineLabel(x) === p.budget_line);
     if (own) return { line: own, guessed: false };
   }
   if (p.category === 'tutor') return { line: null, guessed: false };

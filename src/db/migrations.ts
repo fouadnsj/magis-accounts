@@ -1632,4 +1632,15 @@ ALTER TABLE hr_list ADD COLUMN copied_hash TEXT;
 ALTER TABLE hr_list ADD COLUMN tutor INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    n: 45,
+    name: 'HR: the tutor lines suggested on the copies already made (as at a new copy)',
+    sql: `
+-- A centre with no tutor line ticked yet gets the usual suggestion (Formation lines, facilitators, teachers); its own
+-- choice, once made in the Settings, is never touched.
+UPDATE hr_list SET tutor = 1
+ WHERE kind = 'line' AND source IN (SELECT source FROM hr_list WHERE kind = 'line' AND source IS NOT NULL GROUP BY source HAVING SUM(tutor) = 0)
+   AND (heading LIKE '%formation%' OR heading LIKE '%teacher%' OR name LIKE '%facilitator%' OR name LIKE '%teacher%');
+`,
+  },
 ];

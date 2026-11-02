@@ -14,7 +14,7 @@ import { getLang } from '../../i18n';
 import { agreementDoc, stipendDoc } from '../docs';
 import { InsurancePage } from './Stage4';
 import { TwoNames, centreOf, centreVars, chooseScan, codeOf, fail, headOf, markOf, openScan, positionsFor, seenCentres, centreChoices, mainCentreName, usd, type HrRights } from './common';
-import { accountFor, lineFor, lineLabel, linesFor } from '../link';
+import { accountFor, centreLines, lineFor, lineLabel, linesFor } from '../link';
 import { TutorSessions } from './Sessions';
 import { priceOn, type HrSession, type HrSessionPrice } from '../sessions';
 import { GuideLink } from '../../guide/GuideView';
@@ -59,7 +59,10 @@ export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & {
   ];
   return (
     <div style={centreVars(key)}>
-      <button className="link" onClick={onBack}>‹ {t3('الأشخاص', 'People', 'Personnes')}</button>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <button className="link" onClick={onBack}>‹ {t3('الأشخاص', 'People', 'Personnes')}</button>
+        <GuideLink id="hr-person" />
+      </div>
       <div className="hr-sheet" style={{ marginTop: 8, paddingBottom: 12 }}>
         <div className="hr-sheet-top" style={{ borderBottom: 0, paddingBottom: 0 }}>
           <img src={markOf(key)} alt="" />
@@ -67,7 +70,6 @@ export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & {
             <TwoNames p={person} big />
             <div className="sub">{[tutor ? `🎓 ${t3('مدرّب، بالجلسة', 'Tutor, paid by session', 'Animateur, à la séance')}${person.activity ? ` · ${person.activity}` : ''}` : person.role ? (x.d.positionsAr[person.role] ? `${x.d.positionsAr[person.role]} · ${person.role}` : person.role) : null, person.centre].filter(Boolean).join(' · ') || '—'}{!person.active ? ` · ${t3('غادر', 'left', 'parti')} ${fmtDate(person.ended)}` : ''}</div>
           </div>
-          <GuideLink id="hr-person" />
           <img className="jesuit" src="/brand/jesuits.png" alt="" />
         </div>
       </div>
@@ -433,6 +435,9 @@ function GoesTo({ d, f, setF, manage }: { d: HrData; f: Partial<HrPerson>; setF:
         </span>
         {manage && f.centre && <button type="button" className="link" onClick={() => setOpen(!open)}>{open ? t3('إغلاق', 'close', 'fermer') : t3('تغيير (استثناء)', 'change (exception)', 'changer (exception)')}</button>}
       </div>
+      {tutor && !!f.centre && !centreLines(d.lists, f).some((x) => x.tutor) && (
+        <p className="desk-alert small" style={{ margin: '6px 0 0' }}>⚠ {t3('لم تُحدَّد خطوط المدرّبين لهذا المركز، فتظهر كل الخطوط. حدّدها في الإعدادات ← المركز ← خطوط المدرّبين.', 'No tutor lines are ticked for this centre, so every line is shown. Tick them in Settings → the centre → Tutor lines.', "Aucune ligne d'animateurs n'est cochée pour ce centre : toutes les lignes sont montrées. Cochez-les dans Réglages → le centre → Lignes des animateurs.")}</p>
+      )}
       {(open || (!line.line && !!f.centre && manage)) && (
         <div className="grid2" style={{ marginTop: 8 }}>
           <Pick label={t3('خط الموازنة', 'Budget line', 'Ligne budgétaire')} value={f.budget_line ?? ''} options={[...linesFor(d.lists, f), ...(f.budget_line && !linesFor(d.lists, f).some((l) => lineLabel(l) === f.budget_line) && line.line ? [line.line] : [])].map((l) => ({ value: lineLabel(l), label: [lineLabel(l), l.heading].filter(Boolean).join(' · ') }))} onChange={(v) => setF({ ...f, budget_line: v || null })} empty={tutor ? t3('— اختر —', '— choose —', '— choisir —') : t3('— تلقائياً حسب الوظيفة —', '— automatic, from the position —', '— automatique, selon le poste —')} />

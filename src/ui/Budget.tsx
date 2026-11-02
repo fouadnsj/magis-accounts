@@ -1068,8 +1068,11 @@ function GiveLines({ b, fundId, onClose, onDone }: { b: BudgetPayload; fundId: n
   const fund = new Map(b.amounts.map((x) => [x.line_id, x.account_id]));
   const amount = new Map(b.amounts.map((x) => [x.line_id, x.amount_usd]));
   const [pick, setPick] = useState<Set<number>>(() => new Set(b.amounts.filter((x) => x.account_id === fundId).map((x) => x.line_id)));
-  const headings = d.lists.headings.filter((h) => b.amounts.some((x) => d.lists.lines.find((l) => l.id === x.line_id)?.heading_id === h.id));
-  const linesOf = (hid: number) => d.lists.lines.filter((l) => l.heading_id === hid && amount.has(l.id));
+  // every expense line in use, also one with no amount yet in this budget (a new project's line): it is given at $0
+  const expHeading = new Set(d.lists.headingTypes.filter((x) => x.type === 'Exp').map((x) => x.heading_id));
+  const listed = (l: { id: number; heading_id: number; active: number | boolean }) => amount.has(l.id) || (!!l.active && expHeading.has(l.heading_id));
+  const headings = d.lists.headings.filter((h) => d.lists.lines.some((l) => l.heading_id === h.id && listed(l)));
+  const linesOf = (hid: number) => d.lists.lines.filter((l) => l.heading_id === hid && listed(l));
   const toggle = (ids: number[], on: boolean) => {
     const n = new Set(pick);
     for (const id of ids) if (on) n.add(id); else n.delete(id);
@@ -1106,11 +1109,11 @@ function GiveLines({ b, fundId, onClose, onDone }: { b: BudgetPayload; fundId: n
                   <td />
                 </tr>,
                 ...ls.map((l) => {
-                  const f = fund.get(l.id)!;
+                  const f = fund.has(l.id) ? fund.get(l.id)! : NOFUND;
                   return (
                     <tr key={l.id}>
                       <td style={{ paddingInlineStart: 22 }}><input type="checkbox" checked={pick.has(l.id)} onChange={(e) => toggle([l.id], e.target.checked)} /></td>
-                      <td>{l.name}</td>
+                      <td>{l.name}{amount.has(l.id) ? '' : <span className="muted small"> · {t('بلا مبلغ بعد', 'no amount yet')}</span>}</td>
                       <td className="n">{fmtUsd(amount.get(l.id) ?? 0)}</td>
                       <td className={`small ${f === NOFUND ? 'bad' : f === fundId ? 'ok' : 'muted'}`}>{fundName(f)}</td>
                     </tr>

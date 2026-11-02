@@ -840,6 +840,8 @@ async function setLineFund(c: OpCtx, a: { versionId: number; line_ids: number[];
   const ids = [...new Set((a.line_ids ?? []).map(Number).filter(Boolean))];
   if (!ids.length) throw new UserError(m('اختر الخطوط', 'Choose the lines', 'Choisissez les lignes'));
   await c.db.batch([
+    // a line with no amount yet in this budget joins it at $0, so its expenses take the project
+    ...(a.account_id == null ? [] : ids.map((id) => ({ sql: 'INSERT OR IGNORE INTO budget_amount (version_id, line_id, account_id, amount_usd) VALUES (?, ?, NULL, 0)', params: [v.id, id] }))),
     { sql: `UPDATE budget_amount SET account_id = ? WHERE version_id = ? AND line_id IN (${ids.map(() => '?').join(',')})`, params: [a.account_id ?? null, v.id, ...ids] },
     auditStmt(c.who, 'fund', 'budget_amount', `${v.budget_id}/${v.rev}`, null, { lines: ids, fund: a.account_id ?? null }),
   ]);

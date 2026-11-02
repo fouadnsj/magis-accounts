@@ -71,6 +71,13 @@ describe('budget funds', () => {
     expect((await op('budget.setFund', { versionId: v, line_ids: [line('Cleaner')], account_id: null })).status).toBe(200);
     expect((await cells()).find((x) => x[1] === line('Cleaner'))![0]).toBe(0);
 
+    // a line with no amount yet in this budget can be given to a project: it joins the budget at $0
+    await op('line.add', { headingId: h('Staff'), name: 'Tea' });
+    const tea = (await op('data')).body.lists.lines.find((l: { name: string }) => l.name === 'Tea').id;
+    expect((await cells()).some((x) => x[1] === tea)).toBe(false);
+    expect((await op('budget.setFund', { versionId: v, line_ids: [tea], account_id: acc('Running SEN') })).status).toBe(200);
+    expect((await cells()).find((x) => x[1] === tea)).toEqual([acc('Running SEN'), tea, 0]);
+
     // a revision and a new budget keep the funds
     expect((await op('budget.revise', { budgetId: 1, note: 'r' })).status).toBe(200);
     expect((await cells()).find((x) => x[1] === line('Reception'))![0]).toBe(acc('Running SEN'));

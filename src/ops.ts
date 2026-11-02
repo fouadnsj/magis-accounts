@@ -23,7 +23,7 @@ import {
 } from './domain/budget';
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
 import { holders } from './domain/reports';
-import { GRANT_STEPS, type GrantCard, type GrantPart, type GrantShare, type GrantStep } from './domain/grants';
+import { GRANT_STEPS, grantFlows, type GrantCard, type GrantPart, type GrantShare, type GrantStep } from './domain/grants';
 import type { Book, Lists, Settings, Trx, TrxType } from './domain/types';
 import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
@@ -425,6 +425,7 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
     if (d && closed.has(d.slice(0, 7))) errors.push(m(`الشهر ${d.slice(0, 7)} مغلق`, `Month ${d.slice(0, 7)} is closed`));
   }
   if (errors.length) throw new UserError({ ar: errors.map((e) => e.ar).join(' · '), en: errors.map((e) => e.en).join(' · ') });
+  if (!a.restoring) await checkGrantTransfers(c, a.rows, byId, all, lists);
 
   // Changing or deleting a row already saved: say why (kept in the audit log).
   const SAME = (x: Trx, y: Trx) => (['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd'] as const).every((k) => (x[k] ?? null) === (y[k] ?? null));
@@ -1053,6 +1054,81 @@ async function stepGrant(c: OpCtx, a: { id: string; status: GrantStep; date: str
 }
 const t2 = (ar: string, en: string) => `${en} · ${ar}`;
 
+/** What a grant still needs before its money may leave the Respo book. */
+export type GrantMissing = 'project' | 'dates' | 'lines';
+
+/**
+ * Each grant's steps still to do here (Fouad, 2026-11-03): its project, the project's start and end
+ * dates, and at least one budget line given to the project. (Lines that do not cover the whole share
+ * are only a warning, shown on the screens.) A grant with no share in this centre needs nothing here.
+ */
+async function grantReadiness(c: OpCtx): Promise<Map<string, GrantMissing[]>> {
+  const cards = await c.db.query<GrantCard>('SELECT * FROM grant_card');
+  const parts = await c.db.query<GrantPart>('SELECT * FROM grant_part');
+  const shares = await c.db.query<GrantShare>('SELECT * FROM grant_share');
+  const accounts = await c.db.query<{ id: number; start_date: string | null; end_date: string | null }>('SELECT id, start_date, end_date FROM account');
+  const withLines = new Set((await c.db.query<{ a: number }>(
+    `SELECT DISTINCT ba.account_id AS a FROM budget_amount ba
+      WHERE ba.account_id IS NOT NULL AND ba.version_id IN (SELECT (SELECT v.id FROM budget_version v WHERE v.budget_id = b.id ORDER BY v.rev DESC LIMIT 1) FROM budget b)`)).map((x) => x.a));
+  const out = new Map<string, GrantMissing[]>();
+  for (const g of cards) {
+    const mine = parts.filter((p) => p.grant_id === g.id);
+    // divided between centres with nothing for this one: nothing to do here
+    if (!mine.length && shares.some((x) => x.grant_id === g.id)) { out.set(g.id, []); continue; }
+    const missing = new Set<GrantMissing>();
+    if (!mine.length || mine.some((p) => p.account_id == null)) missing.add('project');
+    for (const p of mine) {
+      if (p.account_id == null) continue;
+      const acc = accounts.find((x) => x.id === p.account_id);
+      if (!acc?.start_date || !acc.end_date) missing.add('dates');
+      if (!withLines.has(p.account_id)) missing.add('lines');
+    }
+    out.set(g.id, [...missing]);
+  }
+  return out;
+}
+
+const MISSING_TEXT: Record<GrantMissing, Msg> = {
+  project: m('المشروع', 'the project', 'le projet'),
+  dates: m('تاريخا المشروع', "the project's dates", 'les dates du projet'),
+  lines: m('خطوط الموازنة', 'the budget lines', 'les lignes du budget'),
+};
+
+/**
+ * Money leaving the Respo book: a grant's money moves only once its steps are done. A transfer that
+ * names an unfinished grant is refused; one that names no grant is refused while a grant in hand is
+ * unfinished and still has money in the Respo book (so the money cannot leave without its grant).
+ */
+async function checkGrantTransfers(c: OpCtx, rows: Trx[], byId: Map<string, Trx>, all: Trx[], lists: Lists) {
+  const gb = Number(await getMeta(c.db, 'grants_book_id')) || null;
+  if (gb == null) return;
+  const changed = (r: Trx) => {
+    const o = byId.get(r.id);
+    return !o || o.grant_id !== r.grant_id || o.trf_usd !== r.trf_usd || o.trf_syp !== r.trf_syp || o.book_id !== r.book_id || o.type !== r.type;
+  };
+  const leaving = rows.filter((r) => r.type === 'Transfer' && r.book_id === gb && (r.trf_usd < 0 || r.trf_syp < 0) && changed(r));
+  if (!leaving.length) return;
+  const ready = await grantReadiness(c);
+  const cards = await c.db.query<GrantCard>('SELECT * FROM grant_card');
+  const donor = (g: GrantCard) => lists.donors.find((x) => x.id === g.donor_id)?.name ?? '';
+  const say = (g: GrantCard, miss: GrantMissing[]) => {
+    const what = miss.map((k) => MISSING_TEXT[k]);
+    return m(`المنحة «${donor(g)}» لم تكتمل خطواتها (${what.map((x) => x.ar).join('، ')}): أكملها في المنح ← «أكمل الخطوات» قبل تحويل مالها.`,
+      `The grant "${donor(g)}" has not finished its steps (${what.map((x) => x.en).join(', ')}): finish them in Grants → "Finish the steps" before its money is transferred.`,
+      `La subvention « ${donor(g)} » n'a pas fini ses étapes (${what.map((x) => x.fr ?? x.en).join(', ')}) : finissez-les dans Subventions → « Finir les étapes » avant de transférer son argent.`);
+  };
+  for (const r of leaving.filter((x) => x.grant_id)) {
+    const g = cards.find((x) => x.id === r.grant_id);
+    const miss = ready.get(r.grant_id!) ?? [];
+    if (g && miss.length) throw new UserError(say(g, miss));
+  }
+  if (leaving.some((x) => !x.grant_id)) {
+    const flows = grantFlows(cards, await c.db.query<GrantPart>('SELECT * FROM grant_part'), all, computeAll(all, lists));
+    const stuck = cards.find((g) => g.status === 'hand' && (ready.get(g.id) ?? []).length && (flows.get(g.id)?.withSup ?? 0) > 0.5);
+    if (stuck) throw new UserError(say(stuck, ready.get(stuck.id)!));
+  }
+}
+
 // ---------------------------------------------------------------- attached documents
 
 const MAX_DOC = 15 * 1024 * 1024;
@@ -1432,6 +1508,7 @@ export const OPS = {
 
   // ---------------------------------------------------------------- grants (confidential)
   'grant.save': { check: (c: OpCtx) => need(c, 'lists.donors'), run: (c: OpCtx, a: Parameters<typeof saveGrant>[1]) => saveGrant(c, a) },
+  'grant.readiness': { check: (c: OpCtx) => need(c, 'lists.donors'), run: async (c: OpCtx) => Object.fromEntries(await grantReadiness(c)) },
   'grant.step': { check: (c: OpCtx) => need(c, 'lists.donors'), run: (c: OpCtx, a: Parameters<typeof stepGrant>[1]) => stepGrant(c, a) },
   'grant.delete': {
     check: (c: OpCtx) => need(c, 'lists.donors'),
@@ -1871,7 +1948,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

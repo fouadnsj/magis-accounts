@@ -2,13 +2,15 @@
 // promised → approved → transferred by the donor → in the bank → in hand. In hand,
 // it is an income in the Respo book; from there it is transferred to Main
 // (confirmed by the Accountant) and spent on the accounts it is for.
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useApp, useNames } from '../state';
 import { GRANT_STEPS, grantFlows, type GrantCard, type GrantPart, type GrantShare, type GrantStep } from '../domain/grants';
 import { Field, Modal, Seg, Select, confirmBox, errText, fmtDate, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 import { CENTRES, centreStyle, type CentreKey } from '../brand';
 import { tx } from '../i18n';
 import { GuideLink } from '../guide/GuideView';
+import { GrantSteps, MISSING_LABEL, type GrantMissing } from './GrantSteps';
+import { ProjectSheet } from './ProjectSheet';
 
 const STEP_LABEL: Record<GrantStep, () => string> = {
   promised: () => t('موعودة', 'Promised'),
@@ -32,6 +34,13 @@ export function Grants() {
   const names = useNames();
   const [editing, setEditing] = useState<GrantCard | 'new' | null>(null);
   const [stepping, setStepping] = useState<{ g: GrantCard; to: GrantStep } | null>(null);
+  // the step by step of a grant (new, or one to finish): grant and project → lines → amounts → check
+  const [guided, setGuided] = useState<string | 'new' | null>(null);
+  const [sheet, setSheet] = useState<number | null>(null);
+  // what each grant still needs before its money may leave the Respo book
+  const [ready, setReady] = useState<Record<string, GrantMissing[]>>({});
+  const loadReady = useCallback(() => { s.api.call('grant.readiness', {}).then(setReady).catch(() => setReady({})); }, [s]);
+  useEffect(() => { loadReady(); }, [loadReady, d]);
   const [showDone, setShowDone] = useState(false);
   const [donorF, setDonorF] = useState<number | null>(null);
   const flows = useMemo(() => grantFlows(d.grants, d.grantParts, d.rows, d.comp), [d]);
@@ -59,6 +68,8 @@ export function Grants() {
   const next = (g: GrantCard) => GRANT_STEPS[GRANT_STEPS.indexOf(g.status) + 1] as GrantStep | undefined;
   const prev = (g: GrantCard) => GRANT_STEPS[GRANT_STEPS.indexOf(g.status) - 1] as GrantStep | undefined;
 
+  if (guided) return <GrantSteps grantId={guided === 'new' ? null : guided} onClose={async () => { setGuided(null); await reload(); }} />;
+
   return (
     <>
       <div className="page-head">
@@ -66,7 +77,8 @@ export function Grants() {
         <div className="row">
           <label className="row small"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> {t('مع المنح المصروفة كلها', 'Include fully spent grants')}</label>
           <div style={{ minWidth: 170 }} className="field"><Select value={donorF} options={d.lists.donors.map((x) => ({ value: x.id, label: x.name }))} onChange={setDonorF} placeholder={t('كل المانحين', 'All donors')} /></div>
-          <button className="btn primary" onClick={() => setEditing('new')}>＋ {t('منحة', 'Grant')}</button>
+          <button className="btn" title={t('لتسجيل منحة موعودة بسرعة؛ تُكمل خطواتها لاحقاً', 'To note a promised grant quickly; its steps are finished later')} onClick={() => setEditing('new')}>＋ {t('منحة موعودة (سريع)', 'Promised grant (quick)')}</button>
+          <button className="btn primary" onClick={() => setGuided('new')}>＋ {t('منحة، خطوة بخطوة', 'Grant, step by step')}</button>
         </div>
       </div>
       <div className="alert info small">{t('سرّي — يراه الرئيس فقط. «باليد» = في دفتر المسؤول (Respo)؛ ثم يُحوَّل إلى الرئيسي ويؤكده المحاسب.', 'Confidential — only the Superior sees this. "In hand" = in the Respo book; then it is transferred to Main and the Accountant confirms.')}</div>
@@ -110,8 +122,15 @@ export function Grants() {
               )}
               <div className="small">
                 <span className="muted">{t('المشروع هنا', 'The project here')}: </span>
-                {parts.length ? parts.map((p, k) => <span key={k}>{k > 0 ? ' · ' : ''}{p.account_id == null ? <span className="bad">{t('لا مشروع بعد', 'no project yet')}</span> : <b>{names.account(p.account_id)}</b>}{parts.length > 1 || shares.length ? <span className="ltr"> {money(p.amount, g.currency)}</span> : null}</span>) : <span className="muted">{t('لا حصة هنا', 'no share here')}</span>}
+                {parts.length ? parts.map((p, k) => <span key={k}>{k > 0 ? ' · ' : ''}{p.account_id == null ? <span className="bad">{t('لا مشروع بعد', 'no project yet')}</span> : <button className="link" title={t('صفحة المشروع', 'The project page')} onClick={() => setSheet(p.account_id)}><b>{names.account(p.account_id)}</b></button>}{parts.length > 1 || shares.length ? <span className="ltr"> {money(p.amount, g.currency)}</span> : null}</span>) : <span className="muted">{t('لا حصة هنا', 'no share here')}</span>}
               </div>
+              {(ready[g.id] ?? []).length > 0 && (
+                <div className={`alert ${g.status === 'hand' ? 'warn' : 'info'} small`} style={{ margin: '8px 0 0' }}>
+                  {t('للإكمال', 'To finish')}: {(ready[g.id] ?? []).map((k) => MISSING_LABEL[k]()).join(' · ')}
+                  {g.status === 'hand' && <div>{t('لا يخرج مالها من دفتر المسؤول قبل ذلك.', 'Its money cannot leave the Respo book before that.')}</div>}
+                  <div><button className="btn small primary" style={{ marginTop: 6 }} onClick={() => setGuided(g.id)}>{t('أكمل الخطوات →', 'Finish the steps →')}</button></div>
+                </div>
+              )}
               {g.status === 'hand' && (
                 <div className="grant-flow">
                   <div><span>{t('باليد', 'In hand')}</span><b className="ltr">${fmtUsd(f.inHand)}</b></div>
@@ -139,6 +158,7 @@ export function Grants() {
       </div>
       <p className="muted small">{t('لإرسال مال منحة إلى الرئيسي: سجّل «تحويلاً» من دفتر المسؤول إلى الرئيسي واختر المنحة فيه. كل نفقة على حساب المنحة تُخصم من أقدم منحة لهذا الحساب.', 'To send a grant\'s money to Main: record a "Transfer" from the Respo book to Main and choose the grant in it. Each expense on a grant\'s account uses the oldest grant for that account.')}</p>
       {editing && <GrantModal start={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await reload(); }} />}
+      {sheet != null && <ProjectSheet projectId={sheet} onClose={() => setSheet(null)} />}
       {stepping && <StepModal g={stepping.g} to={stepping.to} onClose={() => setStepping(null)} onDone={async () => { setStepping(null); await reload(); }} />}
     </>
   );
@@ -151,7 +171,7 @@ const SHARE_CENTRES: CentreKey[] = ['jaramana', 'aleppo', 'homs', 'other'];
  * New or changed grant (Fouad, 2026-11-01): the donor written as a name, the contract number,
  * the amount, the share of each centre; this centre's share goes to one fund here.
  */
-function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onClose: () => void; onSaved: () => Promise<void> }) {
+export function GrantModal({ start, onClose, onSaved, asStep }: { start: GrantCard | null; onClose: () => void; onSaved: (id: string) => Promise<void>; /** shown as step 1 of the step by step, not in a window */ asStep?: boolean }) {
   const { s, d } = useApp();
   const names = useNames();
   const here = (s.centre ?? 'other') as CentreKey;
@@ -197,20 +217,21 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
     && (hereAmount <= 0 || (rows.every((r) => r.fund != null) && (!several || Math.abs(rowsSum - hereAmount) <= 0.01)));
   const save = async () => {
     try {
-      await s.api.call('grant.save', {
+      const id: string = await s.api.call('grant.save', {
         id: start?.id, donor: donor.trim(), amount: total, currency, reference: reference.trim() || null, note: note.trim() || null,
         here, shares: split ? SHARE_CENTRES.filter((k) => shareOf(k) > 0).map((k) => ({ centre: k, amount: shareOf(k) })) : [],
         projects: rows.map((r, i) => ({ fund_id: r.fund === NEW_FUND ? null : r.fund, new_fund: r.fund === NEW_FUND ? (r.name.trim() || (several ? `${autoName} ${i + 1}` : autoName)) : null, amount: several ? parseAmount(r.amount) : null })),
         start_date: pStart || null, end_date: pEnd || null,
       });
       toast(t('حُفظ', 'Saved'));
-      await onSaved();
+      await onSaved(id);
     } catch (e) {
       toast(errText(e), true);
     }
   };
+  const Frame = asStep ? StepFrame : Modal;
   return (
-    <Modal title={start ? t('تعديل المنحة', 'Edit the grant') : t('منحة جديدة', 'New grant')} onClose={onClose}>
+    <Frame title={start ? t('تعديل المنحة', 'Edit the grant') : t('منحة جديدة', 'New grant')} onClose={onClose}>
       <div className="grid2">
         <Field label={t('المانح', 'Donor')}>
           <input list="grant-donors" value={donor} onChange={(e) => setDonor(e.target.value)} />
@@ -277,10 +298,15 @@ function GrantModal({ start, onClose, onSaved }: { start: GrantCard | null; onCl
 
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
-        <button className="btn primary" disabled={!ok} onClick={save}>{t('احفظ', 'Save')}</button>
+        <button className="btn primary" disabled={!ok} onClick={save}>{asStep ? t('احفظ وتابع ←', 'Save and continue →') : t('احفظ', 'Save')}</button>
       </div>
-    </Modal>
+    </Frame>
   );
+}
+
+/** The grant's form as the first step of the step by step (in the page, not a window). */
+function StepFrame({ children }: { title: ReactNode; children: ReactNode; onClose: () => void }) {
+  return <div className="card" style={{ padding: 16 }}>{children}</div>;
 }
 
 /** Moving a grant to a step, with its date; "in hand" asks the dollars really received. */

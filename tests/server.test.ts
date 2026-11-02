@@ -394,7 +394,23 @@ describe("server: grants follow the money; the Respo and the Superior's books ar
     // $2,000 from the grant to Main: the Accountant sees the transfer (only) and confirms it
     const t1 = { ...blankTrx(), id: crypto.randomUUID(), date: '2026-12-04', type: 'Transfer' as const, book_id: respo, account_id: furn, city_id: L.cities[0].id,
       heading_id: L.headings.find((h) => h.name === 'Other / Unallocated')!.id, line_id: L.lines.find((l) => l.name === 'Unallocated')!.id, trf_usd: -2000, grant_id: gid, explanation: 'to Main for the furniture' };
+    // the grant's steps are not finished (dates, lines): its money stays in the Respo book, named or not (Fouad, 2026-11-03)
+    let ready = (await op('grant.readiness', {}, sup2)).body as Record<string, string[]>;
+    expect(ready[gid].sort()).toEqual(['dates', 'lines']);
+    expect((await op('trx.save', { rows: [t1] }, sup2)).status).toBe(400);
+    expect((await op('trx.save', { rows: [{ ...t1, grant_id: null }] }, sup2)).status).toBe(400);
+    // the project's dates, and a line of the budget given to it: then the money moves
+    expect((await op('account.setDates', { id: furn, start_date: '2026-12-01', end_date: '2027-06-30' }, sup2)).status).toBe(200);
+    expect((await op('budget.create', { start_ym: '2026-12', months: 7, rate_syp: 130, rate_eur: 0.89, from: 'empty' }, sup2)).status).toBe(200);
+    const bg = (await op('budget.get', {}, sup2)).body as { budget: { id: number }; current: { id: number } };
+    const bv = bg.current.id;
+    expect((await op('budget.setFund', { versionId: bv, line_ids: [L.lines.find((l) => l.name === 'Unallocated')!.id], account_id: furn }, sup2)).status).toBe(200);
+    ready = (await op('grant.readiness', {}, sup2)).body as Record<string, string[]>;
+    expect(ready[gid]).toEqual([]);
     expect((await op('trx.save', { rows: [t1] }, sup2)).status).toBe(200);
+    // (this budget was only for the check: the later tests make their own)
+    expect((await op('budget.delete', { budgetId: bg.budget.id }, sup2)).status).toBe(200);
+    expect((await op('account.setDates', { id: furn, start_date: null, end_date: null }, sup2)).status).toBe(200);
     his = (await op('data', {}, com)).body as DataPayload;
     const seen = his.rows.find((r) => r.id === t1.id)!;
     expect(seen.private_book).toBe(true);

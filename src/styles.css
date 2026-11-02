@@ -769,3 +769,14 @@ table.t.rep td, table.t.rep td.n { font-size: 11.5px; padding: 3px 5px; }
   .mg-value b { font-size: 17px; }
   .mg-value span { display: block; font-size: 11px; }
 }
+
+/* a grant step by step (Grants → "Grant, step by step") */
+.wizard-steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0; flex-wrap: wrap; }
+.wizard-steps li { padding: 4px 10px; border-radius: 999px; border: 1px solid #E5E0D5; font-size: 13px; }
+.wizard-steps li.now { background: var(--brand); border-color: transparent; }
+.wizard-steps li.now .link { color: #fff; font-weight: 600; }
+.wizard-steps li.done .link::after { content: ' ✓'; }
+.check-list { list-style: none; padding: 0; margin: 10px 0; font-size: 15px; }
+.check-list li { padding: 4px 0; }
+.check-list li.ok { color: #1d5a20; }
+.check-list li.bad { color: #8e1c1c; }

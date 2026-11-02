@@ -78,7 +78,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
       </div>
       <div className="hr-panel" style={{ marginBottom: 14 }}>
         <b>{t3('السلّم والاتفاقيات الفعلية', 'The scale and the actual agreements', "L'échelle et les accords réels")}</b>
-        <p className="muted small" style={{ marginTop: 4 }}>{t3('المرجع اقتراح عند كتابة اتفاقية. «الفعلي» هو ما تعطيه الاتفاقيات اليوم (بالدولار). الفرق = المعدل الفعلي − المرجع. اضغط على وظيفة لترى أصحابها.', 'The reference is a suggestion when an agreement is written. "Actual" is what the agreements give today (in dollars). Difference = actual average − reference. Click a position to see who holds it.', "La référence est une suggestion quand un accord est rédigé. « Réel » est ce que donnent les accords aujourd'hui (en dollars). Écart = moyenne réelle − référence. Cliquez un poste pour voir qui l'occupe.")}</p>
+        <p className="muted small" style={{ marginTop: 4 }}>{t3('المرجع اقتراح عند كتابة اتفاقية. «الفعلي» هو ما تعطيه الاتفاقيات اليوم (بالدولار). «الفعلي مقابل السلّم» = المعدل الفعلي − المرجع، مثلاً مرجع 180 ومعدل فعلي 105 يعطي −75: أقل من السلّم (سالب)، أو أكثر منه (موجب). اضغط على وظيفة لترى أصحابها.', 'The reference is a suggestion when an agreement is written. "Actual" is what the agreements give today (in dollars). "Actual vs the scale" = actual average − reference: e.g. a reference of 180 and an actual average of 105 gives −75, below the scale (negative), or above it (positive). Click a position to see who holds it.', "La référence est une suggestion quand un accord est rédigé. « Réel » est ce que donnent les accords aujourd'hui (en dollars). « Réel / échelle » = moyenne réelle − référence : par ex. une référence de 180 et une moyenne réelle de 105 donnent −75, en dessous de l'échelle (négatif), ou au-dessus (positif). Cliquez un poste pour voir qui l'occupe.")}</p>
         {!pd.grades.length ? (!edit ? <p className="muted">—</p> :
           <button className="btn primary" onClick={async () => { try { await s.api.call('hr.grade.seed', {}); await reload(); } catch (e) { fail(e); } }}>{t3('حمّل الوظائف من جدول الرواتب', 'Load the positions from the salary sheet', 'Charger les postes depuis la feuille de salaires')}</button>
         ) : (
@@ -90,7 +90,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
                 <SortTh k="people" sort={gs} n>{t3('الأشخاص', 'People', 'Personnes')}</SortTh>
                 <SortTh k="avg" sort={gs} n>{t3('الفعلي (المعدل)', 'Actual (average)', 'Réel (moyenne)')}</SortTh>
                 <th className="n">{sup ? t3('الأدنى – الأعلى', 'Lowest – highest', 'Min – max') : t3('ساعات الأسبوع', 'Hours a week', 'Heures par semaine')}</th>
-                <SortTh k="diff" sort={gs} n>{t3('الفرق', 'Difference', 'Écart')}</SortTh>
+                <SortTh k="diff" sort={gs} n>{t3('الفعلي مقابل السلّم', 'Actual vs the scale', 'Réel / échelle')}<div className="muted small" style={{ fontWeight: 400 }}>{t3('المعدل − المرجع', 'average − reference', 'moyenne − référence')}</div></SortTh>
                 {sup && <SortTh k="hour" sort={gs} n>{t3('الساعة (للرئيس)', 'Hour (Superior)', 'Heure (Supérieur)')}</SortTh>}
                 <th />
               </tr></thead>

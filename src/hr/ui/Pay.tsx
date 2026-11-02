@@ -27,7 +27,8 @@ type PeopleSort = 'name' | 'position' | 'monthly' | 'diff' | 'weekly';
 /**
  * The salary scale of a centre (Fouad, 31 October 2026: each centre has its own scale and its own dollar rate). For each
  * position: the reference amount, and what the agreements really give (how many people, the average, the lowest and
- * the highest, the difference with the reference). The cost of an hour is shown to the Superior only.
+ * the highest, the difference with the reference). The cost of an hour and the lowest–highest are shown to the Superior
+ * only (Fouad, 2026-11-02: the spread of what people get on a position is private).
  */
 export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr: HrData; pd: HrPayData; reload: () => Promise<void>; open: (p: HrPerson) => void; centre: string | null }) {
   const centres = centreChoices(hr);
@@ -88,7 +89,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
                 <SortTh k="ref" sort={gs} n>{t3('المرجع شهرياً', 'Reference, monthly', 'Référence, mensuel')}</SortTh>
                 <SortTh k="people" sort={gs} n>{t3('الأشخاص', 'People', 'Personnes')}</SortTh>
                 <SortTh k="avg" sort={gs} n>{t3('الفعلي (المعدل)', 'Actual (average)', 'Réel (moyenne)')}</SortTh>
-                <th className="n">{t3('الأدنى – الأعلى', 'Lowest – highest', 'Min – max')}</th>
+                <th className="n">{sup ? t3('الأدنى – الأعلى', 'Lowest – highest', 'Min – max') : t3('ساعات الأسبوع', 'Hours a week', 'Heures par semaine')}</th>
                 <SortTh k="diff" sort={gs} n>{t3('الفرق', 'Difference', 'Écart')}</SortTh>
                 {sup && <SortTh k="hour" sort={gs} n>{t3('الساعة (للرئيس)', 'Hour (Superior)', 'Heure (Supérieur)')}</SortTh>}
                 <th />
@@ -103,7 +104,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
                         <td className="n"><b>{usd(g.monthly_usd)}</b></td>
                         <td className="n">{st.n || ''}</td>
                         <td className="n">{usd(st.avg)}</td>
-                        <td className="n">{st.min != null ? (st.min === st.max ? usd(st.min) : `${usd(st.min)} – ${usd(st.max)}`) : '—'}</td>
+                        <td className="n">{sup ? (st.min != null ? (st.min === st.max ? usd(st.min) : `${usd(st.min)} – ${usd(st.max)}`) : '—') : ''}</td>
                         <td className="n">{diffCell(st.diff, g.monthly_usd)}</td>
                         {sup && <td className="n">{usd(st.hour)}</td>}
                         <td className="right" onClick={(e) => e.stopPropagation()}>{edit && <button className="btn small" onClick={() => setGrade(g)}>{t3('تعديل', 'Edit', 'Modifier')}</button>}</td>

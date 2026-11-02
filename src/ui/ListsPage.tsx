@@ -456,6 +456,13 @@ function FundsTab() {
     <div className="panel" style={{ maxWidth: 900 }}>
       <p className="muted small" style={{ marginTop: 0 }}>{t('حصة كل منحة في هذا المركز مشروع. المشروع بلا منحة مال خاص. مشروع المنحة يُنشأ من صفحة المنح.', "Each grant's share in this centre is a project. A project without a grant is private money. A grant's project is made from the Grants page.")}</p>
       {edit && (
+        <div className="alert info small">
+          <div><b>＋ {t('مشروع خاص جديد', 'New private project')}</b>: {t('مال بلا منحة (تبرع خاص، مال من الرهبنة…) تريد أن تتبعه وحده. بعدها أعطه خطوطاً في الموازنة ← المشاريع. مشروع المنحة لا يُنشأ هنا بل من المنح ← «منحة، خطوة بخطوة».', 'Money with no grant (a private gift, money from the Province…) that you want to follow on its own. Then give it lines in Budget → Projects. A grant’s project is not made here but in Grants → "Grant, step by step".')}</div>
+          <div style={{ marginTop: 4 }}><b>⇢ {t('دمج', 'Merge')}</b>: {t('مشروعان هما في الحقيقة مشروع واحد (مثلاً الشبكة والبناء في «المركز»): كل ما كُتب على الأول، نفقاته وخطوطه، ينتقل إلى الثاني، ويتوقف الأول. تُؤخذ نسخة احتياطية قبله، ولا زر للتراجع عنه.', 'Two projects that are really one (e.g. Network and Building into "Center"): everything written on the first, its expenses and its lines, moves to the second, and the first stops. A backup is taken first; there is no button to undo it.')}</div>
+          <div style={{ marginTop: 4 }}><b>{t('خارج الموازنة', 'Outside the budget')}</b>: {t('مال يُصرف خارج موازنة المركز (مثل الدير): لا يُعطى خطوطاً، ونفقاته لا تُعدّ في متابعة الموازنة. يُختار في النفقة نفسها («المشروع»). اضغط مرة أخرى للرجوع.', 'Money spent outside the centre’s budget (like Deir): it is given no lines, and its expenses do not count in the budget follow-up. It is chosen on the expense itself ("Project"). Press again to undo.')}</div>
+        </div>
+      )}
+      {edit && (
         <div className="row" style={{ marginBottom: 10 }}>
           <input className="inp" style={{ flex: 1 }} placeholder={t('مشروع خاص جديد', 'New private project')} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && void add()} />
           <button className="btn primary" disabled={!name.trim()} onClick={add}>＋ {t('إضافة', 'Add')}</button>
@@ -504,7 +511,6 @@ function FundsTab() {
           })}
         </tbody>
       </table>
-      {edit && <p className="muted small">{t('الحسابات القديمة (مثل الشبكة والبناء) تُدمج في مشروع آخر بزر «دمج»: كل ما كُتب عليها ينتقل إليه.', 'Old accounts (like Network or Building) are merged into another project with "Merge": everything written on them moves to it.')}</p>}
       {merging && <MergeModal from={merging} onClose={() => setMerging(null)} onDone={() => setMerging(null)} />}
       {dating && <DatesModal p={dating} onClose={() => setDating(null)} />}
     </div>

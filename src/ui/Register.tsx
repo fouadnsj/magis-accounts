@@ -36,7 +36,9 @@ export function Register() {
     return { order: [], hidden: [] };
   });
   const [colsOpen, setColsOpen] = useState(false);
-  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
+  // the latest records first (Fouad, 2026-11-03); a click on a column sorts by it, a third click gives the register's own order
+  const LATEST = { key: 'date', dir: -1 as const };
+  const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(LATEST);
   const [scroll, setScroll] = useState(0);
   const [height, setHeight] = useState(600);
   const box = useRef<HTMLDivElement>(null);
@@ -99,7 +101,8 @@ export function Register() {
     return [...rows].sort((a, b) => {
       const x = get(a), y = get(b);
       const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y));
-      return c * sort.dir;
+      // the same date (or value): by the register number
+      return (c || (a.n ?? 0) - (b.n ?? 0)) * sort.dir;
     });
   }, [rows, sort, sortValue]);
   const th = (key: string, label: string, n = false) => {
@@ -128,7 +131,7 @@ export function Register() {
   const visible = sorted.slice(first, last);
 
   const clear = () => {
-    setMonth(''); setBook(null); setAccount(null); setType(''); setHeading(null); setQ(''); setReview(false); setSort(null);
+    setMonth(''); setBook(null); setAccount(null); setType(''); setHeading(null); setQ(''); setReview(false); setSort(LATEST);
   };
 
   // the columns, in the order and with the visibility this person chose

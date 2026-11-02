@@ -4,6 +4,9 @@
 // A text missing here shows in English. (The communities' screens carry their French themselves.)
 
 export const FR: Record<string, string> = {
+  // one place to record sessions (2026-11-02)
+  "Record or change sessions in the Tutors' sessions page": "Noter ou changer les séances dans la page Séances des animateurs",
+
   // tutor lines (2026-11-02)
   "Tutor lines": "Lignes des animateurs",
   "The lines tutors are paid on (workshops, courses…). A tutor's card offers only these. A tutor stays on one line, and changes it on their card when they move (e.g. from workshops to English).": "Les lignes sur lesquelles les animateurs sont payés (ateliers, cours…). La fiche d'un animateur ne propose que celles-ci. Un animateur reste sur une ligne, et la change sur sa fiche quand il passe d'une activité à l'autre.",

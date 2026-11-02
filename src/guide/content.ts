@@ -141,6 +141,7 @@ export const HR_GUIDE: GuideSection[] = [
     id: 'hr-sessions', icon: '🎓', title: m('جلسات المدرّبين', 'Tutors\' sessions', 'Séances des animateurs'),
     intro: m('سطر لكل مدرّب وعمود لكل يوم من الشهر. ضغطة على يوم تسجّل جلسة.', 'One line per tutor and one column per day of the month. A click on a day records a session.', 'Une ligne par animateur et une colonne par jour du mois. Un clic sur un jour note une séance.'),
     steps: [
+      s(m('مكان واحد للتسجيل', 'One place to record', 'Un seul endroit pour noter'), m('الجلسات تُسجَّل في هذه الصفحة فقط. بطاقة المدرّب تعرض جلسات الشهر للقراءة، وفيها زر يفتح هذه الصفحة.', "Sessions are recorded on this page only. A tutor's card shows the month's sessions to read, with a button that opens this page.", 'Les séances se notent dans cette page seulement. La fiche d’un animateur montre les séances du mois en lecture, avec un bouton qui ouvre cette page.')),
       s(m('السعر والدفع', 'Price and payment', 'Prix et paiement'), m('سعر الجلسة واحد في الإعدادات؛ كل جلسة بسعر تاريخها. الجلسات غير المدفوعة تدخل كشف الشهر التالي. الشهر يُخرج إلى Excel.', 'The price of a session is one, in the settings; each session at the price of its date. Unpaid sessions go into the next payroll. The month goes to Excel.', 'Le prix d’une séance est unique, dans les réglages ; chaque séance au prix de sa date. Les séances non payées entrent dans la paie suivante. Le mois sort en Excel.')),
     ],
   },

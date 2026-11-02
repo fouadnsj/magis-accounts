@@ -130,7 +130,7 @@ export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { sess
         {page === 'home' && <Home {...ctx} pd={pd} go={go} centres={mineCentres} choose={choose} />}
         {page === 'people' && <People {...ctx} pd={pd} manage={manage} add={() => { setNewKind('staff'); setPersonId('new'); setPage('person'); }} />}
         {page === 'person' && (personId === 'new' || person) && (
-          <PersonPage key={`${personId ?? 'x'}${newKind}`} s={session} d={all} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} r={rt} person={person} preset={centre} kind={newKind} onBack={() => go('people')} onOpen={(id) => { setPersonId(id); setPage('person'); }} />
+          <PersonPage key={`${personId ?? 'x'}${newKind}`} s={session} d={all} pd={pd} reload={reload} manage={manage} vault={vault} pay={pay} r={rt} person={person} preset={centre} kind={newKind} onBack={() => go('people')} onSessions={() => go('sessions')} onOpen={(id) => { setPersonId(id); setPage('person'); }} />
         )}
         {page === 'scale' && pd && <ScalePage s={session} hr={d} pd={pd} reload={reload} open={open} centre={centre} />}
         {page === 'sessions' && <SessionsPage r={rt} s={session} hr={d} pd={pd} open={open} addTutor={() => { setNewKind('tutor'); setPersonId('new'); setPage('person'); }} />}

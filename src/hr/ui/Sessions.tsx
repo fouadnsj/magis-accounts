@@ -231,16 +231,17 @@ function DayModal({ s, p, date, m, onClose, reload }: { s: Session; p: HrPerson;
   );
 }
 
-/** a tutor's card: their sessions of a month, and recording one */
-export function TutorSessions({ s, hr, pd, person, manage, reload }: { s: Session; hr: HrData; pd: HrPayData | null; person: HrPerson; manage: boolean; reload: () => Promise<void> }) {
+/**
+ * A tutor's card: their sessions of a month, to read. Sessions are recorded in one place only, the Tutors' sessions page
+ * (Fouad, 2026-11-02): the button opens it. Here only the tutor's usual activity is changed.
+ */
+export function TutorSessions({ s, hr, pd, person, manage, reload, onRecord }: { s: Session; hr: HrData; pd: HrPayData | null; person: HrPerson; manage: boolean; reload: () => Promise<void>; /** opens the Tutors' sessions page */ onRecord: () => void }) {
   const [ym, setYm] = useState(thisMonth);
-  const { m, load } = useMonth(s, ym);
-  const [f, setF] = useState({ date: todayIso(), activity: person.activity ?? '' });
+  const { m } = useMonth(s, ym);
   const [usual, setUsual] = useState(person.activity ?? '');
   const mine = m ? m.sessions.filter((x) => x.person_id === person.id) : [];
   const a = m ? amounts(mine, m.prices, rateOf(pd?.settings, codeOf(hr, person))) : null;
   const see = has(s.profile, 'hr.salary');
-  const add = async () => { try { await s.api.call('hr.session.add', { personId: person.id, date: f.date, activity: f.activity || null }); if (f.date.slice(0, 7) !== ym) setYm(f.date.slice(0, 7)); else await load(); } catch (e) { fail(e); } };
   return (
     <>
       <div className="hr-panel">
@@ -256,7 +257,7 @@ export function TutorSessions({ s, hr, pd, person, manage, reload }: { s: Sessio
                 {mine.map((x) => (
                   <tr key={x.id}>
                     <td>{fmtDate(x.on_date)}</td><td>{x.activity ?? '—'}</td>{see && <td className="n">{priceText(priceOn(m.prices, x.on_date))}</td>}
-                    <td className="right">{x.run_line_id ? <span className="muted small">🔒 {t3('في كشف دفع', 'in a payroll run', 'dans une paie')}</span> : manage && <button className="btn small" onClick={async () => { if (await confirmBox(t3('حذف هذه الجلسة؟', 'Remove this session?', 'Retirer cette séance ?'), true)) { try { await s.api.call('hr.session.delete', { id: x.id }); await load(); } catch (e) { fail(e); } } }}>{t3('حذف', 'Remove', 'Retirer')}</button>}</td>
+                    <td className="right">{x.run_line_id ? <span className="muted small">🔒 {t3('في كشف دفع', 'in a payroll run', 'dans une paie')}</span> : null}</td>
                   </tr>
                 ))}
                 {!mine.length && <tr><td colSpan={4} className="muted">{t3('لا جلسات في هذا الشهر.', 'No sessions this month.', 'Aucune séance ce mois-ci.')}</td></tr>}
@@ -264,10 +265,9 @@ export function TutorSessions({ s, hr, pd, person, manage, reload }: { s: Sessio
               {mine.length > 0 && a && <tfoot><tr><td colSpan={2}><b>{mine.length} {t3('جلسة', 'sessions', 'séances')}</b></td>{see && <td className="n"><b>{amountText(a)}</b></td>}<td /></tr></tfoot>}
             </table>
             {manage && (
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 10 }}>
-                <Field label={t3('التاريخ', 'Date', 'Date')}><input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
-                <Field label={t3('النشاط', 'Activity', 'Activité')}><input list="hr-activities-p" value={f.activity} onChange={(e) => setF({ ...f, activity: e.target.value })} /><datalist id="hr-activities-p">{m.activities.map((x) => <option key={x} value={x} />)}</datalist></Field>
-                <button className="btn primary" disabled={!f.date} onClick={add}>＋ {t3('سجّل جلسة', 'Record a session', 'Noter une séance')}</button>
+              <div className="row" style={{ marginTop: 10 }}>
+                <button className="btn gold" onClick={onRecord}>🎓 {t3('سجّل أو عدّل الجلسات في «جلسات المدرّبين»', "Record or change sessions in the Tutors' sessions page", 'Noter ou changer les séances dans la page Séances des animateurs')}</button>
+                <datalist id="hr-activities-p">{m.activities.map((x) => <option key={x} value={x} />)}</datalist>
               </div>
             )}
           </>

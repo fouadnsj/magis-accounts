@@ -31,7 +31,7 @@ export const gradeFor = (pd: HrPayData | null, name: string | null | undefined, 
  * on the side (with a dot where something is missing) and the chosen section beside. It opens on an overview that says
  * what is in place and what is missing, each line leading to its section. A new person is made in steps.
  */
-export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & { person: HrPerson | null; /** the centre chosen at the top (a new person's centre) */ preset: string | null; /** a new person: staff or tutor */ kind?: 'staff' | 'tutor'; onBack: () => void; onOpen: (id: number) => void }) {
+export function PersonPage({ person, preset, kind, onBack, onOpen, onSessions, ...x }: P & { person: HrPerson | null; /** the centre chosen at the top (a new person's centre) */ preset: string | null; /** a new person: staff or tutor */ kind?: 'staff' | 'tutor'; onBack: () => void; onOpen: (id: number) => void; /** the Tutors' sessions page: the one place sessions are recorded */ onSessions: () => void }) {
   const [sec, setSec] = useState<Section>('overview');
   if (!person) return <NewPerson {...x} preset={preset} kind={kind ?? 'staff'} onBack={onBack} onOpen={onOpen} />;
   const { key } = centreOf(x.d, person);
@@ -78,8 +78,8 @@ export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & {
           {nav.map(([k, ico, label, extra]) => <button key={k} className={sec === k ? 'on' : ''} onClick={() => setSec(k)}><span className="ico">{ico}</span><span className="lbl">{label}</span>{extra}</button>)}
         </nav>
         <div>
-          {sec === 'overview' && (tutor ? <TutorOverview {...x} person={person} go={setSec} /> : <Overview {...x} person={person} go={setSec} />)}
-          {sec === 'sessions' && x.r.sessions && <TutorSessions s={x.s} hr={x.d} pd={x.pd} person={person} manage={x.r.sessions} reload={x.reload} />}
+          {sec === 'overview' && (tutor ? <TutorOverview {...x} person={person} go={setSec} onSessions={onSessions} /> : <Overview {...x} person={person} go={setSec} />)}
+          {sec === 'sessions' && x.r.sessions && <TutorSessions s={x.s} hr={x.d} pd={x.pd} person={person} manage={x.r.sessions} reload={x.reload} onRecord={onSessions} />}
           {sec === 'identity' && <Identity {...x} person={person} onCreated={() => undefined} onDeleted={onBack} />}
           {sec === 'agreement' && <Agreement {...x} person={person} />}
           {sec === 'letters' && <Letters {...x} person={person} />}
@@ -96,7 +96,7 @@ export function PersonPage({ person, preset, kind, onBack, onOpen, ...x }: P & {
 // ---------------------------------------------------------------- the overview: what is in place, what is missing
 
 /** a tutor's overview: this month's sessions, their usual activity, the code of conduct, the documents */
-function TutorOverview({ s, d, reload, manage, r: { sessions: pay, details }, vault, person, go }: P & { person: HrPerson; go: (s: Section) => void }) {
+function TutorOverview({ s, d, reload, manage, r: { sessions: pay, details }, vault, person, go, onSessions }: P & { person: HrPerson; go: (s: Section) => void; onSessions: () => void }) {
   const [leave, setLeave] = useState(false);
   const ym = todayIso().slice(0, 7);
   const [m, setM] = useState<{ sessions: HrSession[]; prices: HrSessionPrice[] } | null>(null);
@@ -125,7 +125,7 @@ function TutorOverview({ s, d, reload, manage, r: { sessions: pay, details }, va
       <div className="hr-panel" style={{ marginTop: 14 }}>
         <b>{t3('ما يمكن عمله', 'What you can do', 'Ce que vous pouvez faire')}</b>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-          {pay && <button className="btn gold" onClick={() => go('sessions')}>🎓 {t3('تسجيل الجلسات', 'Record sessions', 'Noter des séances')}</button>}
+          {pay && <button className="btn gold" onClick={onSessions}>🎓 {t3('تسجيل الجلسات', 'Record sessions', 'Noter des séances')}</button>}
           <button className="btn" onClick={() => go('identity')}>👤 {t3('تعديل الهوية', 'Edit the identity', "Modifier l'identité")}</button>
           {manage && person.active ? <button className="btn danger" onClick={() => setLeave(true)}>🚪 {t3('تسجيل المغادرة…', 'Record leaving…', 'Noter le départ…')}</button>
             : manage && <button className="btn" onClick={async () => { try { await s.api.call('hr.person.leave', { id: person.id, ended: null }); await reload(); } catch (e) { fail(e); } }}>↩ {t3('عاد إلى الفريق', 'Back in the team', "De retour dans l'équipe")}</button>}

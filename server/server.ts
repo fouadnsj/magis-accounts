@@ -39,7 +39,7 @@ import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
 
-export const SERVER_VERSION = '0.8.6';
+export const SERVER_VERSION = '0.8.7';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 

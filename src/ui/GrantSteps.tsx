@@ -231,6 +231,9 @@ function AddLine({ onAdded }: { onAdded: () => Promise<void> }) {
   const [heading, setHeading] = useState<number | null>(null);
   const [name, setName] = useState('');
   if (!can('lists.manage')) return null;
+  // a database that takes from the main list asks the administrator instead (Lists → Budget)
+  if (d.lists.headings.some((h) => h.in_main))
+    return <p className="muted small" style={{ marginTop: 10 }}>{t('خط غير موجود؟ اطلبه من المدير: القوائم ← الموازنة ← «اطلب بنداً أو خطاً…».', 'A line that is not there? Ask the administrator: Lists → Budget → "Ask for a heading or a line…".')}</p>;
   const expHeadings = d.lists.headings.filter((h) => h.active && d.lists.headingTypes.some((x) => x.heading_id === h.id && x.type === 'Exp'));
   const add = async () => {
     try {

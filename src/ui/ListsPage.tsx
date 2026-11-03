@@ -109,6 +109,9 @@ function BudgetTab() {
           ))}
         </div>
         <div style={{ padding: 10, borderTop: '1px solid var(--line)' }}>
+          {mainUsed ? <p className="muted small" style={{ margin: 0 }}>{main.admin
+            ? <button className="link small" onClick={() => main.open()}>＋ {t('بند أو خط جديد: في القائمة الرئيسية →', 'A new heading or line: in the main list →')}</button>
+            : t('بند أو خط جديد؟ اطلبه من المدير (أعلاه: «اطلب بنداً أو خطاً…»).', 'A new heading or line? Ask the administrator (above: "Ask for a heading or a line…").')}</p> : (
           <div className="row">
             <input className="inp" style={{ flex: 1 }} placeholder={t('بند جديد', 'New heading')} value={newHeading} onChange={(e) => setNewHeading(e.target.value)} />
             <select className="inp" style={{ width: 110 }} value={newHeadingType} onChange={(e) => setNewHeadingType(e.target.value as TrxType)}>
@@ -118,6 +121,7 @@ function BudgetTab() {
               if (await act(() => s.api.call('heading.add', { name: newHeading, types: [newHeadingType] }), t('أضيف', 'Added'))) setNewHeading('');
             }}>＋</button>
           </div>
+          )}
           <label className="row small muted" style={{ marginTop: 8 }}>
             <input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} /> {t('إظهار الموقوف', 'Show deactivated')}
           </label>
@@ -169,6 +173,7 @@ function BudgetTab() {
               ))}
             </tbody>
           </table>
+          {!mainUsed && (
           <div className="row" style={{ marginTop: 10 }}>
             <input className="inp" style={{ flex: 1 }} placeholder={t('خط جديد في هذا البند', 'New line under this heading')} value={newLine} onChange={(e) => setNewLine(e.target.value)}
               onKeyDown={async (e) => {
@@ -178,6 +183,7 @@ function BudgetTab() {
               if (await act(() => s.api.call('line.add', { headingId: h.id, name: newLine }), t('أضيف', 'Added'))) setNewLine('');
             }}>＋ {t('خط', 'Line')}</button>
           </div>
+          )}
           <p className="muted small">{t('ما جاء من القائمة الرئيسية يأخذ اسمه ورمزه منها؛ هنا يُوقف فقط.', 'What came from the main list takes its name and code from it; here it is only switched off.')}</p>
         </div>
       )}

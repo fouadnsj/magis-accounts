@@ -1315,6 +1315,12 @@ const fileHolderOnly = (c: OpCtx) => {
   if (c.install !== 'holder') throw refuse();
 };
 
+/** A database that took from the main list adds no heading or line itself: it asks the administrator (Fouad, 2026-11-03). */
+async function notOnMainList(c: OpCtx) {
+  if ((await c.db.query('SELECT 1 FROM heading WHERE in_main = 1 LIMIT 1')).length)
+    throw new UserError(m('هذه القاعدة تأخذ من القائمة الرئيسية: اطلب البند أو الخط من المدير (القوائم ← الموازنة ← «اطلب…»)', 'This database takes from the main list: ask the administrator for the heading or line (Lists → Budget → "Ask…")', "Cette base prend de la liste principale : demandez la rubrique ou la ligne à l'administrateur (Listes → Budget → « Demander… »)"));
+}
+
 export const OPS = {
   // the community databases (Jesuit communities): src/community/ops.ts
   ...CTY_OPS,
@@ -1441,9 +1447,9 @@ export const OPS = {
   'list.setActive': { check: anyone, run: (c: OpCtx, a: { table: string; id: number; active: boolean }) => setActive(c.db, listTable(c, a.table), a.id, a.active, c.who) },
   'list.delete': { check: anyone, run: (c: OpCtx, a: { table: string; id: number }) => deleteUnused(c.db, listTable(c, a.table), a.id, c.who) },
   'list.move': { check: anyone, run: (c: OpCtx, a: { table: SimpleList; id: number; dir: -1 | 1 }) => moveRow(c.db, listTable(c, a.table), a.id, a.dir, c.who) },
-  'heading.add': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { name: string; types: TrxType[] }) => addHeading(c.db, a.name, a.types, c.who) },
+  'heading.add': { check: (c: OpCtx) => need(c, 'lists.manage'), run: async (c: OpCtx, a: { name: string; types: TrxType[] }) => { await notOnMainList(c); return addHeading(c.db, a.name, a.types, c.who); } },
   'heading.types': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number; types: TrxType[] }) => setHeadingTypes(c.db, a.id, a.types, c.who) },
-  'line.add': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { headingId: number; name: string }) => addLine(c.db, a.headingId, a.name, c.who) },
+  'line.add': { check: (c: OpCtx) => need(c, 'lists.manage'), run: async (c: OpCtx, a: { headingId: number; name: string }) => { await notOnMainList(c); return addLine(c.db, a.headingId, a.name, c.who); } },
   'line.fund': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number; on: boolean }) => setProjectFund(c.db, a.id, a.on, c.who) },
   'book.save': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: Partial<Book> & { name: string }) => saveBook(c.db, a, c.who) },
   'donor.save': { check: (c: OpCtx) => need(c, 'lists.donors'), run: (c: OpCtx, a: { id?: number; name: string; default_project_id: number | null }) => saveDonor(c.db, a, c.who) },
@@ -1817,6 +1823,23 @@ export const OPS = {
    * off (kept, so a holder's file that still names it can come in). A backup is taken first.
    */
   // ---------------------------------------------------------------- one list for every centre
+  /** the rows that waited on another line (a request answered): moved to the line now taken; never in a closed month */
+  'main.moveRows': {
+    check: (c: OpCtx) => need(c, 'lists.manage'),
+    run: async (c: OpCtx, a: { ids: string[]; toLineId: number }) => {
+      const to = (await c.db.query<{ id: number; heading_id: number; name: string }>('SELECT id, heading_id, name FROM budget_line WHERE id = ? AND merged_into IS NULL', [a.toLineId]))[0];
+      if (!to) throw new UserError(m('الخط غير موجود', 'Line not found', 'Ligne introuvable'));
+      const closed = await closedMonths(c.db);
+      const rows = await c.db.query<{ id: string; date: string | null; line_id: number | null }>(`SELECT id, date, line_id FROM trx WHERE id IN (${a.ids.map(() => '?').join(',') || "''"})`, a.ids);
+      const shut = rows.filter((r) => r.date && closed.has(r.date.slice(0, 7)));
+      if (shut.length) throw new UserError(m(`${shut.length} قيداً في شهر مغلق: افتح الشهر أولاً`, `${shut.length} rows are in a closed month: reopen it first`, `${shut.length} écritures sont dans un mois clôturé : rouvrez-le d'abord`));
+      await c.db.batch([
+        ...rows.map((r) => ({ sql: 'UPDATE trx SET line_id = ?, heading_id = ? WHERE id = ?', params: [to.id, to.heading_id, r.id] })),
+        auditStmt(c.who, 'move_rows', 'trx', null, rows.map((r) => ({ id: r.id, line_id: r.line_id })), { line_id: to.id }),
+      ]);
+      return { moved: rows.length };
+    },
+  },
   /** the main list of the server (or its file): what this centre has follows it, and what it ticks comes in, switched on */
   'main.take': {
     check: (c: OpCtx) => need(c, 'lists.manage'),

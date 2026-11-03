@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../state';
 import { mainListApi, type MainListInfo, type MainResult } from '../net';
-import { checkMainList, inOrder, newUid, parseMainList, PREFIX, renumber, type MainHeading, type MainLine, type MainList } from '../io/mainList';
+import { checkMainList, inOrder, MAIN_REQUESTS, newUid, parseMainList, parseRequests, PREFIX, renumber, type MainHeading, type MainLine, type MainList, type MainRequest } from '../io/mainList';
 import type { TrxType } from '../domain/types';
 import { pickFile, saveFile } from '../platform';
 import { Modal, confirmBox, errText, fmtDate, promptBox, t, toast } from './kit';
@@ -300,6 +300,8 @@ export function MainListPanel() {
         {help}
       </div>
 
+      <Requests draft={draft} readOnly={readOnly} onDraft={setDraft} />
+
       {H.filter((h) => showOff || h.active).map((h, hi) => (
         <div key={h.uid} id={`ml-${h.uid}`} className="panel" style={{ marginBottom: 8, padding: '8px 12px', opacity: h.active ? 1 : 0.6, outline: over === h.uid ? '2px dashed var(--brand)' : mark === h.uid ? '2px solid var(--gold)' : undefined }} {...dragProps('heading', h.uid, h.uid)}>
           <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -353,34 +355,142 @@ export function MainListPanel() {
 }
 
 /** A line: move it under another heading, or merge it into a line. A heading: merge it into another heading. */
-function MoveOrMerge({ list, what, onClose, onMove, onMerge }: { list: MainList; what: { kind: 'heading' | 'line'; uid: string }; onClose: () => void; onMove: (headingUid: string) => void; onMerge: (into: string) => void }) {
+function MoveOrMerge({ list, what, pickOnly, onClose, onMove, onMerge }: { list: MainList; what: { kind: 'heading' | 'line'; uid: string }; /** a request: just pick the one that exists */ pickOnly?: 'heading' | 'line'; onClose: () => void; onMove: (headingUid: string) => void; onMerge: (into: string) => void }) {
   const [q, setQ] = useState('');
-  const me = what.kind === 'line' ? list.lines.find((l) => l.uid === what.uid)! : list.headings.find((h) => h.uid === what.uid)!;
+  const me = pickOnly ? { name: t('اختر الموجود', 'Choose the one that exists'), heading_uid: '' } as MainLine
+    : what.kind === 'line' ? list.lines.find((l) => l.uid === what.uid)! : list.headings.find((h) => h.uid === what.uid)!;
   const hit = (x: string) => !q.trim() || x.toLowerCase().includes(q.trim().toLowerCase());
   return (
-    <Modal title={`${what.kind === 'line' ? t('نقل أو دمج', 'Move or merge') : t('دمج البند', 'Merge the heading')}: ${me.name}`} onClose={onClose}>
+    <Modal title={pickOnly ? me.name : `${what.kind === 'line' ? t('نقل أو دمج', 'Move or merge') : t('دمج البند', 'Merge the heading')}: ${me.name}`} onClose={onClose}>
       <input className="input" autoFocus placeholder={t('ابحث…', 'Search…')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: '100%', marginBottom: 8 }} />
       <div style={{ maxHeight: 420, overflow: 'auto' }}>
         {list.headings.filter((h) => h.uid !== what.uid).map((h) => {
-          const lines = what.kind === 'line' ? list.lines.filter((l) => l.heading_uid === h.uid && l.uid !== what.uid && hit(l.name)) : [];
+          const lines = (pickOnly ? pickOnly === 'line' : what.kind === 'line') ? list.lines.filter((l) => l.heading_uid === h.uid && l.uid !== what.uid && hit(l.name)) : [];
           if (!hit(h.name) && !lines.length) return null;
           return (
             <div key={h.uid} style={{ marginBottom: 6 }}>
               <div className="row" style={{ gap: 6, alignItems: 'center' }}>
                 <span className="code">{h.code}</span> <b>{h.name}</b>
-                {what.kind === 'line'
+                {pickOnly === 'line' ? null : pickOnly === 'heading' ? <button className="btn small" onClick={() => onMerge(h.uid)}>{t('هذا', 'This one')}</button>
+                  : what.kind === 'line'
                   ? (h.uid !== (me as MainLine).heading_uid && <button className="btn small" onClick={() => onMove(h.uid)}>{t('انقله إلى هنا', 'Move it here')}</button>)
                   : <button className="btn small" onClick={() => onMerge(h.uid)}>{t('ادمجه هنا', 'Merge into this one')}</button>}
               </div>
               {lines.map((l) => (
                 <div key={l.uid} className="row" style={{ gap: 6, alignItems: 'center', paddingInlineStart: 24 }}>
                   <span className="code small">{l.code}</span> {l.name}
-                  <button className="btn small ghost" onClick={() => onMerge(l.uid)}>{t('ادمجه في هذا الخط', 'Merge into this line')}</button>
+                  <button className="btn small ghost" onClick={() => onMerge(l.uid)}>{pickOnly ? t('هذا', 'This one') : t('ادمجه في هذا الخط', 'Merge into this line')}</button>
                 </div>
               ))}
             </div>
           );
         })}
+      </div>
+    </Modal>
+  );
+}
+
+/** The centres' requests: Add (to the draft), Use this one instead, or Refuse. On another city's server, they are only gathered into a file for the administrator. */
+function Requests({ draft, readOnly, onDraft }: { draft: MainList; readOnly: boolean; onDraft: (x: MainList) => void }) {
+  const [rows, setRows] = useState<MainRequest[]>([]);
+  const [adding, setAdding] = useState<MainRequest | null>(null);
+  const [pointing, setPointing] = useState<MainRequest | null>(null);
+  const load = () => mainListApi.requests().then(setRows).catch(() => setRows([]));
+  useEffect(() => { void load(); }, []);
+  const open = rows.filter((r) => r.status === 'open');
+  const done = rows.filter((r) => r.status !== 'open').reverse();
+  const answer = async (a: Parameters<typeof mainListApi.answer>[0]) => {
+    try {
+      const x = await mainListApi.answer(a);
+      if (x.draft) onDraft(x.draft);
+      await load();
+      toast(t('أُجيب الطلب', 'The request is answered'));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  const fromFile = async () => {
+    try {
+      const f = await pickFile(['json'], t('اختر ملف الطلبات', 'Choose the file of requests'));
+      if (!f) return;
+      const x = await mainListApi.importRequests(parseRequests(new TextDecoder().decode(f.bytes)));
+      await load();
+      toast(t(`${x.added} طلباً جديداً`, `${x.added} new requests`));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  const toFile = async () => {
+    const path = await saveFile(`requests-${new Date().toISOString().slice(0, 10)}.json`, ['json'], new TextEncoder().encode(JSON.stringify({ kind: MAIN_REQUESTS, requests: open }, null, 1)), t('احفظ الطلبات', 'Save the requests'));
+    if (path) toast(`${t('حُفظ', 'Saved')}: ${path}`);
+  };
+  const who = (r: MainRequest) => `${r.organisation} · ${r.by} · ${fmtDate(r.at.slice(0, 10))}`;
+  const what = (r: MainRequest) => <>{r.kind === 'line' ? <span className="muted">{t('خط', 'Line')} · {r.heading_name} › </span> : <span className="muted">{t('بند', 'Heading')} ({typeName(r.type ?? 'Exp')}) · </span>}<b>{r.name}</b></>;
+  return (
+    <div className="panel" style={{ marginBottom: 12 }}>
+      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <b>{t('طلبات المراكز', "The centres' requests")}</b>
+        {open.length > 0 && <span className="badge">{open.length}</span>}
+        <span className="row" style={{ gap: 6, marginInlineStart: 'auto' }}>
+          {!readOnly && <button className="btn small" onClick={() => void fromFile()}>⬆ {t('خذ ملف طلبات', 'Take a file of requests')}</button>}
+          {readOnly && open.length > 0 && <button className="btn small" onClick={() => void toFile()}>⬇ {t('احفظ الطلبات ملفاً (للمدير)', 'Save the requests as a file (for the administrator)')}</button>}
+        </span>
+      </div>
+      {!open.length && <p className="muted small" style={{ margin: '6px 0 0' }}>{t('لا طلبات تنتظر.', 'No request is waiting.')}</p>}
+      {open.map((r) => (
+        <div key={r.id} style={{ borderTop: '1px solid var(--line)', padding: '6px 0' }}>
+          <div className="muted small">{who(r)}</div>
+          <div>{what(r)}{r.why ? <span className="muted"> — {r.why}</span> : null}</div>
+          {!readOnly && (
+            <div className="row" style={{ gap: 6, marginTop: 4 }}>
+              <button className="btn small primary" onClick={() => setAdding(r)}>＋ {t('أضف', 'Add')}</button>
+              <button className="btn small" onClick={() => setPointing(r)}>{t('استعمل هذا بدلاً منه…', 'Use this one instead…')}</button>
+              <button className="btn small ghost" onClick={() => void (async () => {
+                const note = await promptBox(t('لماذا؟ (جملة واحدة للمركز)', 'Why? (one sentence for the centre)'));
+                if (note != null) await answer({ id: r.id, how: 'refuse', note });
+              })()}>{t('ارفض', 'Refuse')}</button>
+            </div>
+          )}
+        </div>
+      ))}
+      {done.length > 0 && (
+        <details style={{ marginTop: 6 }}>
+          <summary className="small muted">{t(`أُجيب (${done.length})`, `Answered (${done.length})`)}</summary>
+          {done.slice(0, 30).map((r) => (
+            <div key={r.id} className="small" style={{ padding: '3px 0' }}>
+              {what(r)} <span className="muted">· {who(r)} · {r.status === 'added' ? t('أُضيف', 'added') : r.status === 'same' ? `${t('موجود', 'exists')}: ${r.answer_name}` : t('رُفض', 'refused')}{r.note ? ` — ${r.note}` : ''}</span>
+            </div>
+          ))}
+        </details>
+      )}
+      {adding && <AddAnswer r={adding} draft={draft} onClose={() => setAdding(null)} onAdd={async (name, hu) => { await answer({ id: adding.id, how: 'add', name, heading_uid: hu }); setAdding(null); }} />}
+      {pointing && <MoveOrMerge list={draft} what={{ kind: pointing.kind, uid: '' }} pickOnly={pointing.kind}
+        onClose={() => setPointing(null)} onMove={(hu) => { void answer({ id: pointing.id, how: 'same', uid: hu }); setPointing(null); }}
+        onMerge={(uid) => { void answer({ id: pointing.id, how: 'same', uid }); setPointing(null); }} />}
+    </div>
+  );
+}
+
+/** "Add": the name (as asked, or corrected) and, for a line, its heading. It goes into the draft. */
+function AddAnswer({ r, draft, onClose, onAdd }: { r: MainRequest; draft: MainList; onClose: () => void; onAdd: (name: string, headingUid: string | null) => Promise<void> }) {
+  const [name, setName] = useState(r.name);
+  const [hu, setHu] = useState<string | null>(r.heading_uid);
+  return (
+    <Modal title={t('أضف إلى المسودة', 'Add to the draft')} onClose={onClose} narrow>
+      <p className="muted small" style={{ marginTop: 0 }}>{t('يدخل المسودة؛ يصل إلى المراكز حين تنشر.', 'It goes into the draft; it reaches the centres when you publish.')}</p>
+      <label className="small">{t('الاسم', 'Name')}</label>
+      <input className="inp" style={{ width: '100%' }} value={name} onChange={(e) => setName(e.target.value)} />
+      {r.kind === 'line' && (
+        <>
+          <label className="small">{t('تحت البند', 'Under the heading')}</label>
+          <select className="inp" style={{ width: '100%' }} value={hu ?? ''} onChange={(e) => setHu(e.target.value || null)}>
+            {draft.headings.map((h) => <option key={h.uid} value={h.uid}>{h.code} {h.name}</option>)}
+          </select>
+        </>
+      )}
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={!name.trim() || (r.kind === 'line' && !hu)} onClick={() => void onAdd(name.trim(), hu)}>＋ {t('أضف', 'Add')}</button>
       </div>
     </Modal>
   );

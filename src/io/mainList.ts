@@ -304,3 +304,85 @@ export async function applyMainList(db: Db, list: MainList, who: string, opts: {
   await db.batch([{ sql: 'PRAGMA defer_foreign_keys = ON' }, ...stmts]);
   return out;
 }
+
+// ---- Requests (Fouad, 2026-11-03): a centre does not add a heading or a line; it asks the administrator, who adds it
+// to the main list, points to one that exists, or refuses (with a word why). Meanwhile its rows wait on a line it
+// chose (e.g. "Other / Unallocated"); once the line is taken, they can move to it.
+export const MAIN_REQUESTS = 'magis-main-requests';
+
+export interface MainRequest {
+  id: string;
+  kind: 'heading' | 'line';
+  name: string;
+  /** a line: under this heading of the main list */
+  heading_uid: string | null;
+  heading_name: string | null;
+  /** a heading: its type */
+  type: TrxType | null;
+  why: string;
+  /** the database and server it comes from, and who asked */
+  centre: string;
+  organisation: string;
+  server: string | null;
+  by: string;
+  at: string;
+  /** the line its rows are recorded on meanwhile (in that centre) */
+  meanwhile_line_uid: string | null;
+  status: 'open' | 'added' | 'same' | 'refused';
+  /** added or pointed to: the heading or line of the main list */
+  answer_uid: string | null;
+  answer_name: string | null;
+  note: string | null;
+  answered_at: string | null;
+}
+
+/** Requests travelling as a file (a centre on its own computer, or the server of another city). */
+export interface MainRequestFile { kind: typeof MAIN_REQUESTS; requests: MainRequest[] }
+
+export function parseRequests(text: string): MainRequest[] {
+  let p: MainRequestFile;
+  try {
+    p = JSON.parse(text);
+  } catch {
+    p = null as unknown as MainRequestFile;
+  }
+  if (p?.kind !== MAIN_REQUESTS || !Array.isArray(p.requests) || p.requests.some((r) => !r?.id || !r.name || (r.kind !== 'line' && r.kind !== 'heading')))
+    throw new UserError(m('الملف ليس ملف طلبات', 'This file is not a file of requests', "Ce fichier n'est pas un fichier de demandes"));
+  return p.requests;
+}
+
+/** A new heading (with its type) or a new line (under a heading), with the next free code; the list and its uid. */
+export function addToList(list: MainList, x: { kind: 'heading' | 'line'; name: string; heading_uid?: string | null; type?: TrxType | null }): { list: MainList; uid: string } {
+  const name = x.name.trim();
+  if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty', 'Le nom est vide'));
+  const uid = newUid();
+  if (x.kind === 'heading') {
+    const type = x.type ?? 'Exp';
+    const used = new Set(list.headings.map((h) => h.code));
+    let code = '';
+    for (let i = 1; ; i++) { code = `${PREFIX[type]}${String(i).padStart(2, '0')}`; if (!used.has(code)) break; }
+    return { list: checkMainList({ ...list, headings: [...list.headings, { uid, code, name, types: [type], active: 1 }] }), uid };
+  }
+  const h = list.headings.find((y) => y.uid === x.heading_uid);
+  if (!h) throw new UserError(m('اختر البند', 'Choose the heading', 'Choisissez la rubrique'));
+  const used = new Set(list.lines.map((l) => l.code));
+  let code = '';
+  for (let i = 1; ; i++) { code = `${h.code}.${i}`; if (!used.has(code)) break; }
+  // at the end of its heading
+  const last = list.lines.map((l) => l.heading_uid).lastIndexOf(h.uid);
+  const lines = [...list.lines];
+  lines.splice(last < 0 ? lines.length : last + 1, 0, { uid, heading_uid: h.uid, code, name, is_project_fund: 0, active: 1 });
+  return { list: checkMainList({ ...list, lines }), uid };
+}
+
+/** Headings and lines of the list whose names look like this one (to ask "is it one of these?" first). */
+export function similar(list: MainList, name: string): { uid: string; name: string; heading: string | null; code: string }[] {
+  const words = name.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3);
+  if (!words.length) return [];
+  const hit = (x: string) => words.some((w) => x.toLowerCase().includes(w));
+  const head = (uid: string) => list.headings.find((h) => h.uid === uid)?.name ?? null;
+  return [
+    ...list.headings.filter((h) => h.active && hit(h.name)).map((h) => ({ uid: h.uid, name: h.name, heading: null, code: h.code })),
+    ...list.lines.filter((l) => l.active && hit(l.name)).map((l) => ({ uid: l.uid, name: l.name, heading: head(l.heading_uid), code: l.code })),
+  ].slice(0, 12);
+}

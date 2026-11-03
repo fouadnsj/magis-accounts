@@ -9,6 +9,7 @@ import { pickFile } from '../platform';
 import { Modal, errText, fmtDate, t, toast } from './kit';
 import { useNav } from './Shell';
 import { wishMainList } from './MainListPanel';
+import { AskModal, MyRequests } from './MainListAsk';
 
 /** The administrator of the server (who changes the main list), and the way to it. */
 export function useMainAdmin() {
@@ -27,6 +28,8 @@ export function MainListTake() {
   const { s, d, can, reload } = useApp();
   const [list, setList] = useState<MainList | null | undefined>(undefined);
   const [open, setOpen] = useState<MainList | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [sent, setSent] = useState(0);
   const main = useMainAdmin();
   useEffect(() => {
     if (s.mode === 'server') mainListApi.get().then((x) => setList(x.list)).catch(() => setList(null));
@@ -53,10 +56,13 @@ export function MainListTake() {
         {list && <button className="btn primary" onClick={() => setOpen(list)}>{t('خذ من القائمة الرئيسية…', 'Take from the main list…')}</button>}
         {main.admin && <button className="btn" onClick={() => main.open()}>✎ {t('غيّر القائمة الرئيسية (الإدارة) →', 'Change the main list (Admin) →')}</button>}
         {s.mode !== 'server' && <button className="btn" onClick={() => void fromFile()}>⬆ {t('خذ من ملف القائمة الرئيسية…', 'Take from a main list file…')}</button>}
+        {!main.admin && (list || mine) && <button className="btn" onClick={() => setAsking(true)}>✉ {t('اطلب بنداً أو خطاً…', 'Ask for a heading or a line…')}</button>}
       </div>
       <p className="muted small" style={{ margin: '6px 0 0' }}>
         {t('تختار البنود والخطوط التي يستعملها هذا المركز. ما جاء منها يأخذ اسمه ورمزه منها؛ هنا يُوقف فقط. خط ناقص؟ اطلبه من المدير.', 'Choose the headings and lines this centre uses. What comes from it takes its name and code from it; here it is only switched off. A line missing? Ask the administrator.')}
       </p>
+      <MyRequests list={list} version={sent} />
+      {asking && <AskModal list={list} onClose={() => setAsking(false)} onSent={() => { setAsking(false); setSent((x) => x + 1); }} />}
       {open && <TakeModal list={open} onClose={() => setOpen(null)} onDone={async () => { setOpen(null); await reload(); }} />}
     </div>
   );

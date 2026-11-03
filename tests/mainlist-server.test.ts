@@ -81,6 +81,27 @@ describe('the main list on the server', () => {
       // a centre does not rename what came from the main list
       expect((await c.op('list.rename', { table: 'budget_line', id: rec.id, name: 'Front desk' })).status).toBe(400);
     }
+    // Aleppo cannot add a line any more: it asks; the administrator adds it; once published, Aleppo takes it and moves its waiting row
+    const aL = (await aleppo.op('data')).body.lists;
+    const recA = aL.lines.find((l: { name: string }) => l.name === 'Receptionist');
+    expect((await aleppo.op('line.add', { headingId: recA.heading_id, name: 'Night guard' })).status).toBe(400);
+    const pubList = (await aleppo.call('/api/main-list')).body.list as MainList;
+    const ask = await aleppo.call('/api/main-list/request', { kind: 'line', name: 'Night guard', heading_uid: act.uid, why: 'a guard at night', meanwhile_line_uid: recA.uid });
+    expect(ask.status).toBe(200);
+    expect((await aleppo.call('/api/main-list/requests')).body.map((r: { name: string }) => r.name)).toEqual(['Night guard']);
+    expect((await homs.call('/api/main-list/requests')).body).toHaveLength(1); // the administrator sees all
+    expect((await one.call('/api/main-list/answer', { id: ask.body.id, how: 'add' }, aleppo.clerk)).status).toBe(403);
+    const ans = await homs.call('/api/main-list/answer', { id: ask.body.id, how: 'add', name: 'Night guard' });
+    expect(ans.status).toBe(200);
+    expect(ans.body.draft.lines.some((l: { name: string }) => l.name === 'Night guard')).toBe(true);
+    expect(pubList.lines.some((l) => l.name === 'Night guard')).toBe(false); // not before publishing
+    expect((await homs.call('/api/main-list/publish', {})).status).toBe(200);
+    const v3 = (await aleppo.call('/api/main-list')).body.list as MainList;
+    expect((await aleppo.op('main.take', { list: v3, take: [ans.body.request.answer_uid] })).status).toBe(200);
+    const guard = (await aleppo.op('data')).body.lists.lines.find((l: { name: string }) => l.name === 'Night guard');
+    expect((await aleppo.op('main.moveRows', { ids: ['e-aleppo'], toLineId: guard.id })).status).toBe(200);
+    expect((await aleppo.op('data')).body.rows.find((r: { id: string }) => r.id === 'e-aleppo').line_id).toBe(guard.id);
+
     // this server makes the list: it does not take a file
     const file = (await homs.call('/api/main-list')).body.list as MainList;
     expect((await homs.call('/api/main-list/import', { list: file })).status).toBe(400);
@@ -90,9 +111,9 @@ describe('the main list on the server', () => {
     const damascus = await two.centre('MAGIS Damascus', 'aleppo');
     expect((await damascus.call('/api/main-list/import', { list: file })).status).toBe(200);
     info = (await damascus.call('/api/main-list')).body;
-    expect(info).toMatchObject({ editable: false, list: { version: 2 } });
+    expect(info).toMatchObject({ editable: false, list: { version: 3 } });
     expect((await damascus.call('/api/main-list/draft', { list: file })).status).toBe(400);
-    expect((await damascus.call('/api/main-list/import', { list: { ...file, version: 1 } })).status).toBe(400);
+    expect((await damascus.call('/api/main-list/import', { list: { ...file, version: 2 } })).status).toBe(400);
     // a centre there takes a line it did not have
     const sal = file.lines.find((l) => l.name !== 'Receptionist' && l.active)!;
     expect((await damascus.op('main.take', { list: file, take: [sal.uid] })).status).toBe(200);

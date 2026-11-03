@@ -4,7 +4,7 @@
 import type { Api } from './ops';
 import type { LoginPerson, Profile } from './auth';
 import type { Msg } from './i18n';
-import type { MainChanges, MainList } from './io/mainList';
+import type { MainChanges, MainList, MainRequest } from './io/mainList';
 
 export interface DbInfo {
   slug: string;
@@ -218,4 +218,9 @@ export const mainListApi = {
   preview: () => post<{ centres: ({ organisation: string } & MainChanges)[] }>('/api/main-list/preview', {}),
   publish: () => post<MainResult>('/api/main-list/publish', {}),
   takeFile: (list: MainList) => post<MainResult>('/api/main-list/import', { list }),
+  /** a centre asks for a heading or a line */
+  ask: (r: Pick<MainRequest, 'kind' | 'name' | 'heading_uid' | 'type' | 'why' | 'meanwhile_line_uid'>) => post<MainRequest>('/api/main-list/request', r),
+  requests: () => get<MainRequest[]>('/api/main-list/requests'),
+  answer: (a: { id: string; how: 'add' | 'same' | 'refuse'; name?: string; heading_uid?: string | null; uid?: string; note?: string }) => post<{ request: MainRequest; draft: MainList }>('/api/main-list/answer', a),
+  importRequests: (requests: MainRequest[]) => post<{ added: number }>('/api/main-list/requests-import', { requests }),
 };

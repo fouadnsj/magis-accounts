@@ -20,6 +20,13 @@ const lower = (x: string) => x.trim().toLowerCase();
 const same = (a: MainList | null, b: MainList | null) => !!a && !!b && JSON.stringify([a.headings, a.lines, a.merged]) === JSON.stringify([b.headings, b.lines, b.merged]);
 const results = (r: MainResult) => r.centres.map((c) => `${c.organisation}: ${c.renamed} ${t('اسماً أو رمزاً', 'renamed')}, ${c.moved} ${t('نُقل', 'moved')}, ${c.merged} ${t('دُمج', 'merged')}`).join(' · ');
 
+/** Lists → Budget sends the administrator here ("Change it in the main list"): Admin opens on this tab. */
+let wish = false;
+/** the heading or line to show there */
+let focus: string | null = null;
+export const wishMainList = (uid?: string | null) => { wish = true; focus = uid ?? null; };
+export const takeMainListWish = () => { const w = wish; wish = false; return w; };
+
 export function MainListPanel() {
   const { s, reload } = useApp();
   const [info, setInfo] = useState<MainListInfo | null>(null);
@@ -40,6 +47,17 @@ export function MainListPanel() {
     }
   };
   useEffect(() => { void load(); }, [s]);
+  // sent from Lists → Budget: that heading or line, in view and marked
+  const [mark, setMark] = useState<string | null>(null);
+  useEffect(() => {
+    if (!draft || !focus) return;
+    const uid = focus;
+    focus = null;
+    // (shown even when it is switched off for everyone)
+    if ([...draft.headings, ...draft.lines].some((x) => x.uid === uid && !x.active)) setShowOff(true);
+    setMark(uid);
+    setTimeout(() => document.getElementById(`ml-${uid}`)?.scrollIntoView({ block: 'center' }), 250);
+  }, [draft]);
   const run = async (f: () => Promise<string | null>) => {
     setBusy(true);
     try {
@@ -283,7 +301,7 @@ export function MainListPanel() {
       </div>
 
       {H.filter((h) => showOff || h.active).map((h, hi) => (
-        <div key={h.uid} className="panel" style={{ marginBottom: 8, padding: '8px 12px', opacity: h.active ? 1 : 0.6, outline: over === h.uid ? '2px dashed var(--brand)' : undefined }} {...dragProps('heading', h.uid, h.uid)}>
+        <div key={h.uid} id={`ml-${h.uid}`} className="panel" style={{ marginBottom: 8, padding: '8px 12px', opacity: h.active ? 1 : 0.6, outline: over === h.uid ? '2px dashed var(--brand)' : mark === h.uid ? '2px solid var(--gold)' : undefined }} {...dragProps('heading', h.uid, h.uid)}>
           <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             {!readOnly && <span className="muted" style={{ cursor: 'grab' }} title={t('اسحب', 'Drag')}>⠿</span>}
             <span className="code">{h.code}</span> <b>{h.name}</b>
@@ -307,7 +325,7 @@ export function MainListPanel() {
           <table className="t" style={{ marginTop: 6 }}>
             <tbody>
               {linesOf(h.uid).filter((l) => showOff || l.active).map((l, li, arr) => (
-                <tr key={l.uid} className={l.active ? '' : 'off'} style={{ outline: over === l.uid ? '2px dashed var(--brand)' : undefined }} {...dragProps('line', l.uid, h.uid)}>
+                <tr key={l.uid} id={`ml-${l.uid}`} className={l.active ? '' : 'off'} style={{ outline: over === l.uid ? '2px dashed var(--brand)' : undefined, background: mark === l.uid ? '#FFF3D6' : undefined }} {...dragProps('line', l.uid, h.uid)}>
                   <td style={{ width: 20 }}>{!readOnly && <span className="muted" style={{ cursor: 'grab' }}>⠿</span>}</td>
                   <td style={{ width: 90 }}><span className="code">{l.code}</span></td>
                   <td>{l.name}{!l.active && <span className="small muted"> · {t('موقوف للجميع', 'switched off for everyone')}</span>}</td>

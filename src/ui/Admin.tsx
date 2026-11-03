@@ -14,7 +14,7 @@ import { CompareModal } from './Compare';
 import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { mainListApi, serverRestoreUpload } from '../net';
-import { MainListPanel } from './MainListPanel';
+import { MainListPanel, takeMainListWish } from './MainListPanel';
 import { pickFile, toBase64 } from '../platform';
 import { notesOf } from './Cash';
 import { GuideLink } from '../guide/GuideView';
@@ -24,11 +24,7 @@ type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | '
 
 export function Admin() {
   const { s, can, myBooks } = useApp();
-  // the main list of headings and lines: the administrator of the server only
   const [mainAdmin, setMainAdmin] = useState(false);
-  useEffect(() => {
-    if (s.mode === 'server' && can('lists.manage')) mainListApi.get().then((x) => setMainAdmin(x.admin)).catch(() => setMainAdmin(false));
-  }, [s]);
   const tabs: { value: Tab; label: string; hidden?: boolean }[] = [
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
     { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
@@ -42,6 +38,13 @@ export function Admin() {
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
   ];
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
+  // the main list of headings and lines: the administrator of the server only
+  useEffect(() => {
+    if (s.mode === 'server' && can('lists.manage')) mainListApi.get().then((x) => {
+      setMainAdmin(x.admin);
+      if (x.admin && takeMainListWish()) setTab('mainlist');
+    }).catch(() => setMainAdmin(false));
+  }, [s]);
   return (
     <>
       <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' || tab === 'checks' ? 'months' : tab === 'mainlist' ? 'common' : 'admin'} /></h1></div>

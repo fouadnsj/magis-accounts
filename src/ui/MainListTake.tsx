@@ -7,6 +7,19 @@ import { mainListApi } from '../net';
 import { parseMainList, type MainList } from '../io/mainList';
 import { pickFile } from '../platform';
 import { Modal, errText, fmtDate, t, toast } from './kit';
+import { useNav } from './Shell';
+import { wishMainList } from './MainListPanel';
+
+/** The administrator of the server (who changes the main list), and the way to it. */
+export function useMainAdmin() {
+  const { s, can } = useApp();
+  const nav = useNav();
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => {
+    if (s.mode === 'server' && can('lists.manage')) mainListApi.get().then((x) => setAdmin(x.admin)).catch(() => setAdmin(false));
+  }, [s]);
+  return { admin, open: (uid?: string | null) => { wishMainList(uid); nav.go('admin'); } };
+}
 
 const lower = (x: string) => x.trim().toLowerCase();
 
@@ -14,6 +27,7 @@ export function MainListTake() {
   const { s, d, can, reload } = useApp();
   const [list, setList] = useState<MainList | null | undefined>(undefined);
   const [open, setOpen] = useState<MainList | null>(null);
+  const main = useMainAdmin();
   useEffect(() => {
     if (s.mode === 'server') mainListApi.get().then((x) => setList(x.list)).catch(() => setList(null));
     else setList(null);
@@ -37,6 +51,7 @@ export function MainListTake() {
       </span>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
         {list && <button className="btn primary" onClick={() => setOpen(list)}>{t('خذ من القائمة الرئيسية…', 'Take from the main list…')}</button>}
+        {main.admin && <button className="btn" onClick={() => main.open()}>✎ {t('غيّر القائمة الرئيسية (الإدارة) →', 'Change the main list (Admin) →')}</button>}
         {s.mode !== 'server' && <button className="btn" onClick={() => void fromFile()}>⬆ {t('خذ من ملف القائمة الرئيسية…', 'Take from a main list file…')}</button>}
       </div>
       <p className="muted small" style={{ margin: '6px 0 0' }}>

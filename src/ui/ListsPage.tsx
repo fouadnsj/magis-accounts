@@ -9,7 +9,7 @@ import { TYPE_LABEL, tx } from '../i18n';
 import { notesOf } from './Cash';
 import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
 import { GuideLink } from '../guide/GuideView';
-import { MainListTake } from './MainListTake';
+import { MainListTake, useMainAdmin } from './MainListTake';
 
 type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
 
@@ -79,6 +79,10 @@ function BudgetTab() {
   const lines = L.lines.filter((l) => l.heading_id === sel && (showOff || l.active)).sort((a, b) => a.name.localeCompare(b.name));
   // this database took from the main list: what is its own is marked
   const mainUsed = L.headings.some((x) => x.in_main);
+  const main = useMainAdmin();
+  /** what came from the main list is changed there (the administrator), never here */
+  const inMain = (uid?: string | null, words = true) => <button className="btn small ghost" title={main.admin ? t('غيّره في القائمة الرئيسية', 'Change it in the main list') : t('من القائمة الرئيسية: اطلب التغيير من المدير', 'From the main list: ask the administrator to change it')}
+    disabled={!main.admin} onClick={() => main.open(uid)}>✎{words && main.admin ? ` ${t('في القائمة الرئيسية →', 'in the main list →')}` : ''}</button>;
 
   const rename = async (table: 'heading' | 'budget_line', id: number, old: string) => {
     const name = await promptBox(t('الاسم الجديد', 'New name'), old);
@@ -125,7 +129,7 @@ function BudgetTab() {
           <div className="page-head" style={{ marginBottom: 6 }}>
             <h2 style={{ margin: 0 }}><span className="code">{h.code}</span> {h.name} {!h.active && <span className="muted small">({t('موقوف', 'deactivated')})</span>}</h2>
             <div className="row">
-              {!h.in_main && <button className="btn small" onClick={() => rename('heading', h.id, h.name)}>{t('إعادة تسمية', 'Rename')}</button>}
+              {h.in_main ? inMain(h.uid) : <button className="btn small" onClick={() => rename('heading', h.id, h.name)}>{t('إعادة تسمية', 'Rename')}</button>}
               {h.active
                 ? <button className="btn small" onClick={() => remove('heading', h.id, (counts.heading.get(h.id) ?? 0) + L.lines.filter((l) => l.heading_id === h.id).length)}>{t('إيقاف / حذف', 'Deactivate / delete')}</button>
                 : <button className="btn small" onClick={() => act(() => s.api.call('list.setActive', { table: 'heading', id: h.id, active: true }))}>{t('تفعيل', 'Reactivate')}</button>}
@@ -156,7 +160,7 @@ function BudgetTab() {
                   <td>{l.name}{!l.in_main && mainUsed && <span className="small muted"> · {t('ليس في القائمة الرئيسية', 'not in the main list')}</span>}</td>
                   <td className="n">{counts.line.get(l.id) ?? 0}</td>
                   <td className="nowrap">
-                    {!l.in_main && <button className="btn small ghost" onClick={() => rename('budget_line', l.id, l.name)}>✎</button>}
+                    {l.in_main ? inMain(l.uid, false) : <button className="btn small ghost" onClick={() => rename('budget_line', l.id, l.name)}>✎</button>}
                     {l.active
                       ? <button className="btn small ghost" onClick={() => remove('budget_line', l.id, counts.line.get(l.id) ?? 0)}>✕</button>
                       : <button className="btn small ghost" onClick={() => act(() => s.api.call('list.setActive', { table: 'budget_line', id: l.id, active: true }))}>↺</button>}

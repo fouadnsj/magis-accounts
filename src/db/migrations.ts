@@ -1643,4 +1643,14 @@ UPDATE hr_list SET tutor = 1
    AND (heading LIKE '%formation%' OR heading LIKE '%teacher%' OR name LIKE '%facilitator%' OR name LIKE '%teacher%');
 `,
   },
+  {
+    n: 46,
+    name: 'the main list: which headings and lines of this database come from it',
+    sql: `
+-- (Fouad, 2026-11-03) One main list of headings and lines on the server, kept by the administrator; each centre takes
+-- what it needs from it. A heading or line taken from it keeps its name and code (the centre only switches it off).
+ALTER TABLE heading ADD COLUMN in_main INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE budget_line ADD COLUMN in_main INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

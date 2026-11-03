@@ -29,6 +29,7 @@ import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
 } from './io/keeperFiles';
 import { applySeed, readWorkbook, type ImportReport } from './io/importWorkbook';
+import { applyMainList, checkMainList, type MainList } from './io/mainList';
 import { applyCommonList, commonListState, exportCommonList, joinCommonList, joinWithMatching, parseCommonList, type CommonList } from './io/commonList';
 import { m, type Msg } from './i18n';
 import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
@@ -1427,7 +1428,16 @@ export const OPS = {
       return addNamed(c.db, a.table, a.name, c.who);
     },
   },
-  'list.rename': { check: anyone, run: (c: OpCtx, a: { table: string; id: number; name: string }) => renameRow(c.db, listTable(c, a.table), a.id, a.name, c.who) },
+  'list.rename': {
+    check: anyone,
+    run: async (c: OpCtx, a: { table: string; id: number; name: string }) => {
+      const table = listTable(c, a.table);
+      // what was taken from the main list keeps its name: only the administrator renames it, there (Fouad, 2026-11-03)
+      if ((table === 'heading' || table === 'budget_line') && (await c.db.query<{ in_main: number }>(`SELECT in_main FROM ${table} WHERE id = ?`, [a.id]))[0]?.in_main)
+        throw new UserError(m('هذا من القائمة الرئيسية: يُعاد تسميته هناك فقط', 'This comes from the main list: it is renamed there only', 'Ceci vient de la liste principale : on le renomme là seulement'));
+      return renameRow(c.db, table, a.id, a.name, c.who);
+    },
+  },
   'list.setActive': { check: anyone, run: (c: OpCtx, a: { table: string; id: number; active: boolean }) => setActive(c.db, listTable(c, a.table), a.id, a.active, c.who) },
   'list.delete': { check: anyone, run: (c: OpCtx, a: { table: string; id: number }) => deleteUnused(c.db, listTable(c, a.table), a.id, c.who) },
   'list.move': { check: anyone, run: (c: OpCtx, a: { table: SimpleList; id: number; dir: -1 | 1 }) => moveRow(c.db, listTable(c, a.table), a.id, a.dir, c.who) },
@@ -1807,6 +1817,15 @@ export const OPS = {
    * off (kept, so a holder's file that still names it can come in). A backup is taken first.
    */
   // ---------------------------------------------------------------- one list for every centre
+  /** the main list of the server (or its file): what this centre has follows it, and what it ticks comes in, switched on */
+  'main.take': {
+    check: (c: OpCtx) => need(c, 'lists.manage'),
+    run: async (c: OpCtx, a: { list: MainList; take: string[] }) => {
+      checkMainList(a.list);
+      await c.files.backupNow('before-main-list');
+      return applyMainList(c.db, a.list, c.who, { take: a.take });
+    },
+  },
   'common.status': { check: (c: OpCtx) => need(c, 'lists.manage'), run: async (c: OpCtx) => ({ state: await commonListState(c.db) }) },
   /** the first database: its list becomes the common list, and it leads it */
   'common.start': {

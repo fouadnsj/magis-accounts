@@ -250,7 +250,7 @@ function AddLine({ onAdded }: { onAdded: () => Promise<void> }) {
         <Field label={t('اسم الخط', 'Name of the line')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
         <button className="btn" disabled={heading == null || !name.trim()} onClick={add}>＋ {t('أضف', 'Add')}</button>
       </div>
-      <p className="muted small">{t('الخط الجديد يدخل القائمة المشتركة لكل المراكز.', 'A new line joins the common list of every centre.')}</p>
+      <p className="muted small">{t('الخط الجديد لهذا المركز فقط؛ اطلب من المدير أن يضيفه إلى القائمة الرئيسية.', 'A new line is for this centre only; ask the administrator to add it to the main list.')}</p>
     </details>
   );
 }

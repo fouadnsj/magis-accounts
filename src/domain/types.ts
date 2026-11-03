@@ -85,6 +85,8 @@ export interface Heading extends Named {
   code: string;
   /** the same in every centre's database (the common list) */
   uid?: string | null;
+  /** taken from the server's main list: its name and code come from there */
+  in_main?: number;
 }
 
 export interface BudgetLine {
@@ -98,6 +100,8 @@ export interface BudgetLine {
   uid?: string | null;
   /** merged into this line when the centre joined the common list (it stays, switched off) */
   merged_into?: number | null;
+  /** taken from the server's main list: its name and code come from there */
+  in_main?: number;
 }
 
 export interface Donor extends Named {

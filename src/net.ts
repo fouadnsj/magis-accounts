@@ -4,6 +4,7 @@
 import type { Api } from './ops';
 import type { LoginPerson, Profile } from './auth';
 import type { Msg } from './i18n';
+import type { MainChanges, MainList } from './io/mainList';
 
 export interface DbInfo {
   slug: string;
@@ -205,3 +206,16 @@ export const dirPeople = () => get<{ people: DirPerson[]; enforced: boolean; dbs
 export const dirSave = (p: { id?: number | null; name: string; admin: boolean; active: boolean; password?: string; grants: Record<string, number | null> }) => post<{ person: DirPerson }>('/api/dir/save', p);
 export const dirEnforce = (enforced: boolean) => post<{ ok: true }>('/api/dir/enforce', { enforced });
 export const dirReset = (name: string, password: string, superior: string) => post<{ ok: true }>('/api/dir/reset', { name, password, superior });
+
+// ---- The main list of headings and lines (Fouad, 2026-11-03): kept on the server by the administrator.
+export interface MainListInfo { list: MainList | null; draft: MainList | null; admin: boolean; editable: boolean; home: string }
+export type MainResult = { list: MainList; centres: { organisation: string; renamed: number; moved: number; merged: number }[] };
+export const mainListApi = {
+  get: () => get<MainListInfo>('/api/main-list'),
+  start: () => post<{ draft: MainList }>('/api/main-list/start', {}),
+  saveDraft: (list: MainList) => post<{ ok: true }>('/api/main-list/draft', { list }),
+  discard: () => post<{ draft: MainList }>('/api/main-list/discard', {}),
+  preview: () => post<{ centres: ({ organisation: string } & MainChanges)[] }>('/api/main-list/preview', {}),
+  publish: () => post<MainResult>('/api/main-list/publish', {}),
+  takeFile: (list: MainList) => post<MainResult>('/api/main-list/import', { list }),
+};

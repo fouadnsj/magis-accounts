@@ -7,6 +7,7 @@ import { partAmount, type NetGrantRow } from '../domain/netGrants';
 import type { ProvinceSend } from '../ops';
 import { useApp } from '../state';
 import { Field, Modal, confirmBox, errText, fmtDate, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast, todayIso } from './kit';
+import { pickFile, saveFile } from '../platform';
 
 const money = (usd: number, syp: number) => (usd ? `$${fmtUsd(usd)}` : `${fmtSyp(syp)} SYP`);
 
@@ -29,6 +30,17 @@ export function ProvinceSends({ onChanged }: { onChanged: () => Promise<void> })
   useEffect(() => { void load(); }, []);
   if (!rows) return null;
   const status = (r: ProvinceSendRow) => r.received_at ? `✓ ${t('قبله المركز', 'accepted')}` : r.disputed_at ? `⚠ ${t('لم يصل', 'not received')}${r.dispute_note ? `: ${r.dispute_note}` : ''}` : `⏳ ${t('ينتظر جواب المركز', "waiting for the centre's answer")}`;
+  // a centre on another server (a copy here): its sends go as a file; its answers come back with its next copy
+  const remote = (slug: string) => !!centres.find((c) => c.slug === slug)?.copy;
+  const fileFor = async (r: ProvinceSendRow) => {
+    try {
+      const f = await sendsApi.file(r.centre);
+      const path = await saveFile(`province-sends-${(r.centre_name ?? r.centre).replace(/[^\p{L}\p{N}]+/gu, '-')}-${todayIso()}.json`, ['json'], new TextEncoder().encode(JSON.stringify(f, null, 1)), t('احفظ ملف الإرسال', 'Save the file of the sends'));
+      if (path) toast(`${t('حُفظ: أرسله إلى المركز', 'Saved: send it to the centre')} · ${path}`);
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   return (
     <div style={{ marginTop: 18 }}>
       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
@@ -42,8 +54,9 @@ export function ProvinceSends({ onChanged }: { onChanged: () => Promise<void> })
               <td className="nowrap">{fmtDate(r.date)}</td>
               <td>{r.centre_name} › {r.project_name ?? '—'}<div className="muted small">{r.explanation}</div></td>
               <td className="n ltr">{money(r.usd, r.syp)}</td>
-              <td className="small">{status(r)}</td>
+              <td className="small">{status(r)}{remote(r.centre) && !r.received_at && <div className="muted">{t('على خادم آخر: الجواب يأتي مع نسخته القادمة', 'on another server: the answer comes with its next copy')}</div>}</td>
               <td className="nowrap">{!r.received_at && <>
+                {remote(r.centre) && <button className="btn small" onClick={() => void fileFor(r)}>⬇ {t('ملف للمركز', 'File for the centre')}</button>}
                 <button className="btn small ghost" onClick={() => setEdit(r)}>{t('صحّح', 'Correct')}</button>
                 <button className="btn small ghost" onClick={() => void (async () => {
                   if (!(await confirmBox(t('إلغاء هذا الإرسال؟ يختفي من المركز.', 'Cancel this send? It disappears from the centre.'), true))) return;
@@ -133,7 +146,20 @@ export function ProvinceReceived() {
   const [rows, setRows] = useState<ProvinceSend[]>([]);
   const load = () => s.api.call('province.sends', {}).then(setRows).catch(() => setRows([]));
   useEffect(() => { if (s.mode === 'server') void load(); }, [s]);
-  if (!rows.length) return null;
+  // a centre on another server than the Province's: the sends come as a file
+  const take = async () => {
+    try {
+      const f = await pickFile(['json'], t('اختر ملف الإرسال من الإقليم', "Choose the Province's file"));
+      if (!f) return;
+      const r = await sendsApi.take(JSON.parse(new TextDecoder().decode(f.bytes)));
+      await load();
+      toast(t(`${r.taken} إرسالاً من الإقليم`, `${r.taken} sends from the Province`));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  const takeButton = s.mode === 'server' && can('lists.donors') && <button className="btn small ghost" onClick={() => void take()}>⬆ {t('خذ ملفاً من الإقليم', 'Take a file from the Province')}</button>;
+  if (!rows.length) return takeButton ? <div style={{ marginBottom: 10 }}>{takeButton}</div> : null;
   const project = (id: number | null) => d.lists.accounts.find((a) => a.id === id)?.name ?? '—';
   const answer = async (r: ProvinceSend, ok: boolean) => {
     let note: string | null = null;
@@ -152,7 +178,7 @@ export function ProvinceReceived() {
   };
   return (
     <div className="panel" style={{ marginBottom: 14 }}>
-      <b>{t('من الإقليم', 'From the Province')}</b>
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}><b>{t('من الإقليم', 'From the Province')}</b>{takeButton}</div>
       <table className="t" style={{ marginTop: 6 }}>
         <tbody>
           {rows.map((r) => (

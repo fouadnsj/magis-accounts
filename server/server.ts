@@ -26,9 +26,12 @@ import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigrations } from '../src/db/db';
 import { addHeading, addLine, addNamed, auditStmt, blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
-import { READ_ONLY, runOp, type BackupFile, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
+import { READ_ONLY, runOp, type BackupFile, type BudgetPayload, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
 import { ALL_PERMS } from '../src/perms';
-import { deleteNetGrant, listNetGrants, saveNetGrant, type NetGrant } from '../src/domain/netGrants';
+import { deleteNetGrant, listNetGrants, partAmount, saveNetGrant, type NetGrant } from '../src/domain/netGrants';
+import { grantReport, type GrantReportPartIn } from '../src/domain/grantReport';
+import { projectReport } from '../src/domain/projects';
+import { inPeriod } from '../src/domain/budget';
 import { allCentresReport, exploreRows, type CentreInput, type ExploreRow } from '../src/domain/allCentres';
 import { computeAll } from '../src/domain/compute';
 import { addToList, applyMainList, CENTRES_LIST, checkMainList, followedList, listId, MAIN_LIST, mainListChanges, mainListFromDb, newUid, type MainChanges, type MainList, type MainRequest } from '../src/io/mainList';
@@ -63,6 +66,9 @@ export interface ServerConfig {
   inactive?: string[];
   /** This server's own identity: the main list it makes carries it (Fouad, 2026-11-03). */
   serverId?: string;
+  /** Copies of centres from other servers (Fouad, 2026-11-07): read only, nobody signs in to them; the Coordinator's
+   *  reports count them. When it was brought, from which centre, and the newest change written in it. */
+  copies?: Record<string, { at: string; from: string | null; latest: string | null }>;
 }
 
 const DEFAULT_CONFIG: ServerConfig = { httpsPort: 8443, httpPort: 8080, httpMode: 'redirect', backupMirror: null, idleMinutes: 15 };
@@ -489,7 +495,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   };
   const centreOf = (slug: unknown): Centre => {
     const c = typeof slug === 'string' ? centres.get(slug) : undefined;
-    if (!c || (config.inactive ?? []).includes(c.slug)) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
+    if (!c || (config.inactive ?? []).includes(c.slug) || config.copies?.[c.slug]) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
     return c;
   };
 
@@ -759,7 +765,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     if (url === '/api/hello' && method === 'GET') {
       // the communities are not even named until their password is given
-      let dbs = (await Promise.all([...centres.values()].filter((x) => !(config.inactive ?? []).includes(x.slug)).map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
+      let dbs = (await Promise.all([...centres.values()].filter((x) => !(config.inactive ?? []).includes(x.slug) && !config.copies?.[x.slug]).map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
       // the directory: a signed-in person sees only what was given to them; when it is enforced, nobody else sees anything
       if (dirPerson) dbs = dbs.filter((d) => dirSees(dirPerson, d.slug));
       else if (found?.[1].ring) dbs = dbs.filter((d) => found[1].ring!.some((r) => r.db === d.slug));
@@ -839,7 +845,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const backups = await c.files.list();
         const followed = (d.kind ?? 'centre') === 'centre' ? await followedList(c.handle.db) : null;
         list.push({ slug: c.slug, organisation: d.organisation, kind: d.kind, city: d.city, active: !off.has(c.slug), bytes: folderSize(c.dir), backups: backups.length, lastBackup: backups[0]?.name ?? null,
-          list: followed ? (readMainList(dataDir, followed, 'published') ?? readMainList(dataDir, followed, 'draft'))?.title ?? null : null });
+          list: followed ? (readMainList(dataDir, followed, 'published') ?? readMainList(dataDir, followed, 'draft'))?.title ?? null : null,
+          copy: config.copies?.[c.slug] ?? null });
       }
       const deleted = fs.existsSync(deletedDir)
         ? fs.readdirSync(deletedDir).filter((f) => fs.existsSync(path.join(deletedDir, f, 'magis.db'))).sort().reverse().map((folder) => {
@@ -1092,7 +1099,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const centreDbs = async (id?: string) => {
       const out: { c: Centre; org: string }[] = [];
       for (const x of centres.values()) {
-        if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre') continue;
+        if ((config.inactive ?? []).includes(x.slug) || config.copies?.[x.slug] || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre') continue;
         if (id && (await followedList(x.handle.db)) !== id) continue;
         out.push({ c: x, org: (await getMeta(x.handle.db, 'organisation')) ?? x.slug });
       }
@@ -1302,6 +1309,25 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         return send(res, 200, { list, centres: out });
       }
     }
+    // ---- A centre on another server takes the Province's sends from a file (Fouad, 2026-11-07): each waits for its
+    // answer here; one already accepted is not touched.
+    if (url === '/api/province-take' && method === 'POST') {
+      if (!found) throw new HttpError(401, { ar: 'ادخل أولاً', en: 'Sign in first' });
+      const [, sess, c] = found;
+      if (!has(sess.profile, 'lists.donors')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const b = (await readBody(req)) as { kind?: string; sends?: { id: string; date: string; usd: number; syp: number; project_id: number | null; donor: string | null; reference: string | null; explanation: string | null; sent_by: string | null }[] };
+      if (b.kind !== 'magis-province-sends' || !Array.isArray(b.sends)) throw new HttpError(400, { ar: 'الملف ليس إرسالاً من الإقليم', en: 'This file is not a send of the Province' });
+      const stmts = b.sends.map((x) => ({
+        sql: `INSERT INTO province_send (id, date, usd, syp, project_id, donor, reference, explanation, sent_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')
+              ON CONFLICT(id) DO UPDATE SET date = excluded.date, usd = excluded.usd, syp = excluded.syp, project_id = excluded.project_id, donor = excluded.donor,
+              reference = excluded.reference, explanation = excluded.explanation, sent_by = excluded.sent_by, status = 'waiting', note = NULL, answered_at = NULL, answered_by = NULL
+              WHERE province_send.status <> 'accepted'`,
+        params: [x.id, x.date, Number(x.usd) || 0, Number(x.syp) || 0, x.project_id ?? null, x.donor ?? null, x.reference ?? null, x.explanation ?? null, x.sent_by ?? null],
+      }));
+      await c.handle.db.batch([...stmts, auditStmt(whoOf(sess), 'take', 'province_send', null, null, { sends: b.sends.length })]);
+      c.version++;
+      return send(res, 200, { taken: b.sends.length });
+    }
     // ---- A centre answers a send of the Province (Fouad, 2026-11-07): in the centre (an income, or "not received"),
     // then on the Province's account (the transfer confirmed, or marked "not received" with the centre's word).
     if (url === '/api/province-answer' && method === 'POST') {
@@ -1310,6 +1336,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const b = (await readBody(req)) as { id?: string; ok?: boolean; note?: string | null };
       const cctx: OpCtx = { db: c.handle.db, profile: sess.profile, who: whoOf(sess), install: 'office', files: c.files };
       const r = (await runOp(cctx, 'province.answer', { id: String(b.id ?? ''), ok: !!b.ok, note: b.note ?? null })) as { status: string };
+      // (a centre on another server: its answer travels in its next copy)
+      if (!fs.existsSync(path.join(dataDir, 'province', 'magis.db'))) return send(res, 200, r);
       const pv = await getProvince();
       await pv.handle.db.batch([
         b.ok
@@ -1366,7 +1394,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
           if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre' || (await setupNeeded(x))) continue;
           const projects = await x.handle.db.query<{ id: number; name: string; start_date: string | null; end_date: string | null; outside_budget: number; active: number }>(
             'SELECT id, name, start_date, end_date, outside_budget, active FROM account ORDER BY sort, name');
-          out.push({ slug: x.slug, organisation: (await getMeta(x.handle.db, 'organisation')) ?? x.slug, projects });
+          out.push({ slug: x.slug, organisation: (await getMeta(x.handle.db, 'organisation')) ?? x.slug, projects, copy: config.copies?.[x.slug]?.at ?? null });
         }
         return send(res, 200, out);
       }
@@ -1383,6 +1411,104 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         c.version++;
         log(`Coordinator: project "${name}" made in ${c.slug} (by ${byName})`);
         return send(res, 200, { id });
+      }
+      // ---- the report of one grant across the centres (Fouad, 2026-11-07): each part's project, in its centre (or a
+      // copy from another server) — planned, sent, accepted, its budget and what it spent; by activity and by line
+      if (url === '/api/province/grant-report' && method === 'GET') {
+        const gid = new URL(req.url ?? '/', 'http://x').searchParams.get('id') ?? '';
+        const g = (await listNetGrants(p.handle.db)).find((x) => x.id === gid);
+        if (!g) throw new HttpError(404, { ar: 'المنحة غير موجودة', en: 'Grant not found' });
+        const sends = await p.handle.db.query<{ centre: string; project_id: number | null; usd: number; syp: number; ok: number }>(
+          'SELECT s.centre, s.project_id, t.trf_usd AS usd, t.trf_syp AS syp, (t.received_at IS NOT NULL) AS ok FROM net_send s JOIN trx t ON t.id = s.trx_id WHERE t.grant_id = ?', [gid]);
+        const period = { from: g.start_date?.slice(0, 7) ?? '2000-01', to: g.end_date?.slice(0, 7) ?? '2999-12' };
+        const parts: GrantReportPartIn[] = [];
+        for (const part of g.parts) {
+          const c = centres.get(part.centre);
+          const mine = sends.filter((x) => x.centre === part.centre && x.project_id === part.project_id);
+          const base: GrantReportPartIn = {
+            centre: part.centre, centre_name: part.centre_name ?? part.centre, project_name: part.project_name, copy_at: config.copies?.[part.centre]?.at ?? null,
+            planned: partAmount(g, part), sent_usd: mine.reduce((a, x) => a + x.usd, 0), sent_syp: mine.reduce((a, x) => a + x.syp, 0),
+            accepted_usd: mine.filter((x) => x.ok).reduce((a, x) => a + x.usd, 0), accepted_syp: mine.filter((x) => x.ok).reduce((a, x) => a + x.syp, 0), lines: [],
+          };
+          if (c && part.project_id != null) {
+            const books = (await c.handle.db.query<{ id: number }>('SELECT id FROM book')).map((x) => x.id);
+            const cctx: OpCtx = { db: c.handle.db, profile: { ...ctx.profile, books }, who: ctx.who, install: 'office', files: c.files };
+            const d = (await runOp(cctx, 'data', {})) as DataPayload;
+            const comp = computeAll(d.rows, d.lists);
+            const pr = projectReport({ rows: d.rows, comp, lists: d.lists, grants: d.grants, grantParts: d.grantParts, grantShares: d.grantShares, period }).find((x) => x.id === part.project_id);
+            // its budget: the lines given to it in the budget covering the grant's start
+            const all = (await runOp(cctx, 'budget.get', {})) as BudgetPayload;
+            const pick = [...all.budgets].reverse().find((x) => inPeriod(x, period.from)) ?? all.budgets[all.budgets.length - 1];
+            const bud = pick ? ((await runOp(cctx, 'budget.get', { budgetId: pick.id })) as BudgetPayload).amounts.filter((x) => x.account_id === part.project_id) : [];
+            const line = (id: number | null) => d.lists.lines.find((l) => l.id === id);
+            const head = (id: number | null) => d.lists.headings.find((h) => h.id === id)?.name ?? '—';
+            const keys = new Set<number | null>([...bud.map((x) => x.line_id), ...(pr?.lines ?? []).map((x) => x.line_id)]);
+            for (const lid of keys) {
+              const l = line(lid);
+              base.lines.push({
+                key: l?.uid ?? `${head(l?.heading_id ?? null)}|${l?.name ?? '—'}`, heading: head(l?.heading_id ?? pr?.lines.find((x) => x.line_id === lid)?.heading_id ?? null), line: l?.name ?? '—',
+                budget: bud.filter((x) => x.line_id === lid).reduce((a, x) => a + x.amount_usd, 0),
+                spent: (pr?.lines ?? []).filter((x) => x.line_id === lid).reduce((a, x) => a + x.spent, 0),
+              });
+            }
+          }
+          parts.push(base);
+        }
+        return send(res, 200, { grant: g, report: grantReport(parts) });
+      }
+      // ---- a copy of a centre from another server (Fouad, 2026-11-07): a backup brought here, read only, counted in
+      // the Coordinator's reports. Updated by a newer backup of the same centre; an older one is refused.
+      if (url === '/api/province/copy' && method === 'POST') {
+        const b = (await readBody(req)) as { base64?: string; slug?: string };
+        const tmp = path.join(dataDir, `copy-${Date.now()}.db`);
+        fs.writeFileSync(tmp, Buffer.from(String(b.base64 ?? ''), 'base64'));
+        let org: string | null = null, latest: string | null = null, kind: string | null = null;
+        try {
+          const test = openDb(tmp);
+          try {
+            await migrate(test.db);
+            org = await getMeta(test.db, 'organisation');
+            kind = await getMeta(test.db, 'kind');
+            latest = (await test.db.query<{ m: string | null }>('SELECT MAX(at) AS m FROM audit_log'))[0]?.m ?? null;
+          } finally {
+            test.close();
+          }
+        } catch {
+          fs.rmSync(tmp, { force: true });
+          throw new HttpError(400, { ar: 'ليس ملف قاعدة بيانات صالحاً', en: 'Not a valid database file' });
+        }
+        if ((kind ?? 'centre') !== 'centre') { fs.rmSync(tmp, { force: true }); throw new HttpError(400, { ar: 'ليست قاعدة مركز', en: "This is not a centre's database" }); }
+        let c: Centre;
+        if (b.slug) {
+          const was = config.copies?.[b.slug];
+          const cur = centres.get(b.slug);
+          if (!was || !cur) { fs.rmSync(tmp, { force: true }); throw new HttpError(404, { ar: 'النسخة غير موجودة', en: 'Copy not found' }); }
+          if (was.latest && latest && latest < was.latest) { fs.rmSync(tmp, { force: true }); throw new HttpError(400, { ar: 'هذه النسخة أقدم من التي عندك', en: 'This backup is older than the copy you have' }); }
+          c = cur;
+        } else {
+          const base = `${slugify(org ?? 'centre')}-copy`;
+          let slug = base;
+          for (let i = 2; centres.has(slug) || fs.existsSync(path.join(dbsDir, slug)); i++) slug = `${base}-${i}`;
+          c = await openCentre(slug);
+        }
+        c.handle.close();
+        fs.copyFileSync(tmp, c.file);
+        fs.rmSync(tmp, { force: true });
+        c.handle = openDb(c.file);
+        await migrate(c.handle.db);
+        config = { ...config, copies: { ...(config.copies ?? {}), [c.slug]: { at: new Date().toISOString(), from: org, latest } } };
+        writeConfig(dataDir, config);
+        for (const [sid, x] of sessions) if (x.db === c.slug) sessions.delete(sid);
+        c.version++;
+        // its answers to the Province's sends (accepted, or "not received") reach the Province's account
+        const answers = await c.handle.db.query<{ id: string; status: string; note: string | null; answered_at: string | null; answered_by: string | null }>(
+          "SELECT id, status, note, answered_at, answered_by FROM province_send WHERE status <> 'waiting'");
+        const ours = new Set((await p.handle.db.query<{ trx_id: string }>('SELECT trx_id FROM net_send WHERE centre = ?', [c.slug])).map((x) => x.trx_id));
+        await p.handle.db.batch(answers.filter((x) => ours.has(x.id)).map((x) => x.status === 'accepted'
+          ? { sql: 'UPDATE trx SET received_at = ?, received_by = ?, disputed_at = NULL, dispute_note = NULL WHERE id = ?', params: [x.answered_at, `${x.answered_by ?? ''} (${org ?? c.slug})`, x.id] }
+          : { sql: 'UPDATE trx SET received_at = NULL, received_by = NULL, disputed_at = ?, dispute_note = ? WHERE id = ? AND received_at IS NULL', params: [x.answered_at, x.note, x.id] }));
+        log(`Copy of ${org} ${b.slug ? 'updated' : 'brought'} as ${c.slug} (by ${byName})`);
+        return send(res, 200, { slug: c.slug, organisation: org, latest, answers: answers.filter((x) => ours.has(x.id)).length });
       }
       // ---- sends to the centres (Fouad, 2026-11-07): a transfer from the Province account to "Sent to the centres", and
       // the same send waiting in the centre for its answer. Corrected or cancelled only while the centre has not accepted.
@@ -1419,8 +1545,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
           { sql: 'INSERT OR REPLACE INTO net_send (trx_id, centre, centre_name, project_id, project_name) VALUES (?, ?, ?, ?, ?)', params: [id, c.slug, org, project?.id ?? null, project?.name ?? null] },
           { sql: 'UPDATE trx SET received_at = NULL, received_by = NULL, disputed_at = NULL, dispute_note = NULL WHERE id = ?', params: [id] },
         ]);
-        // the centre sees it, waiting for its answer (a correction waits again)
-        await c.handle.db.batch([
+        // the centre sees it, waiting for its answer (a correction waits again). A copy from another server is only
+        // read here: that centre takes the send from a file (see /api/province/send-file)
+        if (!config.copies?.[c.slug]) await c.handle.db.batch([
           { sql: `INSERT INTO province_send (id, date, usd, syp, project_id, donor, reference, explanation, sent_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')
                   ON CONFLICT(id) DO UPDATE SET date = excluded.date, usd = excluded.usd, syp = excluded.syp, project_id = excluded.project_id, donor = excluded.donor,
                   reference = excluded.reference, explanation = excluded.explanation, sent_by = excluded.sent_by, status = 'waiting', note = NULL, answered_at = NULL, answered_by = NULL`,
@@ -1432,6 +1559,19 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         log(`Province: ${usd ? `$${usd}` : `${syp} SYP`} sent to ${c.slug} (by ${byName})`);
         return send(res, 200, { id });
       }
+      // the sends still waiting for a centre on another server, as a file for that centre
+      if (url === '/api/province/send-file' && method === 'GET') {
+        const centre = new URL(req.url ?? '/', 'http://x').searchParams.get('centre') ?? '';
+        const rows = await p.handle.db.query<{ id: string; date: string; usd: number; syp: number; project_id: number | null; explanation: string | null; grant_id: string | null; received_at: string | null }>(
+          `SELECT t.id, t.date, t.trf_usd AS usd, t.trf_syp AS syp, s.project_id, t.explanation, t.grant_id, t.received_at
+             FROM net_send s JOIN trx t ON t.id = s.trx_id WHERE s.centre = ? AND t.received_at IS NULL ORDER BY t.date`, [centre]);
+        const grants = await listNetGrants(p.handle.db);
+        const sends = rows.map((r) => {
+          const g = grants.find((x) => x.id === r.grant_id);
+          return { id: r.id, date: r.date, usd: r.usd, syp: r.syp, project_id: r.project_id, donor: g?.donor ?? null, reference: g?.reference ?? null, explanation: r.explanation, sent_by: byName };
+        });
+        return send(res, 200, { kind: 'magis-province-sends', centre, organisation: config.copies?.[centre]?.from ?? centre, made_at: new Date().toISOString(), sends });
+      }
       if (url === '/api/province/send/cancel' && method === 'POST') {
         const id = String(((await readBody(req)) as { id?: string }).id ?? '');
         const ns = (await p.handle.db.query<{ centre: string }>('SELECT centre FROM net_send WHERE trx_id = ?', [id]))[0];
@@ -1441,7 +1581,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
           throw new HttpError(400, { ar: 'قبله المركز: لا يُلغى', en: 'The centre accepted it: it is not cancelled' });
         await runOp(ctx, 'trx.delete', { ids: [id], reason: 'send cancelled' });
         await p.handle.db.batch([{ sql: 'DELETE FROM net_send WHERE trx_id = ?', params: [id] }]);
-        if (c) {
+        if (c && !config.copies?.[c.slug]) {
           await c.handle.db.batch([{ sql: 'DELETE FROM province_send WHERE id = ?', params: [id] }, auditStmt(ctx.who, 'cancel', 'province_send', id, null, null)]);
           c.version++;
         }
@@ -1866,7 +2006,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const ring: NonNullable<Session['ring']> = [];
       let first: Profile | null = null;
       for (const c of centres.values()) {
-        if ((config.inactive ?? []).includes(c.slug) || (await setupNeeded(c))) continue;
+        if ((config.inactive ?? []).includes(c.slug) || config.copies?.[c.slug] || (await setupNeeded(c))) continue;
         const d = await describe(c);
         if (!(d.kind === 'hr' || (d.kind === 'centre' && d.centre === house))) continue;
         for (const q of await listProfiles(c.handle.db)) {

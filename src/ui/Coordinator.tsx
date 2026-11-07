@@ -3,9 +3,11 @@
 // others. The Coordinator sees and manages — the databases (new, with their list of headings and lines; switch off,
 // delete, put back), the budget lists, the people and their access — but never changes a centre's records: to do that
 // he enters the centre (as its Superior). Each centre keeps its autonomy.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { m, tx } from '../i18n';
-import type { DbInfo, DirInfo } from '../net';
+import { provinceApi, serverManageList, type DbInfo, type DirInfo, type ManagedDb } from '../net';
+import { pickFile, toBase64 } from '../platform';
+import { errText, fmtDate, toast } from './kit';
 import { BrandFrame, CreateDb, DbCard } from './Landing';
 import { ManageDbs } from './ManageDbs';
 import { DirAdmin } from './Directory';
@@ -77,6 +79,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
               <button className="btn small ghost" onClick={onCommunities}><img src="/brand/jesuits.png" alt="" style={{ height: 18, verticalAlign: 'middle' }} /> {t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} ›</button>
             </div>
           )}
+          <Copies onChanged={onChanged} />
           <h3 style={{ marginTop: 18 }}>{t3('إيقاف، حذف، استعادة', 'Switch off, delete, put back', 'Désactiver, supprimer, remettre')}</h3>
           <ManageDbs inline coordinator onClose={() => undefined} onChanged={onChanged} />
         </>
@@ -86,5 +89,47 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       {sec === 'lists' && <div style={{ marginTop: 12 }}><MainListPanel dbs={centres.filter((d) => !d.kind || d.kind === 'centre')} onReload={onChanged} /></div>}
       {sec === 'people' && <div style={{ marginTop: 12 }}><DirAdmin inline onClose={() => undefined} onChanged={onChanged} /></div>}
     </BrandFrame>
+  );
+}
+
+/**
+ * Copies of centres from other servers (Fouad, 2026-11-07): a backup sent by that centre (e.g. Aleppo), brought here
+ * read only — nobody signs in to it; the grants' reports count it, with its date. A newer backup updates it.
+ */
+function Copies({ onChanged }: { onChanged: () => Promise<void> }) {
+  const [copies, setCopies] = useState<ManagedDb[]>([]);
+  const [busy, setBusy] = useState(false);
+  const load = () => serverManageList().then((x) => setCopies(x.dbs.filter((d) => d.copy))).catch(() => setCopies([]));
+  useEffect(() => { void load(); }, []);
+  const bring = async (slug?: string) => {
+    const f = await pickFile(['db'], t3('اختر النسخة الاحتياطية (.db)', 'Choose the backup (.db)', 'Choisissez la sauvegarde (.db)'));
+    if (!f) return;
+    setBusy(true);
+    try {
+      const r = await provinceApi.copy(toBase64(f.bytes), slug);
+      toast(`${r.organisation ?? ''}: ${slug ? t3('حُدّثت النسخة', 'the copy is updated', 'la copie est à jour') : t3('أُحضرت النسخة', 'the copy is here', 'la copie est arrivée')}`);
+      await load();
+      await onChanged();
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="panel" style={{ marginTop: 18 }}>
+      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <b>{t3('نسخ من خوادم أخرى', 'Copies from other servers', "Copies d'autres serveurs")}</b>
+        <button className="btn small" disabled={busy} onClick={() => void bring()}>⬆ {t3('أحضر نسخة من خادم آخر…', 'Bring a copy from another server…', "Apporter une copie d'un autre serveur…")}</button>
+      </div>
+      <p className="muted small" style={{ margin: '4px 0 6px' }}>{t3('نسخة احتياطية يرسلها مركز على خادم آخر (مثل حلب). للقراءة فقط: لا يدخلها أحد؛ تقارير المنح تحسبها بتاريخها.', 'A backup sent by a centre on another server (e.g. Aleppo). Read only: nobody signs in to it; the grants\' reports count it, with its date.', "Une sauvegarde envoyée par un centre sur un autre serveur (par ex. Alep). En lecture seule : personne n'y entre ; les rapports des subventions la comptent, avec sa date.")}</p>
+      {copies.map((c) => (
+        <div key={c.slug} className="row" style={{ gap: 8, alignItems: 'center', padding: '4px 0', borderTop: '1px solid var(--line)' }}>
+          <b>{c.organisation}</b>
+          <span className="muted small">{t3('نسخة بتاريخ', 'copy of', 'copie du')} {fmtDate(c.copy!.at.slice(0, 10))}{c.list ? ` · ${c.list}` : ''}</span>
+          <button className="btn small ghost" style={{ marginInlineStart: 'auto' }} disabled={busy} onClick={() => void bring(c.slug)}>⬆ {t3('حدّث النسخة…', 'Update the copy…', 'Mettre à jour la copie…')}</button>
+        </div>
+      ))}
+    </div>
   );
 }

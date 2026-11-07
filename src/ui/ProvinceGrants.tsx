@@ -6,6 +6,7 @@ import { provinceApi, type CentreProjects } from '../net';
 import { newUid } from '../io/mainList';
 import { partAmount, type NetGrantPart, type NetGrantRow } from '../domain/netGrants';
 import { Field, Modal, confirmBox, errText, fmtDate, fmtUsd, parseAmount, promptBox, t, toast } from './kit';
+import { saveFile } from '../platform';
 
 const cur = (c: string) => (c === 'EUR' ? '€' : '$');
 
@@ -13,6 +14,7 @@ export function ProvinceGrants() {
   const [grants, setGrants] = useState<NetGrantRow[] | null>(null);
   const [centres, setCentres] = useState<CentreProjects[]>([]);
   const [edit, setEdit] = useState<NetGrantRow | 'new' | null>(null);
+  const [report, setReport] = useState<string | null>(null);
   const load = async () => {
     try {
       const [g, c] = await Promise.all([provinceApi.grants(), provinceApi.projects()]);
@@ -43,13 +45,14 @@ export function ProvinceGrants() {
                   {Math.abs(g.amount - planned) > 0.5 && <div className="muted">{t('لم يُقسَّم بعد', 'Not split yet')}: {cur(g.currency)}{fmtUsd(g.amount - planned)}</div>}
                 </td>
                 <td className="n ltr small">{g.received_usd ? `$${fmtUsd(g.received_usd)}` : ''}{g.received_syp ? <div>{fmtUsd(g.received_syp)} SYP</div> : null}{!g.received_usd && !g.received_syp ? <span className="muted">{t('موعودة', 'promised')}</span> : null}</td>
-                <td className="nowrap"><button className="btn small" onClick={() => setEdit(g)}>{t('تعديل', 'Edit')}</button></td>
+                <td className="nowrap"><button className="btn small" onClick={() => setReport(g.id)}>📄 {t('التقرير', 'Report')}</button> <button className="btn small ghost" onClick={() => setEdit(g)}>{t('تعديل', 'Edit')}</button></td>
               </tr>
             );
           })}
           {!grants.length && <tr><td colSpan={6} className="muted">{t('لا منح بعد.', 'No grants yet.')}</td></tr>}
         </tbody>
       </table>
+      {report && <GrantReportView id={report} onClose={() => setReport(null)} />}
       {edit && <GrantForm grant={edit === 'new' ? null : edit} centres={centres} onReload={load} onClose={() => setEdit(null)} />}
     </div>
   );
@@ -154,6 +157,67 @@ function GrantForm({ grant, centres, onClose, onReload }: { grant: NetGrantRow |
         })()}>{t('حذف', 'Delete')}</button>}
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" disabled={busy || !donor.trim() || !(total > 0) || planned > total + 0.5} onClick={() => void save()}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** One grant across the centres: what each part planned, received and spent; by activity and by line; its Excel. */
+export function GrantReportView({ id, onClose }: { id: string; onClose: () => void }) {
+  const [data, setData] = useState<Awaited<ReturnType<typeof provinceApi.report>> | null>(null);
+  const [lines, setLines] = useState(false);
+  useEffect(() => { provinceApi.report(id).then(setData).catch((e) => toast(errText(e), true)); }, [id]);
+  if (!data) return <Modal title="…" onClose={onClose}><p className="muted">…</p></Modal>;
+  const { grant: g, report: r } = data;
+  const centres = r.parts.map((p) => p.centre_name);
+  const usd = (n: number) => `$${fmtUsd(n)}`;
+  const excel = async () => {
+    try {
+      const { grantXlsx } = await import('../io/grantExcel');
+      const path = await saveFile(`${`${g.donor} ${g.reference ?? ''}`.trim().replace(/[^\p{L}\p{N}]+/gu, '-')}.xlsx`, ['xlsx'], await grantXlsx(g, r), t('احفظ ملف Excel', 'Save the Excel file'));
+      if (path) toast(`${t('حُفظ', 'Saved')}: ${path}`);
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  const table = (rows: typeof r.byHeading, withLine: boolean) => (
+    <table className="t" style={{ marginTop: 6 }}>
+      <thead><tr><th>{t('النشاط', 'Activity')}</th>{withLine && <th>{t('الخط', 'Line')}</th>}<th className="n">{t('الموازنة', 'Budget')}</th><th className="n">{t('صُرف', 'Spent')}</th>{centres.map((c, i) => <th key={i} className="n small">{c}</th>)}<th className="n">{t('باقٍ', 'Left')}</th></tr></thead>
+      <tbody>
+        {rows.map((x) => (
+          <tr key={x.key}><td>{x.heading}</td>{withLine && <td>{x.line}</td>}<td className="n ltr">{usd(x.budget)}</td><td className="n ltr">{usd(x.spent)}</td>{centres.map((c, i) => <td key={i} className="n ltr small">{usd(x.byCentre[c] ?? 0)}</td>)}<td className="n ltr">{usd(x.budget - x.spent)}</td></tr>
+        ))}
+        {!rows.length && <tr><td colSpan={5} className="muted">{t('لا خطوط للمشاريع بعد.', 'The projects have no lines yet.')}</td></tr>}
+      </tbody>
+    </table>
+  );
+  return (
+    <Modal title={`${g.donor}${g.reference ? ` · ${g.reference}` : ''}`} onClose={onClose}>
+      <div className="muted small">{g.start_date ? fmtDate(g.start_date) : '…'} → {g.end_date ? fmtDate(g.end_date) : '…'}</div>
+      <div className="cards" style={{ marginTop: 8 }}>
+        <div className="card"><div className="k">{t('المنحة', 'Grant')}</div><div className="v ltr">{cur(g.currency)}{fmtUsd(g.amount)}</div></div>
+        <div className="card"><div className="k">{t('وصل إلى الإقليم', 'Received by the Province')}</div><div className="v ltr">{usd(g.received_usd)}</div></div>
+        <div className="card"><div className="k">{t('أُرسل إلى المراكز', 'Sent to the centres')}</div><div className="v ltr">{usd(r.total.sent_usd)}</div><div className="muted small">{t('قُبل', 'accepted')} {usd(r.total.accepted_usd)}</div></div>
+        <div className="card"><div className="k">{t('صُرف', 'Spent')}</div><div className="v ltr">{usd(r.total.spent)}</div><div className="muted small">{t('من موازنة', 'of a budget of')} {usd(r.total.budget)}</div></div>
+      </div>
+      <h3>{t('حسب المركز', 'By centre')}</h3>
+      <table className="t">
+        <thead><tr><th>{t('المركز › المشروع', 'Centre › project')}</th><th className="n">{t('مخطط', 'Planned')}</th><th className="n">{t('أُرسل', 'Sent')}</th><th className="n">{t('الموازنة', 'Budget')}</th><th className="n">{t('صُرف', 'Spent')}</th></tr></thead>
+        <tbody>
+          {r.parts.map((p, i) => (
+            <tr key={i}><td>{p.centre_name} › {p.project_name ?? '—'}{p.copy_at && <div className="muted small">{t('نسخة بتاريخ', 'copy of')} {fmtDate(p.copy_at.slice(0, 10))}</div>}</td>
+              <td className="n ltr">{cur(g.currency)}{fmtUsd(p.planned)}</td><td className="n ltr">{usd(p.sent_usd)}{p.sent_usd !== p.accepted_usd && <div className="muted small">{t('قُبل', 'accepted')} {usd(p.accepted_usd)}</div>}</td>
+              <td className="n ltr">{usd(p.budget)}</td><td className="n ltr">{usd(p.spent)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <h3>{t('حسب النشاط', 'By activity')}</h3>
+      {table(r.byHeading, false)}
+      <button className="link small" onClick={() => setLines((x) => !x)}>{lines ? '▾' : '▸'} {t('حسب الخط', 'By line')}</button>
+      {lines && table(r.byLine, true)}
+      <div className="modal-foot">
+        <button className="btn" onClick={() => void excel()}>⬇ Excel</button>
+        <button className="btn primary" onClick={onClose}>{t('إغلاق', 'Close')}</button>
       </div>
     </Modal>
   );

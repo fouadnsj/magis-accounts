@@ -156,7 +156,7 @@ export const serverCtyGate = (password: string) => post<{ ok: true }>('/api/cty/
 export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community' | 'country' | 'hr', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
 
 /** Managing the databases: all of them (also the switched-off ones) and the deleted ones kept in a folder. */
-export interface ManagedDb { slug: string; organisation: string; kind: string; city: string | null; active: boolean; bytes: number; backups: number; lastBackup: string | null; /** the list of headings and lines it follows */ list?: string | null }
+export interface ManagedDb { slug: string; organisation: string; kind: string; city: string | null; active: boolean; bytes: number; backups: number; lastBackup: string | null; /** the list of headings and lines it follows */ list?: string | null; /** a copy from another server (read only) */ copy?: { at: string; from: string | null; latest: string | null } | null }
 export interface DeletedDb { folder: string; organisation: string; bytes: number }
 export const serverManageList = () => get<{ dbs: ManagedDb[]; deleted: DeletedDb[]; folder: string }>('/api/dbs/manage');
 export const serverDbState = (db: string, active: boolean, password: string) => post<{ ok: true }>('/api/dbs/state', { db, active, password });
@@ -236,13 +236,17 @@ export const mainListApi = {
 
 // ---- The Province account (Fouad, 2026-11-07): the Coordinator's own book (grants in, exchange, sends to the centres).
 export interface ProvinceData { rows: import('./domain/types').Trx[]; comp: Record<string, import('./domain/types').Computed>; lists: import('./domain/types').Lists; closed: string[]; balance: { syp: number; usd: number }; bookId: number }
-export interface CentreProjects { slug: string; organisation: string; projects: { id: number; name: string; start_date: string | null; end_date: string | null; outside_budget: number; active: number }[] }
+export interface CentreProjects { slug: string; organisation: string; /** a copy from another server: when it was brought */ copy?: string | null; projects: { id: number; name: string; start_date: string | null; end_date: string | null; outside_budget: number; active: number }[] }
 export const provinceApi = {
   get: () => get<ProvinceData>('/api/province'),
   grants: () => get<import('./domain/netGrants').NetGrantRow[]>('/api/province/grants'),
   saveGrant: (g: Omit<import('./domain/netGrants').NetGrant, 'created_at' | 'created_by' | 'closed'> & { closed?: number }) => post<{ id: string }>('/api/province/grant', g),
   deleteGrant: (id: string) => post<{ ok: true }>('/api/province/grant/delete', { id }),
   projects: () => get<CentreProjects[]>('/api/province/projects'),
+  /** one grant across the centres: planned, sent, accepted, budget, spent; by activity and line */
+  report: (id: string) => get<{ grant: import('./domain/netGrants').NetGrantRow; report: import('./domain/grantReport').GrantReport }>(`/api/province/grant-report?id=${encodeURIComponent(id)}`),
+  /** a copy of a centre from another server (new, or a newer one of a copy) */
+  copy: (base64: string, slug?: string) => post<{ slug: string; organisation: string | null; latest: string | null }>('/api/province/copy', { base64, slug }),
   newProject: (a: { centre: string; name: string; start_date: string | null; end_date: string | null }) => post<{ id: number }>('/api/province/project', a),
   op: <T = unknown,>(name: 'trx.save' | 'trx.delete' | 'month.close' | 'month.reopen' | 'closing.problems', args: unknown) => post<T>(`/api/province/op/${name}`, args),
 };
@@ -252,6 +256,10 @@ export const sendsApi = {
   list: () => get<ProvinceSendRow[]>('/api/province/sends'),
   send: (a: { id?: string; date: string; centre: string; project_id: number | null; grant_id: string | null; cur: 'USD' | 'SYP'; amount: number; explanation?: string }) => post<{ id: string }>('/api/province/send', a),
   cancel: (id: string) => post<{ ok: true }>('/api/province/send/cancel', { id }),
+  /** the sends still waiting for a centre on another server, as a file for it */
+  file: (centre: string) => get<{ kind: string; organisation: string; sends: unknown[] }>(`/api/province/send-file?centre=${encodeURIComponent(centre)}`),
+  /** a centre on another server takes the Province's file */
+  take: (file: unknown) => post<{ taken: number }>('/api/province-take', file),
   /** the centre answers (accepted, or "not received" with a word) */
   answer: (id: string, ok: boolean, note?: string | null) => post<{ status: string }>('/api/province-answer', { id, ok, note: note ?? null }),
 };

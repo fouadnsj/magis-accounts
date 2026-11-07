@@ -9,6 +9,7 @@ import { Field, Modal, Seg, Select, confirmBox, errText, fmtDate, fmtUsd, parseA
 import { CENTRES, centreStyle, type CentreKey } from '../brand';
 import { tx } from '../i18n';
 import { GuideLink } from '../guide/GuideView';
+import { ProvinceReceived } from './ProvinceSends';
 import { GrantSteps, MISSING_LABEL, type GrantMissing } from './GrantSteps';
 import { ProjectSheet } from './ProjectSheet';
 
@@ -81,6 +82,7 @@ export function Grants() {
           <button className="btn primary" onClick={() => setGuided('new')}>＋ {t('منحة، خطوة بخطوة', 'Grant, step by step')}</button>
         </div>
       </div>
+      <ProvinceReceived />
       <div className="alert info small">{t('سرّي — يراه الرئيس فقط. «باليد» = في دفتر المسؤول (Respo)؛ ثم يُحوَّل إلى الرئيسي ويؤكده المحاسب.', 'Confidential — only the Superior sees this. "In hand" = in the Respo book; then it is transferred to Main and the Accountant confirms.')}</div>
 
       <div className="cards" style={{ marginBottom: 14 }}>

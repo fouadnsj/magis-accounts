@@ -74,6 +74,13 @@ export interface AttachmentRow {
   created_by: string | null;
 }
 
+/** A send of the Province, as the centre sees it (Fouad, 2026-11-07). */
+export interface ProvinceSend {
+  id: string; date: string; usd: number; syp: number; project_id: number | null; donor: string | null; reference: string | null;
+  explanation: string | null; sent_by: string | null; status: 'waiting' | 'accepted' | 'disputed'; note: string | null;
+  answered_at: string | null; answered_by: string | null; income_id: string | null;
+}
+
 export interface OpCtx {
   db: Db;
   profile: Profile;
@@ -580,6 +587,11 @@ async function closingProblems(c: OpCtx, month: string, bookId: number | null): 
   const disputed = transfers.filter((t) => t.disputedAt).length;
   if (waiting) out.push(m(`${waiting} تحويلاً لم يؤكَّد استلامه`, `${waiting} transfers not yet confirmed by the receiver`));
   if (disputed) out.push(m(`${disputed} تحويلاً قيل إنه لم يصل`, `${disputed} transfers marked "not received"`));
+  // money sent by the Province, not yet answered (or "not received"): like a transfer, it holds the month
+  if (bookId == null) {
+    const sends = (await c.db.query<{ n: number }>("SELECT COUNT(*) AS n FROM province_send WHERE status <> 'accepted' AND substr(date, 1, 7) = ?", [month]))[0].n;
+    if (sends) out.push(m(`${sends} إرسالاً من الإقليم لم يُقبل بعد`, `${sends} sends from the Province not yet accepted`, `${sends} envois de la Province pas encore acceptés`));
+  }
   out.push(...(await controlProblems(c, inMonth, lists)));
   if (bookId == null) {
     const bm = await bookMonths(c.db);
@@ -1840,6 +1852,51 @@ export const OPS = {
       return { moved: rows.length };
     },
   },
+  /** money sent by the Province (Fouad, 2026-11-07): what arrived for this centre, and its answers */
+  'province.sends': {
+    check: (c: OpCtx) => need(c, 'lists.donors', 'register.view'),
+    run: (c: OpCtx) => c.db.query<ProvinceSend>('SELECT * FROM province_send ORDER BY date DESC, id'),
+  },
+  /**
+   * The centre answers a send of the Province, as the receiver of a transfer: accepted, it becomes an income in the
+   * grants book, for its project; or "not received", with a word. Once accepted it no longer changes; a closed month
+   * is reopened first. (The server then tells the Province's account.)
+   */
+  'province.answer': {
+    check: (c: OpCtx) => need(c, 'lists.donors'),
+    run: async (c: OpCtx, a: { id: string; ok: boolean; note?: string | null }) => {
+      const x = await one<ProvinceSend>(c.db, 'SELECT * FROM province_send WHERE id = ?', [a.id]);
+      if (!x) throw new UserError(m('الإرسال غير موجود', 'Send not found', 'Envoi introuvable'));
+      if (x.status === 'accepted') throw new UserError(m('قُبل من قبل: لا يتغير', 'Already accepted: it no longer changes', 'Déjà accepté : il ne change plus'));
+      if ((await closedMonths(c.db)).has(x.date.slice(0, 7))) throw new UserError(m(`الشهر ${x.date.slice(0, 7)} مغلق: أعد فتحه أولاً`, `Month ${x.date.slice(0, 7)} is closed: reopen it first`, `Le mois ${x.date.slice(0, 7)} est clôturé : rouvrez-le d'abord`));
+      const at = nowIso();
+      if (!a.ok) {
+        await c.db.batch([
+          { sql: "UPDATE province_send SET status = 'disputed', note = ?, answered_at = ?, answered_by = ? WHERE id = ?", params: [(a.note ?? '').trim() || null, at, c.who, x.id] },
+          auditStmt(c.who, 'dispute', 'province_send', x.id, null, { note: a.note ?? null }),
+        ]);
+        return { status: 'disputed' as const };
+      }
+      const lists = await loadLists(c.db);
+      const book = await grantsBook(c, lists);
+      const incomeHeading = lists.headings.find((h) => lists.headingTypes.some((t) => t.heading_id === h.id && t.type === 'Income'));
+      const line = lists.lines.find((l) => l.heading_id === incomeHeading?.id && l.active && /donation|grant|منحة|تبرع/i.test(l.name))
+        ?? lists.lines.find((l) => l.heading_id === incomeHeading?.id && l.active);
+      if (!incomeHeading || !line) throw new UserError(m('لا خط إيرادات: أضف خطاً «Donation» تحت بند الإيرادات', 'No income line: add a "Donation" line under the Income heading'));
+      const row: Trx = {
+        ...blankTrx(), id: `province-${x.id}`, type: 'Income', date: x.date, book_id: book.id, account_id: x.project_id,
+        city_id: book.city_id ?? lists.settings.def_city_id ?? lists.cities[0]?.id ?? null,
+        heading_id: incomeHeading.id, line_id: line.id, inc_usd: x.usd, inc_syp: x.syp,
+        explanation: `${t2('من الإقليم', 'From the Province')}${x.donor ? ` · ${x.donor}` : ''}${x.reference ? ` · ${x.reference}` : ''}`,
+      };
+      await saveTrxRows(c.db, [row], c.who, c.install === 'office', [], null);
+      await c.db.batch([
+        { sql: "UPDATE province_send SET status = 'accepted', note = NULL, answered_at = ?, answered_by = ?, income_id = ? WHERE id = ?", params: [at, c.who, row.id, x.id] },
+        auditStmt(c.who, 'accept', 'province_send', x.id, null, { income: row.id }),
+      ]);
+      return { status: 'accepted' as const };
+    },
+  },
   /** the main list of the server (or its file): what this centre has follows it, and what it ticks comes in, switched on */
   'main.take': {
     check: (c: OpCtx) => need(c, 'lists.manage'),
@@ -1994,7 +2051,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'province.sends', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

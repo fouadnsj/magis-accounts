@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { provinceApi, type ProvinceData } from '../net';
 import type { NetGrantRow } from '../domain/netGrants';
+import { ProvinceSends } from './ProvinceSends';
 import { blankTrx } from '../db/repo';
 import type { Trx } from '../domain/types';
 import { Field, Modal, confirmBox, errText, fmtDate, fmtRate, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast, todayIso } from './kit';
@@ -36,13 +37,14 @@ export function ProvinceBook() {
   const months = [...new Set([todayIso().slice(0, 7), ...d.rows.map((r) => r.date?.slice(0, 7)).filter((x): x is string => !!x)])].sort().reverse();
   const closed = new Set(d.closed);
   const kind = (r: Trx) => r.type === 'Income' ? t('دخل', 'Money in') : r.type === 'Exchange' ? t('تصريف', 'Exchange') : r.type === 'Transfer' ? t('إرسال', 'Sent') : r.type;
-  const usd = (r: Trx) => r.inc_usd - r.exp_usd - (r.type === 'Exchange' ? r.trf_usd : 0) + (r.type === 'Transfer' ? r.trf_usd : 0);
-  const syp = (r: Trx) => r.inc_syp - r.exp_syp + (r.type === 'Exchange' ? r.trf_syp : 0) + (r.type === 'Transfer' ? r.trf_syp : 0);
+  // (a send is a transfer from the Province account to "Sent to the centres": money going out)
+  const usd = (r: Trx) => r.inc_usd - r.exp_usd - (r.type === 'Exchange' ? r.trf_usd : 0) - (r.type === 'Transfer' ? r.trf_usd : 0);
+  const syp = (r: Trx) => r.inc_syp - r.exp_syp + (r.type === 'Exchange' ? r.trf_syp : 0) - (r.type === 'Transfer' ? r.trf_syp : 0);
   const signed = (n: number, f: (x: number) => string) => (n ? `${n > 0 ? '+' : '−'}${f(Math.abs(n))}` : '');
 
   return (
     <div style={{ maxWidth: 980 }}>
-      <p className="muted small" style={{ marginTop: 0 }}>{t('حساب الإقليم: يصل إليه مال المنح. تسجّل ما يدخل، وتصرّف الدولار إلى ليرات، ثم ترسل إلى المراكز (قريباً). يُغلق شهره كشهر المركز.', "The Province's account: the money of the grants arrives here. Record what comes in, exchange dollars for pounds, then send to the centres (next). Its months close like a centre's.")}</p>
+      <p className="muted small" style={{ marginTop: 0 }}>{t('حساب الإقليم: يصل إليه مال المنح. تسجّل ما يدخل، وتصرّف الدولار إلى ليرات، ثم ترسل إلى المراكز. يُغلق شهره كشهر المركز.', "The Province's account: the money of the grants arrives here. Record what comes in, exchange dollars for pounds, then send them to the centres. Its months close like a centre's.")}</p>
       <div className="cards">
         <div className="card"><div className="k">{t('الرصيد بالدولار', 'Balance in USD')}</div><div className="v ltr">${fmtUsd(d.balance.usd)}</div></div>
         <div className="card"><div className="k">{t('الرصيد بالليرة', 'Balance in SYP')}</div><div className="v ltr">{fmtSyp(d.balance.syp)} SYP</div></div>
@@ -80,6 +82,8 @@ export function ProvinceBook() {
           {!rows.length && <tr><td colSpan={7} className="muted">{t('لا حركة بعد.', 'Nothing recorded yet.')}</td></tr>}
         </tbody>
       </table>
+
+      <ProvinceSends onChanged={load} />
 
       <h3 style={{ marginTop: 18 }}>{t('الأشهر', 'Months')}</h3>
       <table className="t" style={{ maxWidth: 520 }}>

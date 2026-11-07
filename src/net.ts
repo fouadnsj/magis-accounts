@@ -246,3 +246,12 @@ export const provinceApi = {
   newProject: (a: { centre: string; name: string; start_date: string | null; end_date: string | null }) => post<{ id: number }>('/api/province/project', a),
   op: <T = unknown,>(name: 'trx.save' | 'trx.delete' | 'month.close' | 'month.reopen' | 'closing.problems', args: unknown) => post<T>(`/api/province/op/${name}`, args),
 };
+/** a send of the Province, as the Province sees it */
+export interface ProvinceSendRow { trx_id: string; centre: string; centre_name: string | null; project_id: number | null; project_name: string | null; date: string; usd: number; syp: number; grant_id: string | null; explanation: string | null; received_at: string | null; disputed_at: string | null; dispute_note: string | null }
+export const sendsApi = {
+  list: () => get<ProvinceSendRow[]>('/api/province/sends'),
+  send: (a: { id?: string; date: string; centre: string; project_id: number | null; grant_id: string | null; cur: 'USD' | 'SYP'; amount: number; explanation?: string }) => post<{ id: string }>('/api/province/send', a),
+  cancel: (id: string) => post<{ ok: true }>('/api/province/send/cancel', { id }),
+  /** the centre answers (accepted, or "not received" with a word) */
+  answer: (id: string, ok: boolean, note?: string | null) => post<{ status: string }>('/api/province-answer', { id, ok, note: note ?? null }),
+};

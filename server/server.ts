@@ -527,6 +527,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       ]);
       log('Province account created');
     }
+    if (!(await handle.db.query("SELECT 1 FROM book WHERE name = 'Sent to the centres'")).length)
+      await handle.db.batch([{ sql: "INSERT INTO book (name, is_main, sort, active) VALUES ('Sent to the centres', 0, 5, 1)" }]);
     province = c;
     return c;
   };
@@ -1300,6 +1302,24 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         return send(res, 200, { list, centres: out });
       }
     }
+    // ---- A centre answers a send of the Province (Fouad, 2026-11-07): in the centre (an income, or "not received"),
+    // then on the Province's account (the transfer confirmed, or marked "not received" with the centre's word).
+    if (url === '/api/province-answer' && method === 'POST') {
+      if (!found) throw new HttpError(401, { ar: 'ادخل أولاً', en: 'Sign in first' });
+      const [, sess, c] = found;
+      const b = (await readBody(req)) as { id?: string; ok?: boolean; note?: string | null };
+      const cctx: OpCtx = { db: c.handle.db, profile: sess.profile, who: whoOf(sess), install: 'office', files: c.files };
+      const r = (await runOp(cctx, 'province.answer', { id: String(b.id ?? ''), ok: !!b.ok, note: b.note ?? null })) as { status: string };
+      const pv = await getProvince();
+      await pv.handle.db.batch([
+        b.ok
+          ? { sql: 'UPDATE trx SET received_at = ?, received_by = ?, disputed_at = NULL, dispute_note = NULL WHERE id = ?', params: [new Date().toISOString(), `${whoOf(sess)} (${c.slug})`, String(b.id)] }
+          : { sql: 'UPDATE trx SET received_at = NULL, received_by = NULL, disputed_at = ?, dispute_note = ? WHERE id = ?', params: [new Date().toISOString(), (b.note ?? '').trim() || null, String(b.id)] },
+      ]);
+      c.version++;
+      pv.version++;
+      return send(res, 200, r);
+    }
     // ---- The Province account, for the Coordinator only: its rows, its balance, its months; and the operations allowed
     // on it (the rows, the month closing). Nobody signs in to it: the Coordinator acts on it as its Superior.
     if (url.startsWith('/api/province')) {
@@ -1364,10 +1384,90 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         log(`Coordinator: project "${name}" made in ${c.slug} (by ${byName})`);
         return send(res, 200, { id });
       }
+      // ---- sends to the centres (Fouad, 2026-11-07): a transfer from the Province account to "Sent to the centres", and
+      // the same send waiting in the centre for its answer. Corrected or cancelled only while the centre has not accepted.
+      const sentBook = async () => (await p.handle.db.query<{ id: number }>("SELECT id FROM book WHERE name = 'Sent to the centres'"))[0].id;
+      if (url === '/api/province/sends' && method === 'GET') {
+        const rows = await p.handle.db.query<Record<string, unknown>>(
+          `SELECT s.*, t.date, t.trf_usd AS usd, t.trf_syp AS syp, t.grant_id, t.explanation, t.received_at, t.disputed_at, t.dispute_note
+             FROM net_send s JOIN trx t ON t.id = s.trx_id ORDER BY t.date DESC, t.n DESC`);
+        return send(res, 200, rows);
+      }
+      if (url === '/api/province/send' && method === 'POST') {
+        const b = (await readBody(req)) as { id?: string; date?: string; centre?: string; project_id?: number | null; grant_id?: string | null; cur?: 'USD' | 'SYP'; amount?: number; explanation?: string };
+        const c = centres.get(String(b.centre ?? ''));
+        if (!c || ((await getMeta(c.handle.db, 'kind')) ?? 'centre') !== 'centre') throw new HttpError(400, { ar: 'المركز غير موجود', en: 'Centre not found' });
+        const amount = Number(b.amount);
+        if (!(amount > 0)) throw new HttpError(400, { ar: 'المبلغ مطلوب', en: 'The amount is required' });
+        if (!b.date || !/^\d{4}-\d{2}-\d{2}$/.test(b.date)) throw new HttpError(400, { ar: 'التاريخ مطلوب', en: 'The date is required' });
+        const project = b.project_id != null ? (await c.handle.db.query<{ id: number; name: string }>('SELECT id, name FROM account WHERE id = ?', [b.project_id]))[0] : null;
+        if (b.project_id != null && !project) throw new HttpError(400, { ar: 'المشروع غير موجود', en: 'Project not found' });
+        const grant = b.grant_id ? (await p.handle.db.query<{ donor: string; reference: string | null }>('SELECT donor, reference FROM net_grant WHERE id = ?', [b.grant_id]))[0] : null;
+        const org = (await getMeta(c.handle.db, 'organisation')) ?? c.slug;
+        const id = b.id || `send-${newUid()}`;
+        const old = b.id ? (await c.handle.db.query<{ status: string }>('SELECT status FROM province_send WHERE id = ?', [id]))[0] : null;
+        if (b.id && !old) throw new HttpError(404, { ar: 'الإرسال غير موجود', en: 'Send not found' });
+        if (old?.status === 'accepted') throw new HttpError(400, { ar: 'قبله المركز: لا يتغير', en: 'The centre accepted it: it no longer changes' });
+        const L = await loadLists(p.handle.db);
+        const tHead = L.headings.find((h) => h.name === 'Transfer')!;
+        const tLine = L.lines.find((l) => l.heading_id === tHead.id)!;
+        const usd = b.cur === 'SYP' ? 0 : amount;
+        const syp = b.cur === 'SYP' ? amount : 0;
+        const explanation = `${String(b.explanation ?? '').trim() || (grant ? `${grant.donor}${grant.reference ? ` · ${grant.reference}` : ''}` : 'Province')} → ${org}${project ? ` · ${project.name}` : ''}`;
+        await runOp(ctx, 'trx.save', { rows: [{ ...blankTrx(), id, type: 'Transfer', date: b.date, book_id: await sentBook(), city_id: L.cities[0]?.id ?? null, heading_id: tHead.id, line_id: tLine.id, trf_usd: usd, trf_syp: syp, grant_id: b.grant_id || null, explanation }], reason: old ? 'send corrected' : null });
+        await p.handle.db.batch([
+          { sql: 'INSERT OR REPLACE INTO net_send (trx_id, centre, centre_name, project_id, project_name) VALUES (?, ?, ?, ?, ?)', params: [id, c.slug, org, project?.id ?? null, project?.name ?? null] },
+          { sql: 'UPDATE trx SET received_at = NULL, received_by = NULL, disputed_at = NULL, dispute_note = NULL WHERE id = ?', params: [id] },
+        ]);
+        // the centre sees it, waiting for its answer (a correction waits again)
+        await c.handle.db.batch([
+          { sql: `INSERT INTO province_send (id, date, usd, syp, project_id, donor, reference, explanation, sent_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting')
+                  ON CONFLICT(id) DO UPDATE SET date = excluded.date, usd = excluded.usd, syp = excluded.syp, project_id = excluded.project_id, donor = excluded.donor,
+                  reference = excluded.reference, explanation = excluded.explanation, sent_by = excluded.sent_by, status = 'waiting', note = NULL, answered_at = NULL, answered_by = NULL`,
+            params: [id, b.date, usd, syp, project?.id ?? null, grant?.donor ?? null, grant?.reference ?? null, explanation, byName] },
+          auditStmt(ctx.who, old ? 'correct' : 'send', 'province_send', id, null, { usd, syp, date: b.date }),
+        ]);
+        c.version++;
+        p.version++;
+        log(`Province: ${usd ? `$${usd}` : `${syp} SYP`} sent to ${c.slug} (by ${byName})`);
+        return send(res, 200, { id });
+      }
+      if (url === '/api/province/send/cancel' && method === 'POST') {
+        const id = String(((await readBody(req)) as { id?: string }).id ?? '');
+        const ns = (await p.handle.db.query<{ centre: string }>('SELECT centre FROM net_send WHERE trx_id = ?', [id]))[0];
+        if (!ns) throw new HttpError(404, { ar: 'الإرسال غير موجود', en: 'Send not found' });
+        const c = centres.get(ns.centre);
+        if (c && (await c.handle.db.query<{ status: string }>('SELECT status FROM province_send WHERE id = ?', [id]))[0]?.status === 'accepted')
+          throw new HttpError(400, { ar: 'قبله المركز: لا يُلغى', en: 'The centre accepted it: it is not cancelled' });
+        await runOp(ctx, 'trx.delete', { ids: [id], reason: 'send cancelled' });
+        await p.handle.db.batch([{ sql: 'DELETE FROM net_send WHERE trx_id = ?', params: [id] }]);
+        if (c) {
+          await c.handle.db.batch([{ sql: 'DELETE FROM province_send WHERE id = ?', params: [id] }, auditStmt(ctx.who, 'cancel', 'province_send', id, null, null)]);
+          c.version++;
+        }
+        p.version++;
+        return send(res, 200, { ok: true });
+      }
       const pop = /^\/api\/province\/op\/([\w.]+)$/.exec(url)?.[1];
       if (pop && method === 'POST') {
         if (!['trx.save', 'trx.delete', 'month.close', 'month.reopen', 'closing.problems'].includes(pop)) throw new HttpError(400, { ar: 'غير مسموح', en: 'Not allowed' });
-        const result = await runOp(ctx, pop, await readBody(req));
+        const args = (await readBody(req)) as { ym?: string };
+        // "Sent to the centres" holds no cash: its month closes and reopens with the Province's
+        const ym = String(args.ym ?? '');
+        if (pop === 'month.close' || pop === 'month.reopen') {
+          const sb = await sentBook();
+          if (pop === 'month.close') await p.handle.db.batch([{ sql: "INSERT OR IGNORE INTO book_month (book_id, ym, closed_at, closed_by, book_syp, book_usd, counted_syp, counted_usd, count_note) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 'sent to the centres')", params: [sb, ym, new Date().toISOString(), ctx.who] }]);
+          try {
+            const result = await runOp(ctx, pop, args);
+            if (pop === 'month.reopen') await p.handle.db.batch([{ sql: 'DELETE FROM book_month WHERE book_id = ? AND ym = ?', params: [sb, ym] }]);
+            p.version++;
+            return send(res, 200, result ?? { ok: true });
+          } catch (e) {
+            if (pop === 'month.close') await p.handle.db.batch([{ sql: 'DELETE FROM book_month WHERE book_id = ? AND ym = ? AND count_note = ?', params: [sb, ym, 'sent to the centres'] }]);
+            throw e;
+          }
+        }
+        const result = await runOp(ctx, pop, args);
         p.version++;
         return send(res, 200, result ?? { ok: true });
       }

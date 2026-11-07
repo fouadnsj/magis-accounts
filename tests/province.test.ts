@@ -82,4 +82,51 @@ describe('the Province account', () => {
     expect((await admin('/api/province/grant/delete', { id: 'sen-2027' })).status).toBe(400); // money arrived: it is closed, not deleted
     expect((await browser()('/api/province/grants')).status).toBe(403);
   });
+
+  it('a send to a centre: waiting, "not received", corrected, accepted (an income in its grants book); the months wait for it', async () => {
+    const admin = browser();
+    expect((await admin('/api/dir/login', { name: 'Fouad', password: 'fouad-pass-1' })).status).toBe(200);
+    const slug = (await admin('/api/hello')).body.dbs[0].slug;
+    const project = (await admin('/api/province/projects')).body[0].projects.find((x: { name: string }) => x.name === 'SEN Library');
+    // the centre's Superior, in the centre
+    const homs = browser();
+    const profiles = (await homs(`/api/profiles?db=${slug}`)).body;
+    expect((await homs('/api/login', { db: slug, profileId: profiles.find((x: { name: string }) => x.name === 'Boss').id, password: 'boss-prov-1' })).status).toBe(200);
+    await homs('/api/op/heading.add', { name: 'Income', types: ['Income'] });
+    const L0 = (await homs('/api/op/data', {})).body.lists;
+    await homs('/api/op/line.add', { headingId: L0.headings.find((h: { name: string }) => h.name === 'Income').id, name: 'Donation' });
+
+    const sent = await admin('/api/province/send', { date: '2026-12-20', centre: slug, project_id: project.id, grant_id: 'sen-2027', cur: 'USD', amount: 20000 });
+    expect(sent.body).toMatchObject({ id: expect.any(String) });
+    expect((await admin('/api/province')).body.balance.usd).toBe(8000 + 50000 - 20000);
+    let mine = (await homs('/api/op/province.sends', {})).body;
+    expect(mine[0]).toMatchObject({ id: sent.body.id, usd: 20000, status: 'waiting', donor: 'SEN', project_id: project.id });
+    // both months wait for the answer
+    expect((await homs('/api/op/closing.problems', { ym: '2026-12', bookId: null })).body.map((x: { en: string }) => x.en).join()).toMatch(/not yet accepted/);
+    expect((await admin('/api/province/op/month.close', { ym: '2026-12' })).status).toBe(400);
+    // "not received": the Province sees the centre's word; it corrects; the centre accepts
+    expect((await homs('/api/province-answer', { id: sent.body.id, ok: false, note: 'received 19,800' })).status).toBe(200);
+    let sends = (await admin('/api/province/sends')).body;
+    expect(sends[0]).toMatchObject({ centre_name: 'Homs', project_name: 'SEN Library', dispute_note: 'received 19,800' });
+    expect((await admin('/api/province/send', { id: sent.body.id, date: '2026-12-20', centre: slug, project_id: project.id, grant_id: 'sen-2027', cur: 'USD', amount: 19800 })).body).toEqual({ id: sent.body.id });
+    mine = (await homs('/api/op/province.sends', {})).body;
+    expect(mine[0]).toMatchObject({ usd: 19800, status: 'waiting', note: null });
+    expect((await homs('/api/province-answer', { id: sent.body.id, ok: true })).status).toBe(200);
+    // (the grants book is private: the row is read in the centre's file)
+    const { DatabaseSync } = (await import('node:module')).createRequire(import.meta.url)('node:sqlite');
+    const file = new DatabaseSync(path.join(dir, 'dbs', slug, 'magis.db'), { readOnly: true });
+    const income = file.prepare('SELECT t.type, t.inc_usd, t.account_id, b.private FROM trx t JOIN book b ON b.id = t.book_id WHERE t.id = ?').get(`province-${sent.body.id}`);
+    file.close();
+    expect(income).toMatchObject({ type: 'Income', inc_usd: 19800, account_id: project.id, private: 1 });
+    sends = (await admin('/api/province/sends')).body;
+    expect(sends[0].received_at).toBeTruthy();
+    // accepted: it no longer changes, and the months can close
+    expect((await homs('/api/province-answer', { id: sent.body.id, ok: false })).status).toBe(400);
+    expect((await admin('/api/province/send/cancel', { id: sent.body.id })).status).toBe(400);
+    expect((await admin('/api/province/op/month.close', { ym: '2026-12' })).status).toBe(200);
+    // a send cancelled before the answer disappears from the centre
+    const other = await admin('/api/province/send', { date: '2027-01-05', centre: slug, project_id: project.id, grant_id: 'sen-2027', cur: 'SYP', amount: 1_000_000 });
+    expect((await admin('/api/province/send/cancel', { id: other.body.id })).status).toBe(200);
+    expect((await homs('/api/op/province.sends', {})).body.map((x: { id: string }) => x.id)).toEqual([sent.body.id]);
+  });
 });

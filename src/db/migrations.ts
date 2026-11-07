@@ -1686,4 +1686,36 @@ CREATE TABLE net_grant_part (
 );
 `,
   },
+  {
+    n: 48,
+    name: 'money sent by the Province to the centres: the send on the Province account, and what the centre sees and answers',
+    sql: `
+-- (Fouad, 2026-11-07) The Province account: each send is a transfer row (Province account -> "Sent to the centres"),
+-- with the centre and the project it goes to. The centre: the same send, waiting for its answer (accepted: an income
+-- in its grants book, for that project; or "not received", with a word). The same rules as a transfer between books.
+CREATE TABLE net_send (
+  trx_id       TEXT PRIMARY KEY,
+  centre       TEXT NOT NULL,
+  centre_name  TEXT,
+  project_id   INTEGER,
+  project_name TEXT
+);
+CREATE TABLE province_send (
+  id           TEXT PRIMARY KEY,
+  date         TEXT NOT NULL,
+  usd          REAL NOT NULL DEFAULT 0,
+  syp          REAL NOT NULL DEFAULT 0,
+  project_id   INTEGER REFERENCES account(id),
+  donor        TEXT,
+  reference    TEXT,
+  explanation  TEXT,
+  sent_by      TEXT,
+  status       TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','accepted','disputed')),
+  note         TEXT,
+  answered_at  TEXT,
+  answered_by  TEXT,
+  income_id    TEXT
+);
+`,
+  },
 ];

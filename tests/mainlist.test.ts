@@ -131,3 +131,20 @@ describe('the main list', () => {
     expect((await headingOf(c, 'Salary'))!.code).toBe(code);
   });
 });
+
+describe('the list files (templates)', () => {
+  it('Centres by activity 2027 and Building are whole lists, and a new database takes them', async () => {
+    const fs = await import('node:fs');
+    const { parseMainList } = await import('../src/io/mainList');
+    for (const f of ['list-centres-by-activity-2027.json', 'list-building.json']) {
+      const list = parseMainList(fs.readFileSync(decodeURIComponent(new URL(`../../MD/${f}`, import.meta.url).pathname), 'utf8'));
+      const db = await fresh();
+      const r = await applyMainList(db, { ...list, version: 1 }, 't', { take: [...list.headings, ...list.lines].map((x) => x.uid) });
+      expect(r.added).toBeGreaterThan(0);
+      const L = await loadLists(db);
+      // the Transfer line the program needs is the list's (same name: same line)
+      expect(L.lines.filter((l) => l.name === 'Transfer')).toHaveLength(1);
+      expect(L.lines.filter((l) => l.in_main && l.active).length).toBe(list.lines.length);
+    }
+  });
+});

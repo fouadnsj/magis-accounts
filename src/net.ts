@@ -148,8 +148,8 @@ export const serverLogin = (db: string, profileId: number, password: string) =>
   post<{ profile: Profile; mustChange: boolean; install: 'office' }>('/api/login', { db, profileId, password });
 
 /** kind: a Jesuit community or a country database (made from the communities' side); otherwise a centre */
-export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null, kind: 'community' | 'country' | 'hr' | null = null) =>
-  post<{ slug: string }>('/api/dbs/create', { organisation, centre, color, logo, kind });
+export const serverCreateDb = (organisation: string, centre: string, color: string | null = null, logo: string | null = null, kind: 'community' | 'country' | 'hr' | null = null, mainList: string | null = null) =>
+  post<{ slug: string }>('/api/dbs/create', { organisation, centre, color, logo, kind, mainList });
 /** The communities' password: give it (the communities appear), or set / change it. */
 export const serverCtyUnlock = (password: string) => post<{ ok: true }>('/api/cty/unlock', { password });
 export const serverCtyGate = (password: string) => post<{ ok: true }>('/api/cty/gate', { password });
@@ -208,19 +208,28 @@ export const dirEnforce = (enforced: boolean) => post<{ ok: true }>('/api/dir/en
 export const dirReset = (name: string, password: string, superior: string) => post<{ ok: true }>('/api/dir/reset', { name, password, superior });
 
 // ---- The main list of headings and lines (Fouad, 2026-11-03): kept on the server by the administrator.
-export interface MainListInfo { list: MainList | null; draft: MainList | null; admin: boolean; editable: boolean; home: string }
+export interface MainListInfo { id: string; list: MainList | null; draft: MainList | null; admin: boolean; editable: boolean; home: string }
 export type MainResult = { list: MainList; centres: { organisation: string; renamed: number; moved: number; merged: number }[] };
+export interface ListSummary { id: string; title: string; version: number; published_at: string | null; from: string | null; editable: boolean; centres: string[] }
+const q = (id?: string | null) => (id ? `?id=${encodeURIComponent(id)}` : '');
 export const mainListApi = {
-  get: () => get<MainListInfo>('/api/main-list'),
-  start: () => post<{ draft: MainList }>('/api/main-list/start', {}),
-  saveDraft: (list: MainList) => post<{ ok: true }>('/api/main-list/draft', { list }),
-  discard: () => post<{ draft: MainList }>('/api/main-list/discard', {}),
-  preview: () => post<{ centres: ({ organisation: string } & MainChanges)[] }>('/api/main-list/preview', {}),
-  publish: () => post<MainResult>('/api/main-list/publish', {}),
+  /** the lists of the server (the administrator), and the one this database follows */
+  lists: () => get<{ admin: boolean; mine: string; lists: ListSummary[] }>('/api/main-lists'),
+  names: () => get<{ id: string; title: string }[]>('/api/main-lists/names'),
+  /** a list (by default the one this database follows) */
+  get: (id?: string | null) => get<MainListInfo>(`/api/main-list${q(id)}`),
+  newList: (a: { title: string; from: 'empty' | 'db' | 'list' | 'file'; source?: string; list?: MainList }) => post<{ id: string; draft: MainList }>('/api/main-list/new', a),
+  rename: (id: string, title: string) => post<{ ok: true }>('/api/main-list/rename', { id, title }),
+  start: (id: string) => post<{ draft: MainList }>('/api/main-list/start', { id }),
+  saveDraft: (id: string, list: MainList) => post<{ ok: true }>('/api/main-list/draft', { id, list }),
+  discard: (id: string) => post<{ draft: MainList }>('/api/main-list/discard', { id }),
+  preview: (id: string) => post<{ centres: ({ organisation: string } & MainChanges)[] }>('/api/main-list/preview', { id }),
+  publish: (id: string) => post<MainResult>('/api/main-list/publish', { id }),
   takeFile: (list: MainList) => post<MainResult>('/api/main-list/import', { list }),
   /** a centre asks for a heading or a line */
   ask: (r: Pick<MainRequest, 'kind' | 'name' | 'heading_uid' | 'type' | 'why' | 'meanwhile_line_uid'>) => post<MainRequest>('/api/main-list/request', r),
-  requests: () => get<MainRequest[]>('/api/main-list/requests'),
+  /** the administrator: the requests of a list; a centre: its own */
+  requests: (id?: string | null) => get<MainRequest[]>(`/api/main-list/requests${q(id)}`),
   answer: (a: { id: string; how: 'add' | 'same' | 'refuse'; name?: string; heading_uid?: string | null; uid?: string; note?: string }) => post<{ request: MainRequest; draft: MainList }>('/api/main-list/answer', a),
   importRequests: (requests: MainRequest[]) => post<{ added: number }>('/api/main-list/requests-import', { requests }),
 };

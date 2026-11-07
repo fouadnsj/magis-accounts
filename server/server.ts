@@ -29,7 +29,7 @@ import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, ve
 import { READ_ONLY, runOp, type BackupFile, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
 import { allCentresReport, exploreRows, type CentreInput, type ExploreRow } from '../src/domain/allCentres';
 import { computeAll } from '../src/domain/compute';
-import { addToList, applyMainList, checkMainList, mainListChanges, mainListFromDb, newUid, type MainChanges, type MainList, type MainRequest } from '../src/io/mainList';
+import { addToList, applyMainList, CENTRES_LIST, checkMainList, followedList, listId, MAIN_LIST, mainListChanges, mainListFromDb, newUid, type MainChanges, type MainList, type MainRequest } from '../src/io/mainList';
 import { createOffice } from '../src/setup';
 import { createCommunity, type CommunitySetup } from '../src/community/setup';
 import { createCountry, type CountrySetup } from '../src/community/country';
@@ -92,20 +92,45 @@ function readDirectory(dataDir: string): Directory {
   }
 }
 
-// The main list of headings and lines: published (what the centres take) and the administrator's draft.
-function readMainList(dataDir: string, which: 'published' | 'draft'): MainList | null {
+// The main lists of headings and lines (Fouad, 2026-11-07: several, one per kind of project), in main-lists/: each
+// list published (what the databases take) and the administrator's draft. The first one (0.8.7) moves in as "centres".
+const listsDir = (dataDir: string) => path.join(dataDir, 'main-lists');
+const listFile = (dataDir: string, id: string, which: 'published' | 'draft') => path.join(listsDir(dataDir), `${id}${which === 'draft' ? '.draft' : ''}.json`);
+
+function readMainList(dataDir: string, id: string, which: 'published' | 'draft'): MainList | null {
   try {
-    return JSON.parse(fs.readFileSync(path.join(dataDir, which === 'published' ? 'main-list.json' : 'main-list-draft.json'), 'utf8')) as MainList;
+    const l = JSON.parse(fs.readFileSync(listFile(dataDir, id, which), 'utf8')) as MainList;
+    return { ...l, id, title: l.title || (id === CENTRES_LIST ? 'Centres' : id) };
   } catch {
     return null;
   }
 }
 
-function writeMainList(dataDir: string, which: 'published' | 'draft', list: MainList) {
-  const f = path.join(dataDir, which === 'published' ? 'main-list.json' : 'main-list-draft.json');
-  if (fs.existsSync(f)) fs.copyFileSync(f, f.replace(/\.json$/, '.prev.json'));
-  fs.writeFileSync(f + '.tmp', JSON.stringify(list, null, 1));
+function writeMainList(dataDir: string, id: string, which: 'published' | 'draft', list: MainList) {
+  fs.mkdirSync(listsDir(dataDir), { recursive: true });
+  const f = listFile(dataDir, id, which);
+  if (fs.existsSync(f)) fs.copyFileSync(f, f.replace(/\.json$/, '.prev'));
+  fs.writeFileSync(f + '.tmp', JSON.stringify({ ...list, id }, null, 1));
   fs.renameSync(f + '.tmp', f);
+}
+
+/** the lists on this server (by their files), in the order they were made */
+function mainListIds(dataDir: string): string[] {
+  // the single list of 0.8.7 becomes the Centres list
+  for (const [old, which] of [['main-list.json', 'published'], ['main-list-draft.json', 'draft']] as const) {
+    const f = path.join(dataDir, old);
+    if (fs.existsSync(f) && !fs.existsSync(listFile(dataDir, CENTRES_LIST, which))) {
+      fs.mkdirSync(listsDir(dataDir), { recursive: true });
+      fs.renameSync(f, listFile(dataDir, CENTRES_LIST, which));
+    }
+  }
+  try {
+    return [...new Set(fs.readdirSync(listsDir(dataDir)).filter((x) => x.endsWith('.json')).map((x) => x.replace(/(\.draft)?\.json$/, '')))]
+      .sort((a, b) => fs.statSync(listFile(dataDir, a, fs.existsSync(listFile(dataDir, a, 'published')) ? 'published' : 'draft')).birthtimeMs
+        - fs.statSync(listFile(dataDir, b, fs.existsSync(listFile(dataDir, b, 'published')) ? 'published' : 'draft')).birthtimeMs);
+  } catch {
+    return [];
+  }
 }
 
 function readRequests(dataDir: string): MainRequest[] {
@@ -302,9 +327,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   let config = { ...readConfig(dataDir), ...opts.config };
   if (!fs.existsSync(path.join(dataDir, 'config.json'))) writeConfig(dataDir, config);
   if (!config.serverId) { config = { ...config, serverId: newUid() }; writeConfig(dataDir, config); }
-  // the main list can be changed here: it was started here, or nothing yet
-  const mainEditable = () => {
-    const x = readMainList(dataDir, 'published') ?? readMainList(dataDir, 'draft');
+  // a main list can be changed here: it was started here (or does not exist yet)
+  const mainEditable = (id: string) => {
+    const x = readMainList(dataDir, id, 'published') ?? readMainList(dataDir, id, 'draft');
     return !x || x.home === config.serverId;
   };
   const webRoot = opts.webRoot ?? path.join(path.dirname(process.argv[1] ?? '.'), 'web');
@@ -1013,26 +1038,58 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const allCentresAllowed = () => !!dirPerson?.admin || (!directory.people.length && isLocal(req) && !!found && has(found[1].profile, 'users.manage'));
     if (url === '/api/all-centres/allowed' && method === 'GET') return send(res, 200, { allowed: !!found && allCentresAllowed() });
 
-    // ---- The main list of headings and lines (Fouad, 2026-11-03): kept on this server, apart from every centre. The
-    // administrator changes a draft, then publishes it: each centre on this server is backed up and follows it (names,
-    // codes, moves and merges, with their rows). A server of another city takes it as a file and never changes it.
-    if (url === '/api/main-list' && method === 'GET') {
-      if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      const pub = readMainList(dataDir, 'published');
-      const admin = allCentresAllowed();
-      return send(res, 200, { list: pub, draft: admin ? readMainList(dataDir, 'draft') : null, admin, editable: mainEditable(), home: config.serverId });
+    // ---- The main lists of headings and lines (Fouad, 2026-11-03; several, one per kind of project, 2026-11-07): kept on
+    // this server, apart from every database. The administrator changes a list's draft, then publishes it: each database
+    // following that list is backed up and follows it (names, codes, moves and merges, with their rows). A server of
+    // another city takes a list as a file and never changes it.
+    const centreDbs = async (id?: string) => {
+      const out: { c: Centre; org: string }[] = [];
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre') continue;
+        if (id && (await followedList(x.handle.db)) !== id) continue;
+        out.push({ c: x, org: (await getMeta(x.handle.db, 'organisation')) ?? x.slug });
+      }
+      return out;
+    };
+    const listSummary = async () => {
+      const out = [];
+      for (const id of mainListIds(dataDir)) {
+        const pub = readMainList(dataDir, id, 'published');
+        const draft = readMainList(dataDir, id, 'draft');
+        const l = (pub ?? draft)!;
+        out.push({ id, title: l.title!, version: pub?.version ?? 0, published_at: pub?.published_at ?? null, from: l.from, editable: mainEditable(id),
+          centres: (await centreDbs(id)).map((x) => x.org) });
+      }
+      return out;
+    };
+    // the names of the lists, to choose one for a new database
+    if (url === '/api/main-lists/names' && method === 'GET') {
+      if (!found && !mayCreate(req, found)) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      return send(res, 200, mainListIds(dataDir).filter((id) => readMainList(dataDir, id, 'published')).map((id) => ({ id, title: readMainList(dataDir, id, 'published')!.title })));
     }
-    // a centre asks the administrator for a heading or a line (it does not add one itself)
+    if (url === '/api/main-lists' && method === 'GET') {
+      if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      return send(res, 200, { admin: allCentresAllowed(), mine: await followedList(found[2].handle.db), lists: allCentresAllowed() ? await listSummary() : [] });
+    }
+    if (url === '/api/main-list') {
+      if (method !== 'GET') throw new HttpError(405, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const id = new URL(req.url ?? '/', 'http://x').searchParams.get('id') || (await followedList(found[2].handle.db));
+      const admin = allCentresAllowed();
+      return send(res, 200, { id, list: readMainList(dataDir, id, 'published'), draft: admin ? readMainList(dataDir, id, 'draft') : null, admin, editable: mainEditable(id), home: config.serverId });
+    }
+    // a database asks the administrator for a heading or a line of its list (it does not add one itself)
     if (url === '/api/main-list/request' && method === 'POST') {
       if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const b = (await readBody(req)) as Partial<MainRequest>;
-      const pub = readMainList(dataDir, 'published');
+      const listOf = await followedList(found[2].handle.db);
+      const pub = readMainList(dataDir, listOf, 'published');
       const name = String(b.name ?? '').trim();
       if (!name) throw new HttpError(400, { ar: 'الاسم فارغ', en: 'The name is empty' });
       const head = b.kind === 'line' ? pub?.headings.find((h) => h.uid === b.heading_uid) : null;
       if (b.kind === 'line' && !head) throw new HttpError(400, { ar: 'اختر البند', en: 'Choose the heading' });
       const r: MainRequest = {
-        id: newUid(), kind: b.kind === 'heading' ? 'heading' : 'line', name, heading_uid: head?.uid ?? null, heading_name: head?.name ?? null,
+        id: newUid(), list_id: listOf, kind: b.kind === 'heading' ? 'heading' : 'line', name, heading_uid: head?.uid ?? null, heading_name: head?.name ?? null,
         type: b.kind === 'heading' ? ((['Income', 'Exp', 'Transfer', 'Exchange'] as const).find((x) => x === b.type) ?? 'Exp') : null,
         why: String(b.why ?? '').trim(), centre: found[2].slug, organisation: (await getMeta(found[2].handle.db, 'organisation')) ?? found[2].slug,
         server: config.serverId ?? null, by: found[1].profile.name, at: new Date().toISOString(),
@@ -1040,33 +1097,29 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         status: 'open', answer_uid: null, answer_name: null, note: null, answered_at: null,
       };
       writeRequests(dataDir, [...readRequests(dataDir), r]);
-      log(`Main list: ${r.organisation} asks for the ${r.kind} "${r.name}" (by ${r.by})`);
+      log(`Main list ${listOf}: ${r.organisation} asks for the ${r.kind} "${r.name}" (by ${r.by})`);
       return send(res, 200, r);
     }
-    // the requests: the administrator sees them all; a centre, its own
+    // the requests: the administrator sees those of a list; a database, its own
     if (url === '/api/main-list/requests' && method === 'GET') {
       if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const all = readRequests(dataDir);
-      return send(res, 200, allCentresAllowed() ? all : all.filter((r) => r.centre === found[2].slug && r.server === config.serverId));
+      const id = new URL(req.url ?? '/', 'http://x').searchParams.get('id');
+      if (allCentresAllowed()) return send(res, 200, id ? all.filter((r) => (r.list_id || CENTRES_LIST) === id) : all);
+      return send(res, 200, all.filter((r) => r.centre === found[2].slug && r.server === config.serverId));
     }
     if (url.startsWith('/api/main-list/') && method === 'POST') {
       if (!found || !allCentresAllowed()) throw new HttpError(403, { ar: 'للمدير فقط', en: 'For the administrator only' });
       const who = `${found[1].profile.name} (main list)`;
-      const body = (await readBody(req)) as { list?: MainList } & Record<string, unknown>;
-      const pub = readMainList(dataDir, 'published');
-      const draft = readMainList(dataDir, 'draft');
-      const centreDbs = async () => {
-        const out: { c: Centre; org: string }[] = [];
-        for (const x of centres.values()) {
-          if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre') continue;
-          out.push({ c: x, org: (await getMeta(x.handle.db, 'organisation')) ?? x.slug });
-        }
-        return out;
-      };
-      // every centre follows the list (a backup of each first)
+      const body = (await readBody(req)) as { id?: string; list?: MainList } & Record<string, unknown>;
+      const id = String(body.id ?? (body.list ? listId(body.list) : '') ?? '') || CENTRES_LIST;
+      const pub = readMainList(dataDir, id, 'published');
+      const draft = readMainList(dataDir, id, 'draft');
+      const notHere = () => new HttpError(400, { ar: 'تُغيَّر القائمة على خادمها فقط', en: 'A list is changed on its own server only' });
+      // every database following the list follows it (a backup of each first)
       const applyAll = async (list: MainList) => {
         const out: { organisation: string; renamed: number; moved: number; merged: number }[] = [];
-        for (const j of await centreDbs()) {
+        for (const j of await centreDbs(listId(list))) {
           await j.c.files.backupNow('before-main-list');
           const r = await applyMainList(j.c.handle.db, list, who);
           j.c.version++;
@@ -1074,19 +1127,20 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         }
         return out;
       };
-      // the administrator answers a request: added to the draft, the same as one that exists, or refused
+      // the administrator answers a request: added to the draft of its list, the same as one that exists, or refused
       if (url === '/api/main-list/answer') {
-        if (!mainEditable()) throw new HttpError(400, { ar: 'تُغيَّر القائمة الرئيسية على خادمها فقط', en: 'The main list is changed on its own server only' });
         const b = body as { id?: string; how?: 'add' | 'same' | 'refuse'; name?: string; heading_uid?: string | null; type?: TrxType; uid?: string; note?: string };
         const all = readRequests(dataDir);
         const r = all.find((x) => x.id === b.id);
         if (!r) throw new HttpError(404, { ar: 'الطلب غير موجود', en: 'Request not found' });
-        const base = draft ?? pub;
-        if (!base) throw new HttpError(400, { ar: 'ابدأ القائمة الرئيسية أولاً', en: 'Start the main list first' });
+        const lid = r.list_id || CENTRES_LIST;
+        if (!mainEditable(lid)) throw notHere();
+        const base = readMainList(dataDir, lid, 'draft') ?? readMainList(dataDir, lid, 'published');
+        if (!base) throw new HttpError(400, { ar: 'القائمة غير موجودة', en: 'The list does not exist' });
         const at = new Date().toISOString();
         if (b.how === 'add') {
           const x = addToList(base, { kind: r.kind, name: b.name ?? r.name, heading_uid: b.heading_uid ?? r.heading_uid, type: b.type ?? r.type });
-          writeMainList(dataDir, 'draft', x.list);
+          writeMainList(dataDir, lid, 'draft', x.list);
           Object.assign(r, { status: 'added', answer_uid: x.uid, answer_name: (b.name ?? r.name).trim(), note: b.note?.trim() || null, answered_at: at });
         } else if (b.how === 'same') {
           const x = [...base.headings, ...base.lines].find((y) => y.uid === b.uid);
@@ -1096,7 +1150,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
           Object.assign(r, { status: 'refused', answer_uid: null, answer_name: null, note: b.note?.trim() || null, answered_at: at });
         } else throw new HttpError(400, { ar: 'جواب غير معروف', en: 'Unknown answer' });
         writeRequests(dataDir, all);
-        return send(res, 200, { request: r, draft: readMainList(dataDir, 'draft') });
+        return send(res, 200, { request: r, draft: readMainList(dataDir, lid, 'draft') });
       }
       // requests from a file (a centre on its own computer, or another city's server)
       if (url === '/api/main-list/requests-import') {
@@ -1107,52 +1161,91 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         writeRequests(dataDir, [...all, ...fresh]);
         return send(res, 200, { added: fresh.length });
       }
+      // a new list: empty, a copy of another list, a list file (a template), or this database's own list
+      if (url === '/api/main-list/new') {
+        const b = body as { title?: string; from?: 'empty' | 'db' | 'list' | 'file'; source?: string; list?: MainList };
+        const title = String(b.title ?? '').trim();
+        if (!title) throw new HttpError(400, { ar: 'اكتب اسم القائمة', en: 'Write the name of the list' });
+        if (mainListIds(dataDir).some((x) => (readMainList(dataDir, x, 'draft') ?? readMainList(dataDir, x, 'published'))?.title?.toLowerCase() === title.toLowerCase()))
+          throw new HttpError(400, { ar: 'قائمة بهذا الاسم موجودة', en: 'A list with this name already exists' });
+        let nid = title.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'list';
+        if (!mainListIds(dataDir).length && b.from === 'db') nid = CENTRES_LIST; // the first one, as in 0.8.7
+        for (let i = 2; mainListIds(dataDir).includes(nid); i++) nid = `${nid.replace(/-\d+$/, '')}-${i}`;
+        const empty: MainList = { kind: MAIN_LIST, home: config.serverId!, version: 0, published_at: null, from: null, headings: [], lines: [], merged: [] };
+        let start: MainList = empty;
+        if (b.from === 'db') {
+          if (((await getMeta(found[2].handle.db, 'kind')) ?? 'centre') !== 'centre') throw new HttpError(400, { ar: 'افتح قاعدة مركز', en: "Open a centre's database" });
+          start = await mainListFromDb(found[2].handle.db, config.serverId!, (await getMeta(found[2].handle.db, 'organisation')) ?? found[2].slug);
+        } else if (b.from === 'list') {
+          const src = readMainList(dataDir, String(b.source ?? ''), 'draft') ?? readMainList(dataDir, String(b.source ?? ''), 'published');
+          if (!src) throw new HttpError(400, { ar: 'القائمة غير موجودة', en: 'The list does not exist' });
+          // a copy: its own identities, so that the two lists never mix
+          const map = new Map<string, string>();
+          const u = (x: string) => { if (!map.has(x)) map.set(x, newUid()); return map.get(x)!; };
+          start = { ...empty, from: src.title ?? null, headings: src.headings.map((h) => ({ ...h, uid: u(h.uid) })), lines: src.lines.map((l) => ({ ...l, uid: u(l.uid), heading_uid: u(l.heading_uid) })) };
+        } else if (b.from === 'file') {
+          const src = checkMainList(b.list!);
+          start = { ...empty, from: src.title ?? src.from ?? null, headings: src.headings, lines: src.lines };
+        }
+        const list = checkMainList({ ...start, id: nid, title });
+        writeMainList(dataDir, nid, 'draft', list);
+        log(`Main list "${title}" (${nid}) started (by ${found[1].profile.name})`);
+        return send(res, 200, { id: nid, draft: list });
+      }
       if (url === '/api/main-list/start') {
+        // (0.8.7: the first list, from this database)
         if (pub || draft) throw new HttpError(400, { ar: 'القائمة الرئيسية موجودة', en: 'The main list already exists' });
         if (((await getMeta(found[2].handle.db, 'kind')) ?? 'centre') !== 'centre') throw new HttpError(400, { ar: 'افتح قاعدة مركز', en: "Open a centre's database" });
-        const list = await mainListFromDb(found[2].handle.db, config.serverId!, (await getMeta(found[2].handle.db, 'organisation')) ?? found[2].slug);
-        writeMainList(dataDir, 'draft', list);
-        log(`Main list started from ${found[2].slug} (by ${found[1].profile.name})`);
+        const list = { ...(await mainListFromDb(found[2].handle.db, config.serverId!, (await getMeta(found[2].handle.db, 'organisation')) ?? found[2].slug)), id, title: id === CENTRES_LIST ? 'Centres' : id };
+        writeMainList(dataDir, id, 'draft', list);
+        log(`Main list ${id} started from ${found[2].slug} (by ${found[1].profile.name})`);
         return send(res, 200, { draft: list });
       }
       if (url === '/api/main-list/draft') {
-        if (!mainEditable()) throw new HttpError(400, { ar: 'تُغيَّر القائمة الرئيسية على خادمها فقط', en: 'The main list is changed on its own server only' });
+        if (!mainEditable(id)) throw notHere();
         const list = checkMainList(body.list!);
-        writeMainList(dataDir, 'draft', { ...list, home: config.serverId!, version: pub?.version ?? 0, published_at: pub?.published_at ?? null });
+        writeMainList(dataDir, id, 'draft', { ...list, id, title: (pub ?? draft)?.title ?? list.title, home: config.serverId!, version: pub?.version ?? 0, published_at: pub?.published_at ?? null });
+        return send(res, 200, { ok: true });
+      }
+      if (url === '/api/main-list/rename') {
+        if (!mainEditable(id)) throw notHere();
+        const title = String(body.title ?? '').trim();
+        if (!title) throw new HttpError(400, { ar: 'اكتب اسم القائمة', en: 'Write the name of the list' });
+        for (const w of ['draft', 'published'] as const) { const l = readMainList(dataDir, id, w); if (l) writeMainList(dataDir, id, w, { ...l, title }); }
         return send(res, 200, { ok: true });
       }
       if (url === '/api/main-list/discard') {
-        if (!mainEditable() || !pub) throw new HttpError(400, { ar: 'لا شيء منشور بعد', en: 'Nothing is published yet' });
-        writeMainList(dataDir, 'draft', pub);
+        if (!mainEditable(id) || !pub) throw new HttpError(400, { ar: 'لا شيء منشور بعد', en: 'Nothing is published yet' });
+        writeMainList(dataDir, id, 'draft', pub);
         return send(res, 200, { draft: pub });
       }
       if (url === '/api/main-list/preview') {
         if (!draft) return send(res, 200, { centres: [] });
         const out: ({ organisation: string } & MainChanges)[] = [];
-        for (const j of await centreDbs()) out.push({ organisation: j.org, ...(await mainListChanges(j.c.handle.db, draft)) });
+        for (const j of await centreDbs(id)) out.push({ organisation: j.org, ...(await mainListChanges(j.c.handle.db, draft)) });
         return send(res, 200, { centres: out });
       }
       if (url === '/api/main-list/publish') {
-        if (!mainEditable() || !draft) throw new HttpError(400, { ar: 'لا مسودة', en: 'There is no draft' });
-        const list = { ...checkMainList(draft), home: config.serverId!, version: (pub?.version ?? 0) + 1, published_at: new Date().toISOString() };
-        writeMainList(dataDir, 'published', list);
-        writeMainList(dataDir, 'draft', list);
+        if (!mainEditable(id) || !draft) throw new HttpError(400, { ar: 'لا مسودة', en: 'There is no draft' });
+        const list = { ...checkMainList(draft), id, home: config.serverId!, version: (pub?.version ?? 0) + 1, published_at: new Date().toISOString() };
+        writeMainList(dataDir, id, 'published', list);
+        writeMainList(dataDir, id, 'draft', list);
         const out = await applyAll(list);
-        log(`Main list version ${list.version} published (by ${found[1].profile.name})`);
+        log(`Main list ${id} version ${list.version} published (by ${found[1].profile.name})`);
         return send(res, 200, { list, centres: out });
       }
       if (url === '/api/main-list/import') {
         const list = checkMainList(body.list!);
         if (list.home === config.serverId) throw new HttpError(400, { ar: 'هذا الملف من هذا الخادم نفسه', en: 'This file comes from this server itself' });
         if ((pub && pub.home === config.serverId) || (draft && draft.home === config.serverId))
-          throw new HttpError(400, { ar: 'هذا الخادم يصنع القائمة الرئيسية: لا يأخذها من ملف', en: 'This server makes the main list: it does not take it from a file' });
+          throw new HttpError(400, { ar: 'هذا الخادم يصنع هذه القائمة: لا يأخذها من ملف', en: 'This server makes this list: it does not take it from a file' });
         if (!list.version) throw new HttpError(400, { ar: 'هذه القائمة لم تُنشر بعد', en: 'This list was never published' });
         if (pub && pub.home === list.home && list.version <= pub.version)
           throw new HttpError(400, { ar: `عندك النسخة ${pub.version}؛ هذا الملف ${list.version} — ليس أحدث`, en: `You have version ${pub.version}; this file is ${list.version} — not newer` });
-        writeMainList(dataDir, 'published', list);
-        writeMainList(dataDir, 'draft', list);
+        writeMainList(dataDir, id, 'published', list);
+        writeMainList(dataDir, id, 'draft', list);
         const out = await applyAll(list);
-        log(`Main list version ${list.version} taken from a file (by ${found[1].profile.name})`);
+        log(`Main list ${id} version ${list.version} taken from a file (by ${found[1].profile.name})`);
         return send(res, 200, { list, centres: out });
       }
     }
@@ -1428,7 +1521,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     // ---- a new database (a centre, a test, a new year…)
     if (url === '/api/dbs/create' && method === 'POST') {
-      const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null };
+      const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null; mainList?: string | null };
       if (!(isCtyKind(body.kind) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
       if (isCtyKind(body.kind) && !ctyOpen()) throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
       const organisation = (body.organisation ?? '').trim();
@@ -1445,6 +1538,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         // made from the communities' side: it is a community (or a country) from the start, so it is
         // listed there and its setup goes straight to the community (or country) form
         ...(body.kind === 'community' || body.kind === 'country' || body.kind === 'hr' ? [setMetaStmt('kind', body.kind)] : []),
+        // the list of headings and lines it follows (Fouad, 2026-11-07): taken whole when it is set up
+        ...(!body.kind && body.mainList && readMainList(dataDir, body.mainList, 'published') ? [setMetaStmt('main_list', body.mainList)] : []),
       ]);
       log(`new database ${slug} (${organisation}, ${centre})`);
       return send(res, 200, { slug });
@@ -1466,6 +1561,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
           await wb.xlsx.load(Buffer.from(body.workbook, 'base64'));
           report = await applySeed(c.handle.db, readWorkbook(wb), body.comName || 'setup', body.workbookName || 'workbook.xlsx');
         }
+        // its list: every heading and line comes in, switched on; the centre then switches off what it does not use
+        const chosen = await getMeta(c.handle.db, 'main_list');
+        const list = chosen ? readMainList(dataDir, chosen, 'published') : null;
+        if (list) await applyMainList(c.handle.db, list, 'setup', { take: [...list.headings, ...list.lines].filter((x) => x.active).map((x) => x.uid) });
         c.version++;
         log(`setup: ${c.slug} (${organisation})`);
         return send(res, 200, { ok: true, report });

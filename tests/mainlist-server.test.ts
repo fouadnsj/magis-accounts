@@ -119,4 +119,42 @@ describe('the main list on the server', () => {
     expect((await damascus.op('main.take', { list: file, take: [sal.uid] })).status).toBe(200);
     expect((await damascus.op('data')).body.lists.lines.some((l: { uid: string; active: number }) => l.uid === sal.uid && l.active)).toBe(true);
   }, 120000);
+
+  it('several lists: a new database follows the one chosen and takes it whole; publishing one list leaves the others', async () => {
+    const one = await server();
+    const homs = await one.centre('MAGIS Homs', 'homs');
+    // the first list (Centres) from Homs, published
+    expect((await homs.call('/api/main-list/new', { title: 'Centres', from: 'db' })).body.id).toBe('centres');
+    expect((await homs.call('/api/main-list/publish', { id: 'centres' })).status).toBe(200);
+    // a second list from a file (a template): Building
+    const works = { uid: newUid(), code: 'E01', name: 'Tiling', types: ['Exp' as const], active: 1 };
+    const file: MainList = { kind: 'magis-main-list', title: 'Building', home: 'elsewhere', version: 0, published_at: null, from: null, merged: [],
+      headings: [works], lines: ['Materials', 'Wages', 'Other'].map((n, i) => ({ uid: newUid(), heading_uid: works.uid, code: `E01.${i + 1}`, name: n, is_project_fund: 0, active: 1 })) };
+    const made = await homs.call('/api/main-list/new', { title: 'Building', from: 'file', list: file });
+    expect(made.status).toBe(200);
+    expect((await homs.call('/api/main-list/new', { title: 'building', from: 'empty' })).status).toBe(400); // the same name
+    expect((await homs.call('/api/main-list/publish', { id: made.body.id })).status).toBe(200);
+    const names = (await homs.call('/api/main-lists/names')).body.map((x: { title: string }) => x.title);
+    expect(names).toEqual(['Centres', 'Building']);
+    // a new database on the Building list: set up, it has every heading and line of it, switched on
+    const slug = (await one.call('/api/dbs/create', { organisation: 'Homs building', centre: 'homs', mainList: made.body.id }, '')).body.slug;
+    await one.call('/api/setup/new', { db: slug, organisation: 'Homs building', supName: 'Boss', supPin: 'boss-main-1', comName: 'Clerk', comPin: 'clerk-main-1' }, '');
+    const profiles = (await one.call(`/api/profiles?db=${slug}`, undefined, '')).body;
+    const ck = (await one.call('/api/login', { db: slug, profileId: profiles.find((p: { name: string }) => p.name === 'Boss').id, password: 'boss-main-1' }, '')).set!;
+    const L = (await one.call('/api/op/data', {}, ck)).body.lists;
+    expect(L.lines.filter((l: { in_main: number; active: number }) => l.in_main && l.active).map((l: { name: string }) => l.name).sort()).toEqual(['Materials', 'Other', 'Wages']);
+    const lists = (await homs.call('/api/main-lists')).body.lists as { id: string; centres: string[] }[];
+    expect(lists.find((l) => l.id === made.body.id)!.centres).toEqual(['Homs building']);
+    expect(lists.find((l) => l.id === 'centres')!.centres).toEqual(['MAGIS Homs']);
+    // it cannot take from the Centres list; publishing Centres does not touch it
+    const centresList = (await homs.call('/api/main-list')).body.list as MainList;
+    expect((await one.call('/api/op/main.take', { list: centresList, take: [centresList.lines[0].uid] }, ck)).status).toBe(400);
+    const pub = await homs.call('/api/main-list/publish', { id: 'centres' });
+    expect(pub.body.centres.map((c: { organisation: string }) => c.organisation)).toEqual(['MAGIS Homs']);
+    // its keeper asks the Building list for a line
+    const ask = await one.call('/api/main-list/request', { kind: 'line', name: 'Transport', heading_uid: works.uid, why: 'x' }, ck);
+    expect(ask.body.list_id).toBe(made.body.id);
+    expect((await homs.call(`/api/main-list/requests?id=${made.body.id}`)).body).toHaveLength(1);
+    expect((await homs.call('/api/main-list/requests?id=centres')).body).toHaveLength(0);
+  }, 120000);
 });

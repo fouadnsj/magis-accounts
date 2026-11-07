@@ -29,7 +29,7 @@ import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
 } from './io/keeperFiles';
 import { applySeed, readWorkbook, type ImportReport } from './io/importWorkbook';
-import { applyMainList, checkMainList, type MainList } from './io/mainList';
+import { applyMainList, checkMainList, followedList, listId, type MainList } from './io/mainList';
 import { applyCommonList, commonListState, exportCommonList, joinCommonList, joinWithMatching, parseCommonList, type CommonList } from './io/commonList';
 import { m, type Msg } from './i18n';
 import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
@@ -1845,6 +1845,10 @@ export const OPS = {
     check: (c: OpCtx) => need(c, 'lists.manage'),
     run: async (c: OpCtx, a: { list: MainList; take: string[] }) => {
       checkMainList(a.list);
+      // a database follows one list: another list's lines would mix two kinds of budget
+      const mine = await followedList(c.db);
+      if (mine !== listId(a.list) && (await c.db.query('SELECT 1 FROM heading WHERE in_main = 1 LIMIT 1')).length)
+        throw new UserError(m(`هذه القاعدة تتبع قائمة أخرى (${mine})`, `This database follows another list (${mine})`, `Cette base suit une autre liste (${mine})`));
       await c.files.backupNow('before-main-list');
       return applyMainList(c.db, a.list, c.who, { take: a.take });
     },

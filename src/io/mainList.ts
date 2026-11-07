@@ -5,7 +5,7 @@
 // A heading or a line is known everywhere by its uid; a merge is kept in the list, so that a centre several versions
 // behind still merges.
 import type { Db, Stmt } from '../db/db';
-import { auditStmt, setMetaStmt, UserError } from '../db/repo';
+import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { m } from '../i18n';
 import type { TrxType } from '../domain/types';
 
@@ -17,6 +17,10 @@ export interface MainMerge { kind: 'heading' | 'line'; from: string; into: strin
 
 export interface MainList {
   kind: typeof MAIN_LIST;
+  /** several lists on a server, one per kind of project (Fouad, 2026-11-07): Centres, Centres by activity 2027,
+   *  Building… Each database follows one of them. (Older files have none: they are the Centres list.) */
+  id?: string;
+  title?: string;
   /** the server that makes it (only there can it be changed) */
   home: string;
   /** 0 while it was never published; then 1, 2… */
@@ -36,6 +40,11 @@ export const PREFIX: Record<TrxType, string> = { Income: 'I', Exp: 'E', Transfer
 export const newUid = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
 
 /** The main list started from a database (Homs): its headings and lines, in the order of their codes. */
+export const CENTRES_LIST = 'centres';
+export const listId = (l: MainList) => l.id || CENTRES_LIST;
+/** the list a database follows (set when it is created, or when it first takes from a list) */
+export const followedList = async (db: Db) => (await getMeta(db, 'main_list')) || CENTRES_LIST;
+
 export async function mainListFromDb(db: Db, home: string, from: string | null): Promise<MainList> {
   const heads = await db.query<{ id: number; uid: string; code: string; name: string; active: number }>('SELECT id, uid, code, name, active FROM heading');
   const types = await db.query<{ heading_id: number; type: TrxType }>('SELECT heading_id, type FROM heading_type');
@@ -300,7 +309,7 @@ export async function applyMainList(db: Db, list: MainList, who: string, opts: {
     if (n !== l.name || c !== l.code) out.renamed++;
     if (Number(hid) !== l.heading_id) out.moved++;
   }
-  stmts.push(setMetaStmt('main_list_version', String(list.version)), auditStmt(who, 'main_list', 'heading', null, null, { home: list.home, version: list.version, ...out, took: opts.take?.length ?? 0 }));
+  stmts.push(setMetaStmt('main_list_version', String(list.version)), setMetaStmt('main_list', listId(list)), auditStmt(who, 'main_list', 'heading', null, null, { home: list.home, version: list.version, ...out, took: opts.take?.length ?? 0 }));
   await db.batch([{ sql: 'PRAGMA defer_foreign_keys = ON' }, ...stmts]);
   return out;
 }
@@ -312,6 +321,8 @@ export const MAIN_REQUESTS = 'magis-main-requests';
 
 export interface MainRequest {
   id: string;
+  /** the list it is asked of (older requests: the Centres list) */
+  list_id?: string;
   kind: 'heading' | 'line';
   name: string;
   /** a line: under this heading of the main list */

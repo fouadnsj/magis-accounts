@@ -34,7 +34,7 @@ export function Admin() {
     { value: 'access', label: t('الأدوار والصلاحيات', 'Roles and permissions'), hidden: !can('users.manage') },
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
-    { value: 'mainlist', label: t('القائمة الرئيسية', 'Main list'), hidden: !mainAdmin },
+    { value: 'mainlist', label: t('القوائم الرئيسية', 'Main lists'), hidden: !mainAdmin },
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
   ];
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);

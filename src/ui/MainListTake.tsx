@@ -47,7 +47,7 @@ export function MainListTake() {
   };
   return (
     <div className="panel" style={{ maxWidth: 900, marginBottom: 12, background: '#FBF7EE' }}>
-      <b>{t('القائمة الرئيسية للبنود والخطوط', 'The main list of headings and lines')}</b>{' '}
+      <b>{t('القائمة الرئيسية للبنود والخطوط', 'The main list of headings and lines')}{list?.title ? ` · ${list.title}` : ''}</b>{' '}
       <span className="muted small">
         {list ? `· ${t('على الخادم: النسخة', 'on the server: version')} ${list.version}${list.published_at ? `, ${fmtDate(list.published_at.slice(0, 10))}` : ''}` : s.mode === 'server' ? `· ${t('لم يُنشرها المدير بعد', 'the administrator has not published it yet')}` : ''}
         {mine ? ` · ${t('هذه القاعدة أخذت منها', 'this database took from it')}` : ''}

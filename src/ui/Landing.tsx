@@ -1,10 +1,10 @@
 // The welcome page, in the MAGIS design: warm off-white, a thin gold line,
 // the Jesuit mark and the MAGIS sun, and one card per database in its centre's colour.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
 import { getLang, m, tx } from '../i18n';
 import type { DbInfo, DirInfo } from '../net';
-import { serverCreateDb } from '../net';
+import { mainListApi, serverCreateDb } from '../net';
 import { paletteOf } from '../community/style';
 import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
 import { Field, errText, t } from './kit';
@@ -328,12 +328,18 @@ function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; o
   const [busy, setBusy] = useState(false);
   const [ctyKind, setCtyKind] = useState<'community' | 'country'>('community');
   const [isHr, setIsHr] = useState(false);
+  // the list of headings and lines it follows (Fouad, 2026-11-07), when the server has lists
+  const [lists, setLists] = useState<{ id: string; title: string }[]>([]);
+  const [mainList, setMainList] = useState<string | null>(null);
+  useEffect(() => {
+    if (!community) mainListApi.names().then((x) => { setLists(x); setMainList(x[0]?.id ?? null); }).catch(() => setLists([]));
+  }, [community]);
   const chosen = centre ?? (name ? guessCentre(name) : null);
   const go = async () => {
     setErr(null);
     setBusy(true);
     try {
-      const r = community ? await serverCreateDb(name, 'other', null, null, ctyKind) : isHr ? await serverCreateDb(name, 'other', null, null, 'hr') : chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
+      const r = community ? await serverCreateDb(name, 'other', null, null, ctyKind) : isHr ? await serverCreateDb(name, 'other', null, null, 'hr') : chosen === 'own' ? await serverCreateDb(name, 'other', color, logo, null, mainList) : await serverCreateDb(name, chosen ?? 'other', null, null, null, mainList);
       onCreated(r.slug);
     } catch (e) {
       setErr(errText(e));
@@ -381,7 +387,14 @@ function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; o
           <span>{t('شعار ولون خاصّان', 'Own logo & colour')}</span>
         </button>
       </div>
-      {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}</>}
+      {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}
+      {lists.length > 0 && (
+        <Field label={t('قائمة البنود والخطوط (تُؤخذ كلها، ثم يُوقف ما لا يُستعمل)', 'List of headings and lines (taken whole; then switch off what is not used)')}>
+          <select value={mainList ?? ''} onChange={(e) => setMainList(e.target.value || null)}>
+            {lists.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
+          </select>
+        </Field>
+      )}</>}
       <p className="muted small">{community
         ? tx(m('بعدها: العنوان والألوان والأشخاص.', 'Next: its address, colours and people.', 'Ensuite : adresse, couleurs et personnes.'))
         : t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>

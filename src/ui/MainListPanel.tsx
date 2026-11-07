@@ -4,8 +4,8 @@
 // their lines). The servers of the other cities take it as a file: there it is only read.
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../state';
-import { mainListApi, type MainListInfo, type MainResult } from '../net';
-import { checkMainList, inOrder, MAIN_REQUESTS, newUid, parseMainList, parseRequests, PREFIX, renumber, type MainHeading, type MainLine, type MainList, type MainRequest } from '../io/mainList';
+import { mainListApi, type ListSummary, type MainListInfo, type MainResult } from '../net';
+import { checkMainList, inOrder, listId, MAIN_REQUESTS, newUid, parseMainList, parseRequests, PREFIX, renumber, type MainHeading, type MainLine, type MainList, type MainRequest } from '../io/mainList';
 import type { TrxType } from '../domain/types';
 import { pickFile, saveFile } from '../platform';
 import { Modal, confirmBox, errText, fmtDate, promptBox, t, toast } from './kit';
@@ -27,7 +27,128 @@ let focus: string | null = null;
 export const wishMainList = (uid?: string | null) => { wish = true; focus = uid ?? null; };
 export const takeMainListWish = () => { const w = wish; wish = false; return w; };
 
+/**
+ * Admin → Main lists (Fouad, 2026-11-07): several lists, one per kind of project (Centres, Centres by activity 2027,
+ * Building…). Each database follows one of them (chosen when it is created). Pick a list to change it; ＋ New list
+ * starts one empty, as a copy of another, from a list file (a template), or from this database's list.
+ */
 export function MainListPanel() {
+  const { s, reload } = useApp();
+  const [lists, setLists] = useState<ListSummary[] | null>(null);
+  const [admin, setAdmin] = useState(false);
+  const [sel, setSel] = useState<string | null>(null);
+  const [making, setMaking] = useState(false);
+  const load = async (pick?: string) => {
+    try {
+      const x = await mainListApi.lists();
+      setAdmin(x.admin);
+      setLists(x.lists);
+      setSel((cur) => pick ?? cur ?? (x.lists.some((l) => l.id === x.mine) ? x.mine : x.lists[0]?.id ?? null));
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  useEffect(() => { void load(); }, [s]);
+  if (!lists) return <p className="muted">…</p>;
+  if (!admin) return <p className="muted">{t('القوائم الرئيسية للمدير فقط.', 'The main lists are for the administrator only.')}</p>;
+  const takeFile = async () => {
+    try {
+      const f = await pickFile(['json'], t('اختر ملف القائمة', 'Choose the list file'));
+      if (!f) return;
+      const list = parseMainList(new TextDecoder().decode(f.bytes));
+      if (!(await confirmBox(t(`تأخذ النسخة ${list.version} من «${list.title ?? list.from ?? ''}» من خادم آخر. كل قاعدة تتبعها هنا تُنسخ احتياطياً ثم تتبعها.`, `This takes version ${list.version} of "${list.title ?? list.from ?? ''}" from another server. Each database here following it is backed up, then follows it.`)))) return;
+      const r = await mainListApi.takeFile(list);
+      await load(listId(list));
+      await reload();
+      toast(`${t('أُخذت القائمة', 'The list was taken')} · ${results(r)}`);
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <div style={{ maxWidth: 980 }}>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <b>{t('القوائم:', 'Lists:')}</b>
+        {lists.map((l) => (
+          <button key={l.id} className={`chip ${sel === l.id ? 'on' : ''}`} onClick={() => setSel(l.id)} title={l.centres.join(', ')}>
+            {l.title}{l.version ? ` · v${l.version}` : ` · ${t('مسودة', 'draft')}`}{l.centres.length ? ` · ${l.centres.length} ${t('قاعدة', 'db')}` : ''}
+          </button>
+        ))}
+        <button className="btn small" onClick={() => setMaking(true)}>＋ {t('قائمة جديدة…', 'New list…')}</button>
+        <button className="btn small ghost" onClick={() => void takeFile()}>⬆ {t('خذ ملف قائمة من خادم آخر', 'Take a list file from another server')}</button>
+      </div>
+      {!lists.length && <p className="muted">{t('لا قائمة على هذا الخادم بعد. ابدأ الأولى (المراكز) من قائمة هذه القاعدة.', 'No list on this server yet. Start the first one (Centres) from the list of this database.')}</p>}
+      {sel && lists.some((l) => l.id === sel) && <OneList key={sel} id={sel} title={lists.find((l) => l.id === sel)!.title} centres={lists.find((l) => l.id === sel)!.centres} onChanged={() => void load()} />}
+      {making && <NewList lists={lists} first={!lists.length} onClose={() => setMaking(false)} onMade={(id) => { setMaking(false); void load(id); }} />}
+    </div>
+  );
+}
+
+/** ＋ New list: its name, and where it starts from. */
+function NewList({ lists, first, onClose, onMade }: { lists: ListSummary[]; first: boolean; onClose: () => void; onMade: (id: string) => void }) {
+  const { s } = useApp();
+  const [title, setTitle] = useState(first ? 'Centres' : '');
+  const [from, setFrom] = useState<'empty' | 'db' | 'list' | 'file'>(first ? 'db' : 'file');
+  const [source, setSource] = useState(lists[0]?.id ?? '');
+  const [file, setFile] = useState<MainList | null>(null);
+  const [busy, setBusy] = useState(false);
+  const make = async () => {
+    setBusy(true);
+    try {
+      const r = await mainListApi.newList({ title: title.trim(), from, source, list: file ?? undefined });
+      toast(t('بدأت مسودة القائمة الجديدة', 'The draft of the new list has started'));
+      onMade(r.id);
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const opt = (v: typeof from, label: string) => (
+    <label className="row" style={{ gap: 6 }}><input type="radio" checked={from === v} onChange={() => setFrom(v)} /> {label}</label>
+  );
+  return (
+    <Modal title={t('قائمة جديدة', 'A new list')} onClose={onClose} narrow>
+      <label className="small">{t('اسمها (مثلاً: المراكز حسب النشاط 2027، البناء، المزرعة)', 'Its name (e.g. Centres by activity 2027, Building, Farm)')}</label>
+      <input className="inp" autoFocus style={{ width: '100%', marginBottom: 10 }} value={title} onChange={(e) => setTitle(e.target.value)} />
+      <div style={{ display: 'grid', gap: 6 }}>
+        {opt('file', t('من ملف قائمة (نموذج)', 'From a list file (a template)'))}
+        {from === 'file' && (
+          <div style={{ paddingInlineStart: 24 }}>
+            <button className="btn small" onClick={() => void (async () => {
+              try {
+                const f = await pickFile(['json'], t('اختر ملف القائمة', 'Choose the list file'));
+                if (!f) return;
+                const l = parseMainList(new TextDecoder().decode(f.bytes));
+                setFile(l);
+                if (!title.trim() && l.title) setTitle(l.title);
+              } catch (e) {
+                toast(errText(e), true);
+              }
+            })()}>⬆ {t('اختر الملف…', 'Choose the file…')}</button>
+            {file && <span className="muted small"> {file.title ?? ''} · {file.headings.length} {t('بنداً', 'headings')}, {file.lines.length} {t('خطاً', 'lines')}</span>}
+          </div>
+        )}
+        {lists.length > 0 && opt('list', t('نسخة من قائمة أخرى', 'A copy of another list'))}
+        {from === 'list' && (
+          <select className="inp" style={{ marginInlineStart: 24 }} value={source} onChange={(e) => setSource(e.target.value)}>
+            {lists.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
+          </select>
+        )}
+        {opt('db', t(`قائمة هذه القاعدة («${s.organisation}»)`, `The list of this database ("${s.organisation}")`))}
+        {opt('empty', t('فارغة', 'Empty'))}
+      </div>
+      <p className="muted small">{t('تبدأ مسودة: رتّبها، ثم «انشر». عند إنشاء قاعدة جديدة تختار قائمتها.', 'It starts as a draft: arrange it, then "Publish". When you create a new database, you choose its list.')}</p>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={busy || !title.trim() || (from === 'file' && !file)} onClick={() => void make()}>{t('ابدأ', 'Start')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** One list: its draft, the requests asked of it, Renumber, Publish, its file. */
+function OneList({ id, title, centres, onChanged }: { id: string; title: string; centres: string[]; onChanged: () => void }) {
   const { s, reload } = useApp();
   const [info, setInfo] = useState<MainListInfo | null>(null);
   const [draft, setDraft] = useState<MainList | null>(null);
@@ -39,7 +160,7 @@ export function MainListPanel() {
 
   const load = async () => {
     try {
-      const x = await mainListApi.get();
+      const x = await mainListApi.get(id);
       setInfo(x);
       setDraft(x.draft ?? x.list);
     } catch (e) {
@@ -78,21 +199,11 @@ export function MainListPanel() {
       return;
     }
     setDraft(next);
-    mainListApi.saveDraft(next).catch((e) => { toast(errText(e), true); void load(); });
+    mainListApi.saveDraft(id, next).catch((e) => { toast(errText(e), true); void load(); });
   };
-  const takeFile = () => run(async () => {
-    const f = await pickFile(['json'], t('اختر ملف القائمة الرئيسية', 'Choose the main list file'));
-    if (!f) return null;
-    const list = parseMainList(new TextDecoder().decode(f.bytes));
-    if (!(await confirmBox(t(`تأخذ النسخة ${list.version} من القائمة الرئيسية (من ${list.from ?? ''}). كل مركز على هذا الخادم يتبعها، بعد نسخة احتياطية.`, `This takes version ${list.version} of the main list (from ${list.from ?? ''}). Every centre on this server follows it, after a backup.`)))) return null;
-    const r = await mainListApi.takeFile(list);
-    await load();
-    await reload();
-    return `${t('أُخذت القائمة الرئيسية', 'The main list was taken')} · ${results(r)}`;
-  });
   const saveAsFile = () => run(async () => {
     const pub = info!.list!;
-    const path = await saveFile(`main-list-v${pub.version}.json`, ['json'], new TextEncoder().encode(JSON.stringify(pub, null, 1)), t('احفظ القائمة الرئيسية', 'Save the main list'));
+    const path = await saveFile(`list-${id}-v${pub.version}.json`, ['json'], new TextEncoder().encode(JSON.stringify(pub, null, 1)), t('احفظ القائمة الرئيسية', 'Save the main list'));
     return path ? `${t('حُفظ', 'Saved')}: ${path}` : null;
   });
 
@@ -108,25 +219,7 @@ export function MainListPanel() {
     </ul>
   );
 
-  // nothing yet: start it from this database (Homs), or take the file of another server
-  if (!draft) {
-    return (
-      <div className="panel" style={{ maxWidth: 820 }}>
-        <h2 style={{ marginTop: 0 }}>{t('القائمة الرئيسية للبنود والخطوط', 'The main list of headings and lines')}</h2>
-        <p>{t('لا قائمة رئيسية على هذا الخادم بعد.', 'There is no main list on this server yet.')}</p>
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn primary" disabled={busy} onClick={() => void run(async () => {
-            if (!(await confirmBox(t(`تبدأ القائمة الرئيسية نسخةً من قائمة «${s.organisation}». تعمل عليها مسودة، ثم تنشرها.`, `The main list starts as a copy of the list of "${s.organisation}". You work on it as a draft, then publish it.`)))) return null;
-            await mainListApi.start();
-            await load();
-            return t('بدأت المسودة', 'The draft has started');
-          })}>{t(`ابدأها من قائمة «${s.organisation}»`, `Start it from the list of "${s.organisation}"`)}</button>
-          <button className="btn" disabled={busy} onClick={() => void takeFile()}>⬆ {t('خذ ملف قائمة رئيسية (من خادم آخر)', 'Take a main list file (from another server)')}</button>
-        </div>
-        {help}
-      </div>
-    );
-  }
+  if (!draft) return <p className="muted">…</p>;
 
   const pub = info.list;
   const readOnly = !info.editable;
@@ -244,14 +337,15 @@ export function MainListPanel() {
   const publish = () => run(async () => {
     if (!inOrder(draft) && (await confirmBox(t('الرموز ليست بترتيب القائمة. أعد الترقيم أولاً؟', 'The codes are not in the order of the list. Renumber first?')))) {
       change(renumber(draft));
-      await mainListApi.saveDraft(renumber(draft));
+      await mainListApi.saveDraft(id, renumber(draft));
     }
-    const p = await mainListApi.preview();
+    const p = await mainListApi.preview(id);
     const lines = p.centres.map((c) => `• ${c.organisation}: ${c.renamed} ${t('اسم أو رمز يتغير', 'names or codes change')}, ${c.moved} ${t('خط ينتقل', 'lines move')}, ${c.merged} ${t('دمج', 'merges')}, ${c.rows} ${t('قيداً ينتقل', 'rows move')}`);
     if (!(await confirmBox(`${t(`تُنشر النسخة ${(pub?.version ?? 0) + 1} على هذا الخادم. كل مركز يُنسخ احتياطياً أولاً، ثم يتبعها:`, `Version ${(pub?.version ?? 0) + 1} is published on this server. Each centre is backed up first, then follows it:`)}\n${lines.join('\n') || '—'}`))) return null;
-    const r = await mainListApi.publish();
+    const r = await mainListApi.publish(id);
     await load();
     await reload();
+    onChanged();
     return `${t(`نُشرت النسخة ${r.list.version}`, `Version ${r.list.version} published`)} · ${results(r)}`;
   });
 
@@ -276,12 +370,20 @@ export function MainListPanel() {
   return (
     <div style={{ maxWidth: 980 }}>
       <div className="panel" style={{ marginBottom: 12, background: '#FBF7EE' }}>
-        <b>{t('القائمة الرئيسية للبنود والخطوط', 'The main list of headings and lines')}</b>{' '}
+        <b>{title}</b>{' '}
+        {!readOnly && <button className="btn small ghost" title={t('أعد تسمية القائمة', 'Rename the list')} onClick={() => void run(async () => {
+          const n = (await promptBox(t('اسم القائمة', 'The name of the list'), title))?.trim();
+          if (!n || n === title) return null;
+          await mainListApi.rename(id, n);
+          onChanged();
+          return null;
+        })}>✎</button>}{' '}
         <span className="muted small">
           · {pub ? t(`منشورة: النسخة ${pub.version}، ${fmtDate(pub.published_at!.slice(0, 10))}`, `published: version ${pub.version}, ${fmtDate(pub.published_at!.slice(0, 10))}`) : t('لم تُنشر بعد', 'not published yet')}
           {pub?.from ? ` · ${t('بدأت من', 'started from')} ${pub.from}` : ''}
           {!readOnly && (changed ? ` · ${t('في المسودة تغييرات لم تُنشر', 'the draft has changes not yet published')}` : ` · ${t('المسودة مثل المنشورة', 'the draft is the same as the published list')}`)}
           {readOnly ? ` · ${t('من خادم آخر: تُقرأ هنا فقط', 'from another server: read only here')}` : ''}
+          {` · ${t('تتبعها', 'followed by')}: ${centres.join(', ') || t('لا قاعدة بعد', 'no database yet')}`}
         </span>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
           {!readOnly && <button className="btn" disabled={busy} onClick={() => void addHeading()}>＋ {t('بند', 'Heading')}</button>}
@@ -289,18 +391,17 @@ export function MainListPanel() {
           {!readOnly && <button className="btn primary" disabled={busy || !changed} onClick={() => void publish()}>{t('انشر على هذا الخادم', 'Publish to this server')}</button>}
           {!readOnly && pub && changed && <button className="btn ghost" disabled={busy} onClick={() => void run(async () => {
             if (!(await confirmBox(t('تُرمى تغييرات المسودة وتعود كالمنشورة.', 'The changes of the draft are thrown away; it becomes the published list again.'), true))) return null;
-            await mainListApi.discard();
+            await mainListApi.discard(id);
             await load();
             return null;
           })}>{t('ارمِ المسودة', 'Throw away the draft')}</button>}
           {pub && <button className="btn" disabled={busy} onClick={() => void saveAsFile()}>⬇ {t('احفظ المنشورة ملفاً (للخوادم الأخرى)', 'Save the published list as a file (for the other servers)')}</button>}
-          {readOnly && <button className="btn" disabled={busy} onClick={() => void takeFile()}>⬆ {t('خذ ملفاً أحدث', 'Take a newer file')}</button>}
           <label className="small" style={{ marginInlineStart: 'auto' }}><input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} /> {t('إظهار الموقوف', 'Show switched off')}</label>
         </div>
         {help}
       </div>
 
-      <Requests draft={draft} readOnly={readOnly} onDraft={setDraft} />
+      <Requests id={id} draft={draft} readOnly={readOnly} onDraft={setDraft} />
 
       {H.filter((h) => showOff || h.active).map((h, hi) => (
         <div key={h.uid} id={`ml-${h.uid}`} className="panel" style={{ marginBottom: 8, padding: '8px 12px', opacity: h.active ? 1 : 0.6, outline: over === h.uid ? '2px dashed var(--brand)' : mark === h.uid ? '2px solid var(--gold)' : undefined }} {...dragProps('heading', h.uid, h.uid)}>
@@ -391,11 +492,11 @@ function MoveOrMerge({ list, what, pickOnly, onClose, onMove, onMerge }: { list:
 }
 
 /** The centres' requests: Add (to the draft), Use this one instead, or Refuse. On another city's server, they are only gathered into a file for the administrator. */
-function Requests({ draft, readOnly, onDraft }: { draft: MainList; readOnly: boolean; onDraft: (x: MainList) => void }) {
+function Requests({ id, draft, readOnly, onDraft }: { id: string; draft: MainList; readOnly: boolean; onDraft: (x: MainList) => void }) {
   const [rows, setRows] = useState<MainRequest[]>([]);
   const [adding, setAdding] = useState<MainRequest | null>(null);
   const [pointing, setPointing] = useState<MainRequest | null>(null);
-  const load = () => mainListApi.requests().then(setRows).catch(() => setRows([]));
+  const load = () => mainListApi.requests(id).then(setRows).catch(() => setRows([]));
   useEffect(() => { void load(); }, []);
   const open = rows.filter((r) => r.status === 'open');
   const done = rows.filter((r) => r.status !== 'open').reverse();

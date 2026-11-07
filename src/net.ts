@@ -233,3 +233,10 @@ export const mainListApi = {
   answer: (a: { id: string; how: 'add' | 'same' | 'refuse'; name?: string; heading_uid?: string | null; uid?: string; note?: string }) => post<{ request: MainRequest; draft: MainList }>('/api/main-list/answer', a),
   importRequests: (requests: MainRequest[]) => post<{ added: number }>('/api/main-list/requests-import', { requests }),
 };
+
+// ---- The Province account (Fouad, 2026-11-07): the Coordinator's own book (grants in, exchange, sends to the centres).
+export interface ProvinceData { rows: import('./domain/types').Trx[]; comp: Record<string, import('./domain/types').Computed>; lists: import('./domain/types').Lists; closed: string[]; balance: { syp: number; usd: number }; bookId: number }
+export const provinceApi = {
+  get: () => get<ProvinceData>('/api/province'),
+  op: <T = unknown,>(name: 'trx.save' | 'trx.delete' | 'month.close' | 'month.reopen' | 'closing.problems', args: unknown) => post<T>(`/api/province/op/${name}`, args),
+};

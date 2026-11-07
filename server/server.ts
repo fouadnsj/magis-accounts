@@ -24,9 +24,10 @@ import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigrations } from '../src/db/db';
-import { auditStmt, blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
+import { addHeading, addLine, addNamed, auditStmt, blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
+import { ALL_PERMS } from '../src/perms';
 import { allCentresReport, exploreRows, type CentreInput, type ExploreRow } from '../src/domain/allCentres';
 import { computeAll } from '../src/domain/compute';
 import { addToList, applyMainList, CENTRES_LIST, checkMainList, followedList, listId, MAIN_LIST, mainListChanges, mainListFromDb, newUid, type MainChanges, type MainList, type MainRequest } from '../src/io/mainList';
@@ -491,10 +492,48 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     return c;
   };
 
+  // ---------------------------------------------------------------- the Province account (Fouad, 2026-11-07)
+  // The Coordinator's own book: the money of the grants arrives on the Province's account, is exchanged, and is sent to
+  // the centres. A database of its own, kept apart from the centres (in province/, never listed with them), opened
+  // only from the Coordinator.
+  let province: Centre | null = null;
+  const getProvince = async (): Promise<Centre> => {
+    if (province) return province;
+    const dir = path.join(dataDir, 'province');
+    const backupsDir = path.join(dir, 'backups');
+    fs.mkdirSync(backupsDir, { recursive: true });
+    const file = path.join(dir, 'magis.db');
+    const fresh = !fs.existsSync(file) || fs.statSync(file).size === 0;
+    const handle = openDb(file);
+    await migrate(handle.db);
+    const c = { slug: 'province', dir, file, backupsDir, handle, version: 1 } as Centre;
+    c.files = makeFiles(c);
+    if (fresh) {
+      const pin = () => randomBytes(12).toString('base64url');
+      await createOffice(handle.db, { organisation: 'Province account', supName: 'Coordinator', supPin: pin(), comName: 'Province', comPin: pin() });
+      const who = 'Coordinator (setup)';
+      await addHeading(handle.db, 'Income', ['Income'], who);
+      await addHeading(handle.db, 'Exchange', ['Exchange'], who);
+      const L = await loadLists(handle.db);
+      const inc = L.headings.find((h) => h.name === 'Income')!.id;
+      for (const n of ['Grant', 'Other']) await addLine(handle.db, inc, n, who);
+      await addLine(handle.db, L.headings.find((h) => h.name === 'Exchange')!.id, 'Currency exchange', who);
+      await addNamed(handle.db, 'city', 'Province', who);
+      await handle.db.batch([
+        setMetaStmt('kind', 'province'),
+        { sql: "UPDATE book SET name = 'Province account' WHERE is_main = 1" },
+        { sql: 'UPDATE book SET active = 0 WHERE is_main = 0' },
+      ]);
+      log('Province account created');
+    }
+    province = c;
+    return c;
+  };
+
   // ---------------------------------------------------------------- backups, every day, for every database
   const dailyBackup = async () => {
     const today = stamp().slice(0, 10);
-    for (const c of centres.values()) {
+    for (const c of [...centres.values(), ...(province ? [province] : [])]) {
       try {
         if (await setupNeeded(c)) continue;
         const all = await c.files.list();
@@ -1258,6 +1297,29 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const out = await applyAll(list);
         log(`Main list ${id} version ${list.version} taken from a file (by ${byName})`);
         return send(res, 200, { list, centres: out });
+      }
+    }
+    // ---- The Province account, for the Coordinator only: its rows, its balance, its months; and the operations allowed
+    // on it (the rows, the month closing). Nobody signs in to it: the Coordinator acts on it as its Superior.
+    if (url.startsWith('/api/province')) {
+      if (!allCentresAllowed()) throw new HttpError(403, { ar: 'للمنسّق فقط', en: 'For the Coordinator only' });
+      const p = await getProvince();
+      const byName = found?.[1].profile.name ?? dirPerson?.name ?? 'Coordinator';
+      const books = (await p.handle.db.query<{ id: number }>('SELECT id FROM book')).map((b) => b.id);
+      const ctx: OpCtx = { db: p.handle.db, profile: { id: 0, name: 'Coordinator', role: 'sup', book_id: null, active: 1, access_id: null, access_name: 'Coordinator', perms: ALL_PERMS, books }, who: `${byName} (Coordinator)`, install: 'office', files: p.files };
+      if (url === '/api/province' && method === 'GET') {
+        const d = (await runOp(ctx, 'data', {})) as DataPayload;
+        const main = d.lists.books.find((b) => b.is_main)!;
+        const balance = await runOp(ctx, 'bookMonth.balance', { bookId: main.id, ym: '9999-12' });
+        const comp = computeAll(d.rows, d.lists);
+        return send(res, 200, { rows: d.rows, comp: Object.fromEntries(comp), lists: d.lists, closed: d.closed, balance, bookId: main.id });
+      }
+      const pop = /^\/api\/province\/op\/([\w.]+)$/.exec(url)?.[1];
+      if (pop && method === 'POST') {
+        if (!['trx.save', 'trx.delete', 'month.close', 'month.reopen', 'closing.problems'].includes(pop)) throw new HttpError(400, { ar: 'غير مسموح', en: 'Not allowed' });
+        const result = await runOp(ctx, pop, await readBody(req));
+        p.version++;
+        return send(res, 200, result ?? { ok: true });
       }
     }
     // ---- All centres together (Fouad, 2026-11-01; /rows: their incomes and expenses for Explore): every centre database on this server (a copy of another centre's,

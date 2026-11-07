@@ -111,5 +111,11 @@ describe('server: the sign-in directory', () => {
     const file = fs.readFileSync(path.join(dir, 'directory.json'), 'utf8');
     expect(file).not.toContain('fouad-new-1');
     expect(file).not.toContain('salma-own-1');
+
+    // the Coordinator (the administrator) switches a database off and on without its Superior's password; others still need it
+    expect((await salma('/api/dbs/state', { db: 'aleppo', active: false })).status).toBe(403);
+    expect((await admin('/api/dbs/state', { db: 'aleppo', active: false })).status).toBe(200);
+    expect((await admin('/api/dbs/state', { db: 'aleppo', active: true })).status).toBe(200);
+    expect((await admin('/api/dbs/manage')).body.dbs.find((d: { slug: string }) => d.slug === 'homs').list).toBeNull(); // no list yet
   });
 });

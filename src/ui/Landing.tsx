@@ -9,6 +9,7 @@ import { paletteOf } from '../community/style';
 import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
 import { Field, errText, t } from './kit';
 import { ManageDbs } from './ManageDbs';
+import { Coordinator } from './Coordinator';
 import { DirAdmin, DirSetup } from './Directory';
 
 /** The MAGIS Charter, in its three languages (Reference/MAGIS-charter.md): shown on the welcome page. */
@@ -202,6 +203,10 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   const canCreate = canCreateAll || (area === 'cty' && !!canCreateCty);
   const shown = both && area ? dbs.filter((x) => (area === 'cty') === isCty(x)) : dbs;
   const choosing = both && area === null && (!signedIn || !!home) && !creating;
+  // the administrator: the Coordinator's space (the databases, the people), not a list of databases
+  if (dir?.person?.admin && area !== 'cty' && !creating)
+    return <Coordinator dbs={dbs} dir={dir} onOpen={onOpen} onCreated={onCreated} onChanged={async () => { await onDirChanged?.(); await onManaged?.(); }}
+      onSignOut={onDirSignOut ?? (() => undefined)} onCommunities={both ? () => setArea('cty') : undefined} signedIn={signedIn} onBackIn={onBackIn} />;
   // the communities are hidden behind their password (the server does not even name them)
   if (area === 'cty' && ctyLocked)
     return (
@@ -319,7 +324,7 @@ export function OwnBrand({ color, setColor, logo, setLogo }: { color: string; se
   );
 }
 
-function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; onCreated: (slug: string) => void; /** a community or country: no centre colours (they are chosen at setup) */ community?: boolean }) {
+export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; onCreated: (slug: string) => void; /** a community or country: no centre colours (they are chosen at setup) */ community?: boolean }) {
   const [name, setName] = useState('');
   const [centre, setCentre] = useState<CentreKey | 'own' | null>(null);
   const [color, setColor] = useState('#2E7D32');

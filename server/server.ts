@@ -586,7 +586,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
   /** Creating or setting up a database: on the server computer itself, or by someone who manages users. */
   const mayCreate = (req: http.IncomingMessage, found: [string, Session, Centre] | null) =>
-    isLocal(req) || (!!found && has(found[1].profile, 'users.manage'));
+    isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!dirPersonOf(req)?.admin;
 
   const send = (res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
@@ -707,7 +707,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const mayCreateCty = () => mayCreate(req, found) || (!!config.ctyGate && ctyOpen());
     // Managing the databases (Fouad, 29 October 2026): the window is for the server computer or someone who manages
     // users; every change also needs the PASSWORD of that database's Superior (a user who manages users there).
-    const mayManage = () => isLocal(req) || (!!found && has(found[1].profile, 'users.manage'));
+    // (the Coordinator — the directory's administrator — manages every database, Fouad 2026-11-07)
+    const mayManage = () => isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!dirPerson?.admin;
     const checkGate = async (password: string) => {
       const g = config.ctyGate;
       if (!g) return true;
@@ -767,7 +768,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!mayManage()) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
     };
     /** the password of a user who manages users in THAT database (its Superior) */
-    const needSuperior = async (c: Centre, password: unknown) => {
+    const needSuperior = async (c: Centre, password: unknown, coordinatorToo = false) => {
+      // switching a database off or deleting it: the Coordinator does not need each Superior's password
+      if (coordinatorToo && dirPerson?.admin) return `${dirPerson.name} (Coordinator)`;
       const f = failures.get(ip);
       if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
       for (const p of await listProfiles(c.handle.db)) {
@@ -792,7 +795,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const d = await describe(c);
         if (isCtyKind(d.kind) && !ctyOpen()) continue;
         const backups = await c.files.list();
-        list.push({ slug: c.slug, organisation: d.organisation, kind: d.kind, city: d.city, active: !off.has(c.slug), bytes: folderSize(c.dir), backups: backups.length, lastBackup: backups[0]?.name ?? null });
+        const followed = (d.kind ?? 'centre') === 'centre' ? await followedList(c.handle.db) : null;
+        list.push({ slug: c.slug, organisation: d.organisation, kind: d.kind, city: d.city, active: !off.has(c.slug), bytes: folderSize(c.dir), backups: backups.length, lastBackup: backups[0]?.name ?? null,
+          list: followed ? (readMainList(dataDir, followed, 'published') ?? readMainList(dataDir, followed, 'draft'))?.title ?? null : null });
       }
       const deleted = fs.existsSync(deletedDir)
         ? fs.readdirSync(deletedDir).filter((f) => fs.existsSync(path.join(deletedDir, f, 'magis.db'))).sort().reverse().map((folder) => {
@@ -813,7 +818,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const c = centres.get(String(body.db));
       if (!c) throw new HttpError(404, { ar: 'قاعدة البيانات غير موجودة', en: 'Database not found' });
       if (isCtyKind(await getMeta(c.handle.db, 'kind')) && !ctyOpen()) throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
-      const who = await needSuperior(c, body.password);
+      const who = await needSuperior(c, body.password, true);
       const off = new Set(config.inactive ?? []);
       if (body.active) off.delete(c.slug);
       else {
@@ -833,7 +838,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const d = await describe(c);
       if (isCtyKind(d.kind) && !ctyOpen()) throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
       if (String(body.name ?? '').trim() !== d.organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات كما هو للتأكيد', en: 'Type the name of the database exactly, to confirm' });
-      const who = await needSuperior(c, body.password);
+      const who = await needSuperior(c, body.password, true);
       // a last copy, then the WHOLE folder (database, backups, documents) moves to "deleted": nothing is erased
       try { await c.files.backupNow('before-delete'); } catch { /* the folder is kept anyway */ }
       c.handle.close();

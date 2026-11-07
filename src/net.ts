@@ -156,7 +156,7 @@ export const serverCtyGate = (password: string) => post<{ ok: true }>('/api/cty/
 export const serverSetup = <T,>(kind: 'new' | 'upload-db' | 'community' | 'country' | 'hr', body: Record<string, unknown>) => post<T>(`/api/setup/${kind}`, body);
 
 /** Managing the databases: all of them (also the switched-off ones) and the deleted ones kept in a folder. */
-export interface ManagedDb { slug: string; organisation: string; kind: string; city: string | null; active: boolean; bytes: number; backups: number; lastBackup: string | null }
+export interface ManagedDb { slug: string; organisation: string; kind: string; city: string | null; active: boolean; bytes: number; backups: number; lastBackup: string | null; /** the list of headings and lines it follows */ list?: string | null }
 export interface DeletedDb { folder: string; organisation: string; bytes: number }
 export const serverManageList = () => get<{ dbs: ManagedDb[]; deleted: DeletedDb[]; folder: string }>('/api/dbs/manage');
 export const serverDbState = (db: string, active: boolean, password: string) => post<{ ok: true }>('/api/dbs/state', { db, active, password });

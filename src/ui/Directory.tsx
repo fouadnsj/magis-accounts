@@ -142,7 +142,7 @@ export function DirMustChange({ name, onDone, onLogout }: { name: string; onDone
 const AUTO = 'auto';
 
 /** The administrator: who may sign in, and which databases each person may enter. */
-export function DirAdmin({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> }) {
+export function DirAdmin({ onClose, onChanged, inline }: { onClose: () => void; onChanged: () => Promise<void>; /** in the Coordinator's page instead of a window */ inline?: boolean }) {
   const [data, setData] = useState<{ people: DirPerson[]; enforced: boolean; dbs: DirDb[] } | null>(null);
   const [edit, setEdit] = useState<DirPerson | 'new' | null>(null);
   const load = useCallback(async () => {
@@ -156,8 +156,8 @@ export function DirAdmin({ onClose, onChanged }: { onClose: () => void; onChange
     void load();
   }, [load]);
   const dbName = (slug: string) => data?.dbs.find((d) => d.slug === slug)?.organisation ?? slug;
-  return (
-    <Modal title={t3('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès')} onClose={onClose}>
+  const body = (
+    <>
       {!data ? <p className="muted">…</p> : (
         <>
           <p className="muted small">{t3('لكل شخص اسم وكلمة سر واحدة، ويدخل فقط قواعد البيانات التي تعطيها له. في كل قاعدة تختار الحساب الذي يدخل به (الرئيس، المحاسب…).', 'Each person has one name and one password, and enters only the databases you give them. In each database you choose the account they enter as (Superior, Accountant…).', "Chaque personne a un nom et un mot de passe, et n'entre que dans les bases que vous lui donnez. Dans chaque base, vous choisissez le compte avec lequel elle entre (Supérieur, Comptable…).")}</p>
@@ -194,6 +194,12 @@ export function DirAdmin({ onClose, onChanged }: { onClose: () => void; onChange
         </>
       )}
       {edit && data && <EditPerson person={edit === 'new' ? null : edit} dbs={data.dbs} onCancel={() => setEdit(null)} onSaved={async () => { setEdit(null); await load(); await onChanged(); }} />}
+    </>
+  );
+  if (inline) return <div className="panel">{body}</div>;
+  return (
+    <Modal title={t3('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès')} onClose={onClose}>
+      {body}
       <div className="modal-foot"><button className="btn primary" onClick={onClose}>{t3('تم', 'Done', 'Terminé')}</button></div>
     </Modal>
   );

@@ -1,6 +1,6 @@
 // Lists → Budget (Fouad, 2026-11-03): a centre takes what it needs from the server's main list of headings and lines
 // (on the server), or from its file (a centre on its own computer). What it already has follows the list; what it
-// ticks comes in, switched on. Only the administrator changes the main list (Admin → Main list).
+// ticks comes in, switched on. Only the administrator changes the main list (Coordinator → Budget lists).
 import { useEffect, useState } from 'react';
 import { useApp } from '../state';
 import { mainListApi } from '../net';
@@ -19,7 +19,8 @@ export function useMainAdmin() {
   useEffect(() => {
     if (s.mode === 'server' && can('lists.manage')) mainListApi.get().then((x) => setAdmin(x.admin)).catch(() => setAdmin(false));
   }, [s]);
-  return { admin, open: (uid?: string | null) => { wishMainList(uid); nav.go('admin'); } };
+  // (the lists are changed in the Coordinator, not inside a centre)
+  return { admin: admin && !!nav.databases, open: (uid?: string | null) => { wishMainList(uid); nav.databases?.(); } };
 }
 
 const lower = (x: string) => x.trim().toLowerCase();
@@ -54,7 +55,7 @@ export function MainListTake() {
       </span>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
         {list && <button className="btn primary" onClick={() => setOpen(list)}>{t('خذ من القائمة الرئيسية…', 'Take from the main list…')}</button>}
-        {main.admin && <button className="btn" onClick={() => main.open()}>✎ {t('غيّر القائمة الرئيسية (الإدارة) →', 'Change the main list (Admin) →')}</button>}
+        {main.admin && <button className="btn" onClick={() => main.open()}>✎ {t('غيّر القائمة (المنسّق) →', 'Change the list (Coordinator) →')}</button>}
         {s.mode !== 'server' && <button className="btn" onClick={() => void fromFile()}>⬆ {t('خذ من ملف القائمة الرئيسية…', 'Take from a main list file…')}</button>}
         {!main.admin && (list || mine) && <button className="btn" onClick={() => setAsking(true)}>✉ {t('اطلب بنداً أو خطاً…', 'Ask for a heading or a line…')}</button>}
       </div>

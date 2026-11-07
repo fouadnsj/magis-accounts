@@ -44,6 +44,8 @@ interface Nav {
   reviewOnly: boolean;
   /** the register opens on this book (from a Home card) */
   bookOnly: number | null;
+  /** the list of databases — for the administrator, the Coordinator */
+  databases?: () => void;
 }
 const NavCtx = createContext<Nav | null>(null);
 export const useNav = () => useContext(NavCtx)!;
@@ -69,6 +71,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
     entry: openEntry,
     reviewOnly,
     bookOnly,
+    databases: onDatabases,
   };
   const toReview = d.rows.filter((r) => r.review).length;
 

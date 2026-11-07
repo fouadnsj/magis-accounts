@@ -117,5 +117,11 @@ describe('server: the sign-in directory', () => {
     expect((await admin('/api/dbs/state', { db: 'aleppo', active: false })).status).toBe(200);
     expect((await admin('/api/dbs/state', { db: 'aleppo', active: true })).status).toBe(200);
     expect((await admin('/api/dbs/manage')).body.dbs.find((d: { slug: string }) => d.slug === 'homs').list).toBeNull(); // no list yet
+    // the Coordinator's budget lists, without entering a database: a list from Homs's, published; Salma has no access
+    expect((await salma('/api/main-lists')).body).toMatchObject({ admin: false, lists: [] }); // (inside Homs as its Clerk: only Homs's own list)
+    expect((await admin('/api/main-lists')).body).toMatchObject({ admin: true, mine: null, lists: [] });
+    expect((await admin('/api/main-list/new', { title: 'Centres', from: 'db', source: 'homs' })).body.id).toBe('centres');
+    expect((await admin('/api/main-list/publish', { id: 'centres' })).status).toBe(200);
+    expect((await admin('/api/dbs/manage')).body.dbs.find((d: { slug: string }) => d.slug === 'homs').list).toBe('Centres');
   });
 });

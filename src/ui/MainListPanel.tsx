@@ -1,9 +1,8 @@
-// Admin → Main list (Fouad, 2026-11-03): the main list of headings and lines, kept on this server by the administrator.
+// Coordinator → Budget lists (Fouad, 2026-11-03; moved out of Homs, 2026-11-07): the main list of headings and lines, kept on this server by the administrator.
 // He changes a draft (drag a line or a heading, add, rename, switch off, merge); the codes do not change until
 // "Renumber"; "Publish to this server" then gives it to every centre here (each is backed up first, and its rows follow
 // their lines). The servers of the other cities take it as a file: there it is only read.
 import { useEffect, useRef, useState } from 'react';
-import { useApp } from '../state';
 import { mainListApi, type ListSummary, type MainListInfo, type MainResult } from '../net';
 import { checkMainList, inOrder, listId, MAIN_REQUESTS, newUid, parseMainList, parseRequests, PREFIX, renumber, type MainHeading, type MainLine, type MainList, type MainRequest } from '../io/mainList';
 import type { TrxType } from '../domain/types';
@@ -28,12 +27,16 @@ export const wishMainList = (uid?: string | null) => { wish = true; focus = uid 
 export const takeMainListWish = () => { const w = wish; wish = false; return w; };
 
 /**
- * Admin → Main lists (Fouad, 2026-11-07): several lists, one per kind of project (Centres, Centres by activity 2027,
+ * Coordinator → Budget lists (Fouad, 2026-11-07): several lists, one per kind of project (Centres, Centres by activity 2027,
  * Building…). Each database follows one of them (chosen when it is created). Pick a list to change it; ＋ New list
  * starts one empty, as a copy of another, from a list file (a template), or from this database's list.
  */
-export function MainListPanel() {
-  const { s, reload } = useApp();
+export function MainListPanel({ dbs, onReload }: {
+  /** the centres' databases on this server (a new list can start from one of their lists) */
+  dbs: { slug: string; organisation: string }[];
+  /** after a publish: what the screens show again */
+  onReload?: () => Promise<void>;
+}) {
   const [lists, setLists] = useState<ListSummary[] | null>(null);
   const [admin, setAdmin] = useState(false);
   const [sel, setSel] = useState<string | null>(null);
@@ -48,7 +51,7 @@ export function MainListPanel() {
       toast(errText(e), true);
     }
   };
-  useEffect(() => { void load(); }, [s]);
+  useEffect(() => { void load(); }, []);
   if (!lists) return <p className="muted">…</p>;
   if (!admin) return <p className="muted">{t('القوائم الرئيسية للمدير فقط.', 'The main lists are for the administrator only.')}</p>;
   const takeFile = async () => {
@@ -59,7 +62,7 @@ export function MainListPanel() {
       if (!(await confirmBox(t(`تأخذ النسخة ${list.version} من «${list.title ?? list.from ?? ''}» من خادم آخر. كل قاعدة تتبعها هنا تُنسخ احتياطياً ثم تتبعها.`, `This takes version ${list.version} of "${list.title ?? list.from ?? ''}" from another server. Each database here following it is backed up, then follows it.`)))) return;
       const r = await mainListApi.takeFile(list);
       await load(listId(list));
-      await reload();
+      await onReload?.();
       toast(`${t('أُخذت القائمة', 'The list was taken')} · ${results(r)}`);
     } catch (e) {
       toast(errText(e), true);
@@ -78,24 +81,24 @@ export function MainListPanel() {
         <button className="btn small ghost" onClick={() => void takeFile()}>⬆ {t('خذ ملف قائمة من خادم آخر', 'Take a list file from another server')}</button>
       </div>
       {!lists.length && <p className="muted">{t('لا قائمة على هذا الخادم بعد. ابدأ الأولى (المراكز) من قائمة هذه القاعدة.', 'No list on this server yet. Start the first one (Centres) from the list of this database.')}</p>}
-      {sel && lists.some((l) => l.id === sel) && <OneList key={sel} id={sel} title={lists.find((l) => l.id === sel)!.title} centres={lists.find((l) => l.id === sel)!.centres} onChanged={() => void load()} />}
-      {making && <NewList lists={lists} first={!lists.length} onClose={() => setMaking(false)} onMade={(id) => { setMaking(false); void load(id); }} />}
+      {sel && lists.some((l) => l.id === sel) && <OneList key={sel} id={sel} onReload={onReload} title={lists.find((l) => l.id === sel)!.title} centres={lists.find((l) => l.id === sel)!.centres} onChanged={() => void load()} />}
+      {making && <NewList lists={lists} dbs={dbs} first={!lists.length} onClose={() => setMaking(false)} onMade={(id) => { setMaking(false); void load(id); }} />}
     </div>
   );
 }
 
 /** ＋ New list: its name, and where it starts from. */
-function NewList({ lists, first, onClose, onMade }: { lists: ListSummary[]; first: boolean; onClose: () => void; onMade: (id: string) => void }) {
-  const { s } = useApp();
+function NewList({ lists, dbs, first, onClose, onMade }: { lists: ListSummary[]; dbs: { slug: string; organisation: string }[]; first: boolean; onClose: () => void; onMade: (id: string) => void }) {
   const [title, setTitle] = useState(first ? 'Centres' : '');
   const [from, setFrom] = useState<'empty' | 'db' | 'list' | 'file'>(first ? 'db' : 'file');
   const [source, setSource] = useState(lists[0]?.id ?? '');
+  const [dbSource, setDbSource] = useState(dbs.find((d) => /homs/i.test(d.organisation))?.slug ?? dbs[0]?.slug ?? '');
   const [file, setFile] = useState<MainList | null>(null);
   const [busy, setBusy] = useState(false);
   const make = async () => {
     setBusy(true);
     try {
-      const r = await mainListApi.newList({ title: title.trim(), from, source, list: file ?? undefined });
+      const r = await mainListApi.newList({ title: title.trim(), from, source: from === 'db' ? dbSource : source, list: file ?? undefined });
       toast(t('بدأت مسودة القائمة الجديدة', 'The draft of the new list has started'));
       onMade(r.id);
     } catch (e) {
@@ -135,7 +138,12 @@ function NewList({ lists, first, onClose, onMade }: { lists: ListSummary[]; firs
             {lists.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           </select>
         )}
-        {opt('db', t(`قائمة هذه القاعدة («${s.organisation}»)`, `The list of this database ("${s.organisation}")`))}
+        {dbs.length > 0 && opt('db', t('قائمة قاعدة مركز', "The list of a centre's database"))}
+        {from === 'db' && (
+          <select className="inp" style={{ marginInlineStart: 24 }} value={dbSource} onChange={(e) => setDbSource(e.target.value)}>
+            {dbs.map((d) => <option key={d.slug} value={d.slug}>{d.organisation}</option>)}
+          </select>
+        )}
         {opt('empty', t('فارغة', 'Empty'))}
       </div>
       <p className="muted small">{t('تبدأ مسودة: رتّبها، ثم «انشر». عند إنشاء قاعدة جديدة تختار قائمتها.', 'It starts as a draft: arrange it, then "Publish". When you create a new database, you choose its list.')}</p>
@@ -148,8 +156,7 @@ function NewList({ lists, first, onClose, onMade }: { lists: ListSummary[]; firs
 }
 
 /** One list: its draft, the requests asked of it, Renumber, Publish, its file. */
-function OneList({ id, title, centres, onChanged }: { id: string; title: string; centres: string[]; onChanged: () => void }) {
-  const { s, reload } = useApp();
+function OneList({ id, title, centres, onChanged, onReload }: { id: string; title: string; centres: string[]; onChanged: () => void; onReload?: () => Promise<void> }) {
   const [info, setInfo] = useState<MainListInfo | null>(null);
   const [draft, setDraft] = useState<MainList | null>(null);
   const [showOff, setShowOff] = useState(false);
@@ -167,7 +174,7 @@ function OneList({ id, title, centres, onChanged }: { id: string; title: string;
       toast(errText(e), true);
     }
   };
-  useEffect(() => { void load(); }, [s]);
+  useEffect(() => { void load(); }, []);
   // sent from Lists → Budget: that heading or line, in view and marked
   const [mark, setMark] = useState<string | null>(null);
   useEffect(() => {
@@ -344,7 +351,7 @@ function OneList({ id, title, centres, onChanged }: { id: string; title: string;
     if (!(await confirmBox(`${t(`تُنشر النسخة ${(pub?.version ?? 0) + 1} على هذا الخادم. كل مركز يُنسخ احتياطياً أولاً، ثم يتبعها:`, `Version ${(pub?.version ?? 0) + 1} is published on this server. Each centre is backed up first, then follows it:`)}\n${lines.join('\n') || '—'}`))) return null;
     const r = await mainListApi.publish(id);
     await load();
-    await reload();
+    await onReload?.();
     onChanged();
     return `${t(`نُشرت النسخة ${r.list.version}`, `Version ${r.list.version} published`)} · ${results(r)}`;
   });

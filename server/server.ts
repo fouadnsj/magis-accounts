@@ -1072,14 +1072,16 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!found && !mayCreate(req, found)) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       return send(res, 200, mainListIds(dataDir).filter((id) => readMainList(dataDir, id, 'published')).map((id) => ({ id, title: readMainList(dataDir, id, 'published')!.title })));
     }
+    // (the Coordinator reaches the lists without entering a database, Fouad 2026-11-07)
+    const mayLists = () => allCentresAllowed() || (!!found && has(found[1].profile, 'lists.manage'));
     if (url === '/api/main-lists' && method === 'GET') {
-      if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      return send(res, 200, { admin: allCentresAllowed(), mine: await followedList(found[2].handle.db), lists: allCentresAllowed() ? await listSummary() : [] });
+      if (!mayLists()) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      return send(res, 200, { admin: allCentresAllowed(), mine: found ? await followedList(found[2].handle.db) : null, lists: allCentresAllowed() ? await listSummary() : [] });
     }
     if (url === '/api/main-list') {
       if (method !== 'GET') throw new HttpError(405, { ar: 'غير مسموح', en: 'Not allowed' });
-      if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      const id = new URL(req.url ?? '/', 'http://x').searchParams.get('id') || (await followedList(found[2].handle.db));
+      if (!mayLists()) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const id = new URL(req.url ?? '/', 'http://x').searchParams.get('id') || (found ? await followedList(found[2].handle.db) : CENTRES_LIST);
       const admin = allCentresAllowed();
       return send(res, 200, { id, list: readMainList(dataDir, id, 'published'), draft: admin ? readMainList(dataDir, id, 'draft') : null, admin, editable: mainEditable(id), home: config.serverId });
     }
@@ -1107,15 +1109,16 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // the requests: the administrator sees those of a list; a database, its own
     if (url === '/api/main-list/requests' && method === 'GET') {
-      if (!found || !has(found[1].profile, 'lists.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (!mayLists()) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const all = readRequests(dataDir);
       const id = new URL(req.url ?? '/', 'http://x').searchParams.get('id');
       if (allCentresAllowed()) return send(res, 200, id ? all.filter((r) => (r.list_id || CENTRES_LIST) === id) : all);
-      return send(res, 200, all.filter((r) => r.centre === found[2].slug && r.server === config.serverId));
+      return send(res, 200, all.filter((r) => r.centre === found![2].slug && r.server === config.serverId));
     }
     if (url.startsWith('/api/main-list/') && method === 'POST') {
-      if (!found || !allCentresAllowed()) throw new HttpError(403, { ar: 'للمدير فقط', en: 'For the administrator only' });
-      const who = `${found[1].profile.name} (main list)`;
+      if (!allCentresAllowed()) throw new HttpError(403, { ar: 'للمدير فقط', en: 'For the administrator only' });
+      const byName = found?.[1].profile.name ?? dirPerson?.name ?? 'administrator';
+      const who = `${byName} (main list)`;
       const body = (await readBody(req)) as { id?: string; list?: MainList } & Record<string, unknown>;
       const id = String(body.id ?? (body.list ? listId(body.list) : '') ?? '') || CENTRES_LIST;
       const pub = readMainList(dataDir, id, 'published');
@@ -1179,8 +1182,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const empty: MainList = { kind: MAIN_LIST, home: config.serverId!, version: 0, published_at: null, from: null, headings: [], lines: [], merged: [] };
         let start: MainList = empty;
         if (b.from === 'db') {
-          if (((await getMeta(found[2].handle.db, 'kind')) ?? 'centre') !== 'centre') throw new HttpError(400, { ar: 'افتح قاعدة مركز', en: "Open a centre's database" });
-          start = await mainListFromDb(found[2].handle.db, config.serverId!, (await getMeta(found[2].handle.db, 'organisation')) ?? found[2].slug);
+          // the list of a centre's database (chosen in the Coordinator; or the one this session is in)
+          const src = (b.source ? centres.get(b.source) : null) ?? found?.[2];
+          if (!src || ((await getMeta(src.handle.db, 'kind')) ?? 'centre') !== 'centre') throw new HttpError(400, { ar: 'اختر قاعدة مركز', en: "Choose a centre's database" });
+          start = await mainListFromDb(src.handle.db, config.serverId!, (await getMeta(src.handle.db, 'organisation')) ?? src.slug);
         } else if (b.from === 'list') {
           const src = readMainList(dataDir, String(b.source ?? ''), 'draft') ?? readMainList(dataDir, String(b.source ?? ''), 'published');
           if (!src) throw new HttpError(400, { ar: 'القائمة غير موجودة', en: 'The list does not exist' });
@@ -1194,16 +1199,17 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         }
         const list = checkMainList({ ...start, id: nid, title });
         writeMainList(dataDir, nid, 'draft', list);
-        log(`Main list "${title}" (${nid}) started (by ${found[1].profile.name})`);
+        log(`Main list "${title}" (${nid}) started (by ${byName})`);
         return send(res, 200, { id: nid, draft: list });
       }
       if (url === '/api/main-list/start') {
         // (0.8.7: the first list, from this database)
+        if (!found) throw new HttpError(400, { ar: 'افتح قاعدة مركز', en: "Open a centre's database" });
         if (pub || draft) throw new HttpError(400, { ar: 'القائمة الرئيسية موجودة', en: 'The main list already exists' });
         if (((await getMeta(found[2].handle.db, 'kind')) ?? 'centre') !== 'centre') throw new HttpError(400, { ar: 'افتح قاعدة مركز', en: "Open a centre's database" });
         const list = { ...(await mainListFromDb(found[2].handle.db, config.serverId!, (await getMeta(found[2].handle.db, 'organisation')) ?? found[2].slug)), id, title: id === CENTRES_LIST ? 'Centres' : id };
         writeMainList(dataDir, id, 'draft', list);
-        log(`Main list ${id} started from ${found[2].slug} (by ${found[1].profile.name})`);
+        log(`Main list ${id} started from ${found[2].slug} (by ${byName})`);
         return send(res, 200, { draft: list });
       }
       if (url === '/api/main-list/draft') {
@@ -1236,7 +1242,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         writeMainList(dataDir, id, 'published', list);
         writeMainList(dataDir, id, 'draft', list);
         const out = await applyAll(list);
-        log(`Main list ${id} version ${list.version} published (by ${found[1].profile.name})`);
+        log(`Main list ${id} version ${list.version} published (by ${byName})`);
         return send(res, 200, { list, centres: out });
       }
       if (url === '/api/main-list/import') {
@@ -1250,7 +1256,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         writeMainList(dataDir, id, 'published', list);
         writeMainList(dataDir, id, 'draft', list);
         const out = await applyAll(list);
-        log(`Main list ${id} version ${list.version} taken from a file (by ${found[1].profile.name})`);
+        log(`Main list ${id} version ${list.version} taken from a file (by ${byName})`);
         return send(res, 200, { list, centres: out });
       }
     }

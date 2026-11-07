@@ -13,18 +13,16 @@ import { MonthReport } from './MonthReport';
 import { CompareModal } from './Compare';
 import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
-import { mainListApi, serverRestoreUpload } from '../net';
-import { MainListPanel, takeMainListWish } from './MainListPanel';
+import { serverRestoreUpload } from '../net';
 import { pickFile, toBase64 } from '../platform';
 import { notesOf } from './Cash';
 import { GuideLink } from '../guide/GuideView';
 import { Checks } from './Checks';
 
-type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'mainlist' | 'server';
+type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
 
 export function Admin() {
   const { s, can, myBooks } = useApp();
-  const [mainAdmin, setMainAdmin] = useState(false);
   const tabs: { value: Tab; label: string; hidden?: boolean }[] = [
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
     { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
@@ -34,20 +32,12 @@ export function Admin() {
     { value: 'access', label: t('الأدوار والصلاحيات', 'Roles and permissions'), hidden: !can('users.manage') },
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
-    { value: 'mainlist', label: t('القوائم الرئيسية', 'Main lists'), hidden: !mainAdmin },
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
   ];
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
-  // the main list of headings and lines: the administrator of the server only
-  useEffect(() => {
-    if (s.mode === 'server' && can('lists.manage')) mainListApi.get().then((x) => {
-      setMainAdmin(x.admin);
-      if (x.admin && takeMainListWish()) setTab('mainlist');
-    }).catch(() => setMainAdmin(false));
-  }, [s]);
   return (
     <>
-      <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' || tab === 'checks' ? 'months' : tab === 'mainlist' ? 'common' : 'admin'} /></h1></div>
+      <div className="page-head"><h1>{tabs.some((x) => !x.hidden && x.value !== 'users' && x.value !== 'months') ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' || tab === 'checks' ? 'months' : 'admin'} /></h1></div>
       {s.mode === 'desktop' && <p className="muted small ltr" style={{ textAlign: 'start' }}>{s.dbPath}</p>}
       <Tabs value={tab} onChange={setTab} tabs={tabs} />
       {tab === 'months' && <Months />}
@@ -58,7 +48,6 @@ export function Admin() {
       {tab === 'access' && can('users.manage') && <AccessProfiles />}
       {tab === 'look' && can('users.manage') && <Appearance />}
       {tab === 'audit' && can('audit.view') && <Audit />}
-      {tab === 'mainlist' && mainAdmin && <MainListPanel />}
       {tab === 'server' && s.mode === 'server' && <ServerTab />}
     </>
   );

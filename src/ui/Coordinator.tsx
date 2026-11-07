@@ -1,8 +1,8 @@
 // The Coordinator (Fouad, 2026-11-07): a space of its own for what the whole network shares, entered only by the
 // administrator ("Sign in as administrator" on the first page). It belongs to no database: Homs is one centre like the
 // others. The Coordinator sees and manages — the databases (new, with their list of headings and lines; switch off,
-// delete, put back), the people and their access — but never changes a centre's records: to do that he enters the
-// centre (as its Superior). Each centre keeps its autonomy.
+// delete, put back), the budget lists, the people and their access — but never changes a centre's records: to do that
+// he enters the centre (as its Superior). Each centre keeps its autonomy.
 import { useState } from 'react';
 import { m, tx } from '../i18n';
 import type { DbInfo, DirInfo } from '../net';
@@ -10,9 +10,10 @@ import { BrandFrame, CreateDb, DbCard } from './Landing';
 import { ManageDbs } from './ManageDbs';
 import { DirAdmin } from './Directory';
 import { Tabs } from './kit';
+import { MainListPanel, takeMainListWish } from './MainListPanel';
 
 const t3 = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
-type Sec = 'dbs' | 'people';
+type Sec = 'dbs' | 'people' | 'lists';
 
 export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut, onCommunities, signedIn, onBackIn }: {
   dbs: DbInfo[];
@@ -28,7 +29,8 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
   signedIn?: { name: string; db: string } | null;
   onBackIn?: () => void;
 }) {
-  const [sec, setSec] = useState<Sec>('dbs');
+  // sent from a centre's Lists → Budget ("Change it in the list"): open on the budget lists
+  const [sec, setSec] = useState<Sec>(() => (takeMainListWish() ? 'lists' : 'dbs'));
   const [creating, setCreating] = useState(false);
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   const centres = dbs.filter((x) => !isCty(x));
@@ -48,12 +50,13 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
         </span>
       </div>
       <p className="muted small" style={{ marginTop: 0 }}>
-        {t3('ما تشترك فيه الشبكة كلها: قواعد البيانات، والأشخاص وصلاحياتهم. المنسّق يرى ويدير، ولا يغيّر قيود مركز: لذلك يدخل المركز. كل مركز يبقى مستقلاً.',
-          'What the whole network shares: the databases, the people and their access. The Coordinator sees and manages, but never changes a centre\'s records: for that, enter the centre. Each centre keeps its autonomy.',
-          "Ce que tout le réseau partage : les bases, les personnes et leurs accès. Le Coordinateur voit et gère, mais ne change jamais les écritures d'un centre : pour cela, entrez dans le centre. Chaque centre garde son autonomie.")}
+        {t3('ما تشترك فيه الشبكة كلها: قواعد البيانات، وقوائم الموازنة، والأشخاص وصلاحياتهم. المنسّق يرى ويدير، ولا يغيّر قيود مركز: لذلك يدخل المركز. كل مركز يبقى مستقلاً.',
+          'What the whole network shares: the databases, the budget lists, the people and their access. The Coordinator sees and manages, but never changes a centre\'s records: for that, enter the centre. Each centre keeps its autonomy.',
+          "Ce que tout le réseau partage : les bases, les listes du budget, les personnes et leurs accès. Le Coordinateur voit et gère, mais ne change jamais les écritures d'un centre : pour cela, entrez dans le centre. Chaque centre garde son autonomie.")}
       </p>
       <Tabs value={sec} onChange={setSec} tabs={[
         { value: 'dbs', label: t3('قواعد البيانات', 'Databases', 'Bases de données') },
+        { value: 'lists', label: t3('قوائم الموازنة', 'Budget lists', 'Listes du budget') },
         { value: 'people', label: t3('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès') },
       ]} />
       {sec === 'dbs' && (
@@ -74,6 +77,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
           <ManageDbs inline coordinator onClose={() => undefined} onChanged={onChanged} />
         </>
       )}
+      {sec === 'lists' && <div style={{ marginTop: 12 }}><MainListPanel dbs={centres.filter((d) => !d.kind || d.kind === 'centre')} onReload={onChanged} /></div>}
       {sec === 'people' && <div style={{ marginTop: 12 }}><DirAdmin inline onClose={() => undefined} onChanged={onChanged} /></div>}
     </BrandFrame>
   );

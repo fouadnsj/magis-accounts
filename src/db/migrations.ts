@@ -1653,4 +1653,37 @@ ALTER TABLE heading ADD COLUMN in_main INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE budget_line ADD COLUMN in_main INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    n: 47,
+    name: "the Coordinator's grants on the Province account, and their split between the centres' projects",
+    sql: `
+-- (Fouad, 2026-11-07) Used only by the Province account: the Coordinator manages the grants entirely. The money of a
+-- grant arrives on the Province's account (its income rows carry grant_id), then is sent to the centres. Each part
+-- names a project in a centre's database (by its slug and the project's id there), with a sum or a percentage.
+CREATE TABLE net_grant (
+  id          TEXT PRIMARY KEY,
+  donor       TEXT NOT NULL,
+  reference   TEXT,
+  amount      REAL NOT NULL CHECK (amount > 0),
+  currency    TEXT NOT NULL CHECK (currency IN ('USD','EUR')),
+  start_date  TEXT,
+  end_date    TEXT,
+  closed      INTEGER NOT NULL DEFAULT 0,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT
+);
+CREATE TABLE net_grant_part (
+  id           INTEGER PRIMARY KEY,
+  grant_id     TEXT NOT NULL REFERENCES net_grant(id),
+  centre       TEXT NOT NULL,
+  centre_name  TEXT,
+  project_id   INTEGER,
+  project_name TEXT,
+  amount       REAL CHECK (amount IS NULL OR amount >= 0),
+  pct          REAL CHECK (pct IS NULL OR (pct >= 0 AND pct <= 100)),
+  sort         INTEGER NOT NULL DEFAULT 0
+);
+`,
+  },
 ];

@@ -3,6 +3,7 @@
 // to the centres. Its balance in USD and SYP, its rows, and its months, closed like a centre's.
 import { useEffect, useState } from 'react';
 import { provinceApi, type ProvinceData } from '../net';
+import type { NetGrantRow } from '../domain/netGrants';
 import { blankTrx } from '../db/repo';
 import type { Trx } from '../domain/types';
 import { Field, Modal, confirmBox, errText, fmtDate, fmtRate, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast, todayIso } from './kit';
@@ -12,9 +13,11 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 export function ProvinceBook() {
   const [d, setD] = useState<ProvinceData | null>(null);
   const [form, setForm] = useState<'in' | 'exchange' | null>(null);
+  const [grants, setGrants] = useState<NetGrantRow[]>([]);
   const load = async () => {
     try {
       setD(await provinceApi.get());
+      setGrants(await provinceApi.grants());
     } catch (e) {
       toast(errText(e), true);
     }
@@ -101,8 +104,8 @@ export function ProvinceBook() {
         </tbody>
       </table>
 
-      {form === 'in' && <MoneyIn lines={linesOf('Income')} onClose={() => setForm(null)} onSave={async (x) => {
-        await save({ ...blankTrx(), id: newId(), type: 'Income', date: x.date, book_id: d.bookId, city_id: L.cities[0]?.id ?? null, heading_id: heading('Income')!.id, line_id: x.line, explanation: x.explanation,
+      {form === 'in' && <MoneyIn lines={linesOf('Income')} grants={grants.filter((g) => !g.closed)} onClose={() => setForm(null)} onSave={async (x) => {
+        await save({ ...blankTrx(), id: newId(), type: 'Income', date: x.date, book_id: d.bookId, city_id: L.cities[0]?.id ?? null, heading_id: heading('Income')!.id, line_id: x.line, explanation: x.explanation, grant_id: x.grant,
           inc_usd: x.cur === 'USD' ? x.amount : 0, inc_syp: x.cur === 'SYP' ? x.amount : 0 });
         setForm(null);
       }} />}
@@ -116,7 +119,8 @@ export function ProvinceBook() {
   );
 }
 
-function MoneyIn({ lines, onClose, onSave }: { lines: { id: number; name: string }[]; onClose: () => void; onSave: (x: { date: string; cur: 'USD' | 'SYP'; amount: number; line: number; explanation: string }) => Promise<void> }) {
+function MoneyIn({ lines, grants, onClose, onSave }: { lines: { id: number; name: string }[]; grants: NetGrantRow[]; onClose: () => void; onSave: (x: { date: string; cur: 'USD' | 'SYP'; amount: number; line: number; explanation: string; grant: string | null }) => Promise<void> }) {
+  const [grant, setGrant] = useState<string>('');
   const [date, setDate] = useState(todayIso());
   const [cur, setCur] = useState<'USD' | 'SYP'>('USD');
   const [amount, setAmount] = useState('');
@@ -133,13 +137,23 @@ function MoneyIn({ lines, onClose, onSave }: { lines: { id: number; name: string
           <select value={cur} onChange={(e) => setCur(e.target.value as 'USD' | 'SYP')}><option>USD</option><option>SYP</option></select>
         </div>
       </Field>
+      <Field label={t('المنحة', 'Grant')}>
+        <select value={grant} onChange={(e) => {
+          setGrant(e.target.value);
+          const g = grants.find((x) => x.id === e.target.value);
+          if (g) { setExplanation(`${g.donor}${g.reference ? ` · ${g.reference}` : ''}`); setLine(lines.find((l) => l.name === 'Grant')?.id ?? line); }
+        }}>
+          <option value="">— {t('ليست منحة', 'not a grant')} —</option>
+          {grants.map((g) => <option key={g.id} value={g.id}>{g.donor}{g.reference ? ` · ${g.reference}` : ''}</option>)}
+        </select>
+      </Field>
       <Field label={t('ما هو', 'What it is')}><select value={line} onChange={(e) => setLine(Number(e.target.value))}>{lines.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></Field>
       <Field label={t('من أين؟ (المانح، المنحة…)', 'From where? (donor, grant…)')}><input value={explanation} onChange={(e) => setExplanation(e.target.value)} /></Field>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" disabled={busy || !(n > 0) || !explanation.trim() || !line} onClick={() => void (async () => {
           setBusy(true);
-          try { await onSave({ date, cur, amount: n, line, explanation: explanation.trim() }); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+          try { await onSave({ date, cur, amount: n, line, explanation: explanation.trim(), grant: grant || null }); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
         })()}>{t('سجّل', 'Record')}</button>
       </div>
     </Modal>

@@ -236,7 +236,13 @@ export const mainListApi = {
 
 // ---- The Province account (Fouad, 2026-11-07): the Coordinator's own book (grants in, exchange, sends to the centres).
 export interface ProvinceData { rows: import('./domain/types').Trx[]; comp: Record<string, import('./domain/types').Computed>; lists: import('./domain/types').Lists; closed: string[]; balance: { syp: number; usd: number }; bookId: number }
+export interface CentreProjects { slug: string; organisation: string; projects: { id: number; name: string; start_date: string | null; end_date: string | null; outside_budget: number; active: number }[] }
 export const provinceApi = {
   get: () => get<ProvinceData>('/api/province'),
+  grants: () => get<import('./domain/netGrants').NetGrantRow[]>('/api/province/grants'),
+  saveGrant: (g: Omit<import('./domain/netGrants').NetGrant, 'created_at' | 'created_by' | 'closed'> & { closed?: number }) => post<{ id: string }>('/api/province/grant', g),
+  deleteGrant: (id: string) => post<{ ok: true }>('/api/province/grant/delete', { id }),
+  projects: () => get<CentreProjects[]>('/api/province/projects'),
+  newProject: (a: { centre: string; name: string; start_date: string | null; end_date: string | null }) => post<{ id: number }>('/api/province/project', a),
   op: <T = unknown,>(name: 'trx.save' | 'trx.delete' | 'month.close' | 'month.reopen' | 'closing.problems', args: unknown) => post<T>(`/api/province/op/${name}`, args),
 };

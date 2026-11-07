@@ -12,9 +12,10 @@ import { DirAdmin } from './Directory';
 import { Tabs } from './kit';
 import { MainListPanel, takeMainListWish } from './MainListPanel';
 import { ProvinceBook } from './ProvinceBook';
+import { ProvinceGrants } from './ProvinceGrants';
 
 const t3 = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
-type Sec = 'dbs' | 'province' | 'people' | 'lists';
+type Sec = 'dbs' | 'grants' | 'province' | 'people' | 'lists';
 
 export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut, onCommunities, signedIn, onBackIn }: {
   dbs: DbInfo[];
@@ -57,6 +58,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       </p>
       <Tabs value={sec} onChange={setSec} tabs={[
         { value: 'dbs', label: t3('قواعد البيانات', 'Databases', 'Bases de données') },
+        { value: 'grants', label: t3('المنح', 'Grants', 'Subventions') },
         { value: 'province', label: t3('حساب الإقليم', 'Province account', 'Compte de la Province') },
         { value: 'lists', label: t3('قوائم الموازنة', 'Budget lists', 'Listes du budget') },
         { value: 'people', label: t3('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès') },
@@ -79,6 +81,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
           <ManageDbs inline coordinator onClose={() => undefined} onChanged={onChanged} />
         </>
       )}
+      {sec === 'grants' && <div style={{ marginTop: 12 }}><ProvinceGrants /></div>}
       {sec === 'province' && <div style={{ marginTop: 12 }}><ProvinceBook /></div>}
       {sec === 'lists' && <div style={{ marginTop: 12 }}><MainListPanel dbs={centres.filter((d) => !d.kind || d.kind === 'centre')} onReload={onChanged} /></div>}
       {sec === 'people' && <div style={{ marginTop: 12 }}><DirAdmin inline onClose={() => undefined} onChanged={onChanged} /></div>}

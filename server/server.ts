@@ -28,6 +28,7 @@ import { addHeading, addLine, addNamed, auditStmt, blankTrx, getMeta, loadLists,
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
 import { ALL_PERMS } from '../src/perms';
+import { deleteNetGrant, listNetGrants, saveNetGrant, type NetGrant } from '../src/domain/netGrants';
 import { allCentresReport, exploreRows, type CentreInput, type ExploreRow } from '../src/domain/allCentres';
 import { computeAll } from '../src/domain/compute';
 import { addToList, applyMainList, CENTRES_LIST, checkMainList, followedList, listId, MAIN_LIST, mainListChanges, mainListFromDb, newUid, type MainChanges, type MainList, type MainRequest } from '../src/io/mainList';
@@ -1313,6 +1314,55 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const balance = await runOp(ctx, 'bookMonth.balance', { bookId: main.id, ym: '9999-12' });
         const comp = computeAll(d.rows, d.lists);
         return send(res, 200, { rows: d.rows, comp: Object.fromEntries(comp), lists: d.lists, closed: d.closed, balance, bookId: main.id });
+      }
+      // the Coordinator's grants: their split between the centres' projects, and what arrived
+      if (url === '/api/province/grants' && method === 'GET') return send(res, 200, await listNetGrants(p.handle.db));
+      if (url === '/api/province/grant' && method === 'POST') {
+        const g = (await readBody(req)) as NetGrant;
+        if (!g.id) g.id = newUid();
+        // each part's centre and project are checked, and their names kept (for the report and the files)
+        for (const part of g.parts ?? []) {
+          const c = centres.get(part.centre);
+          if (!c || ((await getMeta(c.handle.db, 'kind')) ?? 'centre') !== 'centre') throw new HttpError(400, { ar: 'المركز غير موجود', en: 'Centre not found' });
+          part.centre_name = (await getMeta(c.handle.db, 'organisation')) ?? c.slug;
+          if (part.project_id != null) {
+            const pr = (await c.handle.db.query<{ name: string }>('SELECT name FROM account WHERE id = ?', [part.project_id]))[0];
+            if (!pr) throw new HttpError(400, { ar: 'المشروع غير موجود', en: 'Project not found' });
+            part.project_name = pr.name;
+          }
+        }
+        await saveNetGrant(p.handle.db, g, ctx.who, new Date().toISOString());
+        p.version++;
+        return send(res, 200, { id: g.id });
+      }
+      if (url === '/api/province/grant/delete' && method === 'POST') {
+        await deleteNetGrant(p.handle.db, String(((await readBody(req)) as { id?: string }).id ?? ''), ctx.who);
+        return send(res, 200, { ok: true });
+      }
+      // the projects of every centre on this server (to split a grant between them); a new one in a centre
+      if (url === '/api/province/projects' && method === 'GET') {
+        const out = [];
+        for (const x of centres.values()) {
+          if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre' || (await setupNeeded(x))) continue;
+          const projects = await x.handle.db.query<{ id: number; name: string; start_date: string | null; end_date: string | null; outside_budget: number; active: number }>(
+            'SELECT id, name, start_date, end_date, outside_budget, active FROM account ORDER BY sort, name');
+          out.push({ slug: x.slug, organisation: (await getMeta(x.handle.db, 'organisation')) ?? x.slug, projects });
+        }
+        return send(res, 200, out);
+      }
+      if (url === '/api/province/project' && method === 'POST') {
+        const b = (await readBody(req)) as { centre?: string; name?: string; start_date?: string | null; end_date?: string | null };
+        const c = centres.get(String(b.centre ?? ''));
+        if (!c) throw new HttpError(404, { ar: 'المركز غير موجود', en: 'Centre not found' });
+        const books = (await c.handle.db.query<{ id: number }>('SELECT id FROM book')).map((x) => x.id);
+        const cctx: OpCtx = { db: c.handle.db, profile: { ...ctx.profile, books }, who: ctx.who, install: 'office', files: c.files };
+        const name = String(b.name ?? '').trim();
+        await runOp(cctx, 'list.add', { table: 'account', name });
+        const id = (await c.handle.db.query<{ id: number }>('SELECT id FROM account WHERE name = ?', [name]))[0].id;
+        if (b.start_date || b.end_date) await runOp(cctx, 'account.setDates', { id, start_date: b.start_date ?? null, end_date: b.end_date ?? null });
+        c.version++;
+        log(`Coordinator: project "${name}" made in ${c.slug} (by ${byName})`);
+        return send(res, 200, { id });
       }
       const pop = /^\/api\/province\/op\/([\w.]+)$/.exec(url)?.[1];
       if (pop && method === 'POST') {

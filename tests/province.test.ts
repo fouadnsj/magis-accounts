@@ -55,4 +55,31 @@ describe('the Province account', () => {
     expect((await admin('/api/dbs/manage')).body.dbs.map((d: { slug: string }) => d.slug)).toEqual([made.body.slug]);
     expect(fs.existsSync(path.join(dir, 'province', 'magis.db'))).toBe(true);
   });
+
+  it("grants: a split between the centres' projects (a sum or a %), the money in linked to it", async () => {
+    const admin = browser();
+    expect((await admin('/api/dir/login', { name: 'Fouad', password: 'fouad-pass-1' })).status).toBe(200);
+    const slug = (await admin('/api/hello')).body.dbs[0].slug;
+    // a project made in Homs by the Coordinator
+    const pr = await admin('/api/province/project', { centre: slug, name: 'SEN Library', start_date: '2027-01-01', end_date: '2028-12-31' });
+    expect(pr.status).toBe(200);
+    const projects = (await admin('/api/province/projects')).body;
+    expect(projects[0].projects.find((x: { id: number }) => x.id === pr.body.id)).toMatchObject({ name: 'SEN Library', start_date: '2027-01-01' });
+    const g = { id: 'sen-2027', donor: 'SEN', reference: 'SEN-2027', amount: 100000, currency: 'EUR', start_date: '2027-01-01', end_date: '2028-12-31', note: null,
+      parts: [{ centre: slug, centre_name: null, project_id: pr.body.id, project_name: null, amount: null, pct: 60 }] };
+    expect((await admin('/api/province/grant', { ...g, parts: [{ ...g.parts[0], pct: 120 }] })).status).toBe(400); // more than the grant
+    expect((await admin('/api/province/grant', g)).status).toBe(200);
+    let list = (await admin('/api/province/grants')).body;
+    expect(list[0]).toMatchObject({ donor: 'SEN', received_usd: 0, parts: [{ centre_name: 'Homs', project_name: 'SEN Library', pct: 60 }] });
+    // its money arrives on the Province's account
+    const p = (await admin('/api/province')).body;
+    const head = p.lists.headings.find((h: { name: string }) => h.name === 'Income');
+    const line = p.lists.lines.find((l: { heading_id: number; name: string }) => l.heading_id === head.id && l.name === 'Grant');
+    const row = { ...blankTrx(), id: 'sen-in', book_id: p.bookId, city_id: p.lists.cities[0].id, date: '2026-12-15', type: 'Income', heading_id: head.id, line_id: line.id, inc_usd: 50000, explanation: 'SEN-2027', grant_id: 'sen-2027' };
+    expect((await admin('/api/province/op/trx.save', { rows: [row] })).status).toBe(200);
+    list = (await admin('/api/province/grants')).body;
+    expect(list[0].received_usd).toBe(50000);
+    expect((await admin('/api/province/grant/delete', { id: 'sen-2027' })).status).toBe(400); // money arrived: it is closed, not deleted
+    expect((await browser()('/api/province/grants')).status).toBe(403);
+  });
 });

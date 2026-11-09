@@ -23,7 +23,7 @@ interface Choice {
 
 const red = (v: number) => (v < 0 ? 'bad' : '');
 
-export function BudgetPrint({ lines, onClose }: { lines: BuildingBudgetLine[]; onClose: () => void }) {
+export function BudgetPrint({ lines, order, onClose }: { lines: BuildingBudgetLine[]; order: string[]; onClose: () => void }) {
   const { s, d } = useApp();
   const [c, setC] = useState<Choice>(() => ({
     general: true, detailCols: false, estimateCols: true, kinds: false, items: true, postponed: true, expenses: false, newPage: false, landscape: false,
@@ -41,6 +41,24 @@ export function BudgetPrint({ lines, onClose }: { lines: BuildingBudgetLine[]; o
   const kindOf = useMemo(() => new Map(d.lists.lines.map((l) => [l.id, l.name])), [d.lists.lines]);
   const party = useMemo(() => new Map(d.lists.parties.map((p) => [p.id, p.name])), [d.lists.parties]);
   const sum = (f: (l: BuildingBudgetLine) => number) => chosen.reduce((a, l) => a + f(l), 0);
+  // the general table's columns, in the order chosen on the Budget page, as the choices allow
+  type PCol = { label: string; n?: boolean; cell: (l: BuildingBudgetLine) => React.ReactNode; total: () => React.ReactNode; bad?: (l: BuildingBudgetLine) => string; totalBad?: () => string };
+  const usedOf = (l: BuildingBudgetLine) => (c.estimateCols ? l.expected : l.total);
+  const PCOLS: Record<string, PCol> = {
+    code: { label: t('الرمز', 'Code'), cell: (l) => l.heading.code, total: () => '' },
+    heading: { label: t('البند', 'Heading'), cell: (l) => l.heading.name, total: () => <b>{t('المجموع', 'Total')}</b> },
+    budget: { label: t('الموازنة', 'Budget'), n: true, cell: (l) => (l.budget ? fmtUsd(l.budget) : '—'), total: () => fmtUsd(sum((l) => l.budget)) },
+    usd: { label: t('مدفوع بالدولار', 'Paid in USD'), n: true, cell: (l) => fmtUsd(l.usd), total: () => fmtUsd(sum((l) => l.usd)) },
+    conv: { label: t('الليرة بالدولار', 'SYP in USD'), n: true, cell: (l) => fmtUsd(l.conv), total: () => fmtUsd(sum((l) => l.conv)) },
+    total: { label: t('المصروف', 'Spent'), n: true, cell: (l) => <b>{fmtUsd(l.total)}</b>, total: () => fmtUsd(sum((l) => l.total)) },
+    rest: { label: t('الباقي', 'Left'), n: true, cell: (l) => (l.budget ? fmtUsd(l.rest) : '—'), bad: (l) => red(l.rest), total: () => fmtUsd(sum((l) => l.budget - l.total)), totalBad: () => red(sum((l) => l.budget - l.total)) },
+    still: { label: t('المتبقي صرفه', 'Still to spend'), n: true, cell: (l) => fmtUsd(l.still), total: () => fmtUsd(sum((l) => l.still)) },
+    expected: { label: t('المتوقع كلياً', 'Expected total'), n: true, cell: (l) => <b>{fmtUsd(l.expected)}</b>, total: () => fmtUsd(sum((l) => l.expected)) },
+    expectedLeft: { label: t('الباقي المتوقع', 'Expected left'), n: true, cell: (l) => (l.budget ? fmtUsd(l.expectedLeft) : '—'), bad: (l) => red(l.expectedLeft), total: () => fmtUsd(sum((l) => l.budget - l.expected)), totalBad: () => red(sum((l) => l.budget - l.expected)) },
+    used: { label: c.estimateCols ? t('المستعمل المتوقع', 'Expected used') : t('المستعمل', 'Used'), n: true, cell: (l) => (l.budget ? fmtPct(usedOf(l) / l.budget) : ''), total: () => (sum((l) => l.budget) ? fmtPct(sum(usedOf) / sum((l) => l.budget)) : '') },
+  };
+  const shown = order.filter((k) => PCOLS[k] && (c.detailCols || !['usd', 'conv'].includes(k)) && (c.estimateCols || !['still', 'expected', 'expectedLeft'].includes(k)));
+
   const box = (k: keyof Choice, label: string, disabled = false) => (
     <label className="row small" style={{ opacity: disabled ? 0.5 : 1 }}>
       <input type="checkbox" disabled={disabled} checked={c[k] as boolean} onChange={(e) => set(k, e.target.checked as never)} /> {label}
@@ -100,40 +118,13 @@ export function BudgetPrint({ lines, onClose }: { lines: BuildingBudgetLine[]; o
         {c.general && chosen.length > 0 && (
           <table className="t rep">
             <thead>
-              <tr>
-                <th>{t('الرمز', 'Code')}</th><th>{t('البند', 'Heading')}</th><th className="n">{t('الموازنة', 'Budget')}</th>
-                {c.detailCols && <><th className="n">{t('مدفوع بالدولار', 'Paid in USD')}</th><th className="n">{t('الليرة بالدولار', 'SYP in USD')}</th></>}
-                <th className="n">{t('المصروف', 'Spent')}</th><th className="n">{t('الباقي', 'Left')}</th>
-                {c.estimateCols && <><th className="n">{t('المتبقي صرفه', 'Still to spend')}</th><th className="n">{t('المتوقع كلياً', 'Expected total')}</th><th className="n">{t('الباقي المتوقع', 'Expected left')}</th></>}
-                <th className="n">{c.estimateCols ? t('المستعمل المتوقع', 'Expected used') : t('المستعمل', 'Used')}</th>
-              </tr>
+              <tr>{shown.map((k) => <th key={k} className={PCOLS[k].n ? 'n' : undefined}>{PCOLS[k].label}</th>)}</tr>
             </thead>
             <tbody>
-              {chosen.map((l) => {
-                const used = c.estimateCols ? l.expected : l.total;
-                return (
-                  <tr key={l.heading.id}>
-                    <td>{l.heading.code}</td><td>{l.heading.name}</td><td className="n">{l.budget ? fmtUsd(l.budget) : '—'}</td>
-                    {c.detailCols && <><td className="n">{fmtUsd(l.usd)}</td><td className="n">{fmtUsd(l.conv)}</td></>}
-                    <td className="n"><b>{fmtUsd(l.total)}</b></td><td className={`n ${red(l.rest)}`}>{l.budget ? fmtUsd(l.rest) : '—'}</td>
-                    {c.estimateCols && <>
-                      <td className="n">{fmtUsd(l.still)}</td><td className="n"><b>{fmtUsd(l.expected)}</b></td>
-                      <td className={`n ${red(l.expectedLeft)}`}>{l.budget ? fmtUsd(l.expectedLeft) : '—'}</td>
-                    </>}
-                    <td className="n">{l.budget ? fmtPct(used / l.budget) : ''}</td>
-                  </tr>
-                );
-              })}
-              <tr className="total">
-                <td /><td><b>{t('المجموع', 'Total')}</b></td><td className="n">{fmtUsd(sum((l) => l.budget))}</td>
-                {c.detailCols && <><td className="n">{fmtUsd(sum((l) => l.usd))}</td><td className="n">{fmtUsd(sum((l) => l.conv))}</td></>}
-                <td className="n">{fmtUsd(sum((l) => l.total))}</td><td className={`n ${red(sum((l) => l.budget - l.total))}`}>{fmtUsd(sum((l) => l.budget - l.total))}</td>
-                {c.estimateCols && <>
-                  <td className="n">{fmtUsd(sum((l) => l.still))}</td><td className="n">{fmtUsd(sum((l) => l.expected))}</td>
-                  <td className={`n ${red(sum((l) => l.budget - l.expected))}`}>{fmtUsd(sum((l) => l.budget - l.expected))}</td>
-                </>}
-                <td className="n">{sum((l) => l.budget) ? fmtPct(sum((l) => (c.estimateCols ? l.expected : l.total)) / sum((l) => l.budget)) : ''}</td>
-              </tr>
+              {chosen.map((l) => (
+                <tr key={l.heading.id}>{shown.map((k) => <td key={k} className={`${PCOLS[k].n ? 'n ' : ''}${PCOLS[k].bad?.(l) ?? ''}`}>{PCOLS[k].cell(l)}</td>)}</tr>
+              ))}
+              <tr className="total">{shown.map((k) => <td key={k} className={`${PCOLS[k].n ? 'n ' : ''}${PCOLS[k].totalBad?.() ?? ''}`}>{PCOLS[k].total()}</td>)}</tr>
             </tbody>
           </table>
         )}

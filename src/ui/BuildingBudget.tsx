@@ -10,6 +10,7 @@ import type { EstimateItem } from '../domain/types';
 import { exportBuildingBudget, readEstimates } from '../io/budgetExport';
 import { pickFile, saveFile } from '../platform';
 import { BudgetPrint } from './BudgetPrint';
+import { useColumnOrder } from './columnOrder';
 import { confirmBox, errText, fmtPct, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 
 /** the colour of what is used: under 75 % calm, to 90 % watch, to 100 % close, beyond: over */
@@ -27,6 +28,36 @@ export function BuildingBudget() {
   const budget = sum((x) => x.budget);
   const total = sum((x) => x.total);
   const expected = sum((x) => x.expected);
+
+  // the columns: what each shows on a heading's row and on the total row; their order is the person's (dragged with the mouse)
+  type Col = { label: string; n?: boolean; minWidth?: number; cell: (l: (typeof lines)[number], isOpen: boolean) => React.ReactNode; total?: () => React.ReactNode; red?: (l: (typeof lines)[number]) => React.CSSProperties | undefined; totalRed?: () => React.CSSProperties | undefined };
+  const COLS: [string, Col][] = [
+    ['code', { label: t('الرمز', 'Code'), cell: (l) => l.heading.code }],
+    ['heading', { label: t('البند', 'Heading'), cell: (l, o) => <>{o ? '▾ ' : '▸ '}{l.heading.name}</>, total: () => t('المجموع', 'Total') }],
+    ['budget', { label: t('الموازنة', 'Budget'), n: true, cell: (l) => (l.budget ? fmtUsd(l.budget) : '—'), total: () => fmtUsd(budget) }],
+    ['usd', { label: t('مدفوع بالدولار', 'Paid in USD'), n: true, cell: (l) => fmtUsd(l.usd), total: () => fmtUsd(sum((x) => x.usd)) }],
+    ['conv', { label: t('الليرة بالدولار', 'SYP in USD'), n: true, cell: (l) => fmtUsd(l.conv), total: () => fmtUsd(sum((x) => x.conv)) }],
+    ['total', { label: t('المصروف', 'Spent'), n: true, cell: (l) => <b>{fmtUsd(l.total)}</b>, total: () => fmtUsd(total) }],
+    ['rest', { label: t('الباقي', 'Left'), n: true, cell: (l) => (l.budget ? fmtUsd(l.rest) : '—'), red: (l) => red(l.rest), total: () => fmtUsd(budget - total), totalRed: () => red(budget - total) }],
+    ['still', { label: t('المتبقي صرفه (تقدير)', 'Still to spend (estimate)'), n: true,
+      cell: (l) => <>{l.still ? fmtUsd(l.still) : '—'}{l.postponed ? <span className="muted small"> (+{fmtUsd(l.postponed)} {t('مؤجل', 'postponed')})</span> : null}</>,
+      total: () => <>{fmtUsd(sum((x) => x.still))}{sum((x) => x.postponed) ? <span className="muted small"> (+{fmtUsd(sum((x) => x.postponed))})</span> : null}</> }],
+    ['expected', { label: t('المتوقع كلياً', 'Expected total'), n: true, cell: (l) => <b>{fmtUsd(l.expected)}</b>, total: () => fmtUsd(expected) }],
+    ['expectedLeft', { label: t('الباقي المتوقع', 'Expected left'), n: true, cell: (l) => (l.budget ? fmtUsd(l.expectedLeft) : '—'), red: (l) => red(l.expectedLeft), total: () => fmtUsd(budget - expected), totalRed: () => red(budget - expected) }],
+    ['used', { label: t('المستعمل المتوقع', 'Expected used'), minWidth: 150, total: () => (budget ? fmtPct(expected / budget) : ''),
+      cell: (l) => {
+        const p = l.budget ? l.expected / l.budget : l.expected ? Infinity : 0;
+        return l.budget ? (
+          <div className="bar-track">
+            <div className="bar-fill" style={{ width: `${Math.min(100, p * 100)}%`, maxWidth: 100, background: band(p) }} />
+            <span className="bar-value">{fmtPct(p)}</span>
+          </div>
+        ) : l.expected ? <span className="muted small">{t('بلا موازنة', 'no budget')}</span> : null;
+      } }],
+  ];
+  const byKey = new Map(COLS);
+  const cols = useColumnOrder(`homs.budgetColumns.${s.profile.id}`, COLS.map(([k]) => k));
+  const order = cols.order;
 
   const call = async (name: string, args: unknown, done?: string) => {
     try {
@@ -87,58 +118,33 @@ export function BuildingBudget() {
           <table className="t">
             <thead>
               <tr>
-                <th>{t('الرمز', 'Code')}</th>
-                <th>{t('البند', 'Heading')}</th>
-                <th className="n">{t('الموازنة', 'Budget')}</th>
-                <th className="n">{t('مدفوع بالدولار', 'Paid in USD')}</th>
-                <th className="n">{t('الليرة بالدولار', 'SYP in USD')}</th>
-                <th className="n">{t('المصروف', 'Spent')}</th>
-                <th className="n">{t('الباقي', 'Left')}</th>
-                <th className="n">{t('المتبقي صرفه (تقدير)', 'Still to spend (estimate)')}</th>
-                <th className="n">{t('المتوقع كلياً', 'Expected total')}</th>
-                <th className="n">{t('الباقي المتوقع', 'Expected left')}</th>
-                <th style={{ minWidth: 150 }}>{t('المستعمل المتوقع', 'Expected used')}</th>
+                {order.map((k) => {
+                  const c = byKey.get(k)!;
+                  const dp = cols.drag(k);
+                  return <th key={k} {...dp} className={`${c.n ? 'n ' : ''}${dp.className}`} style={c.minWidth ? { minWidth: c.minWidth } : undefined} title={t('اسحب لنقل العمود', 'Drag to move the column')}>{c.label}</th>;
+                })}
               </tr>
             </thead>
             <tbody>
               {lines.map((l) => {
-                const p = l.budget ? l.expected / l.budget : l.expected ? Infinity : 0;
                 const isOpen = open === l.heading.id;
                 return (
                   <Fragment key={l.heading.id}>
                     <tr onClick={() => setOpen(isOpen ? null : l.heading.id)} style={{ cursor: 'pointer' }} title={t('اضغط لترى الأنواع والتقديرات', 'Click for the kinds and the estimates')}>
-                      <td className="code">{l.heading.code}</td>
-                      <td>{isOpen ? '▾ ' : '▸ '}{l.heading.name}</td>
-                      <td className="n">{l.budget ? fmtUsd(l.budget) : '—'}</td>
-                      <td className="n">{fmtUsd(l.usd)}</td>
-                      <td className="n">{fmtUsd(l.conv)}</td>
-                      <td className="n"><b>{fmtUsd(l.total)}</b></td>
-                      <td className="n" style={red(l.rest)}>{l.budget ? fmtUsd(l.rest) : '—'}</td>
-                      <td className="n">{l.still ? fmtUsd(l.still) : '—'}{l.postponed ? <span className="muted small"> (+{fmtUsd(l.postponed)} {t('مؤجل', 'postponed')})</span> : null}</td>
-                      <td className="n"><b>{fmtUsd(l.expected)}</b></td>
-                      <td className="n" style={red(l.expectedLeft)}>{l.budget ? fmtUsd(l.expectedLeft) : '—'}</td>
-                      <td>
-                        {l.budget ? (
-                          <div className="bar-track">
-                            <div className="bar-fill" style={{ width: `${Math.min(100, p * 100)}%`, maxWidth: 100, background: band(p) }} />
-                            <span className="bar-value">{fmtPct(p)}</span>
-                          </div>
-                        ) : l.expected ? <span className="muted small">{t('بلا موازنة', 'no budget')}</span> : null}
-                      </td>
+                      {order.map((k) => { const c = byKey.get(k)!; return <td key={k} className={c.n ? 'n' : k === 'code' ? 'code' : undefined} style={c.red?.(l)}>{c.cell(l, isOpen)}</td>; })}
                     </tr>
                     {isOpen && l.byLine.map((x) => (
                       <tr key={x.line.id} className="off">
-                        <td className="code">{x.line.code}</td>
-                        <td style={{ paddingInlineStart: 28 }}>{x.line.name}</td>
-                        <td /><td /><td />
-                        <td className="n">{fmtUsd(x.total)}</td>
-                        <td colSpan={5} className="muted small">{l.total ? fmtPct(x.total / l.total) : ''}</td>
+                        {order.map((k) => (
+                          <td key={k} className={k === 'code' ? 'code' : k === 'total' ? 'n' : k === 'used' ? 'muted small' : undefined} style={k === 'heading' ? { paddingInlineStart: 28 } : undefined}>
+                            {k === 'code' ? x.line.code : k === 'heading' ? x.line.name : k === 'total' ? fmtUsd(x.total) : k === 'used' ? (l.total ? fmtPct(x.total / l.total) : '') : null}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                     {isOpen && (
                       <tr>
-                        <td />
-                        <td colSpan={10}>
+                        <td colSpan={order.length} style={{ paddingInlineStart: 28 }}>
                           <Estimates headingId={l.heading.id} items={l.items} edit={edit} call={call} />
                         </td>
                       </tr>
@@ -147,27 +153,18 @@ export function BuildingBudget() {
                 );
               })}
               <tr className="total">
-                <td />
-                <td>{t('المجموع', 'Total')}</td>
-                <td className="n">{fmtUsd(budget)}</td>
-                <td className="n">{fmtUsd(sum((x) => x.usd))}</td>
-                <td className="n">{fmtUsd(sum((x) => x.conv))}</td>
-                <td className="n">{fmtUsd(total)}</td>
-                <td className="n" style={red(budget - total)}>{fmtUsd(budget - total)}</td>
-                <td className="n">{fmtUsd(sum((x) => x.still))}{sum((x) => x.postponed) ? <span className="muted small"> (+{fmtUsd(sum((x) => x.postponed))})</span> : null}</td>
-                <td className="n">{fmtUsd(expected)}</td>
-                <td className="n" style={red(budget - expected)}>{fmtUsd(budget - expected)}</td>
-                <td>{budget ? fmtPct(expected / budget) : ''}</td>
+                {order.map((k) => { const c = byKey.get(k)!; const v = c.total?.(); return <td key={k} className={c.n ? 'n' : undefined} style={c.totalRed?.()}>{v}</td>; })}
               </tr>
             </tbody>
           </table>
+          {cols.moved && <button className="btn small ghost" onClick={cols.reset} style={{ marginTop: 6 }}>{t('ترتيب الأعمدة كما كان', 'Columns back to their usual order')}</button>}
         </div>
         <p className="muted small">
           {t('المتوقع كلياً = المصروف + المتبقي صرفه. البنود المؤجلة تظهر ولا تُحسب. التصريف ليس صرفاً. الأسطر الملغاة بلا مبلغ.',
             'Expected total = spent + still to spend. Postponed items are shown, not counted. An exchange is not spending. Cancelled rows hold no amount.')}
         </p>
       </div>
-      {printing && <BudgetPrint lines={lines} onClose={() => setPrinting(false)} />}
+      {printing && <BudgetPrint lines={lines} order={order} onClose={() => setPrinting(false)} />}
     </>
   );
 }

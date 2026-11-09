@@ -1,6 +1,6 @@
 [package]
 name = "magis-accounts"
-version = "1.0.0"
+version = "1.1.0"
 description = "MAGIS cash accounting (offline)"
 edition = "2021"
 

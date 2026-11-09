@@ -5,7 +5,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { computeAll } from './domain/compute';
 import type { GrantCard, GrantPart } from './domain/grants';
-import type { Computed, Lists, Trx } from './domain/types';
+import type { Computed, EstimateItem, Lists, Trx } from './domain/types';
 import { has, type Profile } from './auth';
 import type { Perm } from './perms';
 import type { TransferInfo } from './domain/transfers';
@@ -55,6 +55,8 @@ export interface Data {
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
   attachments: AttachmentRow[];
+  /** building sites: expenses still to come, per heading */
+  estimates: EstimateItem[];
 }
 
 interface Ctx {
@@ -106,6 +108,7 @@ async function loadData(s: Session, background = false): Promise<Data> {
     officeTransfers: p.officeTransfers,
     listsVersion: p.listsVersion,
     attachments: p.attachments ?? [],
+    estimates: p.estimates ?? [],
   };
 }
 

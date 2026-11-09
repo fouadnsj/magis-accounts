@@ -25,7 +25,7 @@ import {
 import { buildTransfers, transferKey, type TransferInfo } from './domain/transfers';
 import { holders } from './domain/reports';
 import { GRANT_STEPS, type GrantCard, type GrantPart, type GrantStep } from './domain/grants';
-import type { Book, Lists, Settings, Trx, TrxType } from './domain/types';
+import type { Book, EstimateItem, Lists, Settings, Trx, TrxType } from './domain/types';
 import {
   applyListsPackage, buildEntriesFile, exportListsPackage, importEntries, markSent, type EntriesFile, type EntriesImportResult, type ListsPackage,
 } from './io/keeperFiles';
@@ -142,6 +142,8 @@ export interface DataPayload {
   attachments: AttachmentRow[];
   /** the Respo book: grants and the Province's money arrive there (outside the centre's reports) */
   grantsBookId: number | null;
+  /** building sites: expenses still to come, per heading */
+  estimates?: EstimateItem[];
 }
 
 export interface CashCountRow {
@@ -284,6 +286,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     closedYears: (await c.db.query<{ year: number }>('SELECT year FROM closed_year')).map((x) => x.year),
     grants, grantParts, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
     grantsBookId: Number(await getMeta(db, 'grants_book_id')) || null,
+    estimates: lists.settings.building ? await db.query<EstimateItem>('SELECT id, heading_id, description, amount_usd, postponed, sort FROM estimate_item ORDER BY heading_id, sort, id') : [],
   };
 }
 
@@ -434,6 +437,78 @@ async function cancelRow(c: OpCtx, a: { id: string; reason: string }) {
       params: [after.cancelled_at!, c.who, reason, after.updated_at!, a.id] },
     auditStmt(c.who, 'cancel', 'trx', a.id, old, { ...after, reason }),
   ]);
+}
+
+// ---------------------------------------------------------------- building sites: estimates
+
+/** The headings an estimate may go under: the expense headings. */
+async function expenseHeadings(c: OpCtx) {
+  const lists = await loadLists(c.db);
+  if (!lists.settings.building) throw new UserError(m('للبناء فقط', 'Building sites only'));
+  const ids = new Set(lists.headingTypes.filter((x) => x.type === 'Exp').map((x) => x.heading_id));
+  return lists.headings.filter((h) => ids.has(h.id));
+}
+
+const cleanItem = (x: { description?: string; amount_usd?: number; postponed?: number | boolean }) => {
+  const description = (x.description ?? '').trim();
+  const amount = Number(x.amount_usd ?? 0);
+  if (!description) throw new UserError(m('اكتب وصف البند', 'Write what the item is'));
+  if (!Number.isFinite(amount) || amount < 0) throw new UserError(m('المبلغ بالدولار غير صالح', 'The USD amount is not valid'));
+  return { description, amount: Math.round(amount * 100) / 100, postponed: x.postponed ? 1 : 0 };
+};
+
+/** Add or change one estimated item (USD only). */
+async function saveEstimate(c: OpCtx, a: { id?: number | null; heading_id: number; description: string; amount_usd: number; postponed?: number | boolean }) {
+  const hs = await expenseHeadings(c);
+  if (!hs.some((h) => h.id === a.heading_id)) throw new UserError(m('بند غير صالح', 'Not an expense heading'));
+  const x = cleanItem(a);
+  const at = nowIso();
+  if (a.id) {
+    const before = await one(c.db, 'SELECT * FROM estimate_item WHERE id = ?', [a.id]);
+    if (!before) throw new UserError(m('البند غير موجود', 'Item not found'));
+    await c.db.batch([
+      { sql: 'UPDATE estimate_item SET heading_id = ?, description = ?, amount_usd = ?, postponed = ?, updated_at = ? WHERE id = ?', params: [a.heading_id, x.description, x.amount, x.postponed, at, a.id] },
+      auditStmt(c.who, 'edit', 'estimate_item', String(a.id), before, { ...a, ...x }),
+    ]);
+  } else {
+    const s = await one<{ s: number | null }>(c.db, 'SELECT MAX(sort) AS s FROM estimate_item WHERE heading_id = ?', [a.heading_id]);
+    await c.db.batch([
+      { sql: 'INSERT INTO estimate_item (heading_id, description, amount_usd, postponed, sort, created_at, created_by) VALUES (?,?,?,?,?,?,?)', params: [a.heading_id, x.description, x.amount, x.postponed, (s?.s ?? 0) + 1, at, c.who] },
+      auditStmt(c.who, 'add', 'estimate_item', null, null, { ...a, ...x }),
+    ]);
+  }
+}
+
+async function deleteEstimate(c: OpCtx, a: { id: number }) {
+  await expenseHeadings(c);
+  const before = await one(c.db, 'SELECT * FROM estimate_item WHERE id = ?', [a.id]);
+  if (!before) return;
+  await c.db.batch([{ sql: 'DELETE FROM estimate_item WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'estimate_item', String(a.id), before, null)]);
+}
+
+/**
+ * Replaces every estimated item by those of a file (sheet "Estimates" of the budget export,
+ * possibly changed in Excel). Headings are found by their code. The old items stay in the audit log.
+ */
+async function importEstimates(c: OpCtx, a: { rows: { code: string; description: string; amount_usd: number; postponed: boolean }[]; fileName: string }) {
+  const hs = await expenseHeadings(c);
+  const byCode = new Map(hs.map((h) => [h.code, h]));
+  const bad = [...new Set(a.rows.filter((r) => !byCode.has(String(r.code ?? '').trim())).map((r) => String(r.code ?? '')))];
+  if (bad.length) throw new UserError(m(`رموز غير معروفة: ${bad.join('، ')}`, `Unknown heading codes: ${bad.join(', ')}`));
+  const clean = a.rows.map((r) => ({ h: byCode.get(String(r.code).trim())!, ...cleanItem(r) }));
+  const before = await c.db.query('SELECT * FROM estimate_item');
+  const at = nowIso();
+  const sorts = new Map<number, number>();
+  await c.db.batch([
+    { sql: 'DELETE FROM estimate_item' },
+    ...clean.map((r) => {
+      const k = (sorts.get(r.h.id) ?? 0) + 1;
+      sorts.set(r.h.id, k);
+      return { sql: 'INSERT INTO estimate_item (heading_id, description, amount_usd, postponed, sort, created_at, created_by) VALUES (?,?,?,?,?,?,?)', params: [r.h.id, r.description, r.amount, r.postponed, k, at, c.who] };
+    }),
+    auditStmt(c.who, 'import', 'estimate_item', null, before, { file: a.fileName, items: clean.length }),
+  ]);
+  return { items: clean.length };
 }
 
 const reopenMonth = (c: OpCtx, a: { ym: string }) =>
@@ -1130,6 +1205,9 @@ export const OPS = {
   // ---------------------------------------------------------------- register
   'trx.save': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?: string | null }) => saveRows(c, { rows: a.rows, deletes: a.deletes, reason: a.reason }) },
   'trx.delete': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { ids: string[]; reason?: string | null }) => saveRows(c, { rows: [], deletes: a.ids, reason: a.reason }) },
+  'estimate.save': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: Parameters<typeof saveEstimate>[1]) => saveEstimate(c, a) },
+  'estimate.delete': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number }) => deleteEstimate(c, a) },
+  'estimate.import': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: Parameters<typeof importEstimates>[1]) => importEstimates(c, a) },
   'trx.cancel': { check: (c: OpCtx) => need(c, 'register.edit', 'register.main', 'book.own'), run: (c: OpCtx, a: { id: string; reason: string }) => cancelRow(c, a) },
   'trx.approve': { check: anyone, run: (c: OpCtx, a: { ids: string[] }) => approveRows(c, a) },
   'transfer.answer': {

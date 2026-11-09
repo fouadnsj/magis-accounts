@@ -91,6 +91,16 @@ export interface Heading extends Named {
   budget_usd?: number | null;
 }
 
+/** building sites: one expense still to come on a heading (USD); postponed = left out of the expected total */
+export interface EstimateItem {
+  id: number;
+  heading_id: number;
+  description: string;
+  amount_usd: number;
+  postponed: number;
+  sort: number;
+}
+
 export interface BudgetLine {
   id: number;
   heading_id: number;

@@ -624,4 +624,24 @@ ALTER TABLE trx ADD COLUMN cancel_reason TEXT;
 ALTER TABLE heading ADD COLUMN budget_usd REAL;
 `,
   },
+  {
+    n: 13,
+    name: 'building sites: estimated expenses still to come, item by item, per heading',
+    sql: `
+-- What is still to be spent on a heading, item by item, in USD (Fouad, 9 Nov 2026).
+-- A postponed item is shown but left out of the expected total.
+CREATE TABLE IF NOT EXISTS estimate_item (
+  id          INTEGER PRIMARY KEY,
+  heading_id  INTEGER NOT NULL REFERENCES heading(id),
+  description TEXT NOT NULL,
+  amount_usd  REAL NOT NULL DEFAULT 0,
+  postponed   INTEGER NOT NULL DEFAULT 0,
+  sort        INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  updated_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS estimate_item_heading ON estimate_item(heading_id);
+`,
+  },
 ];

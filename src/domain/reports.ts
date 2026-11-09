@@ -3,7 +3,7 @@
 // one difference by design: a period is "YYYY-MM to YYYY-MM", so two years
 // never mix, and undated rows (flagged for review) are left out of periods.
 
-import type { Book, Computed, Lists, Trx } from './types';
+import type { Book, Computed, EstimateItem, Lists, Trx } from './types';
 
 export interface Period {
   from: string; // YYYY-MM
@@ -427,6 +427,16 @@ export interface BuildingBudgetLine {
   rest: number;
   /** spent by kind: line name (Materials, Wages, Other) → USD-eq */
   byLine: { line: Lists['lines'][number]; total: number }[];
+  /** the items still to come on this heading */
+  items: EstimateItem[];
+  /** still to spend (estimate), postponed items left out */
+  still: number;
+  /** postponed items (shown, not counted) */
+  postponed: number;
+  /** spent + still to spend */
+  expected: number;
+  /** budget − expected total */
+  expectedLeft: number;
 }
 
 /**
@@ -435,7 +445,7 @@ export interface BuildingBudgetLine {
  * Exchanges are not spending (Excel counted them under "Exchange"; Fouad, 17 Oct 2026).
  * Cancelled rows hold no amount.
  */
-export function buildingBudget(rows: Trx[], comp: Map<string, Computed>, lists: Lists, p: Period | null = null): BuildingBudgetLine[] {
+export function buildingBudget(rows: Trx[], comp: Map<string, Computed>, lists: Lists, p: Period | null = null, estimates: EstimateItem[] = []): BuildingBudgetLine[] {
   const expHeadings = new Set(lists.headingTypes.filter((x) => x.type === 'Exp').map((x) => x.heading_id));
   const exps = rows.filter((r) => r.type === 'Exp' && inPeriod(r, p));
   return lists.headings
@@ -448,6 +458,10 @@ export function buildingBudget(rows: Trx[], comp: Map<string, Computed>, lists: 
       const byLine = lists.lines
         .filter((l) => l.heading_id === h.id)
         .map((line) => ({ line, total: sum(mine.filter((r) => r.line_id === line.id), (r) => comp.get(r.id)?.expUsdTot ?? 0) }));
-      return { heading: h, budget, usd, conv, total: usd + conv, rest: budget - usd - conv, byLine };
+      const items = estimates.filter((e) => e.heading_id === h.id).sort((a, b) => a.sort - b.sort || a.id - b.id);
+      const still = sum(items.filter((e) => !e.postponed), (e) => e.amount_usd);
+      const postponed = sum(items.filter((e) => e.postponed), (e) => e.amount_usd);
+      const total = usd + conv;
+      return { heading: h, budget, usd, conv, total, rest: budget - total, byLine, items, still, postponed, expected: total + still, expectedLeft: budget - total - still };
     });
 }

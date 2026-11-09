@@ -11,6 +11,8 @@ Rules (Fouad, 17–18 Oct 2026): budget per heading; Kind = line (Materials / Wa
 the rows from Excel keep their typed rate, new rows take the last exchange's (never typed); an exchange is not spending;
 the number and the bill code (`0003 TO 24 2`) never change: rows are **cancelled**, only the Superior deletes.
 
+- **Estimates** (Nov 2026): Budget page → items still to spend per heading (USD, postponed apart); expected total = spent + still to spend.
+  Export to Excel: `General` (USD, formulas), `Estimates` (also the import format: Budget → Import estimates), one sheet per heading.
 - Juge: `tests/juge-building.test.ts` (reads `../../Homs compte.xlsx`).
 - Windows installer: push a tag `building-vX.Y.Z` → GitHub Actions → Releases. Mac: `construire-mac.command`.
 - Version in `package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`.

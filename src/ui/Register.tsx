@@ -5,6 +5,7 @@ import { useApp, useNames } from '../state';
 import { TYPE_LABEL, tx } from '../i18n';
 import { TYPES, type Trx } from '../domain/types';
 import { useNav } from './Shell';
+import { moveKey, useColumnDrag } from './columnOrder';
 import { Select, fmtDate, fmtRate, fmtSyp, fmtUsd, t } from './kit';
 
 const ROW_H = 30;
@@ -36,9 +37,8 @@ export function Register() {
     return { order: [], hidden: [] };
   });
   const [colsOpen, setColsOpen] = useState(false);
-  // a column header dragged with the mouse, and the one it is over
-  const [dragCol, setDragCol] = useState<string | null>(null);
-  const [overCol, setOverCol] = useState<string | null>(null);
+  // a column header moved with the mouse onto another (see columnOrder.ts)
+  const colDrag = useColumnDrag((from, to) => moveTo(from, to));
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
   const [scroll, setScroll] = useState(0);
   const [height, setHeight] = useState(600);
@@ -97,14 +97,10 @@ export function Register() {
   }, [rows, sort, sortValue]);
   const th = (key: string, label: string, n = false) => {
     const on = sort?.key === key;
+    const dp = colDrag.drag(key);
     return (
-      <th key={key} className={`sortable col-drag ${n ? 'n' : ''} ${on ? 'on' : ''}${dragCol === key ? ' dragging' : ''}${overCol === key && dragCol !== key ? ' drop-here' : ''}`}
-        onClick={() => setSort(!on ? { key, dir: 1 } : sort!.dir === 1 ? { key, dir: -1 } : null)}
-        draggable
-        onDragStart={(e) => { e.dataTransfer.setData('text/plain', key); e.dataTransfer.effectAllowed = 'move'; setDragCol(key); }}
-        onDragOver={(e) => { if (!dragCol) return; e.preventDefault(); if (overCol !== key) setOverCol(key); }}
-        onDrop={(e) => { e.preventDefault(); if (dragCol) moveTo(dragCol, key); setDragCol(null); setOverCol(null); }}
-        onDragEnd={() => { setDragCol(null); setOverCol(null); }}
+      <th key={key} {...dp} className={`sortable ${dp.className} ${n ? 'n' : ''} ${on ? 'on' : ''}`}
+        onClick={() => !colDrag.wasDragged() && setSort(!on ? { key, dir: 1 } : sort!.dir === 1 ? { key, dir: -1 } : null)}
         title={t('اضغط للترتيب، واسحب لنقل العمود', 'Click to sort, drag to move the column')}>
         {label}<span className="sort-mark">{on ? (sort!.dir === 1 ? ' ▲' : ' ▼') : ''}</span>
       </th>
@@ -165,11 +161,7 @@ export function Register() {
   };
   /** a column dropped on another takes its place */
   const moveTo = (from: string, to: string) => {
-    if (from === to) return;
-    const keys = ordered.map((c) => c.key);
-    const next = keys.filter((k) => k !== from);
-    next.splice(next.indexOf(to) + (keys.indexOf(from) < keys.indexOf(to) ? 1 : 0), 0, from);
-    save({ ...layout, order: next });
+    save({ ...layout, order: moveKey(ordered.map((c) => c.key), from, to) });
   };
   const move = (key: string, by: -1 | 1) => {
     const keys = ordered.map((c) => c.key);

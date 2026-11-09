@@ -9,6 +9,7 @@ import { buildingBudget } from '../domain/reports';
 import type { EstimateItem } from '../domain/types';
 import { exportBuildingBudget, readEstimates } from '../io/budgetExport';
 import { pickFile, saveFile } from '../platform';
+import { BudgetPrint } from './BudgetPrint';
 import { confirmBox, errText, fmtPct, fmtUsd, parseAmount, t, toast, todayIso } from './kit';
 
 /** the colour of what is used: under 75 % calm, to 90 % watch, to 100 % close, beyond: over */
@@ -19,6 +20,7 @@ export function BuildingBudget() {
   const { s, d, can, reload } = useApp();
   const [open, setOpen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const edit = can('lists.manage');
   const lines = useMemo(() => buildingBudget(d.rows, d.comp, d.lists, null, d.estimates), [d.rows, d.comp, d.lists, d.estimates]);
   const sum = (f: (x: (typeof lines)[number]) => number) => lines.reduce((a, x) => a + f(x), 0);
@@ -76,6 +78,7 @@ export function BuildingBudget() {
         <div className="row">
           <span className="muted small">{t('بالدولار · الليرة محوّلة بسعر كل سطر', 'In USD · pounds converted at each row’s rate')}</span>
           {edit && <button className="btn" disabled={busy} onClick={doImport}>{t('استيراد التقديرات (Excel)', 'Import estimates (Excel)')}</button>}
+          <button className="btn" onClick={() => setPrinting(true)}>🖨 {t('طباعة', 'Print')}</button>
           <button className="btn primary" disabled={busy} onClick={doExport}>{t('تصدير إلى Excel', 'Export to Excel')}</button>
         </div>
       </div>
@@ -164,6 +167,7 @@ export function BuildingBudget() {
             'Expected total = spent + still to spend. Postponed items are shown, not counted. An exchange is not spending. Cancelled rows hold no amount.')}
         </p>
       </div>
+      {printing && <BudgetPrint lines={lines} onClose={() => setPrinting(false)} />}
     </>
   );
 }

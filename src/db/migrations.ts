@@ -1718,4 +1718,16 @@ CREATE TABLE province_send (
 );
 `,
   },
+  {
+    n: 49,
+    name: 'the Province account: euros received, changed into dollars (the euros kept with the dollar row)',
+    sql: `
+-- (Fouad, 2026-11-11) A grant in euros: its money arrives in euros and is changed into dollars. The dollar row is the
+-- Province's income; the euros it came from are kept here, so the grant's "received" is known in its own currency.
+CREATE TABLE net_eur_in (
+  trx_id TEXT PRIMARY KEY,
+  eur    REAL NOT NULL CHECK (eur > 0)
+);
+`,
+  },
 ];

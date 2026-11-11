@@ -73,6 +73,8 @@ describe('a centre on another server', () => {
     expect(copy.body).toMatchObject({ organisation: 'Aleppo' });
     expect((await admin('/api/hello')).body.dbs.map((d: { slug: string }) => d.slug)).toEqual([homs.slug]);
     expect((await admin('/api/dir/enter', { db: copy.body.slug })).status).toBe(404);
+    // nor given to anybody in People & access
+    expect((await admin('/api/dir/people')).body.dbs.map((d: { slug: string }) => d.slug)).toEqual([homs.slug]);
     const projects = (await admin('/api/province/projects')).body as { slug: string; copy: string | null; projects: { id: number; name: string }[] }[];
     const ap = projects.find((x) => x.slug === copy.body.slug)!;
     expect(ap.copy).toBeTruthy();

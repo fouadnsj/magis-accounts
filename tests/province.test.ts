@@ -81,6 +81,15 @@ describe('the Province account', () => {
     expect(list[0].received_usd).toBe(50000);
     expect((await admin('/api/province/grant/delete', { id: 'sen-2027' })).status).toBe(400); // money arrived: it is closed, not deleted
     expect((await browser()('/api/province/grants')).status).toBe(403);
+    // a grant in euros: the euros arrive and are changed into dollars; both are kept
+    expect((await admin('/api/province/grant', { ...g, id: 'eur-1', reference: 'EUR-1', parts: [] })).status).toBe(200);
+    const eurRow = { ...row, id: 'eur-in', inc_usd: 10800, grant_id: 'eur-1', explanation: 'EUR-1' };
+    expect((await admin('/api/province/op/trx.save', { rows: [eurRow], eur: { 'eur-in': 10000 } })).status).toBe(200);
+    list = (await admin('/api/province/grants')).body;
+    expect(list.find((x: { id: string }) => x.id === 'eur-1')).toMatchObject({ received_eur: 10000, received_usd: 10800 });
+    expect((await admin('/api/province')).body.eur).toEqual({ 'eur-in': 10000 });
+    expect((await admin('/api/province/op/trx.delete', { ids: ['eur-in'], reason: 'test' })).status).toBe(200);
+    expect((await admin('/api/province')).body.eur).toEqual({});
   });
 
   it('a send to a centre: waiting, "not received", corrected, accepted (an income in its grants book); the months wait for it', async () => {

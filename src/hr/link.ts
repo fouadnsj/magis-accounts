@@ -62,10 +62,13 @@ export function lineFor(lists: HrListItem[], p: Pick<HrPerson, 'centre' | 'budge
   const byRole = role ? lines.find((l) => norm(l.name) === role)
     ?? usable.filter((l) => words(role).every((w) => words(norm(l.name)).includes(w))).sort((a, b) => words(norm(a.name)).length - words(norm(b.name)).length)[0]
     ?? usable.filter((l) => words(norm(l.name)).length > 0 && words(norm(l.name)).every((w) => words(role).includes(w))).sort((a, b) => words(norm(b.name)).length - words(norm(a.name)).length)[0] : undefined;
-  if (byRole) return { line: byRole, guessed: true };
+  // the same name under several headings (the list by activity, 2027: Reception in Art Workshops, Academic and Library):
+  // no guess — the line is chosen on the person's card
+  const twice = (l: HrListItem) => lines.filter((x) => norm(x.name) === norm(l.name)).length > 1;
+  if (byRole) return twice(byRole) ? { line: null, guessed: false } : { line: byRole, guessed: true };
   for (const n of [p.first_name, p.first_name_ar, p.name?.split(' ')[0]].map(norm).filter((x) => x.length > 2)) {
     const byName = lines.find((l) => norm(l.name).split(' ').includes(n));
-    if (byName) return { line: byName, guessed: true };
+    if (byName) return twice(byName) ? { line: null, guessed: false } : { line: byName, guessed: true };
   }
   return { line: null, guessed: false };
 }

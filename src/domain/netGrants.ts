@@ -12,7 +12,7 @@ export interface NetGrant {
   parts: NetGrantPart[];
 }
 /** a grant with what arrived of it on the Province's account */
-export interface NetGrantRow extends NetGrant { received_usd: number; received_syp: number }
+export interface NetGrantRow extends NetGrant { received_usd: number; received_syp: number; /** the euros that arrived (changed into dollars) */ received_eur: number }
 
 /** A part's planned amount, in the grant's currency. */
 export const partAmount = (g: Pick<NetGrant, 'amount'>, p: Pick<NetGrantPart, 'amount' | 'pct'>) => (p.pct != null ? (g.amount * p.pct) / 100 : p.amount ?? 0);
@@ -20,12 +20,14 @@ export const partAmount = (g: Pick<NetGrant, 'amount'>, p: Pick<NetGrantPart, 'a
 export async function listNetGrants(db: Db): Promise<NetGrantRow[]> {
   const gs = await db.query<Omit<NetGrant, 'parts'>>('SELECT * FROM net_grant ORDER BY created_at');
   const ps = await db.query<NetGrantPart & { grant_id: string }>('SELECT * FROM net_grant_part ORDER BY sort, id');
-  const inc = await db.query<{ grant_id: string; usd: number; syp: number }>("SELECT grant_id, SUM(inc_usd) AS usd, SUM(inc_syp) AS syp FROM trx WHERE type = 'Income' AND grant_id IS NOT NULL GROUP BY grant_id");
+  const inc = await db.query<{ grant_id: string; usd: number; syp: number; eur: number }>(
+    "SELECT t.grant_id, SUM(t.inc_usd) AS usd, SUM(t.inc_syp) AS syp, COALESCE(SUM(e.eur), 0) AS eur FROM trx t LEFT JOIN net_eur_in e ON e.trx_id = t.id WHERE t.type = 'Income' AND t.grant_id IS NOT NULL GROUP BY t.grant_id");
   return gs.map((g) => ({
     ...g,
     parts: ps.filter((p) => p.grant_id === g.id).map(({ centre, centre_name, project_id, project_name, amount, pct }) => ({ centre, centre_name, project_id, project_name, amount, pct })),
     received_usd: inc.find((x) => x.grant_id === g.id)?.usd ?? 0,
     received_syp: inc.find((x) => x.grant_id === g.id)?.syp ?? 0,
+    received_eur: inc.find((x) => x.grant_id === g.id)?.eur ?? 0,
   }));
 }
 

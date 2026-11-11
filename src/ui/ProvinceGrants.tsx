@@ -44,7 +44,7 @@ export function ProvinceGrants() {
                   {g.parts.map((p, i) => <div key={i}>{p.centre_name} › {p.project_name ?? '—'}: <span className="ltr">{cur(g.currency)}{fmtUsd(partAmount(g, p))}{p.pct != null ? ` (${p.pct}%)` : ''}</span></div>)}
                   {Math.abs(g.amount - planned) > 0.5 && <div className="muted">{t('لم يُقسَّم بعد', 'Not split yet')}: {cur(g.currency)}{fmtUsd(g.amount - planned)}</div>}
                 </td>
-                <td className="n ltr small">{g.received_usd ? `$${fmtUsd(g.received_usd)}` : ''}{g.received_syp ? <div>{fmtUsd(g.received_syp)} SYP</div> : null}{!g.received_usd && !g.received_syp ? <span className="muted">{t('موعودة', 'promised')}</span> : null}</td>
+                <td className="n ltr small">{g.received_eur ? <div>€{fmtUsd(g.received_eur)} →</div> : null}{g.received_usd ? `$${fmtUsd(g.received_usd)}` : ''}{g.received_syp ? <div>{fmtUsd(g.received_syp)} SYP</div> : null}{!g.received_usd && !g.received_syp ? <span className="muted">{t('موعودة', 'promised')}</span> : null}</td>
                 <td className="nowrap"><button className="btn small" onClick={() => setReport(g.id)}>📄 {t('التقرير', 'Report')}</button> <button className="btn small ghost" onClick={() => setEdit(g)}>{t('تعديل', 'Edit')}</button></td>
               </tr>
             );
@@ -196,7 +196,7 @@ export function GrantReportView({ id, onClose }: { id: string; onClose: () => vo
       <div className="muted small">{g.start_date ? fmtDate(g.start_date) : '…'} → {g.end_date ? fmtDate(g.end_date) : '…'}</div>
       <div className="cards" style={{ marginTop: 8 }}>
         <div className="card"><div className="k">{t('المنحة', 'Grant')}</div><div className="v ltr">{cur(g.currency)}{fmtUsd(g.amount)}</div></div>
-        <div className="card"><div className="k">{t('وصل إلى الإقليم', 'Received by the Province')}</div><div className="v ltr">{usd(g.received_usd)}</div></div>
+        <div className="card"><div className="k">{t('وصل إلى الإقليم', 'Received by the Province')}</div><div className="v ltr">{usd(g.received_usd)}</div>{g.received_eur ? <div className="muted small ltr">{t('من', 'from')} €{fmtUsd(g.received_eur)}</div> : null}</div>
         <div className="card"><div className="k">{t('أُرسل إلى المراكز', 'Sent to the centres')}</div><div className="v ltr">{usd(r.total.sent_usd)}</div>{r.total.sent_syp ? <div className="ltr small">+ {fmtUsd(r.total.sent_syp)} SYP</div> : null}<div className="muted small">{t('قُبل', 'accepted')} {usd(r.total.accepted_usd)}</div></div>
         <div className="card"><div className="k">{t('صُرف', 'Spent')}</div><div className="v ltr">{usd(r.total.spent)}</div><div className="muted small">{t('من موازنة', 'of a budget of')} {usd(r.total.budget)}</div></div>
       </div>

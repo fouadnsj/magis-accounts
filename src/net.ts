@@ -235,7 +235,7 @@ export const mainListApi = {
 };
 
 // ---- The Province account (Fouad, 2026-11-07): the Coordinator's own book (grants in, exchange, sends to the centres).
-export interface ProvinceData { rows: import('./domain/types').Trx[]; comp: Record<string, import('./domain/types').Computed>; lists: import('./domain/types').Lists; closed: string[]; balance: { syp: number; usd: number }; bookId: number }
+export interface ProvinceData { rows: import('./domain/types').Trx[]; comp: Record<string, import('./domain/types').Computed>; lists: import('./domain/types').Lists; closed: string[]; balance: { syp: number; usd: number }; bookId: number; /** a dollar row that came from euros: its euros */ eur: Record<string, number> }
 export interface CentreProjects { slug: string; organisation: string; /** a copy from another server: when it was brought */ copy?: string | null; projects: { id: number; name: string; start_date: string | null; end_date: string | null; outside_budget: number; active: number }[] }
 export const provinceApi = {
   get: () => get<ProvinceData>('/api/province'),

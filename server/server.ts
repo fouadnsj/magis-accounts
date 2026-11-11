@@ -1019,7 +1019,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     if (url === '/api/dir/people' && method === 'GET') {
       needDirAdmin();
-      const dbs = await Promise.all([...centres.values()].filter((x) => ctyOpen() || !ctyKinds.get(x.slug)).map(async (x) => ({ ...(await describe(x)), profiles: (await listProfiles(x.handle.db)).map((q) => ({ id: q.id, name: q.name, access_name: q.access_name, office: q.office ?? null })) })));
+      const dbs = await Promise.all([...centres.values()].filter((x) => (ctyOpen() || !ctyKinds.get(x.slug)) && !config.copies?.[x.slug]).map(async (x) => ({ ...(await describe(x)), profiles: (await listProfiles(x.handle.db)).map((q) => ({ id: q.id, name: q.name, access_name: q.access_name, office: q.office ?? null })) })));
       return send(res, 200, { people: directory.people.map(publicPerson), enforced: directory.enforced, dbs: dbs.map((d) => ({ slug: d.slug, organisation: d.organisation, kind: d.kind, profiles: d.profiles })) });
     }
     if (url === '/api/dir/save' && method === 'POST') {
@@ -1365,9 +1365,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (url === '/api/province' && method === 'GET') {
         const d = (await runOp(ctx, 'data', {})) as DataPayload;
         const main = d.lists.books.find((b) => b.is_main)!;
+        const eur = Object.fromEntries((await p.handle.db.query<{ trx_id: string; eur: number }>('SELECT trx_id, eur FROM net_eur_in')).map((x) => [x.trx_id, x.eur]));
         const balance = await runOp(ctx, 'bookMonth.balance', { bookId: main.id, ym: '9999-12' });
         const comp = computeAll(d.rows, d.lists);
-        return send(res, 200, { rows: d.rows, comp: Object.fromEntries(comp), lists: d.lists, closed: d.closed, balance, bookId: main.id });
+        return send(res, 200, { rows: d.rows, comp: Object.fromEntries(comp), lists: d.lists, closed: d.closed, balance, bookId: main.id, eur });
       }
       // the Coordinator's grants: their split between the centres' projects, and what arrived
       if (url === '/api/province/grants' && method === 'GET') return send(res, 200, await listNetGrants(p.handle.db));
@@ -1625,6 +1626,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
           }
         }
         const result = await runOp(ctx, pop, args);
+        // euros received with a dollar row: kept beside it (and gone with it)
+        const eur = (args as { eur?: Record<string, number> }).eur;
+        if (pop === 'trx.save' && eur) await p.handle.db.batch(Object.entries(eur).map(([id, v]) => (Number(v) > 0
+          ? { sql: 'INSERT OR REPLACE INTO net_eur_in (trx_id, eur) VALUES (?, ?)', params: [id, Number(v)] }
+          : { sql: 'DELETE FROM net_eur_in WHERE trx_id = ?', params: [id] })));
+        if (pop === 'trx.delete') await p.handle.db.batch(((args as { ids?: string[] }).ids ?? []).map((id) => ({ sql: 'DELETE FROM net_eur_in WHERE trx_id = ?', params: [id] })));
         p.version++;
         return send(res, 200, result ?? { ok: true });
       }
@@ -1661,7 +1668,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!found || (await getMeta(found[2].handle.db, 'kind')) !== 'hr' || !has(found[1].profile, 'hr.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const out = [];
       for (const x of centres.values()) {
-        if ((config.inactive ?? []).includes(x.slug)) continue;
+        if ((config.inactive ?? []).includes(x.slug) || config.copies?.[x.slug]) continue;
         const k = (await getMeta(x.handle.db, 'kind')) ?? 'centre';
         if (k !== 'centre' || (dirPerson && !dirSees(dirPerson, x.slug))) continue;
         const org = (await getMeta(x.handle.db, 'organisation')) ?? x.slug;
@@ -1747,7 +1754,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // a centre this HR keeper may copy from
     const hrSource = async (slug: unknown, profile: Profile) => {
       const src = centres.get(String(slug));
-      if (!src || (config.inactive ?? []).includes(src.slug) || ((await getMeta(src.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, src.slug))) return null;
+      if (!src || (config.inactive ?? []).includes(src.slug) || config.copies?.[src.slug] || ((await getMeta(src.handle.db, 'kind')) ?? 'centre') !== 'centre' || (dirPerson && !dirSees(dirPerson, src.slug))) return null;
       const org = (await getMeta(src.handle.db, 'organisation')) ?? src.slug;
       const key = (await getMeta(src.handle.db, 'centre')) ?? guessCentre(org);
       // an HR keeper of some centres fills the lists of those centres only

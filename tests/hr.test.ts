@@ -586,6 +586,16 @@ describe('HR database', () => {
     // the position holds the line's words: "Workshop Coordinator" is paid on "Coordinator" (one line in the common list)
     const coord = [...(two as unknown as object[]), { id: 6, kind: 'line', name: 'Coordinator', code: 'E03.2', heading: 'Operational staff', source: 'c' }] as never;
     expect(lineFor(coord, { centre: 'C', role: 'Workshop Coordinator', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E03.2');
+    // the list by activity (2027): "Reception" under three headings — no guess; the line chosen on the card counts
+    const act = [
+      { id: 1, kind: 'centre', name: 'A', code: 'aleppo', heading: null, source: 'a', salary_heading: null, account: null },
+      { id: 2, kind: 'line', name: 'Reception', code: 'E01.2', heading: 'Art Workshops', source: 'a' },
+      { id: 3, kind: 'line', name: 'Reception', code: 'E02.2', heading: 'Academic Section', source: 'a' },
+      { id: 4, kind: 'line', name: 'Media person', code: 'E01.3', heading: 'Art Workshops', source: 'a' },
+    ] as never;
+    expect(lineFor(act, { centre: 'A', role: 'Reception', budget_line: null, first_name: null, first_name_ar: null, name: 'x' })).toEqual({ line: null, guessed: false });
+    expect(lineFor(act, { centre: 'A', role: 'Reception', budget_line: 'E02.2 · Reception', first_name: null, first_name_ar: null, name: 'x' }).line?.heading).toBe('Academic Section');
+    expect(lineFor(act, { centre: 'A', role: 'Media person', budget_line: null, first_name: null, first_name_ar: null, name: 'x' }).line?.code).toBe('E01.3');
     // a tutor: any line of the centre, chosen on the card (an activities line too); never guessed; staff keep the salary lines
     const tutor = { centre: 'C', role: null, first_name: 'English', first_name_ar: null, name: 'x', category: 'tutor' };
     expect(lineFor(two, { ...tutor, budget_line: 'E04.1 · English courses' }).line?.code).toBe('E04.1');

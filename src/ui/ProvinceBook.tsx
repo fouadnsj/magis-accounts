@@ -28,8 +28,8 @@ export function ProvinceBook() {
   const L = d.lists;
   const heading = (name: string) => L.headings.find((h) => h.name === name);
   const linesOf = (name: string) => L.lines.filter((l) => l.heading_id === heading(name)?.id && l.active);
-  const save = async (row: Trx) => {
-    await provinceApi.op('trx.save', { rows: [row] });
+  const save = async (row: Trx, eur?: number) => {
+    await provinceApi.op('trx.save', { rows: [row], ...(eur ? { eur: { [row.id]: eur } } : {}) });
     await load();
   };
   const rows = [...d.rows].sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.n ?? 0) - (a.n ?? 0));
@@ -61,7 +61,7 @@ export function ProvinceBook() {
             <tr key={r.id}>
               <td className="nowrap">{r.date ? fmtDate(r.date) : ''}</td>
               <td>{kind(r)}</td>
-              <td>{r.explanation}</td>
+              <td>{r.explanation}{d.eur[r.id] ? <div className="muted small ltr">€{fmtUsd(d.eur[r.id])} → ${fmtUsd(r.inc_usd)} ({t('السعر', 'rate')} {(r.inc_usd / d.eur[r.id]).toFixed(4)})</div> : null}</td>
               <td className="n ltr">{signed(usd(r), fmtUsd)}</td>
               <td className="n ltr">{signed(syp(r), fmtSyp)}</td>
               <td className="n ltr small">{r.type === 'Exchange' && r.trf_usd ? fmtRate(r.trf_syp / r.trf_usd) : ''}</td>
@@ -110,7 +110,7 @@ export function ProvinceBook() {
 
       {form === 'in' && <MoneyIn lines={linesOf('Income')} grants={grants.filter((g) => !g.closed)} onClose={() => setForm(null)} onSave={async (x) => {
         await save({ ...blankTrx(), id: newId(), type: 'Income', date: x.date, book_id: d.bookId, city_id: L.cities[0]?.id ?? null, heading_id: heading('Income')!.id, line_id: x.line, explanation: x.explanation, grant_id: x.grant,
-          inc_usd: x.cur === 'USD' ? x.amount : 0, inc_syp: x.cur === 'SYP' ? x.amount : 0 });
+          inc_usd: x.cur === 'SYP' ? 0 : x.amount, inc_syp: x.cur === 'SYP' ? x.amount : 0 }, x.eur);
         setForm(null);
       }} />}
       {form === 'exchange' && <Exchange onClose={() => setForm(null)} onSave={async (x) => {
@@ -123,24 +123,31 @@ export function ProvinceBook() {
   );
 }
 
-function MoneyIn({ lines, grants, onClose, onSave }: { lines: { id: number; name: string }[]; grants: NetGrantRow[]; onClose: () => void; onSave: (x: { date: string; cur: 'USD' | 'SYP'; amount: number; line: number; explanation: string; grant: string | null }) => Promise<void> }) {
+function MoneyIn({ lines, grants, onClose, onSave }: { lines: { id: number; name: string }[]; grants: NetGrantRow[]; onClose: () => void; onSave: (x: { date: string; cur: 'USD' | 'SYP' | 'EUR'; amount: number; line: number; explanation: string; grant: string | null; eur?: number }) => Promise<void> }) {
   const [grant, setGrant] = useState<string>('');
   const [date, setDate] = useState(todayIso());
-  const [cur, setCur] = useState<'USD' | 'SYP'>('USD');
+  // euros: received and changed into dollars at the bank (the dollars are the Province's money; the euros are kept with them)
+  const [cur, setCur] = useState<'USD' | 'SYP' | 'EUR'>('USD');
   const [amount, setAmount] = useState('');
+  const [euros, setEuros] = useState('');
   const [line, setLine] = useState(lines[0]?.id ?? 0);
   const [explanation, setExplanation] = useState('');
   const [busy, setBusy] = useState(false);
   const n = parseAmount(amount);
+  const e = parseAmount(euros);
   return (
     <Modal title={t('دخل إلى حساب الإقليم', "Money in, on the Province's account")} onClose={onClose} narrow>
       <Field label={t('التاريخ', 'Date')}><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      <Field label={t('المبلغ', 'Amount')}>
-        <div className="row" style={{ gap: 6 }}>
-          <input className="ltr" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
-          <select value={cur} onChange={(e) => setCur(e.target.value as 'USD' | 'SYP')}><option>USD</option><option>SYP</option></select>
-        </div>
+      <Field label={t('العملة', 'Currency')}>
+        <select value={cur} onChange={(ev) => setCur(ev.target.value as 'USD' | 'SYP' | 'EUR')}>
+          <option value="USD">USD</option><option value="SYP">SYP</option><option value="EUR">{t('يورو، صُرف إلى دولار', 'EUR, changed into dollars')}</option>
+        </select>
       </Field>
+      {cur === 'EUR' && <Field label={t('اليورو الواصل', 'Euros received')}><input className="ltr" value={euros} onChange={(ev) => setEuros(ev.target.value)} autoFocus /></Field>}
+      <Field label={cur === 'EUR' ? t('الدولارات التي صارت', 'The dollars they became') : t('المبلغ', 'Amount')}>
+        <input className="ltr" value={amount} onChange={(ev) => setAmount(ev.target.value)} autoFocus={cur !== 'EUR'} />
+      </Field>
+      {cur === 'EUR' && e > 0 && n > 0 && <p className="muted small ltr">{t('السعر', 'Rate')}: 1 € = {(n / e).toFixed(4)} $</p>}
       <Field label={t('المنحة', 'Grant')}>
         <select value={grant} onChange={(e) => {
           setGrant(e.target.value);
@@ -155,9 +162,9 @@ function MoneyIn({ lines, grants, onClose, onSave }: { lines: { id: number; name
       <Field label={t('من أين؟ (المانح، المنحة…)', 'From where? (donor, grant…)')}><input value={explanation} onChange={(e) => setExplanation(e.target.value)} /></Field>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
-        <button className="btn primary" disabled={busy || !(n > 0) || !explanation.trim() || !line} onClick={() => void (async () => {
+        <button className="btn primary" disabled={busy || !(n > 0) || (cur === 'EUR' && !(e > 0)) || !explanation.trim() || !line} onClick={() => void (async () => {
           setBusy(true);
-          try { await onSave({ date, cur, amount: n, line, explanation: explanation.trim(), grant: grant || null }); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+          try { await onSave({ date, cur, amount: n, line, explanation: explanation.trim(), grant: grant || null, eur: cur === 'EUR' ? e : undefined }); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
         })()}>{t('سجّل', 'Record')}</button>
       </div>
     </Modal>

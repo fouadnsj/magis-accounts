@@ -214,7 +214,7 @@ export interface ListSummary { id: string; title: string; version: number; publi
 const q = (id?: string | null) => (id ? `?id=${encodeURIComponent(id)}` : '');
 export const mainListApi = {
   /** the lists of the server (the administrator), and the one this database follows */
-  lists: () => get<{ admin: boolean; mine: string; lists: ListSummary[] }>('/api/main-lists'),
+  lists: () => get<{ admin: boolean; /** this server has a sign-in directory (then the lists are in the Coordinator) */ dir: boolean; mine: string | null; lists: ListSummary[] }>('/api/main-lists'),
   names: () => get<{ id: string; title: string }[]>('/api/main-lists/names'),
   /** a list (by default the one this database follows) */
   get: (id?: string | null) => get<MainListInfo>(`/api/main-list${q(id)}`),
@@ -260,6 +260,8 @@ export const sendsApi = {
   file: (centre: string) => get<{ kind: string; organisation: string; sends: unknown[] }>(`/api/province/send-file?centre=${encodeURIComponent(centre)}`),
   /** a centre on another server takes the Province's file */
   take: (file: unknown) => post<{ taken: number }>('/api/province-take', file),
+  /** whether the Province's account is on this server */
+  here: () => get<{ here: boolean }>('/api/province-here'),
   /** the centre answers (accepted, or "not received" with a word) */
   answer: (id: string, ok: boolean, note?: string | null) => post<{ status: string }>('/api/province-answer', { id, ok, note: note ?? null }),
 };

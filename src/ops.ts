@@ -1889,7 +1889,8 @@ export const OPS = {
         heading_id: incomeHeading.id, line_id: line.id, inc_usd: x.usd, inc_syp: x.syp,
         explanation: `${t2('من الإقليم', 'From the Province')}${x.donor ? ` · ${x.donor}` : ''}${x.reference ? ` · ${x.reference}` : ''}`,
       };
-      await saveTrxRows(c.db, [row], c.who, c.install === 'office', [], null);
+      // the usual checks of a row: the months (the office's and the book's), the book, the city, who may write there
+      await saveRows(c, { rows: [row] });
       await c.db.batch([
         { sql: "UPDATE province_send SET status = 'accepted', note = NULL, answered_at = ?, answered_by = ?, income_id = ? WHERE id = ?", params: [at, c.who, row.id, x.id] },
         auditStmt(c.who, 'accept', 'province_send', x.id, null, { income: row.id }),

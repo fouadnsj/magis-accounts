@@ -13,16 +13,23 @@ import { MonthReport } from './MonthReport';
 import { CompareModal } from './Compare';
 import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
-import { serverRestoreUpload } from '../net';
+import { mainListApi, serverRestoreUpload } from '../net';
+import { MainListPanel } from './MainListPanel';
 import { pickFile, toBase64 } from '../platform';
 import { notesOf } from './Cash';
 import { GuideLink } from '../guide/GuideView';
 import { Checks } from './Checks';
 
-type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'server';
+type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'lists' | 'server';
 
 export function Admin() {
-  const { s, can, myBooks } = useApp();
+  const { s, can, myBooks, reload } = useApp();
+  // the budget lists live in the Coordinator; a server with no sign-in directory yet (so no Coordinator) keeps them here,
+  // for whoever manages the users on the server computer itself
+  const [listsHere, setListsHere] = useState(false);
+  useEffect(() => {
+    if (s.mode === 'server' && can('lists.manage')) mainListApi.lists().then((x) => setListsHere(x.admin && !x.dir)).catch(() => setListsHere(false));
+  }, [s]);
   const tabs: { value: Tab; label: string; hidden?: boolean }[] = [
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
     { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
@@ -32,6 +39,7 @@ export function Admin() {
     { value: 'access', label: t('الأدوار والصلاحيات', 'Roles and permissions'), hidden: !can('users.manage') },
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
+    { value: 'lists', label: t('قوائم الموازنة', 'Budget lists'), hidden: !listsHere },
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
   ];
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
@@ -48,6 +56,7 @@ export function Admin() {
       {tab === 'access' && can('users.manage') && <AccessProfiles />}
       {tab === 'look' && can('users.manage') && <Appearance />}
       {tab === 'audit' && can('audit.view') && <Audit />}
+      {tab === 'lists' && listsHere && <MainListPanel dbs={[]} onReload={reload} />}
       {tab === 'server' && s.mode === 'server' && <ServerTab />}
     </>
   );

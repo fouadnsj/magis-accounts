@@ -138,7 +138,7 @@ function NewList({ lists, dbs, first, onClose, onMade }: { lists: ListSummary[];
             {lists.map((l) => <option key={l.id} value={l.id}>{l.title}</option>)}
           </select>
         )}
-        {dbs.length > 0 && opt('db', t('قائمة قاعدة مركز', "The list of a centre's database"))}
+        {opt('db', dbs.length ? t('قائمة قاعدة مركز', "The list of a centre's database") : t('قائمة هذه القاعدة', 'The list of this database'))}
         {from === 'db' && (
           <select className="inp" style={{ marginInlineStart: 24 }} value={dbSource} onChange={(e) => setDbSource(e.target.value)}>
             {dbs.map((d) => <option key={d.slug} value={d.slug}>{d.organisation}</option>)}

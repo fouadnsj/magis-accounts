@@ -145,7 +145,13 @@ export function ProvinceReceived() {
   const { s, d, can, reload } = useApp();
   const [rows, setRows] = useState<ProvinceSend[]>([]);
   const load = () => s.api.call('province.sends', {}).then(setRows).catch(() => setRows([]));
-  useEffect(() => { if (s.mode === 'server') void load(); }, [s]);
+  // the Province on this same server: its sends arrive by themselves (no file to take)
+  const [here, setHere] = useState(true);
+  useEffect(() => {
+    if (s.mode !== 'server') return;
+    void load();
+    sendsApi.here().then((x) => setHere(x.here)).catch(() => setHere(true));
+  }, [s]);
   // a centre on another server than the Province's: the sends come as a file
   const take = async () => {
     try {
@@ -158,7 +164,7 @@ export function ProvinceReceived() {
       toast(errText(e), true);
     }
   };
-  const takeButton = s.mode === 'server' && can('lists.donors') && <button className="btn small ghost" onClick={() => void take()}>⬆ {t('خذ ملفاً من الإقليم', 'Take a file from the Province')}</button>;
+  const takeButton = s.mode === 'server' && !here && can('lists.donors') && <button className="btn small ghost" onClick={() => void take()}>⬆ {t('خذ ملفاً من الإقليم', 'Take a file from the Province')}</button>;
   if (!rows.length) return takeButton ? <div style={{ marginBottom: 10 }}>{takeButton}</div> : null;
   const project = (id: number | null) => d.lists.accounts.find((a) => a.id === id)?.name ?? '—';
   const answer = async (r: ProvinceSend, ok: boolean) => {
@@ -178,7 +184,9 @@ export function ProvinceReceived() {
   };
   return (
     <div className="panel" style={{ marginBottom: 14 }}>
-      <div className="row" style={{ gap: 8, alignItems: 'center' }}><b>{t('من الإقليم', 'From the Province')}</b>{takeButton}</div>
+      <div className="row" style={{ gap: 8, alignItems: 'center' }}><b>{t('من الإقليم', 'From the Province')}</b>{takeButton}
+        <span className="muted small" style={{ marginInlineStart: 'auto' }}>{t('قُبل في دفتر المنح', 'accepted in the grants book')}: <span className="ltr">{money(rows.filter((r) => r.status === 'accepted').reduce((a, r) => a + r.usd, 0), 0)}{rows.some((r) => r.status === 'accepted' && r.syp) ? ` + ${fmtSyp(rows.filter((r) => r.status === 'accepted').reduce((a, r) => a + r.syp, 0))} SYP` : ''}</span></span>
+      </div>
       <table className="t" style={{ marginTop: 6 }}>
         <tbody>
           {rows.map((r) => (

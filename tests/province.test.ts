@@ -92,9 +92,20 @@ describe('the Province account', () => {
     const homs = browser();
     const profiles = (await homs(`/api/profiles?db=${slug}`)).body;
     expect((await homs('/api/login', { db: slug, profileId: profiles.find((x: { name: string }) => x.name === 'Boss').id, password: 'boss-prov-1' })).status).toBe(200);
+    await homs('/api/op/list.add', { table: 'city', name: 'Homs' });
     await homs('/api/op/heading.add', { name: 'Income', types: ['Income'] });
     const L0 = (await homs('/api/op/data', {})).body.lists;
     await homs('/api/op/line.add', { headingId: L0.headings.find((h: { name: string }) => h.name === 'Income').id, name: 'Donation' });
+    // a send goes only to a project with its dates and a budget line: first, a budget whose line "Books" is given to it
+    expect((await admin('/api/province/send', { date: '2026-12-20', centre: slug, project_id: project.id, grant_id: 'sen-2027', cur: 'USD', amount: 20000 })).status).toBe(400);
+    await homs('/api/op/heading.add', { name: 'Library', types: ['Exp'] });
+    const L1 = (await homs('/api/op/data', {})).body.lists;
+    await homs('/api/op/line.add', { headingId: L1.headings.find((h: { name: string }) => h.name === 'Library').id, name: 'Books' });
+    const books = (await homs('/api/op/data', {})).body.lists.lines.find((l: { name: string }) => l.name === 'Books');
+    await homs('/api/op/budget.create', { start_ym: '2026-01', months: 24, rate_syp: 13000, rate_eur: 0.9, from: 'empty' });
+    const v = (await homs('/api/op/budget.get', {})).body.current.id;
+    await homs('/api/op/budget.saveAmounts', { versionId: v, cells: [{ line_id: books.id, amount_usd: 1000 }] });
+    expect((await homs('/api/op/budget.setFund', { versionId: v, line_ids: [books.id], account_id: project.id })).status).toBe(200);
 
     const sent = await admin('/api/province/send', { date: '2026-12-20', centre: slug, project_id: project.id, grant_id: 'sen-2027', cur: 'USD', amount: 20000 });
     expect(sent.body).toMatchObject({ id: expect.any(String) });
@@ -111,7 +122,7 @@ describe('the Province account', () => {
     expect((await admin('/api/province/send', { id: sent.body.id, date: '2026-12-20', centre: slug, project_id: project.id, grant_id: 'sen-2027', cur: 'USD', amount: 19800 })).body).toEqual({ id: sent.body.id });
     mine = (await homs('/api/op/province.sends', {})).body;
     expect(mine[0]).toMatchObject({ usd: 19800, status: 'waiting', note: null });
-    expect((await homs('/api/province-answer', { id: sent.body.id, ok: true })).status).toBe(200);
+    expect((await homs('/api/province-answer', { id: sent.body.id, ok: true })).body).toEqual({ status: 'accepted' });
     // (the grants book is private: the row is read in the centre's file)
     const { DatabaseSync } = (await import('node:module')).createRequire(import.meta.url)('node:sqlite');
     const file = new DatabaseSync(path.join(dir, 'dbs', slug, 'magis.db'), { readOnly: true });

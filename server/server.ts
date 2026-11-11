@@ -31,7 +31,7 @@ import { ALL_PERMS } from '../src/perms';
 import { deleteNetGrant, listNetGrants, partAmount, saveNetGrant, type NetGrant } from '../src/domain/netGrants';
 import { grantReport, type GrantReportPartIn } from '../src/domain/grantReport';
 import { projectReport } from '../src/domain/projects';
-import { inPeriod } from '../src/domain/budget';
+import { periodEnd } from '../src/domain/budget';
 import { allCentresReport, exploreRows, type CentreInput, type ExploreRow } from '../src/domain/allCentres';
 import { computeAll } from '../src/domain/compute';
 import { addToList, applyMainList, CENTRES_LIST, checkMainList, followedList, listId, MAIN_LIST, mainListChanges, mainListFromDb, newUid, type MainChanges, type MainList, type MainRequest } from '../src/io/mainList';
@@ -542,6 +542,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   // ---------------------------------------------------------------- backups, every day, for every database
   const dailyBackup = async () => {
     const today = stamp().slice(0, 10);
+    // (the Province account, once it exists, is backed up like the others even if nobody opened it since the start)
+    if (!province && fs.existsSync(path.join(dataDir, 'province', 'magis.db'))) await getProvince();
     for (const c of [...centres.values(), ...(province ? [province] : [])]) {
       try {
         if (await setupNeeded(c)) continue;
@@ -896,7 +898,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       fs.mkdirSync(deletedDir, { recursive: true });
       const dest = path.join(deletedDir, `${c.slug}_${stamp()}`);
       fs.renameSync(c.dir, dest);
-      config = { ...config, inactive: (config.inactive ?? []).filter((x) => x !== c.slug) };
+      const { [c.slug]: _gone, ...copies } = config.copies ?? {};
+      config = { ...config, inactive: (config.inactive ?? []).filter((x) => x !== c.slug), copies };
       writeConfig(dataDir, config);
       log(`database ${c.slug} deleted: folder kept in ${dest} (password of ${who})`);
       return send(res, 200, { ok: true, folder: dest });
@@ -1125,7 +1128,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const mayLists = () => allCentresAllowed() || (!!found && has(found[1].profile, 'lists.manage'));
     if (url === '/api/main-lists' && method === 'GET') {
       if (!mayLists()) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      return send(res, 200, { admin: allCentresAllowed(), mine: found ? await followedList(found[2].handle.db) : null, lists: allCentresAllowed() ? await listSummary() : [] });
+      return send(res, 200, { admin: allCentresAllowed(), dir: directory.people.length > 0, mine: found ? await followedList(found[2].handle.db) : null, lists: allCentresAllowed() ? await listSummary() : [] });
     }
     if (url === '/api/main-list') {
       if (method !== 'GET') throw new HttpError(405, { ar: 'غير مسموح', en: 'Not allowed' });
@@ -1311,10 +1314,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // ---- A centre on another server takes the Province's sends from a file (Fouad, 2026-11-07): each waits for its
     // answer here; one already accepted is not touched.
+    // whether the Province's account is on this server (then its sends arrive by themselves, not by file)
+    if (url === '/api/province-here' && method === 'GET') return send(res, 200, { here: fs.existsSync(path.join(dataDir, 'province', 'magis.db')) });
     if (url === '/api/province-take' && method === 'POST') {
       if (!found) throw new HttpError(401, { ar: 'ادخل أولاً', en: 'Sign in first' });
       const [, sess, c] = found;
       if (!has(sess.profile, 'lists.donors')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (fs.existsSync(path.join(dataDir, 'province', 'magis.db'))) throw new HttpError(400, { ar: 'الإقليم على هذا الخادم: الإرسال يصل وحده', en: "The Province is on this server: its sends arrive by themselves" });
       const b = (await readBody(req)) as { kind?: string; sends?: { id: string; date: string; usd: number; syp: number; project_id: number | null; donor: string | null; reference: string | null; explanation: string | null; sent_by: string | null }[] };
       if (b.kind !== 'magis-province-sends' || !Array.isArray(b.sends)) throw new HttpError(400, { ar: 'الملف ليس إرسالاً من الإقليم', en: 'This file is not a send of the Province' });
       const stmts = b.sends.map((x) => ({
@@ -1402,6 +1408,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const b = (await readBody(req)) as { centre?: string; name?: string; start_date?: string | null; end_date?: string | null };
         const c = centres.get(String(b.centre ?? ''));
         if (!c) throw new HttpError(404, { ar: 'المركز غير موجود', en: 'Centre not found' });
+        if (config.copies?.[c.slug]) throw new HttpError(400, { ar: 'هذه نسخة من خادم آخر: يُنشأ المشروع هناك', en: 'This is a copy from another server: the project is made there' });
         const books = (await c.handle.db.query<{ id: number }>('SELECT id FROM book')).map((x) => x.id);
         const cctx: OpCtx = { db: c.handle.db, profile: { ...ctx.profile, books }, who: ctx.who, install: 'office', files: c.files };
         const name = String(b.name ?? '').trim();
@@ -1436,10 +1443,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
             const d = (await runOp(cctx, 'data', {})) as DataPayload;
             const comp = computeAll(d.rows, d.lists);
             const pr = projectReport({ rows: d.rows, comp, lists: d.lists, grants: d.grants, grantParts: d.grantParts, grantShares: d.grantShares, period }).find((x) => x.id === part.project_id);
-            // its budget: the lines given to it in the budget covering the grant's start
+            // its budget: the lines given to it in every budget of the grant's period (e.g. Jan–Jun 2027, then Jul 2027–Dec 2028)
             const all = (await runOp(cctx, 'budget.get', {})) as BudgetPayload;
-            const pick = [...all.budgets].reverse().find((x) => inPeriod(x, period.from)) ?? all.budgets[all.budgets.length - 1];
-            const bud = pick ? ((await runOp(cctx, 'budget.get', { budgetId: pick.id })) as BudgetPayload).amounts.filter((x) => x.account_id === part.project_id) : [];
+            const bud: BudgetPayload['amounts'] = [];
+            for (const x of all.budgets.filter((y) => y.start_ym <= period.to && periodEnd(y) >= period.from))
+              bud.push(...((await runOp(cctx, 'budget.get', { budgetId: x.id })) as BudgetPayload).amounts.filter((a) => a.account_id === part.project_id));
             const line = (id: number | null) => d.lists.lines.find((l) => l.id === id);
             const head = (id: number | null) => d.lists.headings.find((h) => h.id === id)?.name ?? '—';
             const keys = new Set<number | null>([...bud.map((x) => x.line_id), ...(pr?.lines ?? []).map((x) => x.line_id)]);
@@ -1530,10 +1538,19 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         if (b.project_id != null && !project) throw new HttpError(400, { ar: 'المشروع غير موجود', en: 'Project not found' });
         const grant = b.grant_id ? (await p.handle.db.query<{ donor: string; reference: string | null }>('SELECT donor, reference FROM net_grant WHERE id = ?', [b.grant_id]))[0] : null;
         const org = (await getMeta(c.handle.db, 'organisation')) ?? c.slug;
+        if (!project) throw new HttpError(400, { ar: 'اختر المشروع', en: 'Choose the project' });
+        // (as a grant's money leaves the Respo only when its steps are done: the project has its dates and a budget line)
+        const pDates = (await c.handle.db.query<{ start_date: string | null; end_date: string | null }>('SELECT start_date, end_date FROM account WHERE id = ?', [project.id]))[0];
+        if (!pDates?.start_date || !pDates.end_date) throw new HttpError(400, { ar: `للمشروع «${project.name}» تاريخا بداية ونهاية أولاً`, en: `The project "${project.name}" needs its start and end dates first` });
+        if (!(await c.handle.db.query('SELECT 1 FROM budget_amount WHERE account_id = ? LIMIT 1', [project.id])).length)
+          throw new HttpError(400, { ar: `أعطِ المشروع «${project.name}» خطاً واحداً على الأقل في موازنة المركز أولاً`, en: `Give the project "${project.name}" at least one line of the centre's budget first` });
         const id = b.id || `send-${newUid()}`;
-        const old = b.id ? (await c.handle.db.query<{ status: string }>('SELECT status FROM province_send WHERE id = ?', [id]))[0] : null;
-        if (b.id && !old) throw new HttpError(404, { ar: 'الإرسال غير موجود', en: 'Send not found' });
-        if (old?.status === 'accepted') throw new HttpError(400, { ar: 'قبله المركز: لا يتغير', en: 'The centre accepted it: it no longer changes' });
+        // a correction: the send exists on the Province's account, and the centre has not accepted it (a copy from
+        // another server knows its answer only from its last copy)
+        const sentRow = b.id ? (await p.handle.db.query<{ received_at: string | null }>('SELECT t.received_at FROM net_send s JOIN trx t ON t.id = s.trx_id WHERE s.trx_id = ?', [id]))[0] : null;
+        if (b.id && !sentRow) throw new HttpError(404, { ar: 'الإرسال غير موجود', en: 'Send not found' });
+        const old = b.id ? (config.copies?.[c.slug] ? { status: 'waiting' } : (await c.handle.db.query<{ status: string }>('SELECT status FROM province_send WHERE id = ?', [id]))[0] ?? { status: 'waiting' }) : null;
+        if (sentRow?.received_at || old?.status === 'accepted') throw new HttpError(400, { ar: 'قبله المركز: لا يتغير', en: 'The centre accepted it: it no longer changes' });
         const L = await loadLists(p.handle.db);
         const tHead = L.headings.find((h) => h.name === 'Transfer')!;
         const tLine = L.lines.find((l) => l.heading_id === tHead.id)!;

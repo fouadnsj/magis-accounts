@@ -102,6 +102,10 @@ export async function loadLists(db: Db): Promise<Lists> {
     db.query<ProjectRule>('SELECT * FROM project_rule ORDER BY id'),
     loadSettings(db),
   ]);
+  // codes in their natural order: E01.2 before E01.10 (a heading may have ten lines or more)
+  const byCode = (a: { code: string }, b: { code: string }) => a.code.localeCompare(b.code, 'en', { numeric: true });
+  headings.sort(byCode);
+  lines.sort(byCode);
   return { cities, accounts, projects, parties, books, headings, headingTypes, lines, donors, rules, settings, billPrefix: await billPrefixOf(db) };
 }
 

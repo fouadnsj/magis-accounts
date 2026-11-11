@@ -314,6 +314,8 @@ export interface Running {
 }
 
 const MAX_BODY = 40 * 1024 * 1024;
+/** a whole database file, sent as base64 (about a third more than the file itself): up to about 190 MB of file */
+const UPLOAD_BODY = 256 * 1024 * 1024;
 
 class HttpError extends Error {
   constructor(public status: number, public msg: Msg) {
@@ -564,14 +566,15 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const ipOf = (req: http.IncomingMessage) => (req.socket.remoteAddress ?? '').replace(/^::ffff:/, '');
   const isLocal = (req: http.IncomingMessage) => ['127.0.0.1', '::1'].includes(ipOf(req));
 
-  const readBody = (req: http.IncomingMessage) =>
+  // (a database file taken whole — an HR database with its documents, a backup — may be much bigger than a form: UPLOAD_BODY)
+  const readBody = (req: http.IncomingMessage, limit = MAX_BODY) =>
     new Promise<unknown>((resolve, reject) => {
       let size = 0;
       const chunks: Buffer[] = [];
       req.on('data', (c: Buffer) => {
         size += c.length;
-        if (size > MAX_BODY) {
-          reject(new HttpError(413, { ar: 'الملف كبير جداً', en: 'File too large' }));
+        if (size > limit) {
+          reject(new HttpError(413, { ar: `الملف كبير جداً (الحد ${Math.round(limit / 1048576)} ميغابايت)`, en: `File too large (the limit is ${Math.round(limit / 1048576)} MB)` }));
           req.destroy();
         } else chunks.push(c);
       });
@@ -1934,7 +1937,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     // ---- setting up a new database: only while it has nobody
     if (url.startsWith('/api/setup/')) {
-      const body = (await readBody(req)) as Record<string, string>;
+      const body = (await readBody(req, url === '/api/setup/upload-db' ? UPLOAD_BODY : MAX_BODY)) as Record<string, string>;
       const c = centreOf(body.db);
       if (!(ctyKinds.get(c.slug) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'الإعداد من حاسوب الخادم نفسه', en: 'Setup only from the server computer itself' });
       needCtyOpen(c.slug);
@@ -2172,7 +2175,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     if (url === '/api/server/restore-upload' && method === 'POST') {
       if (!has(s.profile, 'data.restore')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      const body = (await readBody(req)) as { base64?: string; fileName?: string };
+      const body = (await readBody(req, UPLOAD_BODY)) as { base64?: string; fileName?: string };
       await c.files.backupNow('before-restore');
       await replaceDatabase(c, body.base64 ?? '');
       log(`restored ${c.slug} from uploaded file ${body.fileName ?? ''} by ${s.profile.name}`);

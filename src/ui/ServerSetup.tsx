@@ -84,7 +84,16 @@ export function ServerSetup({ db, onDone, onBack, askGate }: { db: DbInfo; onDon
             <div className="modal-foot"><button className="btn" onClick={onBack}>{t('كل قواعد البيانات', 'All databases')}</button></div>
           </>
         ) : mode === 'hr' ? (
-          <HrForm initialName={db.organisation} onBack={onBack} onSubmit={async (s) => { await serverSetup('hr', { db: db.slug, ...s }); onDone(); }} />
+          <>
+            <HrForm initialName={db.organisation} onBack={onBack} onSubmit={async (s) => { await serverSetup('hr', { db: db.slug, ...s }); onDone(); }} />
+            {/* an HR database already kept elsewhere (a computer, another server): taken as it is, people and documents included */}
+            <div className="panel" style={{ marginTop: 14 }}>
+              <b>{t3('عندك قاعدة موارد بشرية جاهزة؟', 'Already have an HR database?', 'Vous avez déjà une base RH ?')}</b>
+              <p className="muted small" style={{ margin: '4px 0 8px' }}>{t3('اختر ملفها ‎.db (أو نسخة احتياطية منها): الأشخاص والاتفاقيات والوثائق والمستخدمون كما هم، ولا حاجة للنموذج أعلاه.', 'Choose its .db file (or a backup of it): the people, agreements, documents and users come as they are — the form above is not needed.', 'Choisissez son fichier .db (ou une sauvegarde) : les personnes, accords, documents et utilisateurs arrivent tels quels — le formulaire ci-dessus est inutile.')}</p>
+              <button className="btn" disabled={busy} onClick={uploadDb}>{busy ? '…' : `⬆ ${t3('خذ ملف قاعدة الموارد البشرية…', 'Take an HR database file…', 'Prendre un fichier de base RH…')}`}</button>
+              {err && <div className="alert err" style={{ marginTop: 8 }}>{err}</div>}
+            </div>
+          </>
         ) : mode === 'community' ? (
           <CommunityForm askGate={askGate} initialName={db.organisation} onBack={() => (fixed ? onBack() : setMode('choose'))} onSubmit={async (s) => { await serverSetup('community', { db: db.slug, ...s }); onDone(); }} />
         ) : mode === 'country' ? (

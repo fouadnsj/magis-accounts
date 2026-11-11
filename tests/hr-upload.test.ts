@@ -1,0 +1,51 @@
+// An HR database brought to a server (Fouad, 2026-11-11): a new database marked HR takes a .db file as it is — its people,
+// its keepers and their passwords — instead of only the form for a new HR keeper.
+import { describe, expect, it, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { startServer, type Running } from '../server/server';
+
+const servers: Running[] = [];
+const dirs: string[] = [];
+afterAll(async () => { for (const s of servers) await s.close(); for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
+
+async function server() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-hrup-'));
+  dirs.push(dir);
+  fs.mkdirSync(path.join(dir, 'web'));
+  fs.writeFileSync(path.join(dir, 'web', 'index.html'), '<html>ok</html>');
+  const srv = await startServer({ dataDir: dir, webRoot: path.join(dir, 'web'), config: { httpMode: 'serve', httpPort: 0 }, log: () => undefined });
+  servers.push(srv);
+  const base = `http://127.0.0.1:${srv.httpPort}`;
+  const call = async (url: string, body?: unknown) => {
+    const r = await fetch(base + url, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+  return { call, dir };
+}
+
+describe('an HR database taken into a server', () => {
+  it('a new HR database takes a .db file whole; the keeper signs in with his own password', async () => {
+    const one = await server();
+    const made = await one.call('/api/dbs/create', { organisation: 'HR old', centre: 'other', kind: 'hr' });
+    expect(made.status).toBe(200);
+    expect((await one.call('/api/setup/hr', { db: made.body.slug, organisation: 'HR old', people: [{ name: 'Keeper', password: 'keeper-pass-1' }], mustChange: false })).status).toBe(200);
+    const file = fs.readFileSync(path.join(one.dir, 'dbs', made.body.slug, 'magis.db')).toString('base64');
+
+    // another server: a new database marked HR, then the file instead of the form
+    const two = await server();
+    const hr = await two.call('/api/dbs/create', { organisation: 'HR', centre: 'other', kind: 'hr' });
+    expect((await two.call('/api/hello')).body.dbs[0]).toMatchObject({ kind: 'hr', setupNeeded: true });
+    expect((await two.call('/api/setup/upload-db', { db: hr.body.slug, base64: file })).status).toBe(200);
+    expect((await two.call('/api/hello')).body.dbs[0]).toMatchObject({ kind: 'hr', setupNeeded: false });
+    const profiles = (await two.call(`/api/profiles?db=${hr.body.slug}`)).body as { id: number; name: string }[];
+    expect(profiles.map((p) => p.name)).toEqual(['Keeper']);
+    expect((await two.call('/api/login', { db: hr.body.slug, profileId: profiles[0].id, password: 'keeper-pass-1' })).status).toBe(200);
+    // a database already set up is not replaced by this route
+    expect((await two.call('/api/setup/upload-db', { db: hr.body.slug, base64: file })).status).toBe(409);
+    // not a database file
+    const other = await two.call('/api/dbs/create', { organisation: 'HR 2', centre: 'other', kind: 'hr' });
+    expect((await two.call('/api/setup/upload-db', { db: other.body.slug, base64: Buffer.from('not a database').toString('base64') })).status).toBe(400);
+  });
+});

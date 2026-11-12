@@ -271,3 +271,8 @@ export interface WaitingItem { text: string; days?: number; note?: string | null
 export interface WaitingGroup { key: string; area: 'dbs' | 'grants' | 'province' | 'lists'; items: WaitingItem[] }
 export interface Waiting { at: string; count: number; groups: WaitingGroup[] }
 export const waitingApi = { get: () => get<Waiting>('/api/coordinator/waiting') };
+
+// ---- A database brought from a file (Fouad, 2026-11-12): looked at first, then created under its own name
+export interface DbFileInfo { organisation: string; kind: string; centre: string | null; color: string | null; hasLogo: boolean; nameTaken: boolean; users: { name: string; access: string | null; centres: string[] | null }[] }
+export const serverPeekDb = (base64: string) => post<DbFileInfo>('/api/dbs/peek', { base64 });
+export const serverImportDb = (a: { base64: string; organisation?: string | null; centre?: string | null; color?: string | null; logo?: string | null }) => post<{ slug: string; organisation: string; kind: string }>('/api/dbs/import', a);

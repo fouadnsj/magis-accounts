@@ -4,11 +4,11 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
 import { getLang, m, tx } from '../i18n';
 import type { DbInfo, DirInfo } from '../net';
-import { mainListApi, serverCreateDb, serverSetup } from '../net';
+import { mainListApi, serverCreateDb, serverImportDb, serverPeekDb, type DbFileInfo } from '../net';
 import { pickFile, toBase64 } from '../platform';
 import { paletteOf } from '../community/style';
 import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
-import { Field, Modal, errText, t, toast } from './kit';
+import { Field, Modal, biName, errText, t, toast } from './kit';
 import { ManageDbs } from './ManageDbs';
 import { Coordinator } from './Coordinator';
 import { DirAdmin, DirSetup } from './Directory';
@@ -330,6 +330,92 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   );
 }
 
+/** The house of a database: its colours and mark (or its own logo and colour). */
+function HousePick({ chosen, setCentre, color, setColor, logo, setLogo }: { chosen: CentreKey | 'own' | null; setCentre: (c: CentreKey | 'own') => void; color: string; setColor: (c: string) => void; logo: string | null; setLogo: (l: string | null) => void }) {
+  return (
+    <>
+      <h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
+      <div className="centre-pick">
+        {(Object.keys(CENTRES) as CentreKey[]).map((k) => {
+          const st = CENTRES[k];
+          return (
+            <button key={k} type="button" className={chosen === k ? 'on' : ''} onClick={() => setCentre(k)} style={{ '--centre': st.color, '--centre-deep': st.deep } as React.CSSProperties}>
+              {st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}
+              <span>{tx(st.name)}</span>
+            </button>
+          );
+        })}
+        <button type="button" className={chosen === 'own' ? 'on' : ''} onClick={() => setCentre('own')} style={{ '--centre': color, '--centre-deep': brandStyle({ centre: 'other', color }).deep } as React.CSSProperties}>
+          {logo ? <img src={logo} alt="" /> : <span style={{ fontSize: 34, lineHeight: '56px', color }}>●</span>}
+          <span>{t('شعار ولون خاصّان', 'Own logo & colour')}</span>
+        </button>
+      </div>
+      {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}
+    </>
+  );
+}
+
+/**
+ * A database taken from a file (Fouad, 2026-11-12). It keeps ITS OWN NAME (the name is only changed on purpose, never
+ * asked first); what is in it is shown — its kind and its users, with the centres each is limited to; the house, colour
+ * and logo are chosen here (left alone, they stay as in the file). An HR keeper "of a centre" sees only the people of
+ * the centres given to him: that stays as in the file, and is changed in HR → Users & centres.
+ */
+function ImportDb({ imp, onBack, onCreated }: { imp: { b64: string; fileName: string; info: DbFileInfo }; onBack: () => void; onCreated: (slug: string) => void }) {
+  const { info } = imp;
+  const [name, setName] = useState(info.organisation);
+  const [centre, setCentre] = useState<CentreKey | 'own' | null>(null);
+  const [color, setColor] = useState(info.color && /^#[0-9a-f]{6}$/i.test(info.color) ? info.color : '#2E7D32');
+  const [logo, setLogo] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const known = (Object.keys(CENTRES) as string[]).includes(info.centre ?? '') ? (info.centre as CentreKey) : null;
+  // (not touched: the file's own house, as it was)
+  const shown = centre ?? (info.color || info.hasLogo ? 'own' : known);
+  const kindName = info.kind === 'hr' ? t('قاعدة الموارد البشرية', 'The HR database') : t('قاعدة مركز', "A centre's database");
+  const renamed = name.trim() !== info.organisation.trim();
+  const go = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await serverImportDb({ base64: imp.b64, organisation: renamed ? name.trim() : null, centre: centre === null ? null : centre === 'own' ? 'other' : centre, color: centre === 'own' ? color : null, logo: centre === 'own' ? logo : null });
+      toast(t('أُحضرت القاعدة من الملف', 'The database came from the file'));
+      onCreated(r.slug);
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="panel" style={{ maxWidth: 720, margin: '0 auto' }}>
+      <h2>{t('قاعدة بيانات من ملف', 'A database from a file')}</h2>
+      <div className="alert info">
+        <div><b>{imp.fileName}</b> · {kindName}</div>
+        <div className="small" style={{ marginTop: 4 }}>{t('المستخدمون في الملف (يأتون كما هم، بكلمات سرهم):', 'The users in the file (they come as they are, with their passwords):')}</div>
+        <ul className="small" style={{ margin: '2px 0 0', paddingInlineStart: 18 }}>
+          {info.users.map((u, i) => (
+            <li key={i}><b>{u.name}</b>{u.access ? ` · ${biName(u.access)}` : ''}{info.kind === 'hr' ? ` · ${u.centres?.length ? `${t('يرى فقط', 'sees only')}: ${u.centres.map((c) => (CENTRES[c as CentreKey] ? tx(CENTRES[c as CentreKey].name) : c)).join('، ')}` : t('يرى كل المراكز', 'sees every centre')}` : ''}</li>
+          ))}
+        </ul>
+        {info.kind === 'hr' && <div className="small muted" style={{ marginTop: 4 }}>{t('مسؤول الموارد البشرية «في مركز» يرى فقط أشخاص المراكز المعطاة له. لتغييرها: الموارد البشرية ← «المستخدمون والمراكز» بعد الاستيراد.', 'An HR keeper "of a centre" sees only the people of the centres given to him. To change it: HR → "Users & centres" after the import.')}</div>}
+      </div>
+      <Field label={t('الاسم (كما في الملف)', 'Name (as in the file)')}>
+        <input value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      {renamed && <p className="muted small" style={{ marginTop: -4 }}>{t('سيحمل اسماً غير اسمه في الملف.', 'It will carry another name than the one in the file.')} <button type="button" className="link small" onClick={() => setName(info.organisation)}>{t('أعد اسم الملف', "Put back the file's name")}</button></p>}
+      {info.nameTaken && !renamed && <div className="alert warn">{t('قاعدة بهذا الاسم موجودة هنا: اختر اسماً آخر.', 'A database with this name already exists here: choose another name.')}</div>}
+      <HousePick chosen={shown} setCentre={setCentre} color={color} setColor={setColor} logo={logo} setLogo={setLogo} />
+      <p className="muted small">{t('إن لم تغيّر شيئاً، يبقى لونه ورمزه كما في الملف.', 'If you change nothing, its colour and mark stay as in the file.')}</p>
+      {err && <div className="alert err">{err}</div>}
+      <div className="modal-foot">
+        <button className="btn" onClick={onBack}>{t('رجوع', 'Back')}</button>
+        <button className="btn primary" disabled={!name.trim() || busy || (info.nameTaken && !renamed)} onClick={() => void go()}>{busy ? '…' : t('استورد', 'Import')}</button>
+      </div>
+    </div>
+  );
+}
+
 /** A colour and a logo of one's own (e.g. the scouts). */
 export function OwnBrand({ color, setColor, logo, setLogo }: { color: string; setColor: (c: string) => void; logo: string | null; setLogo: (l: string | null) => void }) {
   const [err, setErr] = useState<string | null>(null);
@@ -374,23 +460,19 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
     if (!community) mainListApi.names().then((x) => { setLists(x); setMainList(x[0]?.id ?? null); }).catch(() => setLists([]));
   }, [community]);
   const chosen = centre ?? (name ? guessCentre(name) : null);
-  // a database that exists elsewhere (a backup, an HR database made on another server): created under this name and
-  // filled from its .db file as it is — its people, documents and users come with it (Fouad, 2026-11-12)
+  // a database that exists elsewhere (a backup, an HR database made on another server): the file comes first; what is in
+  // it is shown (its name, its users), then it is created under its own name (Fouad, 2026-11-12)
+  const [imp, setImp] = useState<{ b64: string; fileName: string; info: DbFileInfo } | null>(null);
   const fromFile = async () => {
     setErr(null);
     const file = await pickFile(['db'], t('اختر ملف قاعدة البيانات (‎.db)', 'Choose the database file (.db)'));
     if (!file) return;
     setBusy(true);
-    let slug: string | null = null;
     try {
-      const r = chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
-      slug = r.slug;
-      await serverSetup('upload-db', { db: r.slug, base64: toBase64(file.bytes) });
-      toast(t('أُحضرت القاعدة من الملف', 'The database came from the file'));
-      onCreated(r.slug);
+      const b64 = toBase64(file.bytes);
+      setImp({ b64, fileName: file.name, info: await serverPeekDb(b64) });
     } catch (e) {
-      // (the empty database stays: its own page takes the file again)
-      setErr(`${errText(e)}${slug ? ` — ${t('أُنشئت القاعدة فارغة: افتحها واختر الملف من جديد', 'the database was made, empty: open it and choose the file again')}` : ''}`);
+      setErr(errText(e));
     } finally {
       setBusy(false);
     }
@@ -407,6 +489,7 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
       setBusy(false);
     }
   };
+  if (imp) return <ImportDb imp={imp} onBack={() => setImp(null)} onCreated={onCreated} />;
   return (
     <div className="panel" style={{ maxWidth: 720, margin: '0 auto' }}>
       <h2>{community ? tx(m('جماعة أو بلد جديد', 'A new community or country', 'Une nouvelle communauté ou un pays')) : t('قاعدة بيانات جديدة', 'New database')}</h2>
@@ -431,23 +514,7 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
           <span><b>{tx(m('هذه قاعدة الموارد البشرية', 'This is the HR database', "C'est la base des ressources humaines"))}</b> <span className="muted small">{tx(m('خاصة: الأشخاص والاتفاقيات والوثائق', 'private: people, agreements, documents', 'privée : personnes, accords, documents'))}</span></span>
         </label>
       )}
-      {!community && !isHr && <><h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
-      <div className="centre-pick">
-        {(Object.keys(CENTRES) as CentreKey[]).map((k) => {
-          const st = CENTRES[k];
-          return (
-            <button key={k} type="button" className={chosen === k ? 'on' : ''} onClick={() => setCentre(k)} style={{ '--centre': st.color, '--centre-deep': st.deep } as React.CSSProperties}>
-              {st.mark ? <img src={st.mark} alt="" /> : <img src="/brand/magis-sun.png" alt="" />}
-              <span>{tx(st.name)}</span>
-            </button>
-          );
-        })}
-        <button type="button" className={chosen === 'own' ? 'on' : ''} onClick={() => setCentre('own')} style={{ '--centre': color, '--centre-deep': brandStyle({ centre: 'other', color }).deep } as React.CSSProperties}>
-          {logo ? <img src={logo} alt="" /> : <span style={{ fontSize: 34, lineHeight: '56px', color }}>●</span>}
-          <span>{t('شعار ولون خاصّان', 'Own logo & colour')}</span>
-        </button>
-      </div>
-      {chosen === 'own' && <OwnBrand color={color} setColor={setColor} logo={logo} setLogo={setLogo} />}
+      {!community && !isHr && <><HousePick chosen={chosen} setCentre={setCentre} color={color} setColor={setColor} logo={logo} setLogo={setLogo} />
       {lists.length > 0 && (
         <Field label={t('قائمة البنود والخطوط (تُؤخذ كلها، ثم يُوقف ما لا يُستعمل)', 'List of headings and lines (taken whole; then switch off what is not used)')}>
           <select value={mainList ?? ''} onChange={(e) => setMainList(e.target.value || null)}>
@@ -458,11 +525,11 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
       <p className="muted small">{community
         ? tx(m('بعدها: العنوان والألوان والأشخاص.', 'Next: its address, colours and people.', 'Ensuite : adresse, couleurs et personnes.'))
         : t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>
-      {!community && <p className="muted small">{t('«من ملف قاعدة بيانات»: ملف ‎.db (نسخة احتياطية، أو قاعدة موارد بشرية من خادم آخر…) يأتي كما هو: الأشخاص والوثائق والمستخدمون معه. القائمة تأتي من الملف.', '"From a database file": a .db file (a backup, an HR database from another server…) comes as it is — its people, documents and users with it. Its lists come from the file.')}</p>}
+      {!community && <p className="muted small">{t('«من ملف قاعدة بيانات»: ملف ‎.db (نسخة احتياطية، أو قاعدة موارد بشرية من خادم آخر…) يأتي كما هو باسمه: الأشخاص والوثائق والمستخدمون معه. لا حاجة لكتابة الاسم هنا.', '"From a database file": a .db file (a backup, an HR database from another server…) comes as it is, under its own name — its people, documents and users with it. No need to write the name here.')}</p>}
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">
         {onCancel && <button className="btn" onClick={onCancel}>{t('رجوع', 'Back')}</button>}
-        {!community && <button className="btn" disabled={!name.trim() || busy} title={t('اكتب الاسم أولاً', 'Write the name first')} onClick={() => void fromFile()}>⬆ {t('من ملف قاعدة بيانات…', 'From a database file…')}</button>}
+        {!community && <button className="btn" disabled={busy} onClick={() => void fromFile()}>⬆ {t('من ملف قاعدة بيانات…', 'From a database file…')}</button>}
         <button className="btn primary" disabled={!name.trim() || busy} onClick={go}>{t('متابعة', 'Continue')}</button>
       </div>
     </div>

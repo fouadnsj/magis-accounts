@@ -694,6 +694,42 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
    * or a backup copy). Checked in a temporary file first: it must open, must be
    * an office database (not a holder's), and must have at least one user.
    */
+  /**
+   * What a .db file is, before it becomes a database (Fouad, 2026-11-12): checked as when it replaces one — not a holder's
+   * file, with users, not a community's, a country's or the Province's — and read: its name, its house, its colour, and its
+   * users with the centres each is limited to (an HR keeper of a centre sees only that centre's people).
+   */
+  const peekDb = async (base64: string) => {
+    const tmp = path.join(dataDir, `peek-${Date.now()}-${randomBytes(4).toString('hex')}.db`);
+    fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
+    try {
+      const test = openDb(tmp);
+      try {
+        await migrate(test.db);
+        const users = await test.db.query<{ name: string; role: string | null; hr_centres: string | null; access: string | null }>(
+          'SELECT p.name, p.role, p.hr_centres, a.name AS access FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.active = 1 ORDER BY p.id');
+        if ((await getMeta(test.db, 'install')) === 'holder') throw new HttpError(400, { ar: 'هذا ملف أمين صندوق، لا ملف المكتب', en: "This is a holder's file, not the office database" });
+        if (!users.length) throw new HttpError(400, { ar: 'لا مستخدمين في هذا الملف', en: 'No users in this file' });
+        const kind = (await getMeta(test.db, 'kind')) ?? 'centre';
+        if (kind === 'community' || kind === 'country' || kind === 'province')
+          throw new HttpError(400, kind === 'province' ? { ar: 'هذا ملف حساب الإقليم', en: "This is the Province account's file" } : { ar: 'هذا ملف جماعة أو بلد: يُنشأ من جانب الجماعات', en: "This is a community's or a country's file: make it from the communities' side" });
+        const scope = (x: string | null) => { try { const a = JSON.parse(x ?? 'null'); return Array.isArray(a) ? (a as string[]) : null; } catch { return null; } };
+        return {
+          organisation: (await getMeta(test.db, 'organisation')) ?? '', kind, centre: (await getMeta(test.db, 'centre')) as string | null,
+          color: await getMeta(test.db, 'brand_color'), hasLogo: !!(await getMeta(test.db, 'brand_logo')),
+          users: users.map((u) => ({ name: u.name, access: u.access, centres: scope(u.hr_centres) })),
+        };
+      } finally {
+        test.close();
+      }
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(400, { ar: 'ليس ملف قاعدة بيانات صالحاً', en: 'Not a valid database file' });
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
+  };
+
   const replaceDatabase = async (c: Centre, base64: string) => {
     const keepCentre = await getMeta(c.handle.db, 'centre');
     const curKind = await getMeta(c.handle.db, 'kind');
@@ -2004,6 +2040,42 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
 
     // ---- a new database (a centre, a test, a new year…)
+    // ---- a database brought from a file (Fouad, 2026-11-12): looked at first (its name, its users), then created under ITS
+    // OWN NAME unless a new one is given, with the house, colour and logo chosen; one step, so a refused file leaves nothing.
+    if (url === '/api/dbs/peek' && method === 'POST') {
+      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+      const body = (await readBody(req, UPLOAD_BODY)) as { base64?: string };
+      const info = await peekDb(String(body.base64 ?? ''));
+      const same = [];
+      for (const x of centres.values()) if (((await getMeta(x.handle.db, 'organisation')) ?? x.slug).trim().toLowerCase() === info.organisation.trim().toLowerCase()) same.push(x.slug);
+      return send(res, 200, { ...info, nameTaken: info.organisation.trim() !== '' && same.length > 0 });
+    }
+    if (url === '/api/dbs/import' && method === 'POST') {
+      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+      const body = (await readBody(req, UPLOAD_BODY)) as { base64?: string; organisation?: string; centre?: string | null; color?: string | null; logo?: string | null };
+      const info = await peekDb(String(body.base64 ?? ''));
+      const organisation = (body.organisation ?? '').trim() || info.organisation.trim();
+      if (!organisation) throw new HttpError(400, { ar: 'هذا الملف بلا اسم: اكتب اسماً', en: 'This file has no name: write one' });
+      for (const x of centres.values())
+        if (((await getMeta(x.handle.db, 'organisation')) ?? x.slug).trim().toLowerCase() === organisation.toLowerCase())
+          throw new HttpError(409, { ar: `قاعدة باسم «${organisation}» موجودة: اختر اسماً آخر`, en: `A database named "${organisation}" already exists: choose another name` });
+      let slug = slugify(organisation);
+      for (let i = 2; centres.has(slug) || fs.existsSync(path.join(dbsDir, slug)); i++) slug = `${slugify(organisation)}-${i}`;
+      const c = await openCentre(slug);
+      await replaceDatabase(c, String(body.base64));
+      // what the screen chose (the rest stays as in the file)
+      const centreKey = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? (body.centre as CentreKey) : null;
+      const color = body.color && /^#[0-9a-f]{6}$/i.test(body.color) ? body.color : null;
+      const logo = body.logo && body.logo.startsWith('data:image/png;base64,') && body.logo.length < 400_000 ? body.logo : null;
+      await c.handle.db.batch([
+        setMetaStmt('organisation', organisation),
+        ...(centreKey ? [setMetaStmt('centre', centreKey), setMetaStmt('brand_color', centreKey === 'other' ? color : null), setMetaStmt('brand_logo', centreKey === 'other' ? logo : null)] : []),
+        auditStmt(found?.[1].profile.name ?? dirPerson?.name ?? 'import', 'import', 'meta', null, null, { organisation, kind: info.kind, users: info.users.length }),
+      ]);
+      c.version++;
+      log(`database ${slug} brought from a file (${organisation}, ${info.kind}, ${info.users.length} users)`);
+      return send(res, 200, { slug, organisation, kind: info.kind });
+    }
     if (url === '/api/dbs/create' && method === 'POST') {
       const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null; mainList?: string | null };
       if (!(isCtyKind(body.kind) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });

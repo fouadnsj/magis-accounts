@@ -1700,7 +1700,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         `SELECT l.uid, l.name, l.code, h.name AS heading,
                 (SELECT a.name FROM budget_amount x JOIN account a ON a.id = x.account_id
                   WHERE x.line_id = l.id AND x.version_id = (SELECT v.id FROM budget_version v WHERE v.budget_id = ? ORDER BY v.rev DESC LIMIT 1)) AS project
-           FROM budget_line l JOIN heading h ON h.id = l.heading_id WHERE l.active = 1 AND h.active = 1 ORDER BY h.sort, l.code`, [budget?.id ?? -1]);
+           FROM budget_line l JOIN heading h ON h.id = l.heading_id
+          WHERE l.active = 1 AND h.active = 1 AND EXISTS (SELECT 1 FROM heading_type t WHERE t.heading_id = h.id AND t.type = 'Exp')
+          ORDER BY h.sort, l.code`, [budget?.id ?? -1]);
       const merged = await src.handle.db.query<{ uid: string; into: string }>('SELECT l.uid, t.uid AS "into" FROM budget_line l JOIN budget_line t ON t.id = l.merged_into');
       const hash = JSON.stringify([lines, accounts.map((a) => [a.name, donorsOf(a.name)])]);
       return { org, centreKey, accounts, donorsOf, lines, merged, hash };
@@ -1723,16 +1725,26 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         ...accounts.map((a) => ({ sql: "UPDATE hr_list SET donors = ? WHERE kind = 'account' AND name = ? AND source = ?", params: [donorsOf(a.name), a.name, src.slug] })),
       ];
       const kept = new Set<string>();
+      const relabel: { from: string; to: string }[] = [];
+      const recode: { id: number; code: string | null }[] = [];
       for (const h of have) {
         // a line copied before the identities: known by its code and name
         const uid = h.uid ?? lines.find((l) => l.code === h.code && l.name === h.name)?.uid ?? null;
         const now = uid ? byUid.get(uid) ?? (mergedInto.has(uid) ? byUid.get(mergedInto.get(uid)!) : undefined) : undefined;
         if (!now) continue; // gone from the centre: removed below
-        if (label(h) !== label(now)) stmts.push({ sql: `UPDATE hr_person SET budget_line = ? WHERE budget_line = ? AND ${people}`, params: [label(now), label(h), src.slug] });
+        if (label(h) !== label(now)) relabel.push({ from: label(h), to: label(now) });
         if (kept.has(now.uid)) { stmts.push({ sql: 'DELETE FROM hr_list WHERE id = ?', params: [h.id] }); continue; }
         kept.add(now.uid);
-        stmts.push({ sql: 'UPDATE hr_list SET uid = ?, name = ?, code = ?, heading = ?, account = ? WHERE id = ?', params: [now.uid, now.name, now.code, now.heading, now.project, h.id] });
+        // (the list allows one row per name and code: two lines of the same name that swap codes go through a marker)
+        const moves = h.code !== now.code;
+        if (moves) recode.push({ id: h.id, code: now.code });
+        stmts.push({ sql: 'UPDATE hr_list SET uid = ?, name = ?, code = ?, heading = ?, account = ? WHERE id = ?', params: [now.uid, now.name, moves ? `\u0001${h.id}` : now.code, now.heading, now.project, h.id] });
       }
+      // (a Renumber can swap two labels, e.g. "E01.2 · Reception" and "E02.2 · Reception": first every changed label goes to a
+      // marker, then to its new one — else the second change would also take the people of the first)
+      relabel.forEach((x, i) => stmts.push({ sql: `UPDATE hr_person SET budget_line = ? WHERE budget_line = ? AND ${people}`, params: [`\u0001${i}`, x.from, src.slug] }));
+      relabel.forEach((x, i) => stmts.push({ sql: `UPDATE hr_person SET budget_line = ? WHERE budget_line = ? AND ${people}`, params: [x.to, `\u0001${i}`, src.slug] }));
+      for (const x of recode) stmts.push({ sql: 'UPDATE hr_list SET code = ? WHERE id = ?', params: [x.code, x.id] });
       for (const l of lines) if (!kept.has(l.uid)) stmts.push({ sql: "INSERT OR IGNORE INTO hr_list (kind, name, code, heading, source, uid, account) VALUES ('line', ?, ?, ?, ?, ?, ?)", params: [l.name, l.code, l.heading, src.slug, l.uid, l.project] });
       // what the centre no longer has (a line or an account switched off or removed) leaves the HR lists too
       stmts.push(

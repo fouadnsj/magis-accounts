@@ -24,7 +24,7 @@ import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
 import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigrations } from '../src/db/db';
-import { addHeading, addLine, addNamed, auditStmt, blankTrx, getMeta, loadLists, setMetaStmt } from '../src/db/repo';
+import { addHeading, addLine, addNamed, auditStmt, blankTrx, getMeta, loadLists, loadTrx, setMetaStmt } from '../src/db/repo';
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type BudgetPayload, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
 import { ALL_PERMS } from '../src/perms';
@@ -1452,10 +1452,21 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
         // the grants: money in the account not yet sent, an end near, a split not finished
         const grants = await listNetGrants(pv.handle.db);
-        const sentUsd = new Map((await pv.handle.db.query<{ grant_id: string; usd: number }>("SELECT t.grant_id, SUM(t.trf_usd) AS usd FROM net_send s JOIN trx t ON t.id = s.trx_id WHERE t.grant_id IS NOT NULL GROUP BY t.grant_id")).map((x) => [x.grant_id, x.usd]));
+        // received and sent for each grant, in dollars at each row's rate (money changed into pounds and sent in pounds counts)
+        const pRows = await loadTrx(pv.handle.db);
+        const pComp = computeAll(pRows, await loadLists(pv.handle.db));
+        const receivedUsd = new Map<string, number>();
+        const sentUsd = new Map<string, number>();
+        for (const r of pRows) {
+          if (!r.grant_id) continue;
+          const rate = pComp.get(r.id)?.rate || 0;
+          if (r.type === 'Income') receivedUsd.set(r.grant_id, (receivedUsd.get(r.grant_id) ?? 0) + (pComp.get(r.id)?.incUsdTot ?? r.inc_usd));
+          if (r.type === 'Transfer') sentUsd.set(r.grant_id, (sentUsd.get(r.grant_id) ?? 0) + r.trf_usd + (rate > 0 ? r.trf_syp / rate : 0));
+        }
         const name = (g: { donor: string; reference: string | null }) => `${g.donor}${g.reference ? ` · ${g.reference}` : ''}`;
         const open = grants.filter((g) => !g.closed);
-        add('unsent', 'province', open.filter((g) => g.received_usd - (sentUsd.get(g.id) ?? 0) > 0.5).map((g) => ({ text: name(g), usd: g.received_usd - (sentUsd.get(g.id) ?? 0) })));
+        const left = (g: { id: string }) => (receivedUsd.get(g.id) ?? 0) - (sentUsd.get(g.id) ?? 0);
+        add('unsent', 'province', open.filter((g) => left(g) > 0.5).map((g) => ({ text: name(g), usd: Math.round(left(g) * 100) / 100 })));
         add('ending', 'grants', open.filter((g) => g.end_date && daysSince(g.end_date) > -60).map((g) => ({ text: name(g), days: -daysSince(g.end_date!), note: g.end_date })));
         add('unsplit', 'grants', open.filter((g) => g.amount - g.parts.reduce((a, p) => a + partAmount(g, p), 0) > 0.5).map((g) => ({ text: name(g), usd: g.amount - g.parts.reduce((a, p) => a + partAmount(g, p), 0), note: g.currency })));
         // a project that cannot receive a send: no dates, or no budget line given to it
@@ -2069,7 +2080,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const logo = body.logo && body.logo.startsWith('data:image/png;base64,') && body.logo.length < 400_000 ? body.logo : null;
       await c.handle.db.batch([
         setMetaStmt('organisation', organisation),
-        ...(centreKey ? [setMetaStmt('centre', centreKey), setMetaStmt('brand_color', centreKey === 'other' ? color : null), setMetaStmt('brand_logo', centreKey === 'other' ? logo : null)] : []),
+        ...(centreKey ? [setMetaStmt('centre', centreKey), setMetaStmt('brand_color', centreKey === 'other' ? color : null)] : []),
+        // (an own colour chosen without a new logo keeps the file's logo; a house's mark takes the logo's place)
+        ...(centreKey && centreKey !== 'other' ? [setMetaStmt('brand_logo', null)] : logo ? [setMetaStmt('brand_logo', logo)] : []),
         auditStmt(found?.[1].profile.name ?? dirPerson?.name ?? 'import', 'import', 'meta', null, null, { organisation, kind: info.kind, users: info.users.length }),
       ]);
       c.version++;

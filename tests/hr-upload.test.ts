@@ -87,6 +87,7 @@ describe('an HR database taken into a server', () => {
     fs.copyFileSync(hrFile, copy);
     const f = new DatabaseSync(copy);
     f.prepare('UPDATE profile SET hr_centres = ?').run('["homs"]');
+    f.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('brand_logo', 'data:image/png;base64,AAAA')").run();
     f.close();
     const b64 = fs.readFileSync(copy).toString('base64');
 
@@ -107,9 +108,10 @@ describe('an HR database taken into a server', () => {
     expect(aleppo.status).toBe(200);
     // its own colour and logo
     expect((await two.call('/api/dbs/import', { base64: b64, organisation: 'HR Scouts', centre: 'other', color: '#112233' })).status).toBe(200);
-    const shown = (await two.call('/api/hello')).body.dbs as { organisation: string; centre: string; color: string | null }[];
+    const shown = (await two.call('/api/hello')).body.dbs as { organisation: string; centre: string; color: string | null; logo: string | null }[];
     expect(shown.find((d) => d.organisation === 'HR Aleppo')).toMatchObject({ centre: 'aleppo' });
-    expect(shown.find((d) => d.organisation === 'HR Scouts')).toMatchObject({ centre: 'other', color: '#112233' });
+    expect(shown.find((d) => d.organisation === 'HR Scouts')).toMatchObject({ centre: 'other', color: '#112233', logo: 'data:image/png;base64,AAAA' }); // its own colour, the file's logo kept
+    expect(shown.find((d) => d.organisation === 'HR Aleppo')!.logo).toBeNull(); // a house's mark instead of the logo
     expect(shown.find((d) => d.organisation === 'HR Syria')).toBeTruthy(); // (left alone: as in the file)
     // a file that is not a database, or a community's, leaves nothing behind
     expect((await two.call('/api/dbs/import', { base64: Buffer.from('nope').toString('base64') })).status).toBe(400);

@@ -398,6 +398,7 @@ function ImportDb({ imp, onBack, onCreated }: { imp: { b64: string; fileName: st
             <li key={i}><b>{u.name}</b>{u.access ? ` · ${biName(u.access)}` : ''}{info.kind === 'hr' ? ` · ${u.centres?.length ? `${t('يرى فقط', 'sees only')}: ${u.centres.map((c) => (CENTRES[c as CentreKey] ? tx(CENTRES[c as CentreKey].name) : c)).join('، ')}` : t('يرى كل المراكز', 'sees every centre')}` : ''}</li>
           ))}
         </ul>
+        <div className="small muted" style={{ marginTop: 4 }}>{t('للدخول من الصفحة الأولى بالاسم وكلمة السر: أعطِ كل شخص هذه القاعدة في المنسّق ← «الأشخاص والصلاحيات».', 'To enter from the first page with their name and password: give each person this database in Coordinator → "People & access".')}</div>
         {info.kind === 'hr' && <div className="small muted" style={{ marginTop: 4 }}>{t('مسؤول الموارد البشرية «في مركز» يرى فقط أشخاص المراكز المعطاة له. لتغييرها: الموارد البشرية ← «المستخدمون والمراكز» بعد الاستيراد.', 'An HR keeper "of a centre" sees only the people of the centres given to him. To change it: HR → "Users & centres" after the import.')}</div>}
       </div>
       <Field label={t('الاسم (كما في الملف)', 'Name (as in the file)')}>

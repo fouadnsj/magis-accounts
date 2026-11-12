@@ -69,7 +69,7 @@ export function CoordinatorWaiting({ data, onGo, onRefresh }: { data: Waiting | 
             {g.items.slice(0, 8).map((x, i) => (
               <li key={i}>
                 {g.key === 'sends' && <span>{x.state === 'disputed' ? '⚠ ' : '⏳ '}</span>}
-                {g.key === 'loose' ? t3(`${x.text} حركة`, `${x.text} rows`, `${x.text} lignes`) : x.text}
+                {g.key === 'loose' ? t3(`${x.text} حركة`, `${x.text} rows`, `${x.text} lignes`) : x.state === 'province' ? t3('حساب الإقليم', 'Province account', 'Compte de la Province') : x.text}
                 <Detail g={g.key} x={x} />
               </li>
             ))}

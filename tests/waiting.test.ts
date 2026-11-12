@@ -96,6 +96,13 @@ describe('the Coordinator: what is waiting', () => {
     expect(keys(w2)).not.toContain('notready');
     expect(w2.groups.find((x) => x.key === 'sends')!.items[0]).toMatchObject({ text: 'Homs › SEN Library', usd: 1000, state: 'waiting' });
     expect(w2.groups.find((x) => x.key === 'unsent')!.items[0].usd).toBe(2000);
+    // 1,000 dollars changed into pounds (13,000 a dollar) and sent in pounds: they count as sent
+    const ex = p.lists.headings.find((h: { name: string }) => h.name === 'Exchange');
+    const exl = p.lists.lines.find((l: { heading_id: number }) => l.heading_id === ex.id);
+    expect((await admin('/api/province/op/trx.save', { rows: [{ ...row, id: 'ex-1', type: 'Exchange', date: '2026-09-04', heading_id: ex.id, line_id: exl.id, explanation: null, trf_usd: 1000, trf_syp: 13_000_000 }] })).status).toBe(200);
+    expect((await admin('/api/province/send', { date: '2026-09-05', centre: slug, project_id: proj, grant_id: 'g1', cur: 'SYP', amount: 13_000_000 })).status).toBe(200);
+    const w3 = (await admin('/api/coordinator/waiting')).body as { groups: Group[] };
+    expect(w3.groups.find((x) => x.key === 'unsent')!.items[0].usd).toBe(1000);
 
     // a copy brought just now is not old (the 30 days rule itself is read from the date it was brought)
     const file = fs.readFileSync(path.join(dir, 'dbs', slug, 'magis.db')).toString('base64');

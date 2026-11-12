@@ -3,6 +3,7 @@
 // and how to group it (centre, position, project, donor, currency, year of arrival); click a bar to look inside it. The
 // people behind the bars are listed below, with the columns one chooses, and everything shown goes to Excel. The cost
 // of an hour stays private: only the Superior (hr.approve) can choose it.
+import { has } from '../../auth';
 import { useEffect, useMemo, useState } from 'react';
 import ExcelJS from 'exceljs';
 import type { Session } from '../../state';
@@ -46,7 +47,7 @@ export function ReportsPage({ s, hr, pd, open, sup }: { s: Session; hr: HrData; 
     ['yearly', t3(`التكلفة السنوية ×${n} (USD)`, `Yearly cost ×${n} (USD)`, `Coût annuel ×${n} (USD)`)],
     ['people', t3('عدد الأشخاص', 'Number of people', 'Nombre de personnes')],
     ['weekly', t3('ساعات الأسبوع (المعدل)', 'Hours a week (average)', 'Heures par semaine (moyenne)')],
-    ...(sup ? [['hour', t3('تكلفة الساعة (المعدل، للرئيس)', 'Cost of an hour (average, Superior)', "Coût d'une heure (moyenne, Supérieur)")] as [Measure, string]] : []),
+    ...(sup ? [['hour', t3('تكلفة الساعة (المعدل)', 'Cost of an hour (average)', "Coût d'une heure (moyenne)")] as [Measure, string]] : []),
   ];
   const COLS: [Col, string, boolean?][] = [
     ['centre', t3('المركز', 'Centre', 'Centre')], ['nameAr', t3('الاسم بالعربية', 'Name (Arabic)', 'Nom (arabe)')], ['name', t3('الاسم بالإنكليزية', 'Name (English)', 'Nom (anglais)')],
@@ -160,7 +161,7 @@ export function ReportsPage({ s, hr, pd, open, sup }: { s: Session; hr: HrData; 
     <>
       <div className="hr-head">
         <div><div className="hr-eyebrow">{t3('اختر ما تقيسه وكيف تجمعه', 'Choose what to measure and how to group it', 'Choisissez quoi mesurer et comment regrouper')}</div><h1>{t3('التقارير', 'Reports', 'Rapports')}<GuideLink id="hr-funding" /></h1></div>
-        <button className="btn gold" onClick={() => void download()}>⬇ {t3('Excel لما يظهر', 'Excel of what is shown', 'Excel de ce qui est affiché')}</button>
+        {has(s.profile, 'data.export') && <button className="btn gold" onClick={() => void download()}>⬇ {t3('Excel لما يظهر', 'Excel of what is shown', 'Excel de ce qui est affiché')}</button>}
       </div>
       <div className="hr-explore">
         <select value={measure} onChange={(e) => setMeasure(e.target.value as Measure)}>{MEASURES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>

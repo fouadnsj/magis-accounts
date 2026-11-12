@@ -30,8 +30,8 @@ export async function createHr(db: Db, s: HrSetup): Promise<void> {
     { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (1, ?, ?, 1)', params: ['مسؤول الموارد البشرية · HR keeper · Responsable RH', JSON.stringify(HR_PERMS)] },
     { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (2, ?, ?, 2)', params: ['قارئ · Reader · Lecteur', JSON.stringify(['hr.view', 'hr.details'])] },
     // the HR keeper of a centre (sees only the centres given to the user), the Superior, the MAGIS manager (Fouad, 31 October 2026)
-    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (3, ?, ?, 3)', params: ["مسؤول الموارد البشرية في مركز · HR keeper of a centre · Responsable RH d'un centre", JSON.stringify(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay'])] },
-    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (4, ?, ?, 4)', params: ['الرئيس · Superior · Supérieur', JSON.stringify(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay', 'hr.approve', 'hr.paid', 'audit.view'])] },
+    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (3, ?, ?, 3)', params: ["مسؤول الموارد البشرية في مركز · HR keeper of a centre · Responsable RH d'un centre", JSON.stringify(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay', 'data.export'])] },
+    { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (4, ?, ?, 4)', params: ['الرئيس · Superior · Supérieur', JSON.stringify(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay', 'hr.approve', 'hr.paid', 'hr.hourly', 'hr.donors', 'hr.reports', 'data.export', 'audit.view'])] },
     { sql: 'INSERT INTO access_profile (id, name, perms, sort) VALUES (5, ?, ?, 5)', params: ['مدير ماجيس · MAGIS manager · Directeur MAGIS', JSON.stringify(HR_PERMS)] },
     setMetaStmt('install', 'office'),
     setMetaStmt('kind', 'hr'),

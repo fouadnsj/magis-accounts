@@ -668,7 +668,7 @@ describe('HR database', () => {
     // the usual profiles of an HR database are there
     const users = (await op('hr.users.list', {}, ck)).body;
     const keeper = users.access.find((a: { name: string }) => a.name.includes('HR keeper of a centre'));
-    expect(keeper.perms).toEqual(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay']);
+    expect(keeper.perms).toEqual(['hr.view', 'hr.details', 'hr.manage', 'hr.vault', 'hr.salary', 'hr.agreements', 'hr.scale', 'hr.sessions', 'hr.pay', 'data.export']);
     // the HR keeper of Homs: sees Homs only
     const kid = (await op('hr.user.save', { name: 'Homs HR', accessId: keeper.id, centres: ['homs'], password: 'homs-hr-12' }, ck)).body.id;
     await op('hr.user.save', { id: kid, name: 'Homs HR', accessId: keeper.id, centres: ['homs'] }, ck);
@@ -941,6 +941,51 @@ describe('HR database', () => {
     expect((await op('hr.run.approve', { id: run }, ac)).status).toBe(200);
     expect((await op('hr.run.paid', { id: run, paidOn: '2026-11-30' }, ac)).status).toBe(400);
     expect((await op('hr.run.paid', { id: run, paidOn: '2026-11-30' }, ck)).status).toBe(200);
+  });
+
+  it('the cost of an hour, Donors and Reports have their own ticks (Fouad, 2026-11-12); the keeper of a centre has none of them', async () => {
+    const made = await call('/api/dbs/create', { organisation: 'HR ticks', centre: 'other', kind: 'hr' });
+    const slug = made.body.slug;
+    await call('/api/setup/hr', { db: slug, organisation: 'HR ticks', people: [{ name: 'Manager', password: 'manager-hr-1' }], mustChange: false });
+    const ck = (await call('/api/login', { db: slug, profileId: (await call(`/api/profiles?db=${slug}`)).body[0].id, password: 'manager-hr-1' }, '')).set!;
+    const roles = (await op('access.list', {}, ck)).body as { id: number; name: string; perms: string[] }[];
+    const role = (en: string) => roles.find((a) => a.name.split(' · ')[1] === en)!.perms;
+    for (const p of ['hr.hourly', 'hr.donors', 'hr.reports']) {
+      expect([p, role('HR keeper').includes(p), role('Superior').includes(p), role('MAGIS manager').includes(p)]).toEqual([p, true, true, true]);
+      expect([p, role('HR keeper of a centre').includes(p), role('Reader').includes(p)]).toEqual([p, false, false]);
+    }
+    expect(role('HR keeper of a centre')).toContain('data.export');
+    expect(role('Superior')).toContain('data.export');
+    // each shows amounts: ticking one alone brings "Sees the amounts" and the people
+    expect((await op('access.save', { name: 'Donors only', perms: ['hr.donors'] }, ck)).status).toBe(200);
+    expect((await op('access.list', {}, ck)).body.find((a: { name: string }) => a.name === 'Donors only').perms.sort()).toEqual(['hr.donors', 'hr.salary', 'hr.view']);
+    // the cost by project from the paid runs needs the Donors tick
+    const keeper = roles.find((a) => a.name.split(' · ')[1] === 'HR keeper of a centre')!;
+    const kid = (await op('hr.user.save', { name: 'Centre keeper', accessId: keeper.id, centres: null, password: 'keep-hr-12' }, ck)).body.id;
+    const kc = (await call('/api/login', { db: slug, profileId: kid, password: 'keep-hr-12' }, '')).set!;
+    await op('profile.setPin', { id: kid, pin: 'keep-hr-13' }, kc);
+    expect((await op('hr.alloc.report', { year: 2026 }, kc)).status).toBe(400);
+    expect((await op('hr.alloc.report', { year: 2026 }, ck)).status).toBe(200);
+  });
+
+  it('migration 50: the roles that approve keep the cost of an hour; Donors and Reports stay with those who approve or manage the users; Excel stays', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('CREATE TABLE access_profile (id INTEGER PRIMARY KEY, name TEXT, perms TEXT, sort INTEGER)');
+    const old = {
+      1: ['hr.view', 'hr.salary', 'hr.approve', 'users.manage'], // the HR keeper (all)
+      3: ['hr.view', 'hr.details', 'hr.manage', 'hr.salary', 'hr.agreements', 'hr.pay'], // the keeper of a centre
+      4: ['hr.view', 'hr.salary', 'hr.approve', 'hr.paid', 'audit.view'], // the Superior
+      6: ['hr.view', 'hr.details'], // a reader
+      7: ['book.own', 'register.view'], // a centre's role
+    };
+    for (const [id, perms] of Object.entries(old)) db.prepare('INSERT INTO access_profile (id, name, perms, sort) VALUES (?, ?, ?, ?)').run(Number(id), `r${id}`, JSON.stringify(perms), Number(id));
+    db.exec(MIGRATIONS.find((x) => x.n === 50)!.sql);
+    const now = Object.fromEntries((db.prepare('SELECT id, perms FROM access_profile').all() as { id: number; perms: string }[]).map((r) => [r.id, (JSON.parse(r.perms) as string[]).sort()]));
+    expect(now[1]).toEqual(['data.export', 'hr.approve', 'hr.donors', 'hr.hourly', 'hr.reports', 'hr.salary', 'hr.view', 'users.manage']);
+    expect(now[3]).toEqual(['data.export', 'hr.agreements', 'hr.details', 'hr.manage', 'hr.pay', 'hr.salary', 'hr.view']);
+    expect(now[4]).toEqual(['audit.view', 'data.export', 'hr.approve', 'hr.donors', 'hr.hourly', 'hr.paid', 'hr.reports', 'hr.salary', 'hr.view']);
+    expect(now[6]).toEqual(['hr.details', 'hr.view']);
+    expect(now[7]).toEqual(['book.own', 'register.view']);
   });
 
   it('the old roles keep what they could do: each old tick brings the new ticks it held', () => {

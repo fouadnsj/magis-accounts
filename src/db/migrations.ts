@@ -1730,4 +1730,20 @@ CREATE TABLE net_eur_in (
 );
 `,
   },
+  {
+    n: 50,
+    name: 'HR: the cost of an hour, Donors & funding and Reports each have their own tick; Excel needs "Exports"',
+    sql: `
+-- (Fouad, 2026-11-12) The cost of an hour came with "approves a run": the roles that approve keep it.
+UPDATE access_profile SET perms = replace(perms, ']', ',"hr.hourly"]')
+ WHERE perms LIKE '%"hr.approve"%' AND perms NOT LIKE '%"hr.hourly"%';
+-- Donors & funding and Reports came with "Sees the amounts": they stay with the roles that approve or manage the users
+-- (the Superior, the HR keeper, the MAGIS manager), not with an HR keeper of a centre.
+UPDATE access_profile SET perms = replace(perms, ']', ',"hr.donors","hr.reports"]')
+ WHERE perms LIKE '%"hr.salary"%' AND (perms LIKE '%"hr.approve"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"hr.donors"%';
+-- the Excel files of HR now need "Exports": every role that sees the amounts keeps them
+UPDATE access_profile SET perms = replace(perms, ']', ',"data.export"]')
+ WHERE perms LIKE '%"hr.salary"%' AND perms NOT LIKE '%"data.export"%';
+`,
+  },
 ];

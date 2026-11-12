@@ -22,7 +22,7 @@ export const HR_ROWS: { key: string; label: string; perms: { key: Perm; label: s
 /** a role's name in the language shown (the usual roles are named "Arabic · English · French") */
 const roleName = (n: string) => { const p = n.split(' · '); return p.length === 3 ? p[getLang() === 'ar' ? 0 : getLang() === 'fr' ? 2 : 1] : n; };
 /** the rights that only show something */
-const SEE = new Set<string>(['hr.view', 'hr.details', 'hr.salary', 'data.export', 'audit.view']);
+const SEE = new Set<string>(['hr.view', 'hr.details', 'hr.salary', 'hr.hourly', 'hr.donors', 'hr.reports', 'data.export', 'audit.view']);
 
 export function RolesTab({ s }: { s: Session }) {
   const [list, setList] = useState<AccessRow[] | null>(null);
@@ -40,7 +40,7 @@ export function RolesTab({ s }: { s: Session }) {
   if (!list) return <p className="muted">…</p>;
   return (
     <>
-      <p className="muted">{t3('ماذا يستطيع كل دور. كل مستخدم يأخذ دوراً واحداً، والمراكز التي يراها تُختار في «المستخدمون والمراكز». تغيير علامة يغيّر كل من يحمل هذا الدور. بعض العلامات تجلب غيرها: كتابة الاتفاقيات وتغيير السلّم والكشوف تُظهر المبالغ.', 'What each role may do. Each user has one role; the centres they see are chosen in Users & centres. A tick changes it for everybody who has the role. Some ticks bring others: writing agreements, changing the scale and the payroll all show the amounts.', 'Ce que chaque rôle peut faire. Chaque utilisateur a un rôle ; ses centres se choisissent dans Utilisateurs et centres. Une case change tous ceux qui ont ce rôle. Certaines cases en entraînent d’autres : rédiger les accords, changer l’échelle et les paies montrent les montants.')}</p>
+      <p className="muted">{t3('ماذا يستطيع كل دور. كل مستخدم يأخذ دوراً واحداً، والمراكز التي يراها تُختار في «المستخدمون والمراكز». تغيير علامة يغيّر كل من يحمل هذا الدور. بعض العلامات تجلب غيرها: كتابة الاتفاقيات وتغيير السلّم والكشوف وتكلفة الساعة والمانحون والتقارير تُظهر المبالغ. ملفات Excel تحتاج «يصدّر».', 'What each role may do. Each user has one role; the centres they see are chosen in Users & centres. A tick changes it for everybody who has the role. Some ticks bring others: writing agreements, changing the scale, the payroll, the cost of an hour, Donors and Reports all show the amounts. The Excel files need "Exports".', 'Ce que chaque rôle peut faire. Chaque utilisateur a un rôle ; ses centres se choisissent dans Utilisateurs et centres. Une case change tous ceux qui ont ce rôle. Certaines cases en entraînent d’autres : rédiger les accords, changer l’échelle, les paies, le coût d’une heure, les bailleurs et les rapports montrent les montants. Les fichiers Excel demandent « Exporter ».')}</p>
       <div className="hr-panel" style={{ overflowX: 'auto' }}>
         <table className="desk-table roles-matrix">
           <thead>

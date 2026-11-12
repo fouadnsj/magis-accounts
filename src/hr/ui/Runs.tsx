@@ -168,7 +168,7 @@ function RunView({ s, hr, id, onBack }: { s: Session; hr: HrData; id: number; on
       <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         {draft && <button className="btn" onClick={() => setAdd(true)}>＋ {t3('سطر (مكافأة من حين لآخر…)', 'Add a line (an occasional bonus…)', 'Ajouter une ligne (prime ponctuelle…)')}</button>}
         <button className="btn" onClick={() => saveSlips(hr, run, lines)}>📄 {t3('كل قسائم الدفع (Word)', 'All payslips (Word)', 'Toutes les fiches (Word)')}</button>
-        <button className="btn" onClick={() => void saveNames(hr, run, lines)}>📊 {t3('كشف بالأسماء (Excel)', 'List with names (Excel)', 'Liste avec noms (Excel)')}</button>
+        {has(s.profile, 'data.export') && <button className="btn" onClick={() => void saveNames(hr, run, lines)}>📊 {t3('كشف بالأسماء (Excel)', 'List with names (Excel)', 'Liste avec noms (Excel)')}</button>}
         {!draft && <button className="btn" onClick={async () => { try { setVoucher(await s.api.call('hr.run.voucher', { id })); } catch (e) { fail(e); } }}>{t3('قسيمة للمحاسبة (مجاميع فقط)', 'Voucher for Accounts (totals only)', 'Bon pour la comptabilité (totaux seulement)')}</button>}
       </div>
       {!draft && approver && <ToAccounts hr={hr} runId={id} lines={lines} sent={sent} busy={busy} setBusy={setBusy} post={post} reload={load} />}

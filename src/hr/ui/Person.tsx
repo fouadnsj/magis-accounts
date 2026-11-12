@@ -479,7 +479,7 @@ function Agreement({ s, d, pd, reload, r: { papers: manage, salary: pay }, perso
   const today = todayIso();
   const rate = pd ? rateOf(pd.settings, codeOf(d, person)) : 0;
   const agreements = d.papers.filter((x) => x.person_id === person.id && x.kind === 'agreement');
-  const sup = has(s.profile, 'hr.approve');
+  const sup = has(s.profile, 'hr.hourly');
   const now = pd ? payOn(pd, person.id, today) : null;
   const lines = pd ? pd.pays.filter((x) => x.person_id === person.id).sort((a, b) => a.valid_from.localeCompare(b.valid_from) || a.id - b.id) : [];
   const fromAgreement = (l: HrPay) => (l.paper_id ? agreements.find((a) => a.id === l.paper_id) : undefined);
@@ -499,7 +499,7 @@ function Agreement({ s, d, pd, reload, r: { papers: manage, salary: pay }, perso
             <div className="hr-stats">
               <div><small>{t3('شهرياً', 'Monthly', 'Mensuel')}</small>{now.syp != null ? <><span className="hr-big">{usd(now.syp)}</span> SYP<div className="muted small">{now.monthly != null ? `≈ ${usd(now.monthly)} USD · ${t3('بسعر', 'at', 'au taux')} ${usd(rate)}` : '—'}</div></> : <><span className="hr-big">{usd(now.monthly)}</span> USD</>}</div>
               <div><small>{t3('ساعات الأسبوع', 'Hours a week', 'Heures par semaine')}</small><span className="hr-big">{now.weekly ?? '—'}</span>{now.weekly && now.weekly > (pd.settings.maxWeekly) ? <span className="desk-alert"> ⚠ &gt; {pd.settings.maxWeekly}</span> : null}</div>
-              {sup && <div><small>{t3('تكلفة الساعة (للرئيس)', 'Cost of an hour (Superior)', "Coût d'une heure (Supérieur)")}</small><span className="hr-big">{usd(now.hourly)}</span> USD</div>}
+              {sup && <div><small>{t3('تكلفة الساعة', 'Cost of an hour', "Coût d'une heure")}</small><span className="hr-big">{usd(now.hourly)}</span> USD</div>}
               <div><small>{t3(`سنوياً (×${pd.settings.paymentsPerYear})`, `Yearly (×${pd.settings.paymentsPerYear})`, `Annuel (×${pd.settings.paymentsPerYear})`)}</small>{now.syp != null ? <><span className="hr-big">{usd(now.syp * pd.settings.paymentsPerYear)}</span> SYP<div className="muted small">{now.monthly != null ? `≈ ${usd(yearlyCost(now.monthly, pd.settings.paymentsPerYear))} USD` : '—'}</div></> : <><span className="hr-big">{usd(yearlyCost(now.monthly!, pd.settings.paymentsPerYear))}</span> USD</>}</div>
             </div>
           ) : <p className="muted">{t3('لا مكافأة بعد: تُحدَّد في الاتفاقية.', 'No stipend yet: it is fixed in the agreement.', "Pas encore de gratification : elle est fixée dans l'accord.")}</p>}
@@ -577,7 +577,7 @@ function AgreementForm({ s, d, pd, person, paper, reload, onDone, onCancel, canc
   const asUsd = f.amount === '' ? null : f.currency === 'USD' ? Number(f.amount) : rate > 0 ? Math.round((Number(f.amount) / rate) * 100) / 100 : null;
   const hourly = asUsd != null ? hourlyFromMonthly(asUsd, Number(f.weekly) || null) : null;
   const ref = refOf(f.position);
-  const sup = has(s.profile, 'hr.approve');
+  const sup = has(s.profile, 'hr.hourly');
   const grades = positionsFor(d, person.centre).map((name) => gradeFor(pd, name, code) ?? { name, monthly_usd: null });
   const save = async () => {
     setBusy(true);
@@ -617,7 +617,7 @@ function ChangeModal({ s, pd, person, now, rate, onClose, reload }: { s: Session
   const [f, setF] = useState({ from: todayIso().slice(0, 8) + '01', amount: now.syp != null ? String(now.syp) : now.monthly != null ? String(now.monthly) : '', currency: (now.syp != null ? 'SYP' : 'USD') as 'USD' | 'SYP', weekly: now.weekly != null ? String(now.weekly) : '', note: '' });
   const asUsd = f.amount === '' ? null : f.currency === 'USD' ? Number(f.amount) : rate > 0 ? Math.round((Number(f.amount) / rate) * 100) / 100 : null;
   const hourly = asUsd != null ? hourlyFromMonthly(asUsd, Number(f.weekly) || null) : null;
-  const sup = has(s.profile, 'hr.approve');
+  const sup = has(s.profile, 'hr.hourly');
   return (
     <Modal title={t3('تغيير المكافأة ابتداءً من تاريخ', 'Change the stipend from a date', "Changer la gratification à partir d'une date")} onClose={onClose} narrow>
       <p className="muted small">{t3('تبقى المكافأة السابقة في التاريخ. الكشوف التالية تأخذ الجديدة.', 'The earlier stipend stays in the history. The next payroll runs take the new one.', "L'ancienne gratification reste dans l'historique. Les paies suivantes prennent la nouvelle.")}</p>

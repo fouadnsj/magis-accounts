@@ -81,7 +81,7 @@ export const HR_STAGE4_OPS = {
 
   // the cost of staff time by donor or project, by month, from the approved and paid runs of a year
   'hr.alloc.report': {
-    check: (c: OpCtx) => needRight(c, 'hr.salary'),
+    check: (c: OpCtx) => needRight(c, 'hr.donors'),
     run: async (c: OpCtx, a: { year: number }) => {
       const y = Number(a.year);
       if (!(y >= 2000 && y <= 2100)) throw new UserError(m('سنة غير صالحة', 'Not a valid year', 'Année non valide'));

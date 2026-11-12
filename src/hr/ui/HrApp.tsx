@@ -54,7 +54,6 @@ export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { sess
   // the rights in detail (Fouad, 1 November 2026): each part of the menu for who may use it
   const rt = rightsOf(session.profile);
   const { manage, vault, pay } = rt;
-  const sup = rt.salary && rt.approve;
   const reload = useCallback(async () => {
     try {
       setAll(await session.api.call('hr.data', {}));
@@ -102,10 +101,10 @@ export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { sess
         {rt.salary && item('scale', t3('سلّم الرواتب', 'Salary scale', 'Échelle'))}
         {rt.sessions && item('sessions', t3('جلسات المدرّبين', "Tutors' sessions", 'Séances des animateurs'))}
         {rt.runs && item('runs', t3('كشوف الدفع', 'Payroll', 'Paies'))}
-        {rt.salary && item('donors', t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement'))}
+        {rt.donors && item('donors', t3('المانحون والتمويل', 'Donors & funding', 'Bailleurs et financement'))}
         {pay && item('insurance', t3('التأمين الصحي', 'Health insurance', 'Assurance maladie'))}
         {rt.salary && item('budget', t3('القائمة للموازنة', 'List for the budget', 'Liste pour le budget'))}
-        {rt.salary && item('reports', t3('التقارير و Excel', 'Reports & Excel', 'Rapports et Excel'))}
+        {rt.reports && item('reports', t3('التقارير و Excel', 'Reports & Excel', 'Rapports et Excel'))}
         <div className="group">{t3('أخرى', 'More', 'Plus')}</div>
         {item('conduct', t3('مدونة السلوك', 'Code of conduct', 'Code de conduite'))}
         {(manage || rt.scale || rt.users || rt.backups) && item('lists', t3('الإعدادات', 'Settings', 'Réglages'))}
@@ -137,8 +136,8 @@ export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { sess
         {page === 'runs' && <RunsPage s={session} hr={d} centre={centre} pd={pd} />}
         {page === 'budget' && <BudgetListPage s={session} hr={d} centre={centre} />}
         {page === 'insurance' && <InsurancePage s={session} hr={d} />}
-        {page === 'donors' && pd && <DonorsPage s={session} hr={d} pd={pd} open={open} />}
-        {page === 'reports' && pd && <ReportsPage s={session} hr={d} pd={pd} open={open} sup={sup} />}
+        {page === 'donors' && pd && rt.donors && <DonorsPage s={session} hr={d} pd={pd} open={open} />}
+        {page === 'reports' && pd && rt.reports && <ReportsPage s={session} hr={d} pd={pd} open={open} sup={rt.hourly} />}
         {page === 'conduct' && <Conduct {...ctx} manage={manage} />}
         {page === 'lists' && <ListsPage s={session} d={all} reload={reload} r={rt} />}
         {page === 'log' && <Log s={session} d={all} />}

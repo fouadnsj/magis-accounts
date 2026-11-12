@@ -135,7 +135,7 @@ export function SessionsPage({ s, hr, pd, open, addTutor, r: rt }: { s: Session;
         <div><div className="hr-eyebrow">{t3('المدرّبون والمنشّطون', 'Tutors and animators', 'Animateurs et tuteurs')}</div><h1>{t3('الجلسات', 'Sessions', 'Séances')} · {monthLabel(ym)}<GuideLink id="hr-sessions" /></h1></div>
         <div className="desk-filters">
           <MonthNav ym={ym} set={setYm} />
-          {see && <button className="btn" disabled={!sessions.length} onClick={download}>⬇ Excel</button>}
+          {see && has(s.profile, 'data.export') && <button className="btn" disabled={!sessions.length} onClick={download}>⬇ Excel</button>}
           {rt.manage && <button className="btn gold" onClick={addTutor}>＋ {t3('مدرّب', 'Tutor', 'Animateur')}</button>}
         </div>
       </div>

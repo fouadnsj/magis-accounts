@@ -134,12 +134,13 @@ export function SortTh<K extends string>({ k, sort, children, n }: { k: K; sort:
 }
 
 /** What the user may see and do in HR (Fouad, 1 November 2026: the rights in detail; the server checks each again). */
-export interface HrRights { details: boolean; manage: boolean; vault: boolean; salary: boolean; papers: boolean; scale: boolean; sessions: boolean; pay: boolean; approve: boolean; paid: boolean; runs: boolean; users: boolean; backups: boolean }
+export interface HrRights { details: boolean; manage: boolean; vault: boolean; salary: boolean; papers: boolean; scale: boolean; sessions: boolean; pay: boolean; approve: boolean; paid: boolean; runs: boolean; users: boolean; backups: boolean; hourly: boolean; donors: boolean; reports: boolean; excel: boolean }
 export function rightsOf(p: Pick<Profile, 'perms'>): HrRights {
   const h = (k: Perm) => has(p, k);
   return {
     details: h('hr.details'), manage: h('hr.manage'), vault: h('hr.vault'), salary: h('hr.salary'), papers: h('hr.agreements'), scale: h('hr.scale'),
     sessions: h('hr.sessions'), pay: h('hr.pay'), approve: h('hr.approve'), paid: h('hr.paid'), runs: h('hr.pay') || h('hr.approve') || h('hr.paid'),
     users: h('users.manage'), backups: h('data.backup') || h('data.restore'),
+    hourly: h('hr.hourly'), donors: h('hr.donors'), reports: h('hr.reports'), excel: h('data.export'),
   };
 }

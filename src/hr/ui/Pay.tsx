@@ -38,7 +38,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
   const [fromBudget, setFromBudget] = useState(false);
   const [copy, setCopy] = useState(false);
   const [shown, setShown] = useState<number | null>(null);
-  const sup = has(s.profile, 'hr.approve');
+  const sup = has(s.profile, 'hr.hourly');
   // changing the scale and the dollar rate is its own right (Fouad, 1 November 2026); the others only read it
   const edit = has(s.profile, 'hr.scale');
   const today = todayIso();
@@ -91,7 +91,7 @@ export function ScalePage({ s, hr, pd, reload, open, centre }: { s: Session; hr:
                 <SortTh k="avg" sort={gs} n>{t3('الفعلي (المعدل)', 'Actual (average)', 'Réel (moyenne)')}</SortTh>
                 <th className="n">{sup ? t3('الأدنى – الأعلى', 'Lowest – highest', 'Min – max') : t3('ساعات الأسبوع', 'Hours a week', 'Heures par semaine')}</th>
                 <SortTh k="diff" sort={gs} n>{t3('الفعلي مقابل السلّم', 'Actual vs the scale', 'Réel / échelle')}<div className="muted small" style={{ fontWeight: 400 }}>{t3('المعدل − المرجع', 'average − reference', 'moyenne − référence')}</div></SortTh>
-                {sup && <SortTh k="hour" sort={gs} n>{t3('الساعة (للرئيس)', 'Hour (Superior)', 'Heure (Supérieur)')}</SortTh>}
+                {sup && <SortTh k="hour" sort={gs} n>{t3('الساعة', 'Hour', 'Heure')}</SortTh>}
                 <th />
               </tr></thead>
               <tbody>

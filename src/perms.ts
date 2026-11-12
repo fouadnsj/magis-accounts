@@ -120,9 +120,22 @@ export const HR_PERM_GROUPS = [
       { key: 'hr.paid', label: m('يسجّل أن الكشف المعتمد دُفع', 'Marks an approved run as paid', 'Marque une paie approuvée comme payée') },
     ],
   },
+  {
+    // (Fouad, 2026-11-12) each of these had no tick of its own: they came with "Sees the amounts" or with approving a run
+    key: 'hr-reports',
+    label: m('التكاليف والتقارير', 'Costs and reports', 'Coûts et rapports'),
+    perms: [
+      { key: 'hr.hourly', label: m('يرى تكلفة الساعة (على بطاقة الشخص، في السلّم، في التقارير)', "Sees the cost of an hour (on a person's card, in the scale, in the reports)", "Voit le coût d'une heure (sur la fiche, dans l'échelle, dans les rapports)") },
+      { key: 'hr.donors', label: m('يفتح «المانحون والتمويل»', 'Opens Donors & funding', 'Ouvre Bailleurs et financement') },
+      { key: 'hr.reports', label: m('يفتح «التقارير و Excel»', 'Opens Reports & Excel', 'Ouvre Rapports et Excel') },
+    ],
+  },
 ] as const satisfies readonly { key: string; label: Msg; perms: readonly { key: string; label: Msg }[] }[];
 
-/** The admin ticks that mean something in the HR database (shown under the HR ones on its roles page). */
+/**
+ * The admin ticks that mean something in the HR database (shown under the HR ones on its roles page). "Exports" lets
+ * the Excel files be downloaded (Fouad, 2026-11-12).
+ */
 export const HR_ADMIN_PERMS = ['users.manage', 'data.backup', 'data.restore', 'data.export', 'audit.view'] as const;
 
 /**
@@ -132,7 +145,7 @@ export const HR_ADMIN_PERMS = ['users.manage', 'data.backup', 'data.restore', 'd
 export function withImplied(perms: Perm[]): Perm[] {
   const out = new Set(perms);
   if (perms.some((p) => p.startsWith('hr.'))) out.add('hr.view');
-  if (perms.some((p) => p === 'hr.agreements' || p === 'hr.scale' || p === 'hr.pay' || p === 'hr.approve' || p === 'hr.paid')) out.add('hr.salary');
+  if (perms.some((p) => p === 'hr.agreements' || p === 'hr.scale' || p === 'hr.pay' || p === 'hr.approve' || p === 'hr.paid' || p === 'hr.hourly' || p === 'hr.donors' || p === 'hr.reports')) out.add('hr.salary');
   return [...out];
 }
 

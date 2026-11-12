@@ -1,5 +1,6 @@
 // HR stage 4 screens: the health insurance (the person and the family, paid yearly, with the end date),
 // the split of a person's cost by donor or project, and the report of staff cost by donor or project.
+import { has } from '../../auth';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import ExcelJS from 'exceljs';
 import type { Session } from '../../state';
@@ -145,7 +146,7 @@ export function DonorsPage({ s, hr, pd, open }: { s: Session; hr: HrData; pd: Hr
         <div className="desk-filters">
           <button className={`btn small ${tab === 'today' ? 'primary' : ''}`} onClick={() => setTab('today')}>{t3('من يموّل من (اليوم)', 'Who funds whom (today)', "Qui finance qui (aujourd'hui)")}</button>
           <button className={`btn small ${tab === 'paid' ? 'primary' : ''}`} onClick={() => setTab('paid')}>{t3('ما دُفع شهراً بشهر', 'What was paid, month by month', 'Ce qui a été payé, mois par mois')}</button>
-          {tab === 'today' && <button className="btn" onClick={() => void download()}>⬇ Excel</button>}
+          {tab === 'today' && has(s.profile, 'data.export') && <button className="btn" onClick={() => void download()}>⬇ Excel</button>}
         </div>
       </div>
       {tab === 'paid' ? <PaidByProject s={s} /> : (

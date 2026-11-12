@@ -5,7 +5,8 @@
 // he enters the centre (as its Superior). Each centre keeps its autonomy.
 import { useEffect, useState } from 'react';
 import { m, tx } from '../i18n';
-import { provinceApi, serverManageList, type DbInfo, type DirInfo, type ManagedDb } from '../net';
+import { provinceApi, serverManageList, waitingApi, type DbInfo, type DirInfo, type ManagedDb, type Waiting } from '../net';
+import { CoordinatorWaiting, type Area } from './CoordinatorWaiting';
 import { pickFile, toBase64 } from '../platform';
 import { errText, fmtDate, toast } from './kit';
 import { BrandFrame, CreateDb, DbCard } from './Landing';
@@ -17,7 +18,7 @@ import { ProvinceBook } from './ProvinceBook';
 import { ProvinceGrants } from './ProvinceGrants';
 
 const t3 = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
-type Sec = 'dbs' | 'grants' | 'province' | 'people' | 'lists';
+type Sec = 'waiting' | 'dbs' | 'grants' | 'province' | 'people' | 'lists';
 
 export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut, onCommunities, signedIn, onBackIn }: {
   dbs: DbInfo[];
@@ -34,7 +35,12 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
   onBackIn?: () => void;
 }) {
   // sent from a centre's Lists → Budget ("Change it in the list"): open on the budget lists
-  const [sec, setSec] = useState<Sec>(() => (takeMainListWish() ? 'lists' : 'dbs'));
+  const [sec, setSec] = useState<Sec>(() => (takeMainListWish() ? 'lists' : 'waiting'));
+  // what is waiting: the first page, and its count on the tab
+  const [waiting, setWaiting] = useState<Waiting | null>(null);
+  const loadWaiting = () => waitingApi.get().then(setWaiting).catch(() => setWaiting({ at: '', count: 0, groups: [] }));
+  useEffect(() => { void loadWaiting(); }, []);
+  useEffect(() => { if (sec === 'waiting') void loadWaiting(); }, [sec]);
   const [creating, setCreating] = useState(false);
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   const centres = dbs.filter((x) => !isCty(x));
@@ -59,12 +65,14 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
           "Ce que tout le réseau partage : les bases, les listes du budget, les personnes et leurs accès. Le Coordinateur voit et gère, mais ne change jamais les écritures d'un centre : pour cela, entrez dans le centre. Chaque centre garde son autonomie.")}
       </p>
       <Tabs value={sec} onChange={setSec} tabs={[
+        { value: 'waiting', label: `${t3('ما ينتظر', 'What is waiting', 'Ce qui attend')}${waiting?.count ? ` (${waiting.count})` : ''}` },
         { value: 'dbs', label: t3('قواعد البيانات', 'Databases', 'Bases de données') },
         { value: 'grants', label: t3('المنح', 'Grants', 'Subventions') },
         { value: 'province', label: t3('حساب الإقليم', 'Province account', 'Compte de la Province') },
         { value: 'lists', label: t3('قوائم الموازنة', 'Budget lists', 'Listes du budget') },
         { value: 'people', label: t3('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès') },
       ]} />
+      {sec === 'waiting' && <div style={{ marginTop: 12 }}><CoordinatorWaiting data={waiting} onGo={(a: Area) => setSec(a)} onRefresh={() => void loadWaiting()} /></div>}
       {sec === 'dbs' && (
         <>
           <div className="db-grid" style={{ marginTop: 12 }}>

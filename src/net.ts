@@ -265,3 +265,9 @@ export const sendsApi = {
   /** the centre answers (accepted, or "not received" with a word) */
   answer: (id: string, ok: boolean, note?: string | null) => post<{ status: string }>('/api/province-answer', { id, ok, note: note ?? null }),
 };
+
+// ---- The Coordinator's first page (Fouad, 2026-11-12): what is waiting
+export interface WaitingItem { text: string; days?: number; note?: string | null; usd?: number; syp?: number; state?: string }
+export interface WaitingGroup { key: string; area: 'dbs' | 'grants' | 'province' | 'lists'; items: WaitingItem[] }
+export interface Waiting { at: string; count: number; groups: WaitingGroup[] }
+export const waitingApi = { get: () => get<Waiting>('/api/coordinator/waiting') };

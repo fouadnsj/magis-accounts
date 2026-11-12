@@ -1357,6 +1357,80 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       pv.version++;
       return send(res, 200, r);
     }
+    // ---- What is waiting (Fouad, 2026-11-12): the first page of the Coordinator — what needs the administrator, gathered
+    // from every centre, the Province account and the grants. Reads only; each group says where to go (area).
+    if (url === '/api/coordinator/waiting' && method === 'GET') {
+      if (!allCentresAllowed()) throw new HttpError(403, { ar: 'للمنسّق فقط', en: 'For the Coordinator only' });
+      const now = Date.now();
+      const today = new Date().toISOString().slice(0, 10);
+      const thisMonth = today.slice(0, 7);
+      const daysSince = (iso: string) => Math.floor((now - new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso).getTime()) / 86400e3);
+      type W = { text: string; days?: number; note?: string | null; usd?: number; syp?: number; state?: string };
+      const groups: { key: string; area: 'dbs' | 'grants' | 'province' | 'lists'; items: W[] }[] = [];
+      const add = (key: string, area: 'dbs' | 'grants' | 'province' | 'lists', items: W[]) => { if (items.length) groups.push({ key, area, items }); };
+      const titleOf = (id: string | undefined) => (readMainList(dataDir, id || CENTRES_LIST, 'published') ?? readMainList(dataDir, id || CENTRES_LIST, 'draft'))?.title ?? id ?? '';
+
+      // the centres' requests for a heading or a line
+      add('requests', 'lists', readRequests(dataDir).filter((r) => r.status === 'open').map((r) => ({
+        text: `${r.organisation}: ${r.kind === 'line' ? `${r.heading_name ?? ''} › ` : ''}${r.name}`, days: daysSince(r.at), note: [titleOf(r.list_id), r.why].filter(Boolean).join(' · '),
+      })));
+
+      // the live centres: months not closed, copies getting old
+      const live: Centre[] = [];
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre' || (await setupNeeded(x))) continue;
+        live.push(x);
+      }
+      const orgOf = async (x: Centre) => (await getMeta(x.handle.db, 'organisation')) ?? x.slug;
+      const openMonths = async (db: Db) => (await db.query<{ ym: string }>(
+        `SELECT DISTINCT substr(date, 1, 7) AS ym FROM trx WHERE date IS NOT NULL AND substr(date, 1, 7) < ? AND substr(date, 1, 7) NOT IN (SELECT ym FROM closed_month) ORDER BY ym`, [thisMonth])).map((r) => r.ym);
+      const months: W[] = [];
+      for (const x of live) {
+        if (config.copies?.[x.slug]) continue; // a copy is closed (or not) where it is kept
+        const open = await openMonths(x.handle.db);
+        if (open.length) months.push({ text: await orgOf(x), note: `${open.slice(-6).join(' · ')}${open.length > 6 ? ` (+${open.length - 6})` : ''}`, days: open.length });
+      }
+      const provinceHere = fs.existsSync(path.join(dataDir, 'province', 'magis.db'));
+      const pv = provinceHere ? await getProvince() : null;
+      if (pv) {
+        const open = await openMonths(pv.handle.db);
+        if (open.length) months.push({ text: 'Province account', note: `${open.slice(-6).join(' · ')}${open.length > 6 ? ` (+${open.length - 6})` : ''}`, days: open.length, state: 'province' });
+      }
+      add('months', 'dbs', months);
+      add('copies', 'dbs', Object.entries(config.copies ?? {}).filter(([, c]) => daysSince(c.at) >= 30).map(([, c]) => ({ text: c.from ?? '', days: daysSince(c.at) })));
+
+      if (pv) {
+        // sends not answered, or "not received"
+        const sends = await pv.handle.db.query<{ centre_name: string | null; project_name: string | null; date: string; usd: number; syp: number; received_at: string | null; disputed_at: string | null; dispute_note: string | null }>(
+          `SELECT s.centre_name, s.project_name, t.date, t.trf_usd AS usd, t.trf_syp AS syp, t.received_at, t.disputed_at, t.dispute_note
+             FROM net_send s JOIN trx t ON t.id = s.trx_id WHERE t.received_at IS NULL ORDER BY t.date`);
+        add('sends', 'province', sends.map((x) => ({ text: `${x.centre_name ?? ''} › ${x.project_name ?? '—'}`, days: daysSince(x.date), usd: x.usd, syp: x.syp, state: x.disputed_at ? 'disputed' : 'waiting', note: x.dispute_note })));
+
+        // the grants: money in the account not yet sent, an end near, a split not finished
+        const grants = await listNetGrants(pv.handle.db);
+        const sentUsd = new Map((await pv.handle.db.query<{ grant_id: string; usd: number }>("SELECT t.grant_id, SUM(t.trf_usd) AS usd FROM net_send s JOIN trx t ON t.id = s.trx_id WHERE t.grant_id IS NOT NULL GROUP BY t.grant_id")).map((x) => [x.grant_id, x.usd]));
+        const name = (g: { donor: string; reference: string | null }) => `${g.donor}${g.reference ? ` · ${g.reference}` : ''}`;
+        const open = grants.filter((g) => !g.closed);
+        add('unsent', 'province', open.filter((g) => g.received_usd - (sentUsd.get(g.id) ?? 0) > 0.5).map((g) => ({ text: name(g), usd: g.received_usd - (sentUsd.get(g.id) ?? 0) })));
+        add('ending', 'grants', open.filter((g) => g.end_date && daysSince(g.end_date) > -60).map((g) => ({ text: name(g), days: -daysSince(g.end_date!), note: g.end_date })));
+        add('unsplit', 'grants', open.filter((g) => g.amount - g.parts.reduce((a, p) => a + partAmount(g, p), 0) > 0.5).map((g) => ({ text: name(g), usd: g.amount - g.parts.reduce((a, p) => a + partAmount(g, p), 0), note: g.currency })));
+        // a project that cannot receive a send: no dates, or no budget line given to it
+        const notReady: W[] = [];
+        for (const g of open) for (const part of g.parts) {
+          const c = centres.get(part.centre);
+          if (!c || part.project_id == null) { if (c) notReady.push({ text: `${part.centre_name} › ${g.donor}`, note: 'project' }); continue; }
+          const d = (await c.handle.db.query<{ start_date: string | null; end_date: string | null }>('SELECT start_date, end_date FROM account WHERE id = ?', [part.project_id]))[0];
+          const hasLine = (await c.handle.db.query('SELECT 1 FROM budget_amount WHERE account_id = ? LIMIT 1', [part.project_id])).length > 0;
+          const missing = [!d?.start_date || !d?.end_date ? 'dates' : '', !hasLine ? 'line' : ''].filter(Boolean).join('+');
+          if (missing && !config.copies?.[c.slug]) notReady.push({ text: `${part.centre_name} › ${part.project_name ?? ''}`, note: missing });
+        }
+        add('notready', 'grants', notReady);
+        // money in the account that no grant explains
+        const loose = (await pv.handle.db.query<{ n: number; usd: number; syp: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(inc_usd), 0) AS usd, COALESCE(SUM(inc_syp), 0) AS syp FROM trx WHERE type = 'Income' AND grant_id IS NULL"))[0];
+        add('loose', 'province', loose.n ? [{ text: String(loose.n), usd: loose.usd, syp: loose.syp }] : []);
+      }
+      return send(res, 200, { at: new Date().toISOString(), count: groups.reduce((a, g) => a + g.items.length, 0), groups });
+    }
     // ---- The Province account, for the Coordinator only: its rows, its balance, its months; and the operations allowed
     // on it (the rows, the month closing). Nobody signs in to it: the Coordinator acts on it as its Superior.
     if (url.startsWith('/api/province')) {

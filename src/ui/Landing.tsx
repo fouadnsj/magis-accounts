@@ -1,13 +1,14 @@
 // The welcome page, in the MAGIS design: warm off-white, a thin gold line,
 // the Jesuit mark and the MAGIS sun, and one card per database in its centre's colour.
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
 import { getLang, m, tx } from '../i18n';
 import type { DbInfo, DirInfo } from '../net';
-import { mainListApi, serverCreateDb } from '../net';
+import { mainListApi, serverCreateDb, serverSetup } from '../net';
+import { pickFile, toBase64 } from '../platform';
 import { paletteOf } from '../community/style';
 import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
-import { Field, errText, t } from './kit';
+import { Field, Modal, errText, t, toast } from './kit';
 import { ManageDbs } from './ManageDbs';
 import { Coordinator } from './Coordinator';
 import { DirAdmin, DirSetup } from './Directory';
@@ -32,17 +33,48 @@ export function Charter() {
   );
 }
 
-/** The three houses: their marks, in their colours. */
+/** What a click on a house's logo does, where there is somebody signed in (set by HouseOpen). */
+const HouseNav = createContext<((k: CentreKey) => void) | null>(null);
+
+/** The three houses: their marks, in their colours — buttons when somebody is signed in (they open that house's databases). */
 function Houses({ small }: { small?: boolean }) {
+  const go = useContext(HouseNav);
   return (
     <div className={`mg-houses ${small ? 'small' : ''}`}>
-      {HOUSES.map((k) => (
-        <div key={k} className="mg-house" style={{ '--centre': CENTRES[k].color } as React.CSSProperties}>
-          <img src={CENTRES[k].mark!} alt="" />
-          <span>{tx(CENTRES[k].name)}</span>
-        </div>
-      ))}
+      {HOUSES.map((k) => {
+        const inside = (<><img src={CENTRES[k].mark!} alt="" /><span>{tx(CENTRES[k].name)}</span></>);
+        const style = { '--centre': CENTRES[k].color } as React.CSSProperties;
+        return go
+          ? <button key={k} type="button" className="mg-house go" style={style} onClick={() => go(k)} title={tx(m('افتح قواعد بيانات هذا البيت', "Open this house's databases", 'Ouvrir les bases de cette maison'))}>{inside}</button>
+          : <div key={k} className="mg-house" style={style}>{inside}</div>;
+      })}
     </div>
+  );
+}
+
+/**
+ * The three logos open the databases of their house (Fouad, 2026-11-12), for the person signed in and only what they can
+ * see (the server already gives each person their own list): one database opens at once; several are chosen from a short
+ * list; none says so. The administrator sees them all, and enters as the Superior, as from the cards.
+ */
+export function HouseOpen({ dbs, onOpen, children }: { dbs: DbInfo[]; onOpen: (db: DbInfo) => void; children: ReactNode }) {
+  const [pick, setPick] = useState<CentreKey | null>(null);
+  const mine = (k: CentreKey) => dbs.filter((d) => (d.kind ?? 'centre') === 'centre' && d.centre === k);
+  const go = (k: CentreKey) => {
+    const x = mine(k);
+    if (x.length === 1) return onOpen(x[0]);
+    if (!x.length) return toast(`${tx(CENTRES[k].name)}: ${tx(m('لا قاعدة بيانات لهذا البيت مُعطاة لك', 'no database of this house is given to you', "aucune base de cette maison ne vous est donnée"))}`, true);
+    setPick(k);
+  };
+  return (
+    <HouseNav.Provider value={go}>
+      {children}
+      {pick && (
+        <Modal title={`${tx(CENTRES[pick].name)} · ${tx(m('اختر قاعدة', 'choose a database', 'choisissez une base'))}`} onClose={() => setPick(null)}>
+          <div className="mg-places">{mine(pick).map((d) => <DbCard key={d.slug} db={d} onOpen={() => { setPick(null); onOpen(d); }} />)}</div>
+        </Modal>
+      )}
+    </HouseNav.Provider>
   );
 }
 
@@ -242,6 +274,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
       </BrandFrame>
     );
   return (
+    <HouseOpen dbs={dbs} onOpen={onOpen}>
     <BrandFrame wide jesuit={area === 'cty' || (shown.length > 0 && shown.every(isCty))} invite={!signedIn && !dir?.person}>
       {address && (
         <div className="row muted small" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
@@ -293,6 +326,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
         <CreateDb onCancel={() => setCreating(false)} onCreated={onCreated} community={area === 'cty' || (!both && dbs.length > 0 && dbs.every(isCty))} />
       )}
     </BrandFrame>
+    </HouseOpen>
   );
 }
 
@@ -340,6 +374,27 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
     if (!community) mainListApi.names().then((x) => { setLists(x); setMainList(x[0]?.id ?? null); }).catch(() => setLists([]));
   }, [community]);
   const chosen = centre ?? (name ? guessCentre(name) : null);
+  // a database that exists elsewhere (a backup, an HR database made on another server): created under this name and
+  // filled from its .db file as it is — its people, documents and users come with it (Fouad, 2026-11-12)
+  const fromFile = async () => {
+    setErr(null);
+    const file = await pickFile(['db'], t('اختر ملف قاعدة البيانات (‎.db)', 'Choose the database file (.db)'));
+    if (!file) return;
+    setBusy(true);
+    let slug: string | null = null;
+    try {
+      const r = chosen === 'own' ? await serverCreateDb(name, 'other', color, logo) : await serverCreateDb(name, chosen ?? 'other');
+      slug = r.slug;
+      await serverSetup('upload-db', { db: r.slug, base64: toBase64(file.bytes) });
+      toast(t('أُحضرت القاعدة من الملف', 'The database came from the file'));
+      onCreated(r.slug);
+    } catch (e) {
+      // (the empty database stays: its own page takes the file again)
+      setErr(`${errText(e)}${slug ? ` — ${t('أُنشئت القاعدة فارغة: افتحها واختر الملف من جديد', 'the database was made, empty: open it and choose the file again')}` : ''}`);
+    } finally {
+      setBusy(false);
+    }
+  };
   const go = async () => {
     setErr(null);
     setBusy(true);
@@ -403,9 +458,11 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
       <p className="muted small">{community
         ? tx(m('بعدها: العنوان والألوان والأشخاص.', 'Next: its address, colours and people.', 'Ensuite : adresse, couleurs et personnes.'))
         : t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>
+      {!community && <p className="muted small">{t('«من ملف قاعدة بيانات»: ملف ‎.db (نسخة احتياطية، أو قاعدة موارد بشرية من خادم آخر…) يأتي كما هو: الأشخاص والوثائق والمستخدمون معه. القائمة تأتي من الملف.', '"From a database file": a .db file (a backup, an HR database from another server…) comes as it is — its people, documents and users with it. Its lists come from the file.')}</p>}
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">
         {onCancel && <button className="btn" onClick={onCancel}>{t('رجوع', 'Back')}</button>}
+        {!community && <button className="btn" disabled={!name.trim() || busy} title={t('اكتب الاسم أولاً', 'Write the name first')} onClick={() => void fromFile()}>⬆ {t('من ملف قاعدة بيانات…', 'From a database file…')}</button>}
         <button className="btn primary" disabled={!name.trim() || busy} onClick={go}>{t('متابعة', 'Continue')}</button>
       </div>
     </div>

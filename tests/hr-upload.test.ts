@@ -48,4 +48,31 @@ describe('an HR database taken into a server', () => {
     const other = await two.call('/api/dbs/create', { organisation: 'HR 2', centre: 'other', kind: 'hr' });
     expect((await two.call('/api/setup/upload-db', { db: other.body.slug, base64: Buffer.from('not a database').toString('base64') })).status).toBe(400);
   });
+
+  it('"From a database file" in New database: a plain new database takes an HR file; a community or Province file is refused', async () => {
+    const one = await server();
+    const made = await one.call('/api/dbs/create', { organisation: 'HR old', centre: 'other', kind: 'hr' });
+    await one.call('/api/setup/hr', { db: made.body.slug, organisation: 'HR old', people: [{ name: 'Keeper', password: 'keeper-pass-1' }], mustChange: false });
+    const hrFile = path.join(one.dir, 'dbs', made.body.slug, 'magis.db');
+    const b64 = fs.readFileSync(hrFile).toString('base64');
+
+    // another server: the new database is not marked HR (as the button creates it), then the file
+    const two = await server();
+    const plain = await two.call('/api/dbs/create', { organisation: 'HR at Aleppo', centre: 'aleppo' });
+    expect((await two.call('/api/setup/upload-db', { db: plain.body.slug, base64: b64 })).status).toBe(200);
+    const shown = (await two.call('/api/hello')).body.dbs[0];
+    expect(shown).toMatchObject({ kind: 'hr', setupNeeded: false, centre: 'aleppo' }); // it is HR now, and keeps Aleppo's colours
+
+    // a community's file (or the Province's) does not come in through a plain database
+    const { DatabaseSync } = (await import('node:module')).createRequire(import.meta.url)('node:sqlite');
+    for (const kind of ['community', 'province']) {
+      const copy = path.join(one.dir, `as-${kind}.db`);
+      fs.copyFileSync(hrFile, copy);
+      const db = new DatabaseSync(copy);
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'kind'").run(kind);
+      db.close();
+      const target = await two.call('/api/dbs/create', { organisation: `Plain ${kind}`, centre: 'other' });
+      expect((await two.call('/api/setup/upload-db', { db: target.body.slug, base64: fs.readFileSync(copy).toString('base64') })).status).toBe(400);
+    }
+  });
 });

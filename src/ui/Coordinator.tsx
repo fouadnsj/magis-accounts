@@ -9,7 +9,7 @@ import { provinceApi, serverManageList, waitingApi, type DbInfo, type DirInfo, t
 import { CoordinatorWaiting, type Area } from './CoordinatorWaiting';
 import { pickFile, toBase64 } from '../platform';
 import { errText, fmtDate, toast } from './kit';
-import { BrandFrame, CreateDb, DbCard } from './Landing';
+import { BrandFrame, CreateDb, DbCard, HouseOpen } from './Landing';
 import { ManageDbs } from './ManageDbs';
 import { DirAdmin } from './Directory';
 import { Tabs } from './kit';
@@ -51,6 +51,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       </BrandFrame>
     );
   return (
+    <HouseOpen dbs={dbs} onOpen={onOpen}>
     <BrandFrame wide invite={false}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
         <h1 style={{ margin: 0 }}>🧭 {t3('المنسّق', 'Coordinator', 'Coordinateur')}</h1>
@@ -97,6 +98,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       {sec === 'lists' && <div style={{ marginTop: 12 }}><MainListPanel dbs={centres.filter((d) => !d.kind || d.kind === 'centre')} onReload={onChanged} /></div>}
       {sec === 'people' && <div style={{ marginTop: 12 }}><DirAdmin inline onClose={() => undefined} onChanged={onChanged} /></div>}
     </BrandFrame>
+    </HouseOpen>
   );
 }
 

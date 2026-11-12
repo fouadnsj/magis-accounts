@@ -696,6 +696,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
    */
   const replaceDatabase = async (c: Centre, base64: string) => {
     const keepCentre = await getMeta(c.handle.db, 'centre');
+    const curKind = await getMeta(c.handle.db, 'kind');
     const tmp = path.join(c.dir, `upload-${Date.now()}.db`);
     fs.writeFileSync(tmp, Buffer.from(base64, 'base64'));
     try {
@@ -706,6 +707,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const users = await one<{ c: number }>(test.db, 'SELECT COUNT(*) AS c FROM profile WHERE active = 1');
         if (install === 'holder') throw new HttpError(400, { ar: 'هذا ملف أمين صندوق، لا ملف المكتب', en: "This is a holder's file, not the office database" });
         if (!users?.c) throw new HttpError(400, { ar: 'لا مستخدمين في هذا الملف', en: 'No users in this file' });
+        // a community's or a country's file is made from the communities' side (behind their password); the Province's
+        // account is the Coordinator's own: neither comes in through a plain database
+        const fileKind = await getMeta(test.db, 'kind');
+        if ((fileKind === 'community' || fileKind === 'country' || fileKind === 'province') && fileKind !== curKind)
+          throw new HttpError(400, fileKind === 'province'
+            ? { ar: 'هذا ملف حساب الإقليم', en: "This is the Province account's file" }
+            : { ar: 'هذا ملف جماعة أو بلد: يُنشأ من جانب الجماعات', en: "This is a community's or a country's file: make it from the communities' side" });
       } finally {
         test.close();
       }

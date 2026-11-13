@@ -2497,7 +2497,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (s.mustChange) throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
       if (s.as) throw new HttpError(403, { ar: 'اربط الهاتف بحسابك أنت', en: 'Link the phone with your own account', fr: 'Reliez le téléphone avec votre propre compte' });
       const kind = (await getMeta(c.handle.db, 'kind')) ?? 'centre';
-      if (kind !== 'centre' || config.copies?.[c.slug]) throw new HttpError(400, { ar: 'الهاتف لحسابات المراكز فقط حالياً', en: "The phone is for the centres' accounts only, for now", fr: 'Le téléphone est pour les comptes des centres seulement, pour le moment' });
+      if (!(kind === 'centre' || kind === 'community') || config.copies?.[c.slug]) throw new HttpError(400, { ar: 'الهاتف لحسابات المراكز والجماعات فقط', en: "The phone is for the centres' and the communities' accounts only", fr: 'Le téléphone est pour les comptes des centres et des communautés seulement' });
       const body = (await readBody(req)) as { name?: string };
       const made = await pairPhone(c.handle.db, s.profile, String(body.name ?? ''));
       const phone = await phoneOf(c.handle.db, made.id, made.key);

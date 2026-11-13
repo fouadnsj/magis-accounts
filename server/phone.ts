@@ -15,6 +15,8 @@ import { holders } from '../src/domain/reports';
 import { rateOn } from '../src/domain/compute';
 import { m, type Msg } from '../src/i18n';
 import type { Trx } from '../src/domain/types';
+import { loadAccounts, loadBooks, loadEntries } from '../src/community/repo';
+import { balance as ctyBalance, leafAccounts, type CtyAccount } from '../src/community/domain';
 
 export const PHONE_DAYS = 30;
 const DAY = 86_400_000;
@@ -65,9 +67,10 @@ export interface PhonePack {
   validUntil: string;
   /** the books this person writes in, with what each should hold now */
   /** rate: the book's latest exchange rate (SYP for one USD), to warn about a mistyped exchange */
-  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate: number }[];
-  headings: { id: number; name: string; code: string; types: PhoneType[] }[];
-  lines: { id: number; heading_id: number; name: string; code: string }[];
+  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate: number; bal?: Record<string, number>; kind?: string | null }[];
+  headings: { id: number; name: string; code: string; types: PhoneType[]; names?: Msg }[];
+  /** scope (communities): 'P' a line a Jesuit may use for himself; others are for the house */
+  lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null }[];
   parties: { id: number; name: string }[];
   /** months closed for everybody, and months this person's books are closed for */
   closed: string[];
@@ -76,6 +79,9 @@ export interface PhonePack {
   rate: number;
   /** how far an exchange's rate may be from the last one before the phone warns (0.25 = 25 %) */
   tolerance: number;
+  /** a Jesuit community (Fouad, 13 November 2026): three currencies, any exchange, no heading for an exchange */
+  kind?: 'community';
+  curs?: { code: string; label: string }[];
 }
 
 /** what a phone records: expenses, income and (Fouad, 2026-11-13) exchanges; transfers stay on the computer */
@@ -90,6 +96,7 @@ function phoneBooks(profile: Profile, books: Awaited<ReturnType<typeof loadLists
 
 /** What the phone keeps to work offline: the person's books and their balance, the headings and lines, the closed months. */
 export async function phonePack(db: Db, profile: Profile, phone: PhoneRow): Promise<PhonePack> {
+  if ((await getMeta(db, 'kind')) === 'community') return ctyPack(db, profile, phone);
   const [lists, rows, closed] = await Promise.all([loadLists(db), loadTrx(db), closedMonths(db)]);
   const mine = phoneBooks(profile, lists.books);
   const usd = holders(rows, lists.books, 'USD'), syp = holders(rows, lists.books, 'SYP');
@@ -137,9 +144,12 @@ export interface PhoneEntry {
   receipt?: string | null;
   party_id?: number | null;
   amount: number;
-  currency: 'USD' | 'SYP';
+  currency: string;
   /** an exchange: the pounds received */
   syp?: number;
+  /** an exchange in a community: the currency and the amount received */
+  cur2?: string | null;
+  amount2?: number | null;
 }
 export interface PhoneResult { id: string; ok: boolean; already?: boolean; error?: Msg }
 
@@ -150,6 +160,7 @@ const ID = /^[A-Za-z0-9-]{8,64}$/;
  * here (the phone sent it, then lost the connection before hearing so) is not written twice.
  */
 export async function phonePush(ctx: OpCtx, phone: PhoneRow, entries: PhoneEntry[]): Promise<PhoneResult[]> {
+  if ((await getMeta(ctx.db, 'kind')) === 'community') return ctyPush(ctx, phone, entries);
   const out: PhoneResult[] = [];
   const lists = await loadLists(ctx.db);
   for (const e of entries.slice(0, 200)) {
@@ -190,7 +201,94 @@ export async function phonePhoto(ctx: OpCtx, a: { trxId: string; key: string; ba
   const key = String(a.key ?? '');
   if (!ID.test(key)) throw new UserError(m('صورة بلا رقم', 'A photo without its number', 'Une photo sans son numéro'));
   if (await one(ctx.db, 'SELECT 1 AS x FROM phone_photo WHERE key = ?', [key])) return { ok: true, already: true };
-  const made = (await runOp(ctx, 'doc.add', { trxId: String(a.trxId), base64: String(a.base64 ?? ''), mime: String(a.mime ?? '') })) as { id: string };
+  const cty = (await getMeta(ctx.db, 'kind')) === 'community';
+  const made = (await runOp(ctx, cty ? 'cty.doc.add' : 'doc.add', cty
+    ? { entryId: String(a.trxId), base64: String(a.base64 ?? ''), mime: String(a.mime ?? '') }
+    : { trxId: String(a.trxId), base64: String(a.base64 ?? ''), mime: String(a.mime ?? '') })) as { id: string };
   await ctx.db.batch([{ sql: 'INSERT INTO phone_photo (key, attachment_id, at) VALUES (?,?,?)', params: [key, made.id, now()] }]);
   return { ok: true };
+}
+
+// ---------------------------------------------------------------- a Jesuit community (Fouad, 13 November 2026)
+// The same phone, for the books a Jesuit keeps (his pocket, the house for the minister, the cash for the econome):
+// expenses and income on the community's chart, exchanges between any two of its three currencies. Every entry goes
+// through 'cty.entry.save' with the rights of the account the phone belongs to (approval limits included).
+
+const CTY_CURS = ['LOC', 'USD', 'EUR'];
+const accNames = (a: CtyAccount): Msg => ({ ar: a.name_ar || a.name_en, en: a.name_en, fr: a.name_fr || a.name_en });
+
+async function ctyPack(db: Db, profile: Profile, phone: PhoneRow): Promise<PhonePack> {
+  const [books, accounts, entries] = await Promise.all([loadBooks(db), loadAccounts(db), loadEntries(db)]);
+  const stamp = now();
+  // his books, but not the account at the économat (that one moves with the Province, never from a phone)
+  const mine = books.filter((b) => b.active && profile.books.includes(b.id) && b.cty_kind !== 'economat');
+  // the category as on the computer (Entry.tsx, offered): the highest level under the top group (Health › Doctors);
+  // a line straight under a top group is its own category
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const top = (a: CtyAccount) => { let h = a; while (h.parent_id != null && byId.get(h.parent_id)?.parent_id != null) h = byId.get(h.parent_id)!; return h; };
+  const lines = leafAccounts(accounts).filter((a) => a.type === 'Exp' || a.type === 'Income')
+    .map((a) => ({ id: a.id, heading_id: top(a).id, name: a.name_en, code: a.code, names: accNames(a), scope: a.scope ?? null }));
+  const heads = new Set(lines.map((l) => l.heading_id));
+  const headings = accounts.filter((a) => heads.has(a.id)).sort((x, y) => x.sort - y.sort || x.code.localeCompare(y.code))
+    .map((a) => ({ id: a.id, name: a.name_en, code: a.code, names: accNames(a), types: [a.type as PhoneType] }));
+  const closed = (await db.query<{ ym: string }>('SELECT ym FROM closed_month')).map((r) => r.ym);
+  const bm = await db.query<{ book_id: number; ym: string }>('SELECT book_id, ym FROM cty_month');
+  const local = (await getMeta(db, 'local_currency')) ?? 'SYP';
+  await db.batch([{ sql: 'UPDATE phone SET last_sync = ? WHERE id = ?', params: [stamp, phone.id] }]);
+  return {
+    phone: { id: phone.id, name: phone.name },
+    user: profile.name,
+    organisation: (await getMeta(db, 'organisation')) ?? '',
+    centre: 'community',
+    color: null,
+    asOf: stamp,
+    validUntil: validUntil({ created_at: phone.created_at, last_sync: stamp }),
+    books: mine.map((b) => {
+      // everything written in it (the phone counts every row it holds the same way)
+      const bal = ctyBalance(entries, b, '9999-12-31');
+      const r = (x: number) => Math.round(x * 100) / 100;
+      return { id: b.id, name: b.cty_kind === 'personal' ? (b.keeper_name ?? b.name) : b.name, main: false, usd: r(bal.USD), syp: r(bal.LOC), rate: 0, bal: { LOC: r(bal.LOC), USD: r(bal.USD), EUR: r(bal.EUR) }, kind: b.cty_kind };
+    }),
+    headings,
+    lines,
+    parties: [],
+    closed: [...new Set(closed)].sort(),
+    bookClosed: bm.filter((x) => mine.some((b) => b.id === x.book_id)),
+    fiscalStart: null,
+    rate: 0,
+    tolerance: 0.25,
+    kind: 'community',
+    curs: [{ code: 'LOC', label: local }, { code: 'USD', label: '$' }, { code: 'EUR', label: '€' }],
+  };
+}
+
+async function ctyPush(ctx: OpCtx, phone: PhoneRow, entries: PhoneEntry[]): Promise<PhoneResult[]> {
+  const out: PhoneResult[] = [];
+  for (const e of entries.slice(0, 200)) {
+    const id = String(e?.id ?? '');
+    try {
+      if (!ID.test(id)) throw new UserError(m('سطر بلا رقم', 'A row without its number', 'Une ligne sans son numéro'));
+      if (await one(ctx.db, 'SELECT 1 AS x FROM cty_entry WHERE id = ?', [id])) { out.push({ id, ok: true, already: true }); continue; }
+      if (!PHONE_TYPES.includes(e.type)) throw new UserError(m('من الهاتف: نفقة أو إيراد أو صرافة فقط', 'From a phone: an expense, an income or an exchange only', "Depuis un téléphone : une dépense, une recette ou un change seulement"));
+      if (!CTY_CURS.includes(e.currency) || (e.type === 'Exchange' && !CTY_CURS.includes(String(e.cur2))))
+        throw new UserError(m('العملة غير معروفة', 'Unknown currency', 'Monnaie inconnue'));
+      const ex = e.type === 'Exchange';
+      const note = [String(e.explanation ?? '').trim(), e.receipt ? `#${String(e.receipt).trim()}` : ''].filter(Boolean).join(' · ').slice(0, 500) || null;
+      await runOp(ctx, 'cty.entry.save', {
+        newId: id,
+        entry: {
+          book_id: Number(e.book_id), date: String(e.date ?? ''), type: e.type, cur: e.currency, amount: Number(e.amount),
+          account_id: ex ? null : Number(e.line_id) || null, to_book_id: null,
+          cur2: ex ? String(e.cur2) : null, amount2: ex ? Number(e.amount2) : null, note, claim: null,
+        },
+      });
+      await ctx.db.batch([auditStmt(ctx.who, 'phone-row', 'cty_entry', id, null, { phone: phone.name })]);
+      out.push({ id, ok: true });
+    } catch (err) {
+      if (!(err instanceof UserError)) throw err;
+      out.push({ id, ok: false, error: err.msg });
+    }
+  }
+  await ctx.db.batch([{ sql: 'UPDATE phone SET last_sync = ? WHERE id = ?', params: [now(), phone.id] }]);
+  return out;
 }

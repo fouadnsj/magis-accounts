@@ -7,6 +7,7 @@ import { getLang, setLang, type LangMode } from '../../i18n';
 import { CURS, type Cur } from '../domain';
 import { useCty, Card } from './CtyApp';
 import { PeopleScreen } from './People';
+import { CtyPhones } from './CtyPhones';
 import { curName, t3 } from './text';
 import type { Palette, StyleInput } from '../style';
 import { DEFAULT_STYLE, StylePicker } from './StylePicker';
@@ -34,6 +35,7 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDes
           {LANGS.map((x) => <button key={x.l} className={lang === x.l ? 'on' : ''} onClick={() => { setLang(x.l); onLang(); }}>{x.label}</button>)}
         </div>
       </Card>
+      {(can('book.own') || can('users.manage')) && <CtyPhones />}
       {!inDesk && (can('users.manage') || can('cty.view_all')) && (
         <Card>
           <button className="btn cty-wide" onClick={() => setPeople(true)}>👥 {t3('الأشخاص والأدوار', 'People and roles', 'Personnes et rôles')}</button>

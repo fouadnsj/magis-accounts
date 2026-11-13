@@ -13,15 +13,18 @@ export interface Pack {
   asOf: string;
   validUntil: string;
   /** rate: the book's latest exchange rate (older packs: none) */
-  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate?: number }[];
-  headings: { id: number; name: string; code: string; types: Kind[] }[];
-  lines: { id: number; heading_id: number; name: string; code: string }[];
+  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate?: number; bal?: Record<string, number>; kind?: string | null }[];
+  headings: { id: number; name: string; code: string; types: Kind[]; names?: Msg }[];
+  lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null }[];
   parties: { id: number; name: string }[];
   closed: string[];
   bookClosed: { book_id: number; ym: string }[];
   fiscalStart: string | null;
   rate: number;
   tolerance?: number;
+  /** a Jesuit community: its three currencies (LOC = the local one), any exchange (13 November 2026) */
+  kind?: 'community';
+  curs?: { code: string; label: string }[];
 }
 
 /** expense, income, and exchange (dollars given for pounds received) */
@@ -39,8 +42,11 @@ export interface Entry {
   receipt: string;
   /** an exchange: amount = the dollars given, syp = the pounds received */
   amount: number;
-  currency: 'USD' | 'SYP';
+  currency: string;
   syp?: number;
+  /** an exchange in a community: what was received */
+  cur2?: string;
+  amount2?: number;
   state: 'waiting' | 'sent' | 'fix';
   error?: Msg | null;
   made_at: string;

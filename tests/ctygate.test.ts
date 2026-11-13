@@ -180,4 +180,42 @@ describe("server: the communities' password", () => {
     expect((await call('/api/op/cty.doc.delete', { id: list[0].id }, marc.cookie)).status).toBe(200);
     expect((await call('/api/op/cty.doc.list', { entryId }, marc.cookie)).body).toEqual([]);
   });
+
+  it("a Jesuit's phone (13 November 2026): his pocket, the chart in three languages, three currencies, any exchange", async () => {
+    const marc = await call('/api/signin', { centre: 'jesuits', name: 'Marc', password: 'marc-own-pass-1' });
+    const made = await call('/api/phone/pair', { name: "Marc's phone" }, marc.cookie);
+    expect(made.status).toBe(200);
+    const key = made.body.key as string;
+    const phone = async (url: string, body: unknown = {}) => {
+      const r = await fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    };
+    const pack = (await phone('/api/phone/pack')).body as { kind: string; curs: { code: string }[]; books: { id: number; kind: string; bal: Record<string, number> }[]; lines: { id: number; heading_id: number; scope: string | null; names: { fr: string } }[]; headings: { id: number; types: string[] }[] };
+    expect(pack.kind).toBe('community');
+    expect(pack.curs.map((c) => c.code)).toEqual(['LOC', 'USD', 'EUR']);
+    expect(pack.books.map((b) => b.kind)).toEqual(['personal']); // as himself: his pocket only
+    const pocket = pack.books[0];
+    const line = pack.lines.find((l) => l.scope === 'P' && pack.headings.find((h) => h.id === l.heading_id)!.types.includes('Exp'))!;
+    expect(line.names.fr).toBeTruthy();
+    const rows = [
+      { id: 'cty-phone-0001', book_id: pocket.id, date: '2027-01-06', type: 'Exp', heading_id: line.heading_id, line_id: line.id, explanation: 'taxi', receipt: '12', amount: 3000, currency: 'LOC' },
+      { id: 'cty-phone-0002', book_id: pocket.id, date: '2027-01-06', type: 'Exchange', heading_id: 0, line_id: 0, explanation: '', amount: 13000, currency: 'LOC', cur2: 'USD', amount2: 100 },
+      { id: 'cty-phone-0003', book_id: pocket.id, date: '2027-01-06', type: 'Exchange', heading_id: 0, line_id: 0, explanation: '', amount: 10, currency: 'USD', cur2: 'USD', amount2: 10 },
+    ];
+    const sent = (await phone('/api/phone/push', { rows })).body as { results: { ok: boolean; error?: { en: string } }[]; pack: typeof pack };
+    expect(sent.results.map((r) => r.ok)).toEqual([true, true, false]);
+    const after = sent.pack.books[0].bal;
+    expect(after.LOC).toBe(pocket.bal.LOC - 3000 - 13000);
+    expect(after.USD).toBe(pocket.bal.USD + 100);
+    // twice: nothing written twice
+    expect(((await phone('/api/phone/push', { rows: rows.slice(0, 2) })).body as { results: { already?: boolean }[] }).results.map((r) => r.already)).toEqual([true, true]);
+    // on the computer: in his pocket, with the receipt number in the note
+    const d = (await call('/api/op/cty.data', {}, marc.cookie)).body as { entries: { id: string; note: string | null; type: string; cur2: string | null }[] };
+    expect(d.entries.find((e) => e.id === 'cty-phone-0001')!.note).toBe('taxi · #12');
+    expect(d.entries.find((e) => e.id === 'cty-phone-0002')).toMatchObject({ type: 'Exchange', cur2: 'USD' });
+    // the photo of the receipt
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    expect((await phone('/api/phone/photo', { trxId: 'cty-phone-0001', key: 'cty-photo-0001', base64: PNG, mime: 'image/png' })).body).toEqual({ ok: true });
+    expect((await call('/api/op/cty.doc.list', { entryId: 'cty-phone-0001' }, marc.cookie)).body).toHaveLength(1);
+  });
 });

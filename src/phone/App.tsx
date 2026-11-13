@@ -323,6 +323,9 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
   const [pics, setPics] = useState<Photo[]>(photos);
   const [errs, setErrs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
+  // a photo seen full screen, and the question before removing anything (Fouad on his iPhone, 2026-11-13)
+  const [view, setView] = useState<Photo | null>(null);
+  const [ask, setAsk] = useState<{ text: string; yes: string; act: () => void | Promise<void> } | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const headings = pack.headings.filter((h) => h.types.includes(type));
   const lines = pack.lines.filter((x) => x.heading_id === f.heading_id);
@@ -347,12 +350,16 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
     for (const p of pics) await putPhoto(p);
     await onClose(true);
   };
-  const remove = async () => {
-    if (!window.confirm(t('حذف هذا السطر من الهاتف؟', 'Delete this row from the phone?', 'Supprimer cette ligne du téléphone ?'))) return;
-    for (const p of photos) await delPhoto(p.key);
-    await delRow(id);
-    await onClose(false);
-  };
+  const remove = () => setAsk({
+    text: t('حذف هذا السطر وصوره من الهاتف؟ لا رجوع عن ذلك.', 'Delete this row and its photos from the phone? This cannot be undone.', 'Supprimer cette ligne et ses photos du téléphone ? Impossible de revenir en arrière.'),
+    yes: t('نعم، احذف', 'Yes, delete', 'Oui, supprimer'),
+    act: async () => { for (const p of photos) await delPhoto(p.key); await delRow(id); await onClose(false); },
+  });
+  const dropPhoto = (p: Photo) => setAsk({
+    text: t('إزالة هذه الصورة؟ تُزال حين تضغط «احفظ في الهاتف».', 'Remove this photo? It goes when you tap "Save on the phone".', 'Retirer cette photo ? Elle part quand vous touchez « Enregistrer sur le téléphone ».'),
+    yes: t('نعم، أزل', 'Yes, remove', 'Oui, retirer'),
+    act: () => { setPics((x) => x.filter((y) => y.key !== p.key)); setView(null); },
+  });
 
   return (
     <div className="ph-page">
@@ -389,8 +396,7 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
         <div className="ph-photos">
           {pics.map((p) => (
             <div key={p.key} className="ph-photo">
-              {p.base64 ? <img src={`data:${p.mime};base64,${p.base64}`} alt="" /> : <span>📎</span>}
-              {!p.sent && <button type="button" onClick={() => setPics((x) => x.filter((y) => y.key !== p.key))}>✕</button>}
+              {p.base64 ? <img src={`data:${p.mime};base64,${p.base64}`} alt="" onClick={() => setView(p)} /> : <span>📎</span>}
             </div>
           ))}
           {pics.length < 3 && <button type="button" className="ph-addphoto" disabled={busy} onClick={() => file.current?.click()}>📷<span>{t('صورة الإيصال', 'Photo of the receipt', 'Photo du reçu')}</span></button>}
@@ -399,6 +405,24 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
       </div>
       <button className="ph-btn gold" disabled={busy} onClick={save}>{t('احفظ في الهاتف', 'Save on the phone', 'Enregistrer sur le téléphone')}</button>
       {row && <button className="ph-btn danger" disabled={busy} onClick={remove}>{t('احذف', 'Delete', 'Supprimer')}</button>}
+      {view && (
+        <div className="ph-viewer" onClick={() => setView(null)}>
+          <img src={`data:${view.mime};base64,${view.base64}`} alt="" />
+          <div className="bar" onClick={(e) => e.stopPropagation()}>
+            <button className="ph-btn" onClick={() => setView(null)}>{t('إغلاق', 'Close', 'Fermer')}</button>
+            {!view.sent && <button className="ph-btn danger" onClick={() => dropPhoto(view)}>{t('أزل الصورة', 'Remove the photo', 'Retirer la photo')}</button>}
+          </div>
+        </div>
+      )}
+      {ask && (
+        <div className="ph-ask">
+          <div className="ph-card">
+            <b>{ask.text}</b>
+            <button className="ph-btn danger" onClick={async () => { const a = ask; setAsk(null); await a.act(); }}>{ask.yes}</button>
+            <button className="ph-btn" onClick={() => setAsk(null)}>{t('لا', 'No', 'Non')}</button>
+          </div>
+        </div>
+      )}
       <p className="ph-muted ph-foot">{t('يُرسل إلى الخادم حين يجده الهاتف، والخادم يتحقق منه.', 'It goes to the server when the phone finds it, and the server checks it.', 'Elle part au serveur quand le téléphone le trouve, et le serveur la vérifie.')}</p>
     </div>
   );

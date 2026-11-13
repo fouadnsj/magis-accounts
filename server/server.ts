@@ -2537,6 +2537,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       // plain http answers the phones' start page (the phone does not trust the server yet); everything else goes to https
       const [u, q] = (req.url ?? '/').split('?');
       if (phoneRoutes(req, res, u, q, true)) return;
+      if (u === '/brand/phone-180.png') return serveStatic(req, res); // the start page's picture
       const host = (req.headers.host ?? 'localhost').replace(/:\d+$/, '');
       // 307, not 301: a browser must not remember the redirect for ever (the mode can change)
       res.writeHead(307, { Location: `https://${host}:${httpsPort}${req.url ?? '/'}` });

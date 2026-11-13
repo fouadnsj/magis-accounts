@@ -62,6 +62,9 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
   const [got, setGot] = useState<{ key: string; pack: Pack } | null>(null);
   const [code, setCode] = useState('');
   const [code2, setCode2] = useState('');
+  // an iPhone keeps the home-screen app apart from Safari: a phone linked in Safari is not linked in the icon
+  const [here, setHere] = useState(false);
+  const iosSafari = /iPhone|iPad|iPod/.test(navigator.userAgent) && !(navigator as Navigator & { standalone?: boolean }).standalone;
 
   const pair = async (enter?: () => Promise<{ mustChange: boolean }>) => {
     if (enter && (await enter()).mustChange) throw new Refused({ ar: 'غيّر كلمة السر على الحاسوب أولاً', en: 'Change your password on the computer first', fr: "Changez d'abord votre mot de passe sur l'ordinateur" });
@@ -116,6 +119,12 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
         <div className="ph-card">
           <b>{t('أي حسابات؟', 'Which accounts?', 'Quels comptes ?')}</b>
           {choose.dbs.map((d) => <button key={d.slug} className="ph-btn" disabled={busy} onClick={() => pick(d.slug)}>{d.organisation}</button>)}
+        </div>
+      ) : iosSafari && !here ? (
+        <div className="ph-card">
+          <b>{t('أولاً: على الشاشة الرئيسية', 'First: on the home screen', "D'abord : sur l'écran d'accueil")}</b>
+          <p className="ph-muted">{t('اضغط زر المشاركة ⬆ في الأسفل، ثم «إضافة إلى الشاشة الرئيسية». بعدها افتح MAGIS من أيقونته واربطه هناك: ما يُربط في Safari يبقى في Safari.', 'Tap the Share button ⬆ at the bottom, then "Add to Home Screen". Then open MAGIS from its icon and link it there: what is linked in Safari stays in Safari.', "Touchez le bouton Partager ⬆ en bas, puis « Sur l'écran d'accueil ». Ensuite ouvrez MAGIS par son icône et reliez-le là : ce qui est relié dans Safari reste dans Safari.")}</p>
+          <button className="ph-btn" onClick={() => setHere(true)}>{t('اربط هنا مع ذلك', 'Link here anyway', 'Relier ici quand même')}</button>
         </div>
       ) : (
         <div className="ph-card">

@@ -13,6 +13,7 @@ import { useCty, bookLabel, bookName } from '../CtyApp';
 import { accName, curName, money, monthName, t3 } from '../text';
 import { claimName } from './Claims';
 import { exportExcel } from './excel';
+import { ctyAnswers, ctyCountry, ctySend } from '../../../net';
 
 export function SendMonth() {
   const { d, s, reload, can } = useCty();
@@ -21,6 +22,9 @@ export function SendMonth() {
   const [file, setFile] = useState<MonthFile | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const period = periodMonths(ym, d.settings.closePeriod);
+  // the country econome on this same server (the file stays the usual way; Fouad, 13 November 2026)
+  const [country, setCountry] = useState<string | null>(null);
+  useEffect(() => { if (s.mode === 'server') ctyCountry().then((x) => setCountry(x.country), () => setCountry(null)); }, [s]);
   const quarterly = period.length > 1;
   const closed = d.closed.includes(period[period.length - 1]);
   useEffect(() => {
@@ -51,6 +55,22 @@ export function SendMonth() {
       const name = `${(fs[0].community.name || 'community').replace(/[^\w\u0600-\u06FF -]/g, '').trim()}-${period.length > 1 ? `${period[0]}_${period[2]}` : ym}.json`;
       await saveFile(name, ['json'], new TextEncoder().encode(JSON.stringify(out, null, 1)), name);
       toast(t3('الملف جاهز: أرسله إلى قيم البلد', 'The file is ready: send it to the country econome', "Le fichier est prêt : envoyez-le à l'économe du pays"));
+    } catch (e) { toast(errText(e), true); }
+  };
+  const sendDirect = async () => {
+    try {
+      const r = await ctySend(period);
+      await reload();
+      const same = r.results.every((x) => x.status === 'same');
+      toast(same ? t3(`وصل سابقاً إلى ${r.country}، بلا تغيير`, `Already with ${r.country}, nothing changed`, `Déjà chez ${r.country}, rien de changé`)
+        : t3(`✓ أُرسل إلى ${r.country}`, `✓ Sent to ${r.country}`, `✓ Envoyé à ${r.country}`));
+    } catch (e) { toast(errText(e), true); }
+  };
+  const takeAnswers = async () => {
+    try {
+      const r = await ctyAnswers();
+      await reload();
+      toast(t3(`✓ من ${r.country}: ${r.decisions} قراراً، ${r.lines} سطراً في الحساب`, `✓ From ${r.country}: ${r.decisions} decisions, ${r.lines} lines in the account`, `✓ De ${r.country} : ${r.decisions} décisions, ${r.lines} lignes dans le compte`));
     } catch (e) { toast(errText(e), true); }
   };
   const bringReturn = async () => {
@@ -134,6 +154,7 @@ export function SendMonth() {
             {quarterly && <p className="muted small">{t3('الإغلاق كل فصل', 'Closing every quarter', 'Clôture chaque trimestre')}: {monthName(period[0], true)} – {monthName(period[2])}</p>}
             {!closed && can('month.close') && <button className="btn primary cty-wide" disabled={!allClosed} onClick={closeIt}>{quarterly ? t3('أغلق فصل الجماعة', "Close the community's quarter", 'Clôturer le trimestre de la communauté') : t3('أغلق شهر الجماعة', "Close the community's month", 'Clôturer le mois de la communauté')}</button>}
             {closed && can('month.close') && <button className="btn primary cty-wide" onClick={makeFile}>{t3('اصنع الملف لقيم البلد', 'Make the file for the country econome', "Faire le fichier pour l'économe du pays")}{quarterly ? ` (${t3('3 أشهر', '3 months', '3 mois')})` : ''}</button>}
+            {closed && can('month.close') && country && <button className="btn cty-wide" style={{ marginTop: 6 }} onClick={sendDirect}>{t3(`أو أرسله مباشرة إلى ${country}`, `Or send it directly to ${country}`, `Ou l'envoyer directement à ${country}`)}</button>}
             <p className="muted small">{t3('الملف فيه المجاميع حسب الرمز فقط، لا تفاصيل أي يسوعي.', "The file holds totals by code only, no Jesuit's detail.", "Le fichier ne contient que des totaux par code, aucun détail d'un jésuite.")}</p>
           </div>
           {file && file.claims.length > 0 && (
@@ -152,7 +173,10 @@ export function SendMonth() {
             <div className="cty-card">
               <div className="cty-label">{t3('من قيم البلد', 'From the country econome', "De l'économe du pays")}</div>
               <p className="muted small">{d.lastReturnAt ? `${t3('آخر ملف رجوع', 'Last return file', 'Dernier fichier de retour')}: ${d.lastReturnAt.slice(0, 10)}` : t3('لم يصل ملف رجوع بعد.', 'No return file yet.', 'Pas encore de fichier de retour.')}</p>
-              <button className="btn" onClick={bringReturn}>{t3('أدخل ملف الرجوع…', 'Bring in the return file…', 'Importer le fichier de retour…')}</button>
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn" onClick={bringReturn}>{t3('أدخل ملف الرجوع…', 'Bring in the return file…', 'Importer le fichier de retour…')}</button>
+                {country && can('data.import') && <button className="btn" onClick={takeAnswers}>{t3(`أو خذ الأجوبة من ${country}`, `Or take the answers from ${country}`, `Ou prendre les réponses de ${country}`)}</button>}
+              </div>
             </div>
           )}
         </div>

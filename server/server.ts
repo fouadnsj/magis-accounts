@@ -37,7 +37,10 @@ import { computeAll } from '../src/domain/compute';
 import { addToList, applyMainList, CENTRES_LIST, checkMainList, followedList, listId, MAIN_LIST, mainListChanges, mainListFromDb, newUid, type MainChanges, type MainList, type MainRequest } from '../src/io/mainList';
 import { createOffice } from '../src/setup';
 import { createCommunity, type CommunitySetup } from '../src/community/setup';
-import { createCountry, type CountrySetup } from '../src/community/country';
+import { buildReturnFile, createCountry, importMonthFile, type CountrySetup } from '../src/community/country';
+import { sameCountry } from '../src/community/places';
+import { communityUid } from '../src/community/ops';
+import type { MonthFile, ReturnFile } from '../src/community/files';
 import { createHr, type HrListItem, type HrPerson } from '../src/hr/hr';
 import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
@@ -2400,6 +2403,48 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       s.profile = p;
       log(`${c.slug}: ${h.person.name} now ${p.name}`);
       return send(res, 200, { profile: p });
+    }
+    // ---- a community and its country econome on the same server (Fouad, 13 November 2026): the month goes straight to
+    // the country, and the answers come straight back, with the very same content as the files (which stay possible).
+    if (url === '/api/cty/country' || url === '/api/cty/send' || url === '/api/cty/answers') {
+      if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in', fr: 'Connectez-vous' });
+      const [, s, c] = found;
+      if ((await getMeta(c.handle.db, 'kind')) !== 'community') throw new HttpError(400, { ar: 'لجماعة فقط', en: 'For a community only', fr: 'Pour une communauté seulement' });
+      const mine = await getMeta(c.handle.db, 'country');
+      const countries: Centre[] = [];
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || config.copies?.[x.slug] || (await getMeta(x.handle.db, 'kind')) !== 'country') continue;
+        const theirs = (await getMeta(x.handle.db, 'country')) ?? '';
+        if (!mine || sameCountry(mine, theirs)) countries.push(x);
+      }
+      const country = countries.length === 1 ? countries[0] : null;
+      const name = country ? (await getMeta(country.handle.db, 'organisation')) ?? (await getMeta(country.handle.db, 'country')) : null;
+      if (url === '/api/cty/country') return send(res, 200, { country: name });
+      if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
+      if (!country) throw new HttpError(400, { ar: 'لا قيم بلد لهذه الجماعة على هذا الخادم: استعمل الملف', en: 'No country econome for this community on this server: use the file', fr: "Pas d'économe du pays pour cette communauté sur ce serveur : utilisez le fichier" });
+      if (s.as?.mode === 'view') throw new HttpError(403, { ar: 'للرؤية فقط', en: 'See only', fr: 'Lecture seule' });
+      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files };
+      if (url === '/api/cty/send') {
+        const body = (await readBody(req)) as { yms?: string[] };
+        const yms = (body.yms ?? []).filter((x) => /^\d{4}-\d{2}$/.test(String(x))).slice(0, 12);
+        if (!yms.length) throw new HttpError(400, { ar: 'أي شهر؟', en: 'Which month?', fr: 'Quel mois ?' });
+        const out = [];
+        for (const ym of yms) {
+          const f = (await runOp(ctx, 'cty.month.file', { ym })) as MonthFile;
+          out.push(await importMonthFile(country.handle.db, f, `${whoOf(s)} (${f.community.name})`));
+        }
+        log(`${c.slug} → ${country.slug}: ${yms.join(', ')} sent by ${whoOf(s)}`);
+        return send(res, 200, { country: name, results: out });
+      }
+      // the answers: what the country econome would put in the return file today
+      if (!has(s.profile, 'month.close') || !has(s.profile, 'data.import')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed', fr: 'Non permis' });
+      const uid = await communityUid(c.handle.db);
+      const cty = uid ? await one<{ id: number }>(country.handle.db, 'SELECT id FROM country_cty WHERE uid = ?', [uid]) : null;
+      if (!cty) throw new HttpError(400, { ar: 'لم يصل قيم البلد شيء منكم بعد', en: 'The country econome has nothing from you yet', fr: "L'économe du pays n'a encore rien reçu de vous" });
+      const file: ReturnFile = await buildReturnFile(country.handle.db, cty.id, `${name ?? 'country'}`);
+      const r = await runOp(ctx, 'cty.return.import', { file });
+      log(`${country.slug} → ${c.slug}: answers taken by ${whoOf(s)}`);
+      return send(res, 200, { country: name, ...(r as object) });
     }
     if (url === '/api/as/back' && method === 'POST') {
       if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });

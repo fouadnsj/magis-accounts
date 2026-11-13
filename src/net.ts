@@ -196,6 +196,10 @@ export const serverStatus = <T,>() => get<T>('/api/server/status');
 /** a community (Fouad, 13 November 2026): the person signed in and the offices he holds ("hats"), and putting one on */
 export interface CtyHats { person: { id: number; name: string } | null; current: number; hats: { profileId: number; office: string; name: string }[] }
 export const ctyHats = () => get<CtyHats>('/api/cty/hats');
+/** the country econome on this same server, if any; send the month to him; take his answers (13 November 2026) */
+export const ctyCountry = () => get<{ country: string | null }>('/api/cty/country');
+export const ctySend = (yms: string[]) => post<{ country: string; results: { community: string; ym: string; status: 'new' | 'same' | 'replaced'; claims: number }[] }>('/api/cty/send', { yms });
+export const ctyAnswers = () => post<{ country: string; decisions: number; lines: number }>('/api/cty/answers', {});
 export const ctyHat = (profileId: number) => post<{ profile: Profile }>('/api/cty/hat', { profileId });
 /** where the phones start (Admin → Users → Phones) */
 export const phoneWhere = () => get<{ start: string[]; app: string[]; fingerprint: string | null }>('/api/phone/where');

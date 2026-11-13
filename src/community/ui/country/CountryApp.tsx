@@ -206,7 +206,7 @@ function Home({ s, d, reload, go }: P & { go: (p: Page) => void }) {
       </div>
       <Step n={1} ok={active.length > 0 && missing.length === 0}
         title={t3('استلام ملفات الجماعات', 'Receive the communities’ files', 'Recevoir les fichiers des communautés')}
-        help={t3('كل جماعة ترسل لك ملفها (بالبريد أو على مفتاح USB). اضغط «أدخل ملفاً» لكل ملف.', 'Each community sends you its file (by email or USB key). Press “Bring in a file” for each one.', 'Chaque communauté vous envoie son fichier (par courriel ou clé USB). Appuyez sur « Importer un fichier » pour chacun.')}
+        help={t3('كل جماعة ترسل لك ملفها (بالبريد أو على مفتاح USB). اضغط «أدخل ملفاً» لكل ملف. جماعة على هذا الخادم يمكنها أن ترسله مباشرة: يصل هنا وحده.', 'Each community sends you its file (by email or USB key). Press “Bring in a file” for each one. A community on this server can also send it directly: it arrives here by itself.', 'Chaque communauté vous envoie son fichier (par courriel ou clé USB). Appuyez sur « Importer un fichier » pour chacun. Une communauté sur ce serveur peut aussi l’envoyer directement : il arrive ici tout seul.')}
         status={active.length === 0 ? t3('لا جماعة بعد', 'No community yet', 'Aucune communauté encore') : missing.length === 0 ? t3(`وصلت كل الملفات (${got.length})`, `All files received (${got.length})`, `Tous les fichiers sont reçus (${got.length})`) : t3(`وصل ${got.length} من ${active.length} · ينقص: ${missing.map((c) => c.name).join('، ')}`, `${got.length} of ${active.length} received · missing: ${missing.map((c) => c.name).join(', ')}`, `${got.length} sur ${active.length} reçus · manque : ${missing.map((c) => c.name).join(', ')}`)}
         button={t3('أدخل ملفاً…', 'Bring in a file…', 'Importer un fichier…')}
         onClick={async () => {
@@ -231,7 +231,7 @@ function Home({ s, d, reload, go }: P & { go: (p: Page) => void }) {
         button={t3('افتح', 'Open', 'Ouvrir')} onClick={() => go('charges')} />
       <Step n={4} ok={false}
         title={t3('إرسال الأجوبة إلى الجماعات', 'Send the answers back', 'Renvoyer les réponses aux communautés')}
-        help={t3('لكل جماعة ملف رجوع: قراراتك وحسابها عند الإيكونوماتو. أعطه لها.', 'Each community gets a return file: your decisions and its account at the économat. Give it back.', 'Chaque communauté reçoit un fichier de retour : vos décisions et son compte à l’économat. Remettez-le.')}
+        help={t3('لكل جماعة ملف رجوع: قراراتك وحسابها عند الإيكونوماتو. أعطه لها. جماعة على هذا الخادم تستطيع أن تأخذ أجوبتك بنفسها.', 'Each community gets a return file: your decisions and its account at the économat. Give it back. A community on this server can also take your answers itself.', 'Chaque communauté reçoit un fichier de retour : vos décisions et son compte à l’économat. Remettez-le. Une communauté sur ce serveur peut aussi prendre vos réponses elle-même.')}
         status={t3('بعد القرارات', 'After your decisions', 'Après vos décisions')}
         button={t3('ملفات الرجوع', 'Return files', 'Fichiers de retour')} onClick={() => go('ctys')} />
       {(() => {

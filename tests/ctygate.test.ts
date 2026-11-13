@@ -116,4 +116,44 @@ describe("server: the communities' password", () => {
     expect(((await call('/api/cty/hats', undefined, old.cookie)).body as { person: unknown }).person).toBeNull();
     expect((await call('/api/cty/hat', { profileId: hats.person.id }, old.cookie)).status).toBe(403);
   });
+
+  it('on the same server, the month goes straight to the country econome and his answers come back (the file stays)', async () => {
+    const pass = (await call('/api/cty/unlock', { password: 'side-pass-2' })).cookie!;
+    const marc = await call('/api/signin', { centre: 'jesuits', name: 'Marc', password: 'marc-own-pass-1' });
+    expect(marc.status).toBe(200);
+    // no country econome yet on this server: the file only
+    expect((await call('/api/cty/country', undefined, marc.cookie)).body).toEqual({ country: null });
+    const eco = ((await call('/api/cty/hats', undefined, marc.cookie)).body as { hats: { profileId: number; office: string }[] }).hats.find((h) => h.office === 'econome')!.profileId;
+    expect((await call('/api/cty/hat', { profileId: eco }, marc.cookie)).status).toBe(200);
+    expect((await call('/api/cty/send', { yms: ['2026-10'] }, marc.cookie)).status).toBe(400);
+
+    // the country econome of Syria, on the same server
+    const made = await call('/api/dbs/create', { organisation: 'Syria', centre: 'other', kind: 'country' }, pass);
+    expect((await call('/api/setup/country', { db: made.body.slug, country: 'Syria', localCurrency: 'SYP', people: [{ name: 'Elias', password: 'elias-first-1' }] }, pass)).status).toBe(200);
+    expect((await call('/api/cty/country', undefined, marc.cookie)).body).toEqual({ country: 'Syria' });
+
+    // close the community's month, then send it straight
+    expect((await call('/api/op/cty.community.close', { ym: '2026-10' }, marc.cookie)).status).toBe(200);
+    const sent = await call('/api/cty/send', { yms: ['2026-10'] }, marc.cookie);
+    expect(sent.status).toBe(200);
+    expect(sent.body).toMatchObject({ country: 'Syria', results: [{ community: 'Demo community', ym: '2026-10', status: 'new' }] });
+    // twice: nothing changes
+    expect((await call('/api/cty/send', { yms: ['2026-10'] }, marc.cookie)).body.results[0].status).toBe('same');
+
+    // the country econome sees it, as if the file had come
+    const elias = await call('/api/signin', { centre: 'jesuits', name: 'Elias', password: 'elias-first-1' });
+    expect((await call('/api/op/profile.setPin', { id: elias.body.profile.id, pin: 'elias-own-pass-1' }, elias.cookie)).status).toBe(200);
+    const data = (await call('/api/op/country.data', {}, elias.cookie)).body as { ctys: { name: string }[]; months: { ym: string }[] };
+    expect(data.ctys.map((x) => x.name)).toEqual(['Demo community']);
+    expect(data.months.map((x) => x.ym)).toEqual(['2026-10']);
+
+    // the answers come back to the community
+    const ans = await call('/api/cty/answers', {}, marc.cookie);
+    expect(ans.status).toBe(200);
+    expect(ans.body.country).toBe('Syria');
+    // a Jesuit without the econome's hat may not
+    expect((await call('/api/cty/hat', { profileId: (await call('/api/cty/hats', undefined, marc.cookie)).body.person.id }, marc.cookie)).status).toBe(200);
+    expect((await call('/api/cty/send', { yms: ['2026-10'] }, marc.cookie)).status).toBe(400);
+    expect((await call('/api/cty/answers', {}, marc.cookie)).status).toBe(403);
+  });
 });

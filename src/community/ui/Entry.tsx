@@ -13,6 +13,7 @@ import type { ClaimReason } from '../chart';
 import { useCty, bookName, partLabel } from './CtyApp';
 import { accName, curCode, curLong, curName, money, moneyCur, t3, triName } from './text';
 import { BOOK_ICON, iconOf, tintOf } from './icons';
+import { Receipts, uploadReceipts, type PendingReceipt } from './Receipts';
 
 export interface EntryStart {
   kind: EntryType;
@@ -187,7 +188,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
     }
     setBusy(true);
     try {
-      await s.api.call('cty.entry.save', {
+      const savedId = await s.api.call('cty.entry.save', {
         entry: {
           id: edit?.id, book_id: book.id, date, type: kind, cur, amount: n,
           account_id: isLine ? accountId : null,
@@ -198,6 +199,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
         reason,
       });
       keepCur(s.profile.id, cur);
+      if (receipts.length) await uploadReceipts(s.api.call, savedId as string, receipts);
       await reload();
       toast(asksSuperior ? t3('حُفظ. سيُطلب رأي الرئيس.', 'Saved. The Superior will be asked.', 'Enregistré. Le Supérieur sera consulté.') : t3('حُفظ ✓', 'Saved ✓', 'Enregistré ✓'));
       onClose();
@@ -231,6 +233,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
     setStage('save');
   };
 
+  const [receipts, setReceipts] = useState<PendingReceipt[]>([]);
   const kinds: { k: EntryType; label: string }[] = [
     { k: 'Exp', label: t3('صرفتُ', 'I spent', "J'ai dépensé") },
     { k: 'Income', label: t3('قبضتُ', 'I received', "J'ai reçu") },
@@ -279,7 +282,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
                 </div>
               </>
             )}
-            <AmountInput refEl={amountRef} label={kind === 'Exchange' ? t3('أعطيتُ', 'I gave', "J'ai donné") : t3('المبلغ', 'Amount', 'Montant')} value={amount} onChange={setAmount} cur={cur} onCur={setCur} local={d.local} onEnter={() => isLine && n > 0 && !editLike && setStage('heading')} />
+            <AmountInput refEl={amountRef} label={kind === 'Exchange' ? t3('أعطيتُ', 'I gave', "J'ai donné") : t3('المبلغ', 'Amount', 'Montant')} value={amount} onChange={setAmount} cur={cur} onCur={setCur} local={d.local} onEnter={() => isLine && n > 0 && !editLike && setStage(accountId ? 'save' : 'heading')} />
             {kind === 'Exchange' && (
               <AmountInput label={t3('استلمتُ', 'I received', "J'ai reçu")} value={amount2} onChange={setAmount2} cur={cur2} onCur={setCur2} local={d.local} />
             )}
@@ -311,7 +314,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
               </>
             )}
             {!editLike && isLine && (
-              <button className="btn primary cty-wide" disabled={!(n > 0)} onClick={() => setStage('heading')}>{t3('التالي', 'Next', 'Suivant')} ›</button>
+              <button className="btn primary cty-wide" disabled={!(n > 0)} onClick={() => setStage(accountId ? 'save' : 'heading')}>{t3('التالي', 'Next', 'Suivant')} ›</button>
             )}
           </>
         )}
@@ -381,6 +384,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
                 {busy ? '…' : t3('احفظ', 'Save', 'Enregistrer')}
               </button>
             )}
+            {kind !== 'Transfer' && <Receipts entryId={edit?.id ?? null} pending={receipts} setPending={setReceipts} readOnly={!!readOnly} />}
             <details className="cty-more" open={editLike}>
               <summary>{t3('التاريخ، ملاحظة، مطالبة…', 'Date, note, claim…', 'Date, note, réclamation…')}</summary>
               <label className="field"><span>{t3('التاريخ', 'Date', 'Date')}</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
@@ -409,10 +413,11 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
 
   function Summary() {
     return (
+      // each part changes on its own (Fouad, 13 November 2026: changing the category sent him back to the amount)
       <div className="cty-summary">
-        <b>{moneyCur(n, cur, d.local)}</b>
-        {acc && <span> · {accName(acc)}</span>}
-        <button className="cty-link" onClick={() => setStage('amount')}>{t3('تغيير', 'change', 'changer')}</button>
+        <button type="button" className="cty-sum-part" onClick={() => setStage('amount')} title={t3('تغيير المبلغ', 'Change the amount', 'Changer le montant')}><b>{moneyCur(n, cur, d.local)}</b> ✎</button>
+        {acc && <button type="button" className="cty-sum-part" onClick={() => { setHeading(null); setStage('heading'); }} title={t3('تغيير البند', 'Change the category', 'Changer la catégorie')}>{iconOf(acc.code)} {accName(acc)} ✎</button>}
+        {!acc && stage === 'save' && isLine && <button type="button" className="cty-link" onClick={() => setStage('heading')}>{t3('اختر البند', 'Choose the category', 'Choisir la catégorie')}</button>}
       </div>
     );
   }

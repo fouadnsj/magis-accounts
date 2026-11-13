@@ -156,4 +156,28 @@ describe("server: the communities' password", () => {
     expect((await call('/api/cty/send', { yms: ['2026-10'] }, marc.cookie)).status).toBe(400);
     expect((await call('/api/cty/answers', {}, marc.cookie)).status).toBe(403);
   });
+
+  it('a receipt on a community entry (13 November 2026): added, seen, removed with the history; not by another brother', async () => {
+    const marc = await call('/api/signin', { centre: 'jesuits', name: 'Marc', password: 'marc-own-pass-1' });
+    const d = (await call('/api/op/cty.data', {}, marc.cookie)).body as { kept: number[]; accounts: { id: number; type: string; scope: string | null; parent_id: number | null }[]; books: { id: number; cty_kind: string }[] };
+    const pocket = d.books.find((b) => b.cty_kind === 'personal' && d.kept.includes(b.id))!.id;
+    const leaf = d.accounts.find((a) => a.type === 'Exp' && a.scope === 'P' && !d.accounts.some((x) => x.parent_id === a.id))!.id;
+    const saved = await call('/api/op/cty.entry.save', { entry: { book_id: pocket, date: '2027-01-05', type: 'Exp', cur: 'LOC', amount: 500, account_id: leaf, note: 'bus' } }, marc.cookie);
+    expect([saved.status, saved.body?.error?.en]).toEqual([200, undefined]);
+    const entryId = saved.body as string;
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    expect((await call('/api/op/cty.doc.add', { entryId, base64: PNG, mime: 'text/plain' }, marc.cookie)).status).toBe(400);
+    const added = await call('/api/op/cty.doc.add', { entryId, base64: PNG, mime: 'image/png' }, marc.cookie);
+    expect(added.status).toBe(200);
+    const list = (await call('/api/op/cty.doc.list', { entryId }, marc.cookie)).body as { id: string; mime: string }[];
+    expect(list).toHaveLength(1);
+    expect((await call('/api/op/cty.doc.get', { id: list[0].id }, marc.cookie)).body).toMatchObject({ mime: 'image/png', base64: PNG });
+    // Paul, as himself, does not see Marc's pocket
+    const paul = await call('/api/signin', { centre: 'jesuits', name: 'Paul', password: 'test-pass-1' });
+    expect(paul.status).toBe(200);
+    expect((await call('/api/op/cty.doc.list', { entryId }, paul.cookie)).status).toBeGreaterThanOrEqual(400);
+    // removed: gone from the list
+    expect((await call('/api/op/cty.doc.delete', { id: list[0].id }, marc.cookie)).status).toBe(200);
+    expect((await call('/api/op/cty.doc.list', { entryId }, marc.cookie)).body).toEqual([]);
+  });
 });

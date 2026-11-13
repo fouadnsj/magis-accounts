@@ -160,7 +160,7 @@ const fail = (msgs: Msg[]) => new UserError(msgs.length === 1 ? msgs[0] : m(msgs
 
 // ---------------------------------------------------------------- saving
 
-async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | null }): Promise<string> {
+async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | null; newId?: string | null }): Promise<string> {
   await requireCommunity(c.db);
   const e = a.entry;
   const [accounts, books] = [await loadAccounts(c.db), await loadBooks(c.db)];
@@ -177,7 +177,8 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
   }
   const at = nowIso();
   const row: CtyEntry = {
-    id: old?.id ?? uuid(),
+    // a phone gives its own number to a new entry, so that the same entry sent twice is written once
+    id: old?.id ?? (a.newId && /^[A-Za-z0-9-]{8,64}$/.test(a.newId) ? a.newId : uuid()),
     n: old?.n ?? null,
     book_id: e.book_id,
     date: e.date,
@@ -221,6 +222,46 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
   }
   await c.db.batch([...writeEntryStmts(row, !old), auditStmt(c.who, old ? 'edit' : 'add', 'cty_entry', row.id, old ?? null, old ? { ...row, reason } : row)]);
   return row.id;
+}
+
+// ---------------------------------------------------------------- receipts (Fouad, 13 November 2026: as in the centres)
+
+const DOC_MAX = 15 * 1024 * 1024;
+const DOC_EXT: Record<string, string> = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const fromB64 = (b64: string) => Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+const toB64 = (bytes: Uint8Array) => { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
+export interface CtyDoc { id: string; entry_id: string; name: string; mime: string; size: number; created_at: string; created_by: string | null }
+
+/** The entry a receipt belongs to, if this person may see it (write: may also add or remove one). */
+async function docEntry(c: OpCtx, entryId: string, write: boolean): Promise<CtyEntry> {
+  await requireCommunity(c.db);
+  const e = await one<CtyEntry>(c.db, 'SELECT * FROM cty_entry WHERE id = ?', [entryId]);
+  if (!e) throw new UserError(m('القيد غير موجود', 'Entry not found', 'Écriture introuvable'));
+  if (!reads(c, e.book_id) && !(e.to_book_id != null && reads(c, e.to_book_id))) throw refuse();
+  if (write) {
+    if (!writes(c, e.book_id)) throw refuse();
+    if (await closedFor(c.db, booksOf(e), e.date.slice(0, 7))) throw monthClosed(e.date.slice(0, 7));
+  }
+  return e;
+}
+async function addDoc(c: OpCtx, a: { entryId: string; base64: string; mime: string }) {
+  const e = await docEntry(c, a.entryId, true);
+  const ext = DOC_EXT[a.mime];
+  if (!ext) throw new UserError(m('صورة أو PDF فقط', 'A picture or a PDF only', 'Une image ou un PDF seulement'));
+  const bytes = fromB64(String(a.base64 ?? ''));
+  if (!bytes.length) throw new UserError(m('الملف فارغ', 'The file is empty', 'Le fichier est vide'));
+  if (bytes.length > DOC_MAX) throw new UserError(m('الملف أكبر من 15 م.ب', 'The file is larger than 15 MB', 'Le fichier dépasse 15 Mo'));
+  const base = `${e.date.slice(0, 7)}-${e.n ?? e.id.slice(0, 8)}`.replace(/[^\w.-]/g, '_');
+  let rel = `${e.date.slice(0, 4)}/${base}.${ext}`;
+  for (let i = 2; await c.files.docExists(rel); i++) rel = `${e.date.slice(0, 4)}/${base}-${i}.${ext}`;
+  await c.files.docWrite(rel, bytes);
+  const id = uuid();
+  const name = rel.split('/').pop()!;
+  await c.db.batch([
+    { sql: 'INSERT INTO attachment (id, trx_id, file, name, mime, size, created_at, created_by) VALUES (?,?,?,?,?,?,?,?)', params: [id, e.id, rel, name, a.mime, bytes.length, nowIso(), c.who] },
+    auditStmt(c.who, 'attach', 'cty_entry', e.id, null, { name, size: bytes.length }),
+  ]);
+  return { id, name };
 }
 
 async function deleteEntry(c: OpCtx, a: { id: string; reason: string }) {
@@ -837,7 +878,34 @@ const anyone = (_c: OpCtx) => undefined;
 
 export const CTY_OPS = {
   'cty.data': { check: anyone, run: (c: OpCtx) => data(c) },
-  'cty.entry.save': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { entry: EntryInput; reason?: string | null }) => saveEntry(c, a) },
+  'cty.entry.save': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { entry: EntryInput; reason?: string | null; newId?: string | null }) => saveEntry(c, a) },
+  'cty.doc.list': {
+    check: () => undefined,
+    run: async (c: OpCtx, a: { entryId: string }): Promise<CtyDoc[]> => {
+      await docEntry(c, a.entryId, false);
+      return c.db.query<CtyDoc>('SELECT id, trx_id AS entry_id, name, mime, size, created_at, created_by FROM attachment WHERE trx_id = ? AND deleted_at IS NULL ORDER BY created_at', [a.entryId]);
+    },
+  },
+  'cty.doc.add': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { entryId: string; base64: string; mime: string }) => addDoc(c, a) },
+  'cty.doc.get': {
+    check: () => undefined,
+    run: async (c: OpCtx, a: { id: string }) => {
+      const d = await one<{ trx_id: string; file: string; name: string; mime: string }>(c.db, 'SELECT trx_id, file, name, mime FROM attachment WHERE id = ? AND deleted_at IS NULL', [a.id]);
+      if (!d) throw new UserError(m('الملف غير موجود', 'Document not found', 'Document introuvable'));
+      await docEntry(c, d.trx_id, false);
+      return { name: d.name, mime: d.mime, base64: toB64(await c.files.docRead(d.file)) };
+    },
+  },
+  'cty.doc.delete': {
+    check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'),
+    run: async (c: OpCtx, a: { id: string }) => {
+      const d = await one<{ trx_id: string; name: string }>(c.db, 'SELECT trx_id, name FROM attachment WHERE id = ? AND deleted_at IS NULL', [a.id]);
+      if (!d) throw new UserError(m('الملف غير موجود', 'Document not found', 'Document introuvable'));
+      await docEntry(c, d.trx_id, true);
+      // the file stays on the disk: only marked as removed, and the history says by whom
+      await c.db.batch([{ sql: 'UPDATE attachment SET deleted_at = ?, deleted_by = ? WHERE id = ?', params: [nowIso(), c.who, a.id] }, auditStmt(c.who, 'detach', 'cty_entry', d.trx_id, { name: d.name }, null)]);
+    },
+  },
   'cty.entry.delete': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { id: string; reason: string }) => deleteEntry(c, a) },
   'cty.transfer.answer': { check: (c: OpCtx) => need(c, 'book.own', 'cty.write_all'), run: (c: OpCtx, a: { id: string; ok: boolean; note?: string | null }) => answerTransfer(c, a) },
   'cty.month.problems': {
@@ -879,5 +947,5 @@ export const CTY_OPS = {
   },
 };
 
-export const CTY_READ_ONLY = ['cty.data', 'cty.count.history', 'cty.month.problems', 'cty.approvals', 'cty.month.consolidated'];
+export const CTY_READ_ONLY = ['cty.doc.list', 'cty.doc.get', 'cty.data', 'cty.count.history', 'cty.month.problems', 'cty.approvals', 'cty.month.consolidated'];
 export type { Cur };

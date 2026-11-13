@@ -225,7 +225,9 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
 
   const bal = balance(pack, rows, bookId);
   const mine = rows.filter((r) => r.book_id === bookId || pack.books.length <= 1);
-  const count = (s: Entry['state']) => rows.filter((r) => r.state === s).length;
+  // the numbers count the book on screen; each book's button carries its own (Fouad, 2026-11-13: "2 waiting, I can't see them")
+  const count = (s: Entry['state']) => mine.filter((r) => r.state === s).length;
+  const unsent = (id: number) => rows.filter((r) => r.book_id === id && r.state !== 'sent').length;
   const shown = mine.filter((r) => r.state === tab).sort((a, b) => (tab === 'sent' ? (b.sent_at ?? '').localeCompare(a.sent_at ?? '') : b.made_at.localeCompare(a.made_at))).slice(0, 100);
   const lineName = (r: Entry) => pack.lines.find((x) => x.id === r.line_id)?.name ?? pack.headings.find((h) => h.id === r.heading_id)?.name ?? '';
   const daysLeft = Math.floor((Date.parse(pack.validUntil) - Date.now()) / 86_400_000);
@@ -259,7 +261,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
       )}
       {net.state !== 'out' && daysLeft <= 7 && <div className="ph-alert">{daysLeft < 0 ? t('مرّ أكثر من 30 يوماً: اتصل بشبكة المركز.', "More than 30 days: connect to the centre's network.", 'Plus de 30 jours : connectez-vous au réseau du centre.') : t(`بقي ${daysLeft} يوماً قبل وجوب الاتصال بالمركز.`, `${daysLeft} days left before the phone must reach the centre.`, `Il reste ${daysLeft} jours avant que le téléphone doive joindre le centre.`)}</div>}
 
-      {pack.books.length > 1 && <div className="ph-chips">{pack.books.map((b) => <button key={b.id} className={b.id === bookId ? 'on' : ''} onClick={() => setBookId(b.id)}>{b.name}</button>)}</div>}
+      {pack.books.length > 1 && <div className="ph-chips">{pack.books.map((b) => <button key={b.id} className={b.id === bookId ? 'on' : ''} onClick={() => setBookId(b.id)}>{b.name}{unsent(b.id) ? <i>{unsent(b.id)}</i> : null}</button>)}</div>}
       {!pack.books.length ? <div className="ph-alert">{t('لا دفتر لك للكتابة فيه.', 'You have no book to write in.', "Vous n'avez pas de livre où écrire.")}</div> : (
         <section className="ph-balance">
           <small>{pack.books.find((b) => b.id === bookId)?.name}</small>
@@ -293,6 +295,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
           </li>
         ))}
       </ul>
+      {tab !== 'sent' && shown.length > 0 && <p className="ph-muted ph-hint">{t('اضغط على سطر لتغييره أو حذفه.', 'Tap a row to change or delete it.', 'Touchez une ligne pour la modifier ou la supprimer.')}</p>}
     </div>
   );
 }

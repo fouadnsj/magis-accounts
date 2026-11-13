@@ -1,7 +1,7 @@
-// The accounts of the community: the four OFFICES (who holds each one now, and its password)
-// and the JESUITS (each his own account). The administrator manages them; the econome may
-// reset a password. When an office is handed over: choose the new holder and give a new
-// password; the office keeps its books and its whole history.
+// The accounts of the community: the four OFFICES (who holds each one now) and the JESUITS (each his own account and
+// password). The administrator manages them; the econome may reset a password. Since 13 November 2026 a Jesuit signs in
+// with his own name and password and puts on the offices he holds inside ("hats"): an office is handed over by choosing
+// the new holder, with no password to pass on; it keeps its books and its whole history.
 import { useCallback, useEffect, useState } from 'react';
 import { errText, promptBox, toast } from '../../ui/kit';
 import type { Office, OfficeRow, PeoplePayload, PersonRow } from '../people';
@@ -35,8 +35,7 @@ export function PeopleScreen() {
   };
   const handover = async (o: OfficeRow) => {
     const heldBy = held[o.office] ?? o.heldBy;
-    const pw = await promptBox(t3('كلمة سر جديدة للمنصب (اتركها فارغة إن لم تتغيّر)', 'New password for the office (leave empty to keep it)', 'Nouveau mot de passe de la fonction (vide = inchangé)'));
-    try { await s.api.call('cty.office.save', { office: o.office, heldBy, password: pw || null }); setHeld({ ...held, [o.office]: heldBy }); await done(); } catch (e) { toast(errText(e), true); }
+    try { await s.api.call('cty.office.save', { office: o.office, heldBy, password: null }); setHeld({ ...held, [o.office]: heldBy }); await done(); } catch (e) { toast(errText(e), true); }
   };
   const savePerson = async (p: PersonRow, patch: Partial<PersonRow>) => {
     try { await s.api.call('cty.person.save', { id: p.id, name: patch.name ?? p.name, active: patch.active ?? p.active, hasBank: patch.hasBank ?? p.hasBank }); await done(); } catch (e) { toast(errText(e), true); }
@@ -58,7 +57,7 @@ export function PeopleScreen() {
 
       <Card>
         <div className="cty-label">{t3('المناصب', 'The offices', 'Les fonctions')}</div>
-        <p className="muted small">{t3('لكل منصب كلمة سر خاصة به، ويحتفظ بدفاتره وتاريخه عند تسليمه لغيرك.', 'Each office has its own password, and keeps its books and history when it is handed over.', 'Chaque fonction a son mot de passe, et garde ses comptes et son historique quand elle est transmise.')}</p>
+        <p className="muted small">{t3('من يتولّى منصباً يدخل باسمه وكلمة سره، ثم يختار المنصب في الأعلى. المنصب يحتفظ بدفاتره وتاريخه عند تسليمه لغيره.', 'Whoever holds an office signs in with his own name and password, then chooses the office at the top. The office keeps its books and history when it is handed over.', "Celui qui tient une fonction entre avec son nom et son mot de passe, puis choisit la fonction en haut. La fonction garde ses comptes et son historique quand elle est transmise.")}</p>
         {data.offices.map((o) => (
           <div key={o.office} className="cty-office">
             <div><b>{officeLabel(o.office)}</b><div className="muted small">{officeHelp(o.office)}</div></div>
@@ -71,7 +70,8 @@ export function PeopleScreen() {
                   <button className="btn" onClick={() => handover(o)}>{t3('تسليم', 'Hand over', 'Transmettre')}</button>
                 </>
               ) : <span>{o.heldBy}</span>}
-              {passwords && (o.office !== 'admin' || manage) && <button className="btn ghost" onClick={() => reset(o.profileId, officeLabel(o.office))} title={t3('كلمة سر جديدة', 'New password', 'Nouveau mot de passe')}>🔑</button>}
+              {/* an office held by someone who is not in the list keeps its own password */}
+              {passwords && (o.office !== 'admin' || manage) && !holders.some((p) => p.name.trim().toLowerCase() === o.heldBy.trim().toLowerCase()) && <button className="btn ghost" onClick={() => reset(o.profileId, officeLabel(o.office))} title={t3('كلمة سر جديدة', 'New password', 'Nouveau mot de passe')}>🔑</button>}
             </div>
           </div>
         ))}

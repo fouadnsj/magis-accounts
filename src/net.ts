@@ -193,6 +193,10 @@ export const httpApi: Api = {
 };
 
 export const serverStatus = <T,>() => get<T>('/api/server/status');
+/** a community (Fouad, 13 November 2026): the person signed in and the offices he holds ("hats"), and putting one on */
+export interface CtyHats { person: { id: number; name: string } | null; current: number; hats: { profileId: number; office: string; name: string }[] }
+export const ctyHats = () => get<CtyHats>('/api/cty/hats');
+export const ctyHat = (profileId: number) => post<{ profile: Profile }>('/api/cty/hat', { profileId });
 /** where the phones start (Admin → Users → Phones) */
 export const phoneWhere = () => get<{ start: string[]; app: string[]; fingerprint: string | null }>('/api/phone/where');
 export const serverConfig = (c: Record<string, unknown>) => post('/api/server/config', c);

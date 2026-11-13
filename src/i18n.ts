@@ -52,13 +52,35 @@ try {
 export function getLang(): LangMode {
   return mode;
 }
+/** The communities have their own language, one at a time (Fouad, 13 November 2026: "simple"); the centres keep theirs. */
+let scope: 'main' | 'cty' = 'main';
+const saved = (key: string): LangMode | null => {
+  try {
+    const v = localStorage.getItem(key);
+    return (LANG_MODES as readonly string[]).includes(v ?? '') ? (v as LangMode) : null;
+  } catch {
+    return null;
+  }
+};
 export function setLang(l: LangMode) {
   mode = l;
   try {
-    localStorage.setItem('lang', l);
+    localStorage.setItem(scope === 'cty' ? 'cty-lang' : 'lang', l);
   } catch {
     /* ignore */
   }
+}
+/** Entering a community or a country: its language if one was chosen on this device (true), else nothing yet (false). */
+export function enterCtyLang(): boolean {
+  scope = 'cty';
+  const l = saved('cty-lang');
+  if (l && l !== 'both') { mode = l; return true; }
+  return false;
+}
+/** Leaving it: the centres' language again. */
+export function leaveCtyLang() {
+  scope = 'main';
+  mode = saved('lang') ?? 'both';
 }
 
 /** Text of a message in the current mode. */

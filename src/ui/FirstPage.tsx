@@ -67,7 +67,21 @@ function HouseHero({ house }: { house: CentreKey }) {
   );
 }
 
-export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunities }: {
+/** The Jesuits' door (Fouad, 13 November 2026): the sun, and the communities' own words. */
+function JesuitHero() {
+  return (
+    <div className="mg-househero">
+      <div className="mg-hh-mark"><span className="mg-hh-halo" /><img src="/brand/jesuits.png" alt="" /></div>
+      <div className="mg-eyebrow">{t3('الرهبنة اليسوعية · إقليم الشرق الأدنى', 'Society of Jesus · Province of the Near East', 'Compagnie de Jésus · Province du Proche-Orient')}</div>
+      <div className="mg-hh-hope">{t3('حسابات الجماعات', "The communities' accounts", 'Les comptes des communautés')}</div>
+    </div>
+  );
+}
+type Step = CentreKey | 'admin' | 'jesuits';
+/** the Jesuits' door has its own address: …/jesuits */
+const atJesuits = () => { try { return location.pathname.replace(/\/+$/, '') === '/jesuits'; } catch { return false; } };
+
+export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunities, jesuits }: {
   hello: Hello;
   /** signed out after a while without activity */
   notice?: boolean;
@@ -78,9 +92,18 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   onDir: () => Promise<void>;
   /** the communities' side, as before (its own password, then its people) */
   onCommunities?: () => void;
+  /** open on the Jesuits' door (after a Jesuit signs out) */
+  jesuits?: boolean;
 }) {
   const last = remembered();
-  const [step, setStep] = useState<CentreKey | 'admin' | null>(notice && last.house ? last.house : null);
+  const [step, setStep] = useState<Step | null>(jesuits || atJesuits() ? 'jesuits' : notice && last.house ? last.house : null);
+  // the address follows the door: …/jesuits for the Jesuits, / for the houses
+  useEffect(() => {
+    try {
+      const want = step === 'jesuits' ? '/jesuits' : '/';
+      if (location.pathname !== want) history.replaceState(null, '', want);
+    } catch { /* not in a browser window */ }
+  }, [step]);
   const [places, setPlaces] = useState<DbInfo[] | null>(null);
   const [name, setName] = useState(last.name ?? '');
   const [pw, setPw] = useState('');
@@ -96,7 +119,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
     setErr(null);
     try {
       const r = await serverSignIn(step, name, pw);
-      if (step !== 'admin') remember(step, name.trim());
+      if (step !== 'admin') remember(step as CentreKey, name.trim());
       if (r.dir) return await onDir();
       const h = await refresh();
       const dbs = (r.places ?? []).map((s) => h?.dbs.find((d) => d.slug === s)).filter((d): d is DbInfo => !!d);
@@ -120,9 +143,10 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   };
 
   // several databases for this name: where to go first (the others stay one click away, in the menu "Databases")
+  const house = step && step !== 'admin' && step !== 'jesuits' ? step : null;
   if (places)
     return (
-      <BrandFrame brand={step && step !== 'admin' ? { centre: step } : null} aside={step && step !== 'admin' ? <HouseHero house={step} /> : undefined}>
+      <BrandFrame brand={house ? { centre: house } : null} aside={house ? <HouseHero house={house} /> : step === 'jesuits' ? <JesuitHero /> : undefined}>
         <div className="panel login-panel">
           <h2 style={{ marginBottom: 2 }}>{t3(`أهلاً ${name.trim()}`, `Welcome, ${name.trim()}`, `Bienvenue, ${name.trim()}`)}</h2>
           <p className="muted small" style={{ marginTop: 0 }}>{t3('إلى أين تريد أن تذهب؟ تنتقل من واحدة إلى أخرى دون كلمة سر جديدة.', 'Where do you want to go? You can move from one to the other without signing in again.', "Où voulez-vous aller ? Vous passerez de l'une à l'autre sans vous reconnecter.")}</p>
@@ -134,13 +158,15 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
 
   if (step) {
     const admin = step === 'admin';
+    const jes = step === 'jesuits';
     const noAdmin = admin && !hello.dir?.on;
     return (
-      <BrandFrame brand={admin ? null : { centre: step }} aside={admin ? undefined : <HouseHero house={step} />}>
+      <BrandFrame brand={house ? { centre: house } : null} aside={house ? <HouseHero house={house} /> : jes ? <JesuitHero /> : undefined}>
         <div className="panel login-panel">
-          <h2 style={{ marginBottom: 2 }}>{admin ? t3('المدير', 'Administrator', 'Administrateur') : `MAGIS ${tx(CENTRES[step].name)}`}</h2>
+          <h2 style={{ marginBottom: 2 }}>{admin ? t3('المدير', 'Administrator', 'Administrateur') : jes ? t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites') : `MAGIS ${tx(CENTRES[house!].name)}`}</h2>
           <p className="muted small" style={{ marginTop: 0 }}>{admin
             ? t3('المدير يرى كل قواعد البيانات، ويستطيع أن يدخل باسم أي مستخدم ليرى ما يراه.', 'The administrator sees every database, and can sign in as any user to see what they see.', "L'administrateur voit toutes les bases, et peut se connecter en tant que n'importe quel utilisateur pour voir ce qu'il voit.")
+            : jes ? t3('اسمك وكلمة سرك. تدخل إلى جماعتك؛ إن كنت قيّماً أو مدبّراً أو رئيساً تختار ذلك في الداخل، بلا كلمة سر أخرى.', 'Your name and your password. You go into your community; if you are also econome, minister or Superior, you choose it inside, with no other password.', "Votre nom et votre mot de passe. Vous entrez dans votre communauté ; si vous êtes aussi économe, ministre ou supérieur, vous le choisissez à l'intérieur, sans autre mot de passe.")
             : t3('اسمك وكلمة سرك. بعدها ترى ما هو لك فقط.', 'Your name and your password. Then you see only what is yours.', 'Votre nom et votre mot de passe. Ensuite vous ne voyez que ce qui est à vous.')}</p>
           {notice && <div className="alert info">{t3('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.', "Vous avez été déconnecté après un moment sans activité. Reconnectez-vous pour continuer.")}</div>}
           {noAdmin ? (
@@ -157,10 +183,15 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
               <Field label={t3('كلمة السر', 'Password', 'Mot de passe')}><input ref={pwRef} autoFocus={!!name} type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
               {err && <div className="alert err" style={{ marginTop: 10 }}>{err}</div>}
               <div className="modal-foot">
-                <button type="button" className="btn ghost" onClick={() => setStep(null)}>‹ {t3('رجوع', 'Back', 'Retour')}</button>
+                <button type="button" className="btn ghost" onClick={() => setStep(null)}>‹ {jes ? t3('مراكز ماجيس', 'MAGIS centres', 'Centres MAGIS') : t3('رجوع', 'Back', 'Retour')}</button>
                 <button className="btn primary" disabled={!name.trim() || !pw || busy}>{t3('دخول', 'Enter', 'Entrer')}</button>
               </div>
             </form>
+          )}
+          {jes && onCommunities && (
+            <p className="small" style={{ marginTop: 14, textAlign: 'center' }}>
+              <button type="button" className="btn ghost small" onClick={onCommunities}>{t3('قواعد بيانات الجماعات (إنشاء، إدارة)', "The communities' databases (make one, manage)", 'Les bases des communautés (en créer, gérer)')}</button>
+            </p>
           )}
         </div>
         {setup && <DirSetup onClose={() => setSetup(false)} onDone={async () => { setSetup(false); await onDir(); }} />}
@@ -192,7 +223,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
           ))}
         </div>
         <div className="mg-others">
-          {onCommunities && <button type="button" className="btn ghost" onClick={onCommunities}><img src="/brand/jesuits.png" alt="" /> {t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</button>}
+          {onCommunities && <button type="button" className="btn ghost" onClick={() => setStep('jesuits')}><img src="/brand/jesuits.png" alt="" /> {t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</button>}
           <button type="button" className="btn ghost" onClick={() => setStep('admin')}>🔑 {t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}</button>
         </div>
       </main>

@@ -19,6 +19,7 @@ import { Approvals } from './Approvals';
 import { SettingsScreen } from './Settings';
 import { Desk } from './desk/Desk';
 import { officeLabel } from './People';
+import { ctyHat, ctyHats, type CtyHats } from '../../net';
 import { PageGuard, ServerTooOld } from './Guard';
 import './cty.css';
 import './desk/desk.css';
@@ -152,6 +153,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
           <div className="cty-org">
             <b>{session.organisation}</b>
             <WhoIs profile={session.profile} />
+            {session.mode === 'server' && <Hats />}
           </div>
           <span className="cty-topbtns">
             <button className="cty-icon" onClick={() => setView('settings')} aria-label={t3('الإعدادات', 'Settings', 'Réglages')}>⚙︎</button>
@@ -244,6 +246,50 @@ export function bookRole(kind: string | null | undefined): string {
 }
 
 /** Who is working: his name and, under it, his role (Econome, Minister, Superior, Jesuit…). */
+/**
+ * The hats (Fouad, 13 November 2026): the person signed in once; the offices he holds in this community (Superior,
+ * Econome, Minister, Administrator) are one tap away, without another password. The last one used on this device is
+ * put on again by itself at the next sign-in.
+ */
+export function Hats({ light }: { light?: boolean }) {
+  const [h, setH] = useState<CtyHats | null>(null);
+  const [busy, setBusy] = useState(false);
+  const key = (x: CtyHats) => `cty-hat:${x.person!.id}`;
+  const wear = async (x: CtyHats, id: number, remember = true) => {
+    if (id === x.current) return;
+    setBusy(true);
+    try {
+      await ctyHat(id);
+      if (remember) try { localStorage.setItem(key(x), String(id)); } catch { /* private window */ }
+      location.reload();
+    } catch (e) { setBusy(false); alert(errText(e)); }
+  };
+  useEffect(() => {
+    void ctyHats().then((x) => {
+      setH(x);
+      if (!x.person || !x.hats.length) return;
+      // signed in just now as himself: the hat he wore last time on this device
+      let last: number | null = null;
+      try { last = Number(localStorage.getItem(key(x))) || null; } catch { /* */ }
+      let done = false;
+      try { done = sessionStorage.getItem('cty-hat-done') === '1'; sessionStorage.setItem('cty-hat-done', '1'); } catch { /* */ }
+      if (!done && x.current === x.person.id && last && last !== x.person.id && x.hats.some((y) => y.profileId === last)) void wear(x, last, false);
+    }).catch(() => setH(null));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!h?.person || !h.hats.length) return null;
+  const all = [{ profileId: h.person.id, label: h.person.name, office: '' }, ...h.hats.map((x) => ({ profileId: x.profileId, label: officeLabel(x.office), office: x.office }))];
+  return (
+    <div className={`cty-hats ${light ? 'light' : ''}`} role="tablist" aria-label={t3('صفتي', 'I am here as', 'Je suis ici comme')}>
+      {all.map((x) => (
+        <button key={x.profileId} type="button" role="tab" aria-selected={x.profileId === h.current} disabled={busy}
+          className={`${x.profileId === h.current ? 'on' : ''} ${x.office ? `office-${x.office}` : ''}`} onClick={() => void wear(h, x.profileId)}>
+          {x.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function WhoIs({ profile, light }: { profile: { name: string; access_name: string; office?: string | null; held_by?: string | null }; light?: boolean }) {
   // an office: its name big, "held by" under it; a Jesuit: his name and "Jesuit"
   return (

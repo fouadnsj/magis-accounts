@@ -32,6 +32,7 @@ import { dropDraft } from './draft';
 import { CtyApp } from '../community/ui/CtyApp';
 import { HrApp } from '../hr/ui/HrApp';
 import { CountryApp } from '../community/ui/country/CountryApp';
+import { CtyLang } from '../community/ui/CtyLang';
 import { triName, t3 } from '../community/ui/text';
 import { officeLabel } from '../community/ui/People';
 
@@ -57,6 +58,8 @@ export function App() {
   const [browseTop, setBrowseTop] = useState(false);
   /** server: from the first page to the communities' side (their own password, then their people) */
   const [ctySide, setCtySide] = useState(false);
+  /** a Jesuit signed out: back to the Jesuits' door, not to the houses (Fouad, 13 November 2026) */
+  const [jesuitDoor, setJesuitDoor] = useState(false);
   /** signed out for inactivity: said on the login page */
   const [idleOut, setIdleOut] = useState(false);
   const [opened, setOpened] = useState<Opened | null>(null);
@@ -170,6 +173,7 @@ export function App() {
     // (a refused password also answers 401: only a session that was open counts)
     const out = () => {
       if (sessionRef.current) setIdleOut(true);
+      if (sessionRef.current) setJesuitDoor(sessionRef.current.kind === 'community' || sessionRef.current.kind === 'country');
       setSession(null);
       if (onServer.current) { setServerDb(null); setCtySide(false); void refreshServer(); }
     };
@@ -199,7 +203,9 @@ export function App() {
   /** Signing out is complete (Fouad, 31 October 2026): out of the database and of the directory, back to the first page. */
   const logout = useCallback(() => {
     if (server) void (async () => { await serverLogout(); await dirLogout(); await refreshServer(); })();
+    setJesuitDoor(sessionRef.current?.kind === 'community' || sessionRef.current?.kind === 'country');
     dropDraft();
+    try { sessionStorage.removeItem('cty-hat-done'); } catch { /* private window */ }
     setIdleOut(false);
     setSession(null);
     setMustChange(false);
@@ -221,6 +227,7 @@ export function App() {
     }
     setBrowsing(false);
     setSettingUp(false);
+    setJesuitDoor(sessionRef.current?.kind === 'community' || sessionRef.current?.kind === 'country');
     setSession(null);
     setMustChange(false);
     setIdleOut(true);
@@ -262,6 +269,8 @@ export function App() {
         }}
         onDir={async () => { setIdleOut(false); await refreshServer(); }}
         onCommunities={server.ctyGate || server.dbs.some((d) => d.kind === 'community' || d.kind === 'country') ? () => setCtySide(true) : undefined}
+        jesuits={jesuitDoor}
+        key={jesuitDoor ? 'jesuits' : 'houses'}
       />
     );
   else if (server && ((!session && !serverDb) || (session && browsing)))
@@ -416,14 +425,14 @@ export function App() {
     body = (
       <>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <CountryApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} />
+        <CtyLang onLang={() => force((x) => x + 1)}><CountryApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} /></CtyLang>
       </>
     );
   else if (session?.kind === 'community')
     body = (
       <>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <CtyApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onCloseDb={server ? undefined : closeDb} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} />
+        <CtyLang onLang={() => force((x) => x + 1)}><CtyApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onCloseDb={server ? undefined : closeDb} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} /></CtyLang>
       </>
     );
   else
@@ -501,11 +510,13 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
   const holders = community ? [] : profiles.filter((p) => kindOf(p) === 'holder');
   const chosen = profiles.find((p) => p.id === pick);
   const roleLabel = (p: LoginPerson) => (p.access_name ? (community ? triName(p.access_name) : biName(p.access_name)) : roleName(p.role));
+  /** under a Jesuit's name: the offices he holds (his hats) */
+  const hatsLabel = (p: LoginPerson) => profiles.filter((q) => q.office && (q.held_by ?? '').trim().toLowerCase() === p.name.trim().toLowerCase()).map((q) => officeLabel(q.office!)).join(' · ');
   const ctyTile = (p: LoginPerson) => (
     <button key={p.id} type="button" className={`person ${p.office ? `office-${p.office}` : ''} ${pick === p.id ? 'on' : ''}`} onClick={() => choose(p.id)} aria-pressed={pick === p.id}>
       <PersonIcon kind="person" />
       <span className="person-name">{p.office ? officeLabel(p.office) : p.name}</span>
-      <span className="person-sub">{p.office ? `${t3('بيد', 'held by', 'tenu par')} ${p.held_by ?? ''}` : roleLabel(p)}</span>
+      <span className="person-sub">{p.office ? `${t3('بيد', 'held by', 'tenu par')} ${p.held_by ?? ''}` : hatsLabel(p) || roleLabel(p)}</span>
     </button>
   );
 
@@ -523,18 +534,24 @@ function Login({ title, subtitle, brand, loadProfiles, onLogin, onClose, onBack,
         <h2 style={{ marginBottom: 2 }}>{title || t('حسابات ماجيس', 'MAGIS Accounts')}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>{subtitle}</p>
         {notice && <div className="alert info">{t('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.')}</div>}
-        {community && (
-          <>
-            {profiles.some((p) => p.office) && (
-              <>
-                <div className="people-group">{t3('المناصب', 'Offices', 'Fonctions')}</div>
-                <div className="people">{profiles.filter((p) => p.office).map(ctyTile)}</div>
-              </>
-            )}
-            {profiles.some((p) => p.office) && <div className="people-group">{t3('الإخوة', 'Jesuits', 'Jésuites')}</div>}
-            <div className="people">{profiles.filter((p) => !p.office).map(ctyTile)}</div>
-          </>
-        )}
+        {community && (() => {
+          // each Jesuit signs in as himself; the offices he holds are hats inside (Fouad, 13 November 2026). An office
+          // held by nobody of this list (a name written differently, someone from outside) keeps its own sign-in.
+          const persons = profiles.filter((p) => !p.office);
+          const named = new Set(persons.map((p) => p.name.trim().toLowerCase()));
+          const alone = profiles.filter((p) => p.office && !named.has((p.held_by ?? '').trim().toLowerCase()));
+          return (
+            <>
+              <div className="people">{persons.map(ctyTile)}</div>
+              {alone.length > 0 && (
+                <>
+                  <div className="people-group">{t3('مناصب أخرى', 'Other offices', 'Autres fonctions')}</div>
+                  <div className="people">{alone.map(ctyTile)}</div>
+                </>
+              )}
+            </>
+          );
+        })()}
         {office.length > 0 && (
           <>
             <div className="people-group">{t('المكتب', 'Office')}</div>

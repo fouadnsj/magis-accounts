@@ -16,7 +16,6 @@ const LANGS: { l: LangMode; label: string }[] = [
   { l: 'en', label: 'English' },
   { l: 'fr', label: 'Français' },
   { l: 'ar', label: 'العربية' },
-  { l: 'both', label: 'عربي · English' },
 ];
 
 export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDesk }: { onLang: () => void; onLogout: () => void; onCloseDb?: () => void; onDatabases?: () => void; inDesk?: boolean }) {

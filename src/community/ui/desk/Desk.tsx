@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { accountBooks, balanceOf } from '../../domain';
 import { BOOK_ICON } from '../icons';
 import { curName, money } from '../text';
-import { useCty, bookHelp, bookLabel, bookRole, WhoIs } from '../CtyApp';
+import { useCty, bookHelp, bookLabel, bookRole, Hats, WhoIs } from '../CtyApp';
 import { PageGuard } from '../Guard';
 import { t3 } from '../text';
 import { MonthScreen } from '../Month';
@@ -70,7 +70,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   return (
     <div className="cty desk">
       <aside className="desk-side">
-        <div className="desk-org"><b>{s.organisation}</b><WhoIs profile={s.profile} light /></div>
+        <div className="desk-org"><b>{s.organisation}</b><WhoIs profile={s.profile} light />{s.mode === 'server' && <Hats light />}</div>
         {groups.filter((g) => g.items.some((x) => !x.hidden)).map((g) => (
           <div key={g.title} className="desk-group">
             <div className="desk-group-title">{g.title}</div>

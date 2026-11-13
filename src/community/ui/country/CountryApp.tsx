@@ -768,7 +768,7 @@ function Settings({ onLang, onLogout, s, d, reload }: { onLang: () => void; onLo
   const saveRates = async () => {
     try { await s.api.call('country.rates.save', { startRate: parseAmount(rate), eurUsd: eur.trim() ? parseAmount(eur) : null }); await reload(); toast(t3('حُفظ ✓', 'Saved ✓', 'Enregistré ✓')); } catch (e) { fail(e); }
   };
-  const LANGS: { l: LangMode; label: string }[] = [{ l: 'en', label: 'English' }, { l: 'fr', label: 'Français' }, { l: 'ar', label: 'العربية' }, { l: 'both', label: 'عربي · English' }];
+  const LANGS: { l: LangMode; label: string }[] = [{ l: 'en', label: 'English' }, { l: 'fr', label: 'Français' }, { l: 'ar', label: 'العربية' }];
   return (
     <div className="desk-narrow">
       <h1>{t3('الإعدادات', 'Settings', 'Réglages')}</h1>

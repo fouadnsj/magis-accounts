@@ -277,6 +277,22 @@ interface Session {
   /** signed in from the first page with a house, a name and a password (Fouad, 31 October 2026): every database of
    *  that house (and HR) where this name has this password; the person goes from one to another without signing in again */
   ring?: { db: string; profileId: number; mustChange: boolean }[];
+  /** in a community (Fouad, 13 November 2026): the PERSON who signed in. The offices he holds are "hats" he puts on
+   *  without another password; this stays the same while he changes hats. */
+  person?: number;
+}
+/** the person behind a community sign-in: a profile that is not an office */
+const personOf = (p: Profile) => (p.office ? undefined : p.id);
+/** the person signed in, and the offices of this community he holds (held_by is his name) */
+async function hatsOf(s: Session, c: { handle: { db: Db } }): Promise<{ person: { id: number; name: string } | null; current: number; hats: { profileId: number; office: string; name: string }[] }> {
+  const person = s.person != null && !s.as ? await loadProfile(c.handle.db, s.person) : null;
+  if (!person || person.office) return { person: null, current: s.profile.id, hats: [] };
+  const all = await listProfiles(c.handle.db);
+  const me = person.name.trim().toLowerCase();
+  const hats = all.filter((q) => q.office && (q.held_by ?? '').trim().toLowerCase() === me).map((q) => ({ profileId: q.id, office: String(q.office), name: q.name }));
+  const order = ['superior', 'econome', 'minister', 'admin'];
+  hats.sort((a, b) => order.indexOf(a.office) - order.indexOf(b.office));
+  return { person: { id: person.id, name: person.name }, current: s.profile.id, hats };
 }
 /** who did it, as written in the history */
 const whoOf = (s: Session) => (s.as ? `${s.as.by} as ${s.profile.name}` : s.profile.name);
@@ -2249,15 +2265,19 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
       if (body.centre === 'admin') throw wrong(); // "the administrator": the directory only
       if (directory.enforced && !isLocal(req)) throw wrong();
+      // the Jesuits' door (Fouad, 13 November 2026): every community and country database where this name has this
+      // password. A Jesuit signs in as himself (never as an office: the offices are hats he puts on inside).
+      const jesuits = body.centre === 'jesuits';
       const house = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? body.centre : null;
       const ring: NonNullable<Session['ring']> = [];
       let first: Profile | null = null;
       for (const c of centres.values()) {
         if ((config.inactive ?? []).includes(c.slug) || config.copies?.[c.slug] || (await setupNeeded(c))) continue;
         const d = await describe(c);
-        if (!(d.kind === 'hr' || (d.kind === 'centre' && d.centre === house))) continue;
+        if (jesuits ? !(d.kind === 'community' || d.kind === 'country') : !(d.kind === 'hr' || (d.kind === 'centre' && d.centre === house))) continue;
         for (const q of await listProfiles(c.handle.db)) {
           if (q.name.trim().toLowerCase() !== name) continue;
+          if (jesuits && d.kind === 'community' && q.office) continue;
           try {
             const r = await login(c.handle.db, q.id, password);
             // the house's own accounts first, HR after
@@ -2274,7 +2294,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (found) sessions.delete(found[0]);
       const sid = randomBytes(32).toString('base64url');
       const profile = (await loadProfile(centres.get(ring[0].db)!.handle.db, ring[0].profileId)) ?? first!;
-      sessions.set(sid, { db: ring[0].db, profile, mustChange: ring[0].mustChange, last: Date.now(), ip, ring });
+      sessions.set(sid, { db: ring[0].db, profile, mustChange: ring[0].mustChange, last: Date.now(), ip, ring, person: personOf(profile) });
       log(`sign-in ${ring.map((r) => r.db).join(', ')}: ${profile.name} from ${ip}`);
       return send(res, 200, { places: ring.map((r) => r.db), db: ring[0].db, profile, mustChange: ring[0].mustChange }, {
         'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}`,
@@ -2291,7 +2311,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!profile) throw new HttpError(403, { ar: 'هذا الحساب موقوف', en: 'This account is switched off', fr: 'Ce compte est désactivé' });
       sessions.delete(found[0]);
       const sid = randomBytes(32).toString('base64url');
-      sessions.set(sid, { db: c.slug, profile, mustChange: r.mustChange, last: Date.now(), ip, ring });
+      sessions.set(sid, { db: c.slug, profile, mustChange: r.mustChange, last: Date.now(), ip, ring, person: personOf(profile) });
       log(`sign-in ${c.slug}: ${profile.name} from ${ip}`);
       return send(res, 200, { profile, mustChange: r.mustChange }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
     }
@@ -2319,7 +2339,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const sid = randomBytes(32).toString('base64url');
         // An old 4-digit PIN, or a password given by the Superior, must be replaced first.
         const mustChange = weak || given;
-        sessions.set(sid, { db: c.slug, profile, mustChange, last: Date.now(), ip });
+        sessions.set(sid, { db: c.slug, profile, mustChange, last: Date.now(), ip, person: personOf(profile) });
         log(`login ${c.slug}: ${profile.name} (${profile.access_name}) from ${ip}`);
         return send(res, 200, { profile, mustChange, install: 'office' }, {
           'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}`,
@@ -2357,6 +2377,29 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       await c.handle.db.batch([auditStmt(real.name, 'sign-as', 'profile', String(target.id), null, { as: target.name, mode })]);
       log(`${c.slug}: ${real.name} signed in as ${target.name} (${mode === 'act' ? 'see and act' : 'see only'})`);
       return send(res, 200, { ok: true });
+    }
+    // ---- hats in a community (Fouad, 13 November 2026): the person who signed in puts on an office he holds (Econome,
+    // Minister, Superior, Administrator) without another password, and takes it off again.
+    if (url === '/api/cty/hats' && method === 'GET') {
+      if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in', fr: 'Connectez-vous' });
+      const [, s, c] = found;
+      return send(res, 200, await hatsOf(s, c));
+    }
+    if (url === '/api/cty/hat' && method === 'POST') {
+      if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in', fr: 'Connectez-vous' });
+      const [, s, c] = found;
+      if (s.as) throw new HttpError(403, { ar: 'ارجع أولاً إلى حسابك', en: 'First go back to your own account', fr: "Revenez d'abord à votre compte" });
+      if (s.mustChange) throw new HttpError(403, { ar: 'اختر أولاً كلمة سرك', en: 'First choose your own password', fr: "Choisissez d'abord votre mot de passe" });
+      const body = (await readBody(req)) as { profileId?: number };
+      const h = await hatsOf(s, c);
+      const id = Number(body.profileId);
+      if (!h.person || !(id === h.person.id || h.hats.some((x) => x.profileId === id)))
+        throw new HttpError(403, { ar: 'هذا المنصب ليس لك', en: 'This office is not yours', fr: "Cette fonction n'est pas la vôtre" });
+      const p = await loadProfile(c.handle.db, id);
+      if (!p) throw new HttpError(403, { ar: 'هذا الحساب موقوف', en: 'This account is switched off', fr: 'Ce compte est désactivé' });
+      s.profile = p;
+      log(`${c.slug}: ${h.person.name} now ${p.name}`);
+      return send(res, 200, { profile: p });
     }
     if (url === '/api/as/back' && method === 'POST') {
       if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });

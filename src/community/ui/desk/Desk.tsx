@@ -39,53 +39,71 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   const { s, d, can, myBooks } = useCty();
   // the Administrator sees no record: his window starts on the accounts
   const sees = can('cty.view_all');
-  const [nav, setNav] = useState<DeskNav>({ page: sees ? 'dash' : 'people' });
-  const go = (n: DeskNav) => setNav(n);
+  // the Superior's own short screen (Fouad, 13 November 2026): approve, read each one's month, see the community
+  const superior = can('cty.month_seen') && !can('book.own') && !can('users.manage');
   const waiting = d.entries.filter((e) => e.approval_needed && !e.approved_at && !e.refused_at).length;
-  // three short groups: every day, end of the period, settings
-  const groups: { title: string; items: { page: DeskPage; label: string; badge?: number; hidden?: boolean }[] }[] = [
-    { title: t3('كل يوم', 'Every day', 'Chaque jour'), items: !sees && !myBooks.length ? [] : [
-      { page: 'dash', label: t3('اللوحة', 'Dashboard', 'Tableau de bord') },
-      { page: 'register', label: t3('كل القيود', 'All entries', 'Toutes les écritures') },
-      { page: 'member', label: t3('حساب كل واحد', "Each one's account", 'Le compte de chacun') },
-      { page: 'approvals', label: t3('موافقات', 'Approvals', 'Accords'), badge: waiting, hidden: !can('cty.month_seen') },
-      { page: 'mine', label: t3('دفاتري', 'My books', 'Mes comptes'), hidden: !myBooks.length },
-    ] },
-    { title: t3('آخر الفترة', 'End of the period', 'Fin de période'), items: !sees ? [] : [
-      { page: 'send', label: t3('الموحّد ← البلد', 'Consolidated → country', 'Consolidé → pays') },
-      { page: 'claims', label: t3('المطالبات', 'Claims', 'Réclamations') },
-      { page: 'host', label: t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés') },
-      { page: 'statement', label: t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat") },
-      { page: 'quarter', label: t3('الفصول والبنود', 'Quarters & categories', 'Trimestres et catégories') },
-    ] },
-    { title: t3('الإعدادات', 'Settings', 'Réglages'), items: [
+  const [nav, setNav] = useState<DeskNav>({ page: superior ? (waiting ? 'approvals' : 'member') : sees ? 'dash' : 'people' });
+  const go = (n: DeskNav) => setNav(n);
+  // six places at most (Fouad, 13 November 2026: "simple"); a place with several pages shows them as tabs
+  type Tab = { page: DeskPage; label: string; hidden?: boolean };
+  const T = {
+    today: t3('اليوم', 'Today', "Aujourd'hui"),
+    list: t3('القائمة', 'List', 'Liste'),
+    charts: t3('الفصول والبنود', 'Quarters & categories', 'Trimestres et catégories'),
+    each: t3('حساب كل واحد', "Each one's account", 'Le compte de chacun'),
+    mine: t3('دفاتري', 'My books', 'Mes comptes'),
+    approvals: t3('للموافقة', 'To approve', 'À approuver'),
+  };
+  const sections: { key: string; label: string; badge?: number; tabs: Tab[] }[] = superior ? [
+    { key: 'approve', label: T.approvals, badge: waiting, tabs: [{ page: 'approvals', label: T.approvals }] },
+    { key: 'read', label: t3('قراءة الشهر', 'Read the month', 'Lire le mois'), tabs: [{ page: 'member', label: T.each }] },
+    { key: 'cty', label: t3('الجماعة', 'The community', 'La communauté'), tabs: [{ page: 'dash', label: T.today }] },
+    { key: 'entries', label: t3('القيود', 'Entries', 'Écritures'), tabs: [{ page: 'register', label: T.list }, { page: 'quarter', label: T.charts }] },
+    { key: 'settings', label: t3('الإعدادات', 'Settings', 'Réglages'), tabs: [{ page: 'settings', label: t3('اللغة واللوحة', 'Language & control panel', 'Langue et tableau de bord') }] },
+  ] : [
+    { key: 'today', label: T.today, tabs: [{ page: 'dash', label: T.today, hidden: !sees }] },
+    { key: 'entries', label: t3('القيود', 'Entries', 'Écritures'), tabs: [
+      { page: 'register', label: T.list, hidden: !sees }, { page: 'quarter', label: T.charts, hidden: !sees }] },
+    { key: 'brothers', label: t3('الإخوة', 'The brothers', 'Les frères'), badge: can('cty.month_seen') ? waiting : undefined, tabs: [
+      { page: 'member', label: T.each, hidden: !sees }, { page: 'mine', label: T.mine, hidden: !myBooks.length },
+      { page: 'approvals', label: T.approvals, hidden: !can('cty.month_seen') }] },
+    { key: 'end', label: t3('آخر الفترة', 'End of the period', 'Fin de période'), tabs: [
+      { page: 'send', label: t3('الموحّد ← البلد', 'Consolidated → country', 'Consolidé → pays'), hidden: !sees }] },
+    { key: 'province', label: t3('مع الإقليم', 'With the Province', 'Avec la Province'), tabs: [
+      { page: 'claims', label: t3('المطالبات', 'Claims', 'Réclamations'), hidden: !sees },
+      { page: 'host', label: t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés'), hidden: !sees },
+      { page: 'statement', label: t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat"), hidden: !sees }] },
+    { key: 'settings', label: t3('الإعدادات', 'Settings', 'Réglages'), tabs: [
       { page: 'people', label: t3('الحسابات', 'Accounts', 'Comptes'), hidden: !can('users.manage') && !can('cty.passwords') },
       { page: 'roles', label: t3('الصلاحيات', 'Roles and permissions', 'Rôles et permissions'), hidden: !can('users.manage') },
       { page: 'settings', label: t3('اللغة واللوحة', 'Language & control panel', 'Langue et tableau de bord') },
       { page: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes'), hidden: !sees && !can('cty.chart') },
-      { page: 'import', label: t3('استيراد FDC', 'Import an FDC', 'Importer une FDC'), hidden: !can('data.import') },
-    ] },
+      { page: 'import', label: t3('استيراد FDC', 'Import an FDC', 'Importer une FDC'), hidden: !can('data.import') }] },
   ];
+  const shown = sections.map((x) => ({ ...x, tabs: x.tabs.filter((t) => !t.hidden) })).filter((x) => x.tabs.length);
+  const here = shown.find((x) => x.tabs.some((t) => t.page === nav.page));
 
   return (
     <div className="cty desk">
       <aside className="desk-side">
         <div className="desk-org"><b>{s.organisation}</b><WhoIs profile={s.profile} light />{s.mode === 'server' && <Hats light />}</div>
-        {groups.filter((g) => g.items.some((x) => !x.hidden)).map((g) => (
-          <div key={g.title} className="desk-group">
-            <div className="desk-group-title">{g.title}</div>
-            {g.items.filter((x) => !x.hidden).map((x) => (
-              <button key={x.page} className={nav.page === x.page ? 'on' : ''} onClick={() => go({ page: x.page })}>
-                <span>{x.label}</span>{x.badge ? <i className="cty-badge static">{x.badge}</i> : null}
-              </button>
-            ))}
-          </div>
-        ))}
+        <div className="desk-group">
+          {shown.map((x) => (
+            <button key={x.key} className={here?.key === x.key ? 'on' : ''} onClick={() => go({ page: x.tabs[0].page })}>
+              <span>{x.label}</span>{x.badge ? <i className="cty-badge static">{x.badge}</i> : null}
+            </button>
+          ))}
+        </div>
         <div className="desk-spacer" />
         {myBooks.length > 0 && <button onClick={onPhone}>📱 {t3('عرض الهاتف', 'Phone view', 'Vue téléphone')}</button>}
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">
+        {here && here.tabs.length > 1 && (
+          <div className="desk-tabs" role="tablist">
+            {here.tabs.map((t) => <button key={t.page} role="tab" aria-selected={t.page === nav.page} className={t.page === nav.page ? 'on' : ''} onClick={() => go({ page: t.page })}>{t.label}{t.page === 'approvals' && waiting ? <i className="cty-badge static">{waiting}</i> : null}</button>)}
+          </div>
+        )}
         <PageGuard page={`${nav.page}:${nav.bookId ?? ''}`}>
         {nav.page === 'dash' && <Dashboard go={go} />}
         {nav.page === 'register' && <Register initialBook={nav.bookId ?? null} initialYm={nav.ym} />}

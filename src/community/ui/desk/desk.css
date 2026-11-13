@@ -119,3 +119,8 @@
 .desk-step-body { flex: 1; min-width: 0; }
 .desk-step-body b { font-size: 16px; }
 @media (max-width: 760px) { .desk-step { flex-wrap: wrap; } }
+
+/* the tabs of a place (2026-11-13) */
+.desk-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--c-soft2, #e4dccb); margin: -4px 0 16px; }
+.desk-tabs button { font: inherit; font-size: 14px; background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 12px; color: #5b5e70; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.desk-tabs button.on { color: inherit; border-bottom-color: var(--c-main, #b8862b); font-weight: 650; }

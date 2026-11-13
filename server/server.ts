@@ -43,6 +43,7 @@ import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
+import { mayPhone, pairPhone, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
 
 export const SERVER_VERSION = '0.9.2';
 
@@ -2329,10 +2330,51 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
       return send(res, 200, { ok: true });
     }
+    // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
+    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo') {
+      if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
+      // the key: "database:phone:secret"
+      const [slug, pid, key] = (/^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '').split(':');
+      const pc = slug ? centres.get(slug) : undefined;
+      const unlinked = new HttpError(401, { ar: 'هذا الهاتف غير مربوط: سجّل الدخول من جديد في المركز', en: 'This phone is not linked: sign in again at the centre', fr: "Ce téléphone n'est pas relié : reconnectez-vous au centre" });
+      if (!pc || !pid || !key || (config.inactive ?? []).includes(pc.slug) || config.copies?.[pc.slug]) throw unlinked;
+      let phone;
+      try { phone = await phoneOf(pc.handle.db, pid, key); } catch (e) { throw new HttpError(401, (e as { msg: Msg }).msg); }
+      // its owner, read again: a user switched off is out at once, and rights taken away are gone on the phone too
+      const owner = await loadProfile(pc.handle.db, phone.profile_id);
+      if (!owner || !mayPhone(owner)) throw unlinked;
+      if (url === '/api/phone/pack') return send(res, 200, await phonePack(pc.handle.db, owner, phone));
+      const ctx: OpCtx = { db: pc.handle.db, profile: owner, who: owner.name, install: 'office', files: pc.files };
+      if (url === '/api/phone/push') {
+        const body = (await readBody(req)) as { rows?: PhoneEntry[] };
+        const results = await phonePush(ctx, phone, Array.isArray(body.rows) ? body.rows : []);
+        if (results.some((r) => r.ok && !r.already)) pc.version++;
+        log(`phone ${pc.slug}: ${owner.name} (${phone.name}) sent ${results.length} rows, ${results.filter((r) => !r.ok).length} refused`);
+        return send(res, 200, { results, pack: await phonePack(pc.handle.db, owner, phone) });
+      }
+      const body = (await readBody(req, 24 * 1024 * 1024)) as { trxId?: string; key?: string; base64?: string; mime?: string };
+      const r = await phonePhoto(ctx, { trxId: String(body.trxId ?? ''), key: String(body.key ?? ''), base64: String(body.base64 ?? ''), mime: String(body.mime ?? '') });
+      if (!r.already) pc.version++;
+      return send(res, 200, r);
+    }
+
     if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
     const [, s, c] = found;
 
     if (url === '/api/version') return send(res, 200, { v: c.version });
+
+    // pairing: the person signed in on this phone links it (once); the key is given here and nowhere else
+    if (url === '/api/phone/pair' && method === 'POST') {
+      if (s.mustChange) throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
+      if (s.as) throw new HttpError(403, { ar: 'اربط الهاتف بحسابك أنت', en: 'Link the phone with your own account', fr: 'Reliez le téléphone avec votre propre compte' });
+      const kind = (await getMeta(c.handle.db, 'kind')) ?? 'centre';
+      if (kind !== 'centre' || config.copies?.[c.slug]) throw new HttpError(400, { ar: 'الهاتف لحسابات المراكز فقط حالياً', en: "The phone is for the centres' accounts only, for now", fr: 'Le téléphone est pour les comptes des centres seulement, pour le moment' });
+      const body = (await readBody(req)) as { name?: string };
+      const made = await pairPhone(c.handle.db, s.profile, String(body.name ?? ''));
+      const phone = await phoneOf(c.handle.db, made.id, made.key);
+      log(`phone ${c.slug}: ${s.profile.name} linked "${phone.name}" from ${ip}`);
+      return send(res, 200, { key: `${c.slug}:${made.id}:${made.key}`, validUntil: validUntil(phone), pack: await phonePack(c.handle.db, s.profile, phone) });
+    }
 
     if (url === '/api/server/status' && method === 'GET') {
       if (!has(s.profile, 'data.backup') && !has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });

@@ -81,6 +81,9 @@ export interface ProvinceSend {
   answered_at: string | null; answered_by: string | null; income_id: string | null;
 }
 
+/** a phone paired with this database, as its owner or the Superior sees it */
+export interface PhoneInfo { id: string; profile_id: number; user: string | null; name: string; created_at: string; last_sync: string | null; revoked_at: string | null; revoked_by: string | null }
+
 export interface OpCtx {
   db: Db;
   profile: Profile;
@@ -1380,6 +1383,32 @@ export const OPS = {
     run: (c: OpCtx, a: { id: string; ok: boolean; note?: string | null }) => answerTransfer(c, a),
   },
 
+  // ---------------------------------------------------------------- the phones (server/phone.ts)
+  // whoever manages the users sees every phone; anybody sees their own
+  'phone.list': {
+    check: anyone,
+    run: async (c: OpCtx): Promise<PhoneInfo[]> => {
+      const rows = await c.db.query<PhoneInfo>(
+        `SELECT ph.id, ph.profile_id, p.name AS user, ph.name, ph.created_at, ph.last_sync, ph.revoked_at, ph.revoked_by
+           FROM phone ph LEFT JOIN profile p ON p.id = ph.profile_id ORDER BY ph.revoked_at IS NOT NULL, COALESCE(ph.last_sync, ph.created_at) DESC`);
+      return can(c, 'users.manage') ? rows : rows.filter((r) => r.profile_id === c.profile.id);
+    },
+  },
+  // cutting a phone off: at once, and for good (its owner pairs it again at the centre)
+  'phone.revoke': {
+    check: anyone,
+    run: async (c: OpCtx, a: { id: string }) => {
+      const ph = await one<{ id: string; profile_id: number; name: string; revoked_at: string | null }>(c.db, 'SELECT id, profile_id, name, revoked_at FROM phone WHERE id = ?', [a.id]);
+      if (!ph) throw new UserError(m('الهاتف غير موجود', 'This phone does not exist', "Ce téléphone n'existe pas"));
+      if (!can(c, 'users.manage') && ph.profile_id !== c.profile.id) throw refuse();
+      if (ph.revoked_at) return;
+      await c.db.batch([
+        { sql: 'UPDATE phone SET revoked_at = ?, revoked_by = ? WHERE id = ?', params: [nowIso(), c.who, ph.id] },
+        auditStmt(c.who, 'phone-off', 'phone', ph.id, null, { name: ph.name }),
+      ]);
+    },
+  },
+
   // ---------------------------------------------------------------- the look of this database
   'brand.get': {
     check: anyone,
@@ -2052,7 +2081,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'province.sends', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'phone.list', 'province.sends', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

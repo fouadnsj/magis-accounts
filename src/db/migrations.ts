@@ -1746,4 +1746,28 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"data.export"]')
  WHERE perms LIKE '%"hr.salary"%' AND perms NOT LIKE '%"data.export"%';
 `,
   },
+  {
+    n: 51,
+    name: 'the phones: a person records expenses and income away from the centre, the phone sends them later',
+    sql: `
+-- (Fouad, 2026-11-13) A phone is paired once by its owner; it holds a long key, the server only the key's hash.
+-- It must come back within 30 days of its last sync; whoever manages the users can cut it off (revoked_at).
+CREATE TABLE phone (
+  id         TEXT PRIMARY KEY,
+  profile_id INTEGER NOT NULL,
+  name       TEXT NOT NULL,
+  key_hash   TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_sync  TEXT,
+  revoked_at TEXT,
+  revoked_by TEXT
+);
+-- the photos a phone already sent (its own number for each), so that none comes twice
+CREATE TABLE phone_photo (
+  key           TEXT PRIMARY KEY,
+  attachment_id TEXT NOT NULL,
+  at            TEXT NOT NULL
+);
+`,
+  },
 ];

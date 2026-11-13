@@ -658,6 +658,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const MIME: Record<string, string> = {
     '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
     '.wasm': 'application/wasm', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json',
+    '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2',
   };
 
   const serveStatic = (req: http.IncomingMessage, res: http.ServerResponse) => {

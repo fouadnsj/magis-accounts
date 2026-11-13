@@ -1,0 +1,393 @@
+// The phone's screens (Fouad, 2026-11-13): link this phone (once, at the centre), its code, my book, a new expense or
+// income with the photo of its receipt, and what is waiting / sent / to fix. Everything works with no connection except
+// the first link; the phone sends by itself when it finds the server again.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { allPhotos, allRows, delPhoto, delRow, kvDel, kvGet, kvSet, lockKey, newId, openKey, putPhoto, putRow, wipe, type Entry, type Link, type Msg, type Pack, type Photo } from './store';
+import { api, balance, check, Offline, Refused, sync, Unlinked } from './sync';
+
+type Lang = 'ar' | 'en' | 'fr';
+let lang: Lang = ((): Lang => {
+  try { const s = localStorage.getItem('phone-lang'); if (s === 'ar' || s === 'en' || s === 'fr') return s; } catch { /* */ }
+  const n = (navigator.language || 'ar').slice(0, 2);
+  return n === 'fr' ? 'fr' : n === 'en' ? 'en' : 'ar';
+})();
+const t = (ar: string, en: string, fr: string) => (lang === 'ar' ? ar : lang === 'fr' ? fr : en);
+const tm = (x: Msg) => (lang === 'ar' ? x.ar : lang === 'fr' ? x.fr ?? x.en : x.en);
+const num = (n: number, d = 0) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const money = (n: number, cur: 'USD' | 'SYP') => (cur === 'USD' ? `$${num(n, 2)}` : `${num(n)} SYP`);
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const when = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const errText = (e: unknown) => (e instanceof Offline ? t('لا اتصال بالخادم', 'No connection to the server', 'Pas de connexion au serveur') : e instanceof Refused || e instanceof Unlinked ? tm(e.msg) : String((e as Error)?.message ?? e));
+
+const HOUSES: [string, () => string][] = [
+  ['jaramana', () => t('جرمانا', 'Jaramana', 'Jaramana')], ['aleppo', () => t('حلب', 'Aleppo', 'Alep')], ['homs', () => t('حمص', 'Homs', 'Homs')], ['other', () => t('غير ذلك', 'Other', 'Autre')],
+];
+
+export function App() {
+  const [, redraw] = useState(0);
+  const [link, setLink] = useState<Link | null | undefined>(undefined); // undefined: still reading the phone's storage
+  const [key, setKey] = useState<string | null>(null); // the server's key, open while the phone is unlocked
+  const [pack, setPack] = useState<Pack | null>(null);
+  useEffect(() => { void (async () => { setPack((await kvGet<Pack>('pack')) ?? null); setLink((await kvGet<Link>('link')) ?? null); })(); }, []);
+  useEffect(() => { document.documentElement.lang = lang; document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'; });
+  const setLang = (l: Lang) => { lang = l; try { localStorage.setItem('phone-lang', l); } catch { /* */ } redraw((n) => n + 1); };
+  // the phone locks again after five minutes out of sight
+  useEffect(() => {
+    let hidden = 0;
+    const f = () => { if (document.hidden) hidden = Date.now(); else if (hidden && Date.now() - hidden > 5 * 60e3) setKey(null); };
+    document.addEventListener('visibilitychange', f);
+    return () => document.removeEventListener('visibilitychange', f);
+  }, []);
+
+  if (link === undefined) return <div className="ph-center">…</div>;
+  if (!link) return <Setup lang={lang} setLang={setLang} oldPack={pack} onDone={(l, k, p) => { setLink(l); setKey(k); setPack(p); }} />;
+  if (!key || !pack) return <Lock link={link} pack={pack} onOpen={setKey} onForget={async () => { await wipe(); setPack(null); setLink(null); }} />;
+  return <Home pack={pack} setPack={setPack} keyOf={key} lang={lang} setLang={setLang} onLock={() => setKey(null)}
+    onUnlink={async (all) => { if (all) { await wipe(); setPack(null); } else await kvDel('link'); setKey(null); setLink(null); }} />;
+}
+
+function LangPick({ lang: l, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
+  return <div className="ph-lang">{(['ar', 'en', 'fr'] as Lang[]).map((x) => <button key={x} className={x === l ? 'on' : ''} onClick={() => setLang(x)}>{x === 'ar' ? 'عربي' : x === 'en' ? 'English' : 'Français'}</button>)}</div>;
+}
+
+// ---------------------------------------------------------------- linking this phone (once, at the centre)
+function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l: Lang) => void; oldPack: Pack | null; onDone: (l: Link, key: string, p: Pack) => void }) {
+  const [house, setHouse] = useState('');
+  const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
+  const [device, setDevice] = useState(/iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android' : 'Phone');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [choose, setChoose] = useState<{ dbs: { slug: string; organisation: string }[]; dir: boolean } | null>(null);
+  const [got, setGot] = useState<{ key: string; pack: Pack } | null>(null);
+  const [code, setCode] = useState('');
+  const [code2, setCode2] = useState('');
+
+  const pair = async (enter?: () => Promise<{ mustChange: boolean }>) => {
+    if (enter && (await enter()).mustChange) throw new Refused({ ar: 'غيّر كلمة السر على الحاسوب أولاً', en: 'Change your password on the computer first', fr: "Changez d'abord votre mot de passe sur l'ordinateur" });
+    const r = await api.pair(`${device.trim() || 'Phone'}`);
+    await api.logout();
+    // a phone that still holds somebody's rows is linked again by that person only
+    const waiting = (await allRows()).some((x) => x.state !== 'sent');
+    if (oldPack && waiting && (oldPack.user !== r.pack.user || oldPack.organisation !== r.pack.organisation))
+      throw new Refused({ ar: `في هذا الهاتف سطور لـ ${oldPack.user} (${oldPack.organisation}) لم تُرسل`, en: `This phone holds rows of ${oldPack.user} (${oldPack.organisation}) not sent yet`, fr: `Ce téléphone garde des lignes de ${oldPack.user} (${oldPack.organisation}) pas encore envoyées` });
+    setGot({ key: r.key, pack: r.pack });
+  };
+  const signIn = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.signin(house, name.trim(), password);
+      if (r.mustChange && !r.dir) throw new Refused({ ar: 'غيّر كلمة السر على الحاسوب أولاً', en: 'Change your password on the computer first', fr: "Changez d'abord votre mot de passe sur l'ordinateur" });
+      const dbs = (await api.hello()).dbs.filter((d) => d.kind === 'centre');
+      if (!dbs.length) throw new Refused({ ar: 'لا حساب مركز لك هنا', en: "You have no centre's accounts here", fr: "Vous n'avez pas de comptes de centre ici" });
+      if (dbs.length === 1) await pair(r.dir ? () => api.enterDir(dbs[0].slug) : r.db === dbs[0].slug ? undefined : () => api.enterRing(dbs[0].slug));
+      else setChoose({ dbs, dir: !!r.dir });
+    } catch (e) { setErr(errText(e)); await api.logout(); }
+    setBusy(false);
+  };
+  const pick = async (slug: string) => {
+    setBusy(true); setErr(null);
+    try { await pair(choose!.dir ? () => api.enterDir(slug) : () => api.enterRing(slug)); } catch (e) { setErr(errText(e)); await api.logout(); setChoose(null); }
+    setBusy(false);
+  };
+  const finish = async () => {
+    if (!/^\d{4,8}$/.test(code)) return setErr(t('الرمز: من 4 إلى 8 أرقام', 'The code: 4 to 8 digits', 'Le code : 4 à 8 chiffres'));
+    if (code !== code2) return setErr(t('الرمزان مختلفان', 'The two codes are not the same', 'Les deux codes sont différents'));
+    setBusy(true);
+    const l = await lockKey(got!.key, code);
+    await kvSet('link', l); await kvSet('pack', got!.pack);
+    onDone(l, got!.key, got!.pack);
+  };
+
+  return (
+    <div className="ph-page">
+      <div className="ph-brand"><img src="/brand/magis-sun.png" alt="" /><h1>MAGIS</h1><p>{t('تسجيل الحركات بعيداً عن المركز', 'Recording away from the centre', 'Enregistrer loin du centre')}</p></div>
+      <LangPick lang={l} setLang={setLang} />
+      {err && <div className="ph-alert">{err}</div>}
+      {got ? (
+        <div className="ph-card">
+          <b>{got.pack.organisation} · {got.pack.user}</b>
+          <p className="ph-muted">{t('اختر رمزاً لهذا الهاتف. تفتح به التطبيق كل مرة؛ لا يعرفه الخادم.', 'Choose a code for this phone. You open the app with it each time; the server does not know it.', "Choisissez un code pour ce téléphone. Vous ouvrez l'application avec lui ; le serveur ne le connaît pas.")}</p>
+          <label>{t('الرمز (4 إلى 8 أرقام)', 'Code (4 to 8 digits)', 'Code (4 à 8 chiffres)')}<input type="password" inputMode="numeric" autoComplete="off" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
+          <label>{t('الرمز مرة ثانية', 'The code again', 'Le code encore')}<input type="password" inputMode="numeric" autoComplete="off" value={code2} onChange={(e) => setCode2(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
+          <button className="ph-btn gold" disabled={busy} onClick={finish}>{t('ابدأ', 'Start', 'Commencer')}</button>
+        </div>
+      ) : choose ? (
+        <div className="ph-card">
+          <b>{t('أي حسابات؟', 'Which accounts?', 'Quels comptes ?')}</b>
+          {choose.dbs.map((d) => <button key={d.slug} className="ph-btn" disabled={busy} onClick={() => pick(d.slug)}>{d.organisation}</button>)}
+        </div>
+      ) : (
+        <div className="ph-card">
+          <b>{t('اربط هذا الهاتف', 'Link this phone', 'Relier ce téléphone')}</b>
+          <p className="ph-muted">{t('مرة واحدة، وأنت على شبكة المركز. بعدها يعمل الهاتف بلا اتصال.', "Once, while you are on the centre's network. After that the phone works with no connection.", 'Une fois, sur le réseau du centre. Ensuite le téléphone travaille sans connexion.')}</p>
+          <label>{t('البيت', 'House', 'Maison')}
+            <select value={house} onChange={(e) => setHouse(e.target.value)}><option value="">—</option>{HOUSES.map(([k, f]) => <option key={k} value={k}>{f()}</option>)}</select>
+          </label>
+          <label>{t('اسمك', 'Your name', 'Votre nom')}<input value={name} autoCapitalize="off" autoCorrect="off" onChange={(e) => setName(e.target.value)} /></label>
+          <label>{t('كلمة السر', 'Password', 'Mot de passe')}<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+          <label>{t('اسم هذا الهاتف', 'A name for this phone', 'Un nom pour ce téléphone')}<input value={device} onChange={(e) => setDevice(e.target.value)} /></label>
+          <button className="ph-btn gold" disabled={busy || !house || !name.trim() || !password} onClick={signIn}>{busy ? '…' : t('اربط', 'Link', 'Relier')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- the code
+function Lock({ link, pack, onOpen, onForget }: { link: Link; pack: Pack | null; onOpen: (key: string) => void; onForget: () => Promise<void> }) {
+  const [code, setCode] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [wait, setWait] = useState(0);
+  const tries = useRef(0);
+  useEffect(() => { if (wait <= 0) return; const h = setTimeout(() => setWait((w) => w - 1), 1000); return () => clearTimeout(h); }, [wait]);
+  const open = async () => {
+    setBusy(true); setErr(null);
+    const k = await openKey(link, code);
+    setBusy(false);
+    if (k) return onOpen(k);
+    setCode('');
+    tries.current++;
+    if (tries.current >= 5) { tries.current = 0; setWait(30); }
+    setErr(t('الرمز غير صحيح', 'The code is not right', "Le code n'est pas juste"));
+  };
+  const forget = async () => {
+    const n = (await allRows()).filter((r) => r.state !== 'sent').length;
+    const warn = n ? t(`في الهاتف ${n} سطراً لم يُرسل: ستضيع. `, `${n} rows on this phone are not sent: they will be lost. `, `${n} lignes de ce téléphone ne sont pas envoyées : elles seront perdues. `) : '';
+    if (window.confirm(warn + t('انسَ كل ما في هذا الهاتف وابدأ من جديد؟', 'Forget everything on this phone and start again?', 'Tout oublier sur ce téléphone et recommencer ?'))) await onForget();
+  };
+  return (
+    <div className="ph-page">
+      <div className="ph-brand"><img src="/brand/magis-sun.png" alt="" /><h1>{pack?.organisation ?? 'MAGIS'}</h1><p>{pack?.user}</p></div>
+      {err && <div className="ph-alert">{err}</div>}
+      <div className="ph-card">
+        <label>{t('رمز هذا الهاتف', "This phone's code", 'Le code de ce téléphone')}
+          <input type="password" inputMode="numeric" autoComplete="off" autoFocus value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))} onKeyDown={(e) => { if (e.key === 'Enter' && code.length >= 4 && !wait) void open(); }} />
+        </label>
+        <button className="ph-btn gold" disabled={busy || code.length < 4 || wait > 0} onClick={open}>{wait > 0 ? t(`انتظر ${wait} ث`, `Wait ${wait} s`, `Attendez ${wait} s`) : t('افتح', 'Open', 'Ouvrir')}</button>
+      </div>
+      <button className="ph-linkbtn" onClick={forget}>{t('نسيتُ الرمز', 'I forgot the code', "J'ai oublié le code")}</button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- my book
+type Net = { state: 'idle' | 'busy' | 'ok' | 'offline' | 'out'; text?: string };
+
+function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pack: Pack; setPack: (p: Pack) => void; keyOf: string; lang: Lang; setLang: (l: Lang) => void; onLock: () => void; onUnlink: (all: boolean) => Promise<void> }) {
+  const [rows, setRows] = useState<Entry[]>([]);
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  const [bookId, setBookId] = useState<number>(() => pack.books[0]?.id ?? 0);
+  const [tab, setTab] = useState<'waiting' | 'fix' | 'sent'>('waiting');
+  const [form, setForm] = useState<{ type: 'Exp' | 'Income'; row?: Entry } | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [net, setNet] = useState<Net>({ state: 'idle' });
+  const running = useRef(false);
+  const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!pack.books.some((b) => b.id === bookId)) setBookId(pack.books[0]?.id ?? 0); }, [pack, bookId]);
+
+  const doSync = useCallback(async (quiet = false) => {
+    if (running.current) return;
+    running.current = true;
+    if (!quiet) setNet({ state: 'busy' });
+    try {
+      const r = await sync(keyOf);
+      setPack(r.pack);
+      setNet({ state: 'ok', text: r.result.refused ? t(`${r.result.refused} للتصحيح`, `${r.result.refused} to fix`, `${r.result.refused} à corriger`) : undefined });
+      if (r.result.refused) setTab('fix');
+    } catch (e) {
+      if (e instanceof Unlinked) setNet({ state: 'out', text: tm(e.msg) });
+      else if (e instanceof Offline) setNet({ state: 'offline' });
+      else setNet({ state: 'offline', text: errText(e) });
+    }
+    running.current = false;
+    await load();
+  }, [keyOf, setPack, load]);
+  // by itself: on opening, when the connection comes back, and every minute while something waits
+  useEffect(() => {
+    void doSync(true);
+    const on = () => void doSync(true);
+    window.addEventListener('online', on);
+    const h = setInterval(() => { if (!document.hidden) void doSync(true); }, 60e3);
+    return () => { window.removeEventListener('online', on); clearInterval(h); };
+  }, [doSync]);
+
+  const bal = balance(pack, rows, bookId);
+  const mine = rows.filter((r) => r.book_id === bookId || pack.books.length <= 1);
+  const count = (s: Entry['state']) => rows.filter((r) => r.state === s).length;
+  const shown = mine.filter((r) => r.state === tab).sort((a, b) => (tab === 'sent' ? (b.sent_at ?? '').localeCompare(a.sent_at ?? '') : b.made_at.localeCompare(a.made_at))).slice(0, 100);
+  const lineName = (r: Entry) => pack.lines.find((x) => x.id === r.line_id)?.name ?? pack.headings.find((h) => h.id === r.heading_id)?.name ?? '';
+  const daysLeft = Math.floor((Date.parse(pack.validUntil) - Date.now()) / 86_400_000);
+
+  if (form) return <RowForm pack={pack} type={form.type} row={form.row} bookId={bookId} photos={photos.filter((p) => p.trxId === form.row?.id)} onClose={async (saved) => { setForm(null); await load(); if (saved) { setTab('waiting'); void doSync(true); } }} />;
+  return (
+    <div className="ph-page">
+      <header className="ph-top">
+        <div><b>{pack.organisation}</b><span>{pack.user}</span></div>
+        <button className="ph-icon" onClick={() => setMenu(!menu)} aria-label="menu">☰</button>
+      </header>
+      {menu && (
+        <div className="ph-card">
+          <LangPick lang={l} setLang={setLang} />
+          <p className="ph-muted">{t('هذا الهاتف', 'This phone', 'Ce téléphone')}: <b>{pack.phone.name}</b> · {t('يجب أن يتصل بالمركز قبل', 'must reach the centre before', 'doit joindre le centre avant le')} <b className="ltr">{pack.validUntil.slice(0, 10)}</b></p>
+          <button className="ph-btn" onClick={onLock}>🔒 {t('اقفل', 'Lock', 'Verrouiller')}</button>
+          <button className="ph-btn danger" onClick={async () => {
+            const n = rows.filter((r) => r.state !== 'sent').length;
+            if (n) return window.alert(t(`في الهاتف ${n} سطراً لم يُرسل. أرسلها أو احذفها أولاً.`, `${n} rows on this phone are not sent. Send or delete them first.`, `${n} lignes de ce téléphone ne sont pas envoyées. Envoyez-les ou supprimez-les d'abord.`));
+            if (window.confirm(t('افصل هذا الهاتف وانسَ ما فيه؟', 'Unlink this phone and forget what is on it?', 'Délier ce téléphone et oublier ce qu’il contient ?'))) await onUnlink(true);
+          }}>{t('افصل هذا الهاتف', 'Unlink this phone', 'Délier ce téléphone')}</button>
+        </div>
+      )}
+
+      {net.state === 'out' && (
+        <div className="ph-alert">
+          {net.text}
+          <p>{t('السطور التي كتبتها باقية في الهاتف.', 'The rows you wrote stay on the phone.', 'Les lignes écrites restent sur le téléphone.')}</p>
+          <button className="ph-btn" onClick={() => void onUnlink(false)}>{t('اربط الهاتف من جديد', 'Link the phone again', 'Relier le téléphone à nouveau')}</button>
+        </div>
+      )}
+      {net.state !== 'out' && daysLeft <= 7 && <div className="ph-alert">{daysLeft < 0 ? t('مرّ أكثر من 30 يوماً: اتصل بشبكة المركز.', "More than 30 days: connect to the centre's network.", 'Plus de 30 jours : connectez-vous au réseau du centre.') : t(`بقي ${daysLeft} يوماً قبل وجوب الاتصال بالمركز.`, `${daysLeft} days left before the phone must reach the centre.`, `Il reste ${daysLeft} jours avant que le téléphone doive joindre le centre.`)}</div>}
+
+      {pack.books.length > 1 && <div className="ph-chips">{pack.books.map((b) => <button key={b.id} className={b.id === bookId ? 'on' : ''} onClick={() => setBookId(b.id)}>{b.name}</button>)}</div>}
+      {!pack.books.length ? <div className="ph-alert">{t('لا دفتر لك للكتابة فيه.', 'You have no book to write in.', "Vous n'avez pas de livre où écrire.")}</div> : (
+        <section className="ph-balance">
+          <small>{pack.books.find((b) => b.id === bookId)?.name}</small>
+          <div className="ph-amounts"><span className="ltr">${num(bal.usd, 2)}</span><span className="ltr">{num(bal.syp)} <i>SYP</i></span></div>
+          <p>{t('كما في آخر مزامنة', 'as of the last sync', 'à la dernière synchronisation')} <span className="ltr">{when(pack.asOf)}</span>{bal.waiting ? ` · ${t(`مع ${bal.waiting} سطراً ينتظر هنا`, bal.waiting === 1 ? 'with 1 row waiting here' : `with ${bal.waiting} rows waiting here`, bal.waiting === 1 ? 'avec 1 ligne en attente ici' : `avec ${bal.waiting} lignes en attente ici`)}` : ''}</p>
+        </section>
+      )}
+
+      <div className="ph-two">
+        <button className="ph-big exp" disabled={!pack.books.length} onClick={() => setForm({ type: 'Exp' })}><b>−</b>{t('نفقة', 'Expense', 'Dépense')}</button>
+        <button className="ph-big inc" disabled={!pack.books.length} onClick={() => setForm({ type: 'Income' })}><b>+</b>{t('إيراد', 'Income', 'Recette')}</button>
+      </div>
+
+      <button className={`ph-sync ${net.state}`} onClick={() => void doSync()} disabled={net.state === 'busy'}>
+        {net.state === 'busy' ? t('يُرسل…', 'Sending…', 'Envoi…')
+          : net.state === 'offline' ? `⚠ ${net.text ?? t('لا اتصال بالخادم', 'No connection to the server', 'Pas de connexion au serveur')} — ${t('حاول من جديد', 'try again', 'réessayer')}`
+          : `↻ ${t('أرسل الآن', 'Send now', 'Envoyer maintenant')}${net.state === 'ok' ? ` · ✓${net.text ? ` ${net.text}` : ''}` : ''}`}
+      </button>
+
+      <div className="ph-tabs">
+        <button className={tab === 'waiting' ? 'on' : ''} onClick={() => setTab('waiting')}>{t('ينتظر', 'Waiting', 'En attente')}{count('waiting') ? <i>{count('waiting')}</i> : null}</button>
+        <button className={tab === 'fix' ? 'on' : ''} onClick={() => setTab('fix')}>{t('للتصحيح', 'To fix', 'À corriger')}{count('fix') ? <i className="red">{count('fix')}</i> : null}</button>
+        <button className={tab === 'sent' ? 'on' : ''} onClick={() => setTab('sent')}>{t('أُرسل', 'Sent', 'Envoyé')}</button>
+      </div>
+      <ul className="ph-rows">
+        {!shown.length && <li className="ph-muted ph-empty">{tab === 'waiting' ? t('لا شيء ينتظر', 'Nothing is waiting', 'Rien en attente') : tab === 'fix' ? t('لا شيء للتصحيح', 'Nothing to fix', 'Rien à corriger') : t('لا شيء بعد', 'Nothing yet', 'Rien encore')}</li>}
+        {shown.map((r) => (
+          <li key={r.id} onClick={() => r.state !== 'sent' && setForm({ type: r.type, row: r })} className={r.state}>
+            <div className="l"><b>{r.explanation || '—'}</b><span><span className="ltr">{r.date}</span> · {lineName(r)}{photos.some((p) => p.trxId === r.id) ? ' · 📎' : ''}</span>{r.state === 'fix' && r.error && <em>{tm(r.error)}</em>}</div>
+            <div className={`a ${r.type === 'Income' ? 'inc' : 'exp'} ltr`}>{r.type === 'Income' ? '+' : '−'}{money(r.amount, r.currency)}</div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- a new expense or income
+/** a photo made smaller (1600 points at most, JPEG) so that it goes through a slow connection */
+async function shrink(file: File): Promise<{ base64: string; mime: string }> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error('image')); i.src = url; });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    return { base64: c.toDataURL('image/jpeg', 0.72).split(',')[1], mime: 'image/jpeg' };
+  } finally { URL.revokeObjectURL(url); }
+}
+
+function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; type: 'Exp' | 'Income'; row?: Entry; bookId: number; photos: Photo[]; onClose: (saved: boolean) => Promise<void> }) {
+  const [f, setF] = useState(() => ({
+    book_id: row?.book_id ?? bookId, date: row?.date ?? today(), amount: row ? String(row.amount) : '', currency: (row?.currency ?? 'USD') as 'USD' | 'SYP',
+    heading_id: row?.heading_id ?? 0, line_id: row?.line_id ?? 0, explanation: row?.explanation ?? '', receipt: row?.receipt ?? '',
+  }));
+  const id = useMemo(() => row?.id ?? newId(), [row]);
+  const [pics, setPics] = useState<Photo[]>(photos);
+  const [errs, setErrs] = useState<Msg[]>([]);
+  const [busy, setBusy] = useState(false);
+  const file = useRef<HTMLInputElement>(null);
+  const headings = pack.headings.filter((h) => h.types.includes(type));
+  const lines = pack.lines.filter((x) => x.heading_id === f.heading_id);
+  const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
+
+  const addPhoto = async (fl: File | undefined) => {
+    if (!fl) return;
+    setBusy(true);
+    try { const s = await shrink(fl); setPics((x) => [...x, { key: newId(), trxId: id, mime: s.mime, base64: s.base64, sent: false }]); }
+    catch { setErrs([{ ar: 'تعذّرت قراءة الصورة', en: 'The photo could not be read', fr: "La photo n'a pas pu être lue" }]); }
+    setBusy(false);
+    if (file.current) file.current.value = '';
+  };
+  const save = async () => {
+    const amount = Number(f.amount.replace(/,/g, ''));
+    const e: Entry = { id, book_id: f.book_id, date: f.date, type, heading_id: f.heading_id, line_id: f.line_id, explanation: f.explanation.trim(), receipt: f.receipt.trim(), amount, currency: f.currency, state: 'waiting', error: null, made_at: row?.made_at ?? new Date().toISOString() };
+    const bad = check(pack, e);
+    if (bad.length) return setErrs(bad);
+    setBusy(true);
+    await putRow(e);
+    for (const p of photos) if (!pics.some((x) => x.key === p.key)) await delPhoto(p.key);
+    for (const p of pics) await putPhoto(p);
+    await onClose(true);
+  };
+  const remove = async () => {
+    if (!window.confirm(t('حذف هذا السطر من الهاتف؟', 'Delete this row from the phone?', 'Supprimer cette ligne du téléphone ?'))) return;
+    for (const p of photos) await delPhoto(p.key);
+    await delRow(id);
+    await onClose(false);
+  };
+
+  return (
+    <div className="ph-page">
+      <header className="ph-top">
+        <button className="ph-icon" onClick={() => void onClose(false)} aria-label="back">{lang === 'ar' ? '→' : '←'}</button>
+        <div className="mid"><b className={type === 'Exp' ? 'exp' : 'inc'}>{type === 'Exp' ? t('نفقة', 'Expense', 'Dépense') : t('إيراد', 'Income', 'Recette')}</b></div>
+        <span style={{ width: 40 }} />
+      </header>
+      {row?.state === 'fix' && row.error && <div className="ph-alert">{t('رفضه الخادم', 'The server refused it', 'Le serveur l’a refusé')}: {tm(row.error)}</div>}
+      {errs.length > 0 && <div className="ph-alert">{errs.map((x, i) => <div key={i}>{tm(x)}</div>)}</div>}
+      <div className="ph-card">
+        {pack.books.length > 1 && <label>{t('الدفتر', 'Book', 'Livre')}<select value={f.book_id} onChange={(e) => set({ book_id: Number(e.target.value) })}>{pack.books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>}
+        <label>{t('المبلغ', 'Amount', 'Montant')}
+          <div className="ph-amount">
+            <input inputMode="decimal" className="ltr" placeholder="0" value={f.amount} onChange={(e) => set({ amount: e.target.value.replace(/[^\d.,]/g, '') })} />
+            <div className="ph-cur">{(['USD', 'SYP'] as const).map((c) => <button key={c} type="button" className={f.currency === c ? 'on' : ''} onClick={() => set({ currency: c })}>{c}</button>)}</div>
+          </div>
+        </label>
+        <label>{t('التاريخ', 'Date', 'Date')}<input type="date" className="ltr" value={f.date} max={today()} onChange={(e) => set({ date: e.target.value })} /></label>
+        <label>{t('البند', 'Heading', 'Rubrique')}
+          <select value={f.heading_id} onChange={(e) => { const h = Number(e.target.value); const ls = pack.lines.filter((x) => x.heading_id === h); set({ heading_id: h, line_id: ls.length === 1 ? ls[0].id : 0 }); }}>
+            <option value={0}>—</option>{headings.map((h) => <option key={h.id} value={h.id}>{h.code ? `${h.code} · ` : ''}{h.name}</option>)}
+          </select>
+        </label>
+        <label>{t('الخط', 'Line', 'Ligne')}
+          <select value={f.line_id} disabled={!f.heading_id} onChange={(e) => set({ line_id: Number(e.target.value) })}>
+            <option value={0}>—</option>{lines.map((x) => <option key={x.id} value={x.id}>{x.code ? `${x.code} · ` : ''}{x.name}</option>)}
+          </select>
+        </label>
+        <label>{type === 'Exp' ? t('الشرح: على ماذا؟', 'Explanation: what for?', 'Explication : pour quoi ?') : t('الشرح: من أين؟', 'Explanation: where from?', "Explication : d'où ?")}
+          <textarea rows={2} value={f.explanation} onChange={(e) => set({ explanation: e.target.value })} />
+        </label>
+        <label>{t('رقم الإيصال (إن وُجد)', 'Receipt number (if any)', 'Numéro du reçu (s’il y en a un)')}<input className="ltr" value={f.receipt} onChange={(e) => set({ receipt: e.target.value })} /></label>
+        <div className="ph-photos">
+          {pics.map((p) => (
+            <div key={p.key} className="ph-photo">
+              {p.base64 ? <img src={`data:${p.mime};base64,${p.base64}`} alt="" /> : <span>📎</span>}
+              {!p.sent && <button type="button" onClick={() => setPics((x) => x.filter((y) => y.key !== p.key))}>✕</button>}
+            </div>
+          ))}
+          {pics.length < 3 && <button type="button" className="ph-addphoto" disabled={busy} onClick={() => file.current?.click()}>📷<span>{t('صورة الإيصال', 'Photo of the receipt', 'Photo du reçu')}</span></button>}
+          <input ref={file} type="file" accept="image/*" capture="environment" hidden onChange={(e) => void addPhoto(e.target.files?.[0])} />
+        </div>
+      </div>
+      <button className="ph-btn gold" disabled={busy} onClick={save}>{t('احفظ في الهاتف', 'Save on the phone', 'Enregistrer sur le téléphone')}</button>
+      {row && <button className="ph-btn danger" disabled={busy} onClick={remove}>{t('احذف', 'Delete', 'Supprimer')}</button>}
+      <p className="ph-muted ph-foot">{t('يُرسل إلى الخادم حين يجده الهاتف، والخادم يتحقق منه.', 'It goes to the server when the phone finds it, and the server checks it.', 'Elle part au serveur quand le téléphone le trouve, et le serveur la vérifie.')}</p>
+    </div>
+  );
+}

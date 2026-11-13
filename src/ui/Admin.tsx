@@ -19,6 +19,7 @@ import { pickFile, toBase64 } from '../platform';
 import { notesOf } from './Cash';
 import { GuideLink } from '../guide/GuideView';
 import { Checks } from './Checks';
+import { Phones } from './Phones';
 
 type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'lists' | 'server';
 
@@ -53,6 +54,7 @@ export function Admin() {
       {tab === 'controls' && can('users.manage') && <Controls />}
       {tab === 'backups' && <Backups />}
       {tab === 'users' && <Users />}
+      {tab === 'users' && <Phones />}
       {tab === 'access' && can('users.manage') && <AccessProfiles />}
       {tab === 'look' && can('users.manage') && <Appearance />}
       {tab === 'audit' && can('audit.view') && <Audit />}

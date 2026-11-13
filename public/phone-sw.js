@@ -1,7 +1,7 @@
 // Keeps the phone page and its files on the phone, so that it opens with no connection (Fouad, 2026-11-13).
 // It serves only /phone.html (its scope) and what that page loads. The server's answers (/api/…) are never kept.
-const CACHE = 'magis-phone-v1';
-const EXTRA = ['/phone.webmanifest', '/brand/magis-sun.png', '/brand/phone-180.png', '/brand/phone-192.png', '/brand/phone-512.png', '/fonts/amiri-arabic-400.woff2', '/fonts/amiri-arabic-700.woff2'];
+const CACHE = 'magis-phone-v2';
+const EXTRA = ['/phone.webmanifest', '/brand/magis-sun.png', '/brand/phone-180.png', '/brand/phone-192.png', '/brand/phone-512.png', '/brand/phone-maskable-512.png', '/fonts/amiri-arabic-400.woff2', '/fonts/amiri-arabic-700.woff2'];
 
 // takes the page fresh from the server, with every file it names
 async function refresh() {

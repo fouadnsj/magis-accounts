@@ -36,7 +36,7 @@ Section "Install"
 
   ; the network: allow the two ports of the server
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="MAGIS Server"'
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="MAGIS Server" dir=in action=allow protocol=TCP localport=8443,8080 profile=any'
+  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="MAGIS Server" dir=in action=allow protocol=TCP localport=8443,8444,8080 profile=any'
 
   ; start at every boot, then now
   nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\install-task.ps1" -Dir "$INSTDIR"'

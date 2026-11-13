@@ -44,6 +44,7 @@ import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
 import { mayPhone, pairPhone, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
+import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
 
 export const SERVER_VERSION = '0.9.2';
 
@@ -54,6 +55,8 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof
 export interface ServerConfig {
   httpsPort: number;
   httpPort: number;
+  /** The phones' address (Fouad, 2026-11-13): https with the certificate the phones trust (server/phone-tls.ts). -1: no phones. */
+  phonePort?: number;
   /** 'redirect': plain http only sends people to https. 'serve': plain http works too (tests, or a staff-only network). */
   httpMode: 'redirect' | 'serve' | 'off';
   /** A second folder (USB key / external disk) that receives a copy of every backup. */
@@ -72,7 +75,7 @@ export interface ServerConfig {
   copies?: Record<string, { at: string; from: string | null; latest: string | null }>;
 }
 
-const DEFAULT_CONFIG: ServerConfig = { httpsPort: 8443, httpPort: 8080, httpMode: 'redirect', backupMirror: null, idleMinutes: 15 };
+const DEFAULT_CONFIG: ServerConfig = { httpsPort: 8443, httpPort: 8080, phonePort: 8444, httpMode: 'redirect', backupMirror: null, idleMinutes: 15 };
 
 export function defaultDataDir(): string {
   if (process.env.MAGIS_DATA) return process.env.MAGIS_DATA;
@@ -311,6 +314,8 @@ export interface Running {
   close: () => Promise<void>;
   httpsPort: number | null;
   httpPort: number | null;
+  /** the phones' address, when it listens */
+  phonePort: number | null;
   dataDir: string;
 }
 
@@ -690,6 +695,40 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const gzipCache = new Map<string, Buffer>();
 
   const secure = () => config.httpsPort > 0;
+  /** the phones' address, once it listens (below) */
+  const phones: { port: number | null; tls: PhoneTls | null } = { port: null, tls: null };
+  /** what Admin → Users → Phones shows, and the start page */
+  const phoneWhere = () => {
+    const ips = lanAddresses().filter(isLocalIp);
+    return {
+      start: phones.port ? ips.map((a) => `http://${a}:${httpPort ?? config.httpPort}/phone`) : [],
+      app: phones.port ? ips.map((a) => `https://${a}:${phones.port}/phone.html`) : [],
+      fingerprint: phones.tls?.fingerprint ?? null,
+    };
+  };
+  /** the start page, the authority, and /phone.html sent to the phones' address: on every address (plain http included) */
+  const phoneRoutes = (req: http.IncomingMessage, res: http.ServerResponse, url: string, qs: string | undefined, main: boolean): boolean => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+    const host = (req.headers.host ?? 'localhost').replace(/:\d+$/, '');
+    if (url === '/phone' || url === '/phone/') {
+      const html = startPage({ lang: new URLSearchParams(qs ?? '').get('l'), acceptLanguage: String(req.headers['accept-language'] ?? ''), host, phonePort: phones.port, fingerprint: phones.tls?.fingerprint ?? null });
+      res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(html);
+      return true;
+    }
+    if (url === '/magis-phones.cer' && phones.tls) {
+      res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': 'application/x-x509-ca-cert', 'Content-Disposition': 'attachment; filename="magis-phones.cer"', 'Cache-Control': 'no-store' });
+      res.end(phones.tls.caDer);
+      return true;
+    }
+    // the phone page lives on the phones' address only: there, the phone trusts the server and keeps the page
+    if (main && phones.port && (url === '/phone.html' || url === '/phone-sw.js')) {
+      res.writeHead(307, { Location: `https://${host}:${phones.port}/phone.html` });
+      res.end();
+      return true;
+    }
+    return false;
+  };
 
   /**
    * Replaces a database by an uploaded office database (from the desktop app,
@@ -2332,6 +2371,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { ok: true });
     }
     // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
+    if (url === '/api/phone/where' && method === 'GET') return send(res, 200, phoneWhere());
     if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo') {
       if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
       // the key: "database:phone:secret"
@@ -2439,9 +2479,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
   const startedAt = new Date().toISOString();
 
-  const handler = (viaHttps: boolean) => async (req: http.IncomingMessage, res: http.ServerResponse) => {
+  /** main: the computers' address (not the phones') */
+  const handler = (viaHttps: boolean, main = true) => async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const [url, qs] = (req.url ?? '/').split('?');
     try {
+      if (phoneRoutes(req, res, url, qs, main)) return;
       if (url.startsWith('/api/')) await api(req, res, url, new URLSearchParams(qs ?? ''), viaHttps);
       else serveStatic(req, res);
     } catch (e) {
@@ -2468,9 +2510,33 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     httpsPort = await listen(srv, config.httpsPort);
     servers.push(srv);
   }
+  // the phones' address (Fouad, 2026-11-13). If it cannot listen (port taken), the server works on without phones.
+  let phoneTimer: ReturnType<typeof setInterval> | null = null;
+  const phonePort = config.phonePort ?? DEFAULT_CONFIG.phonePort!;
+  if (phonePort >= 0 && config.httpsPort >= 0 && config.httpMode !== 'serve') {
+    try {
+      phones.tls = await phoneTls(dataDir, lanAddresses());
+      const srv = https.createServer({ key: phones.tls.key, cert: phones.tls.cert }, handler(true, false));
+      phones.port = await listen(srv, phonePort);
+      servers.push(srv);
+      // once a day: a new local address, or the end of the certificate near → a new one, under the same authority
+      phoneTimer = setInterval(() => {
+        phoneTls(dataDir, lanAddresses()).then((t) => {
+          phones.tls = t;
+          if (t.renewed) { srv.setSecureContext({ key: t.key, cert: t.cert }); log('phones: certificate made again'); }
+        }).catch((e) => log(`phones: certificate: ${e}`));
+      }, 24 * 3600e3);
+    } catch (e) {
+      phones.port = null;
+      log(`phones: not started (${e instanceof Error ? e.message : e})`);
+    }
+  }
   if (config.httpMode !== 'off') {
     const srv = http.createServer((req, res) => {
       if (config.httpMode === 'serve') return handler(false)(req, res);
+      // plain http answers the phones' start page (the phone does not trust the server yet); everything else goes to https
+      const [u, q] = (req.url ?? '/').split('?');
+      if (phoneRoutes(req, res, u, q, true)) return;
       const host = (req.headers.host ?? 'localhost').replace(/:\d+$/, '');
       // 307, not 301: a browser must not remember the redirect for ever (the mode can change)
       res.writeHead(307, { Location: `https://${host}:${httpsPort}${req.url ?? '/'}` });
@@ -2482,13 +2548,16 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
   log(`MAGIS server ${SERVER_VERSION} · data ${dataDir} · ${centres.size} database(s)`);
   for (const a of lanAddresses()) log(`open: ${httpsPort ? `https://${a}:${httpsPort}` : `http://${a}:${httpPort}`}`);
+  for (const a of phoneWhere().start) log(`phones start here: ${a}`);
 
   return {
     dataDir,
     httpsPort,
     httpPort,
+    phonePort: phones.port,
     close: async () => {
       clearInterval(dailyTimer);
+      if (phoneTimer) clearInterval(phoneTimer);
       await Promise.all(servers.map((srv) => new Promise((r) => { srv.closeAllConnections?.(); srv.close(r); })));
       for (const c of centres.values()) c.handle.close();
     },

@@ -5,6 +5,7 @@ import { useApp } from '../state';
 import type { PhoneInfo } from '../ops';
 import { m, tx } from '../i18n';
 import { confirmBox, errText, toast } from './kit';
+import { phoneWhere } from '../net';
 
 const t3 = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
 const DAYS = 30;
@@ -12,10 +13,10 @@ const DAYS = 30;
 export function Phones() {
   const { s, can } = useApp();
   const [list, setList] = useState<PhoneInfo[] | null>(null);
+  const [where, setWhere] = useState<{ start: string[]; fingerprint: string | null } | null>(null);
   const load = useCallback(async () => { try { setList(await s.api.call('phone.list')); } catch { setList([]); } }, [s]);
-  useEffect(() => { if (s.mode === 'server') void load(); }, [s, load]);
-  if (s.mode !== 'server' || !list) return null;
-  const address = `${location.origin}/phone.html`;
+  useEffect(() => { if (s.mode === 'server') { void load(); phoneWhere().then(setWhere, () => setWhere({ start: [], fingerprint: null })); } }, [s, load]);
+  if (s.mode !== 'server' || !list || !where) return null;
   const cut = async (p: PhoneInfo) => {
     if (!(await confirmBox(t3(`إيقاف الهاتف «${p.name}» (${p.user ?? '?'})؟ لا يرسل بعدها شيئاً؛ صاحبه يربطه من جديد في المركز.`, `Cut off the phone "${p.name}" (${p.user ?? '?'})? It sends nothing after that; its owner links it again at the centre.`, `Couper le téléphone « ${p.name} » (${p.user ?? '?'}) ? Il n'envoie plus rien ; son propriétaire le relie à nouveau au centre.`), true))) return;
     try { await s.api.call('phone.revoke', { id: p.id }); await load(); toast(t3('أُوقف', 'Cut off', 'Coupé')); } catch (e) { toast(errText(e)); }
@@ -26,9 +27,15 @@ export function Phones() {
     <div className="panel" style={{ marginTop: 14 }}>
       <h3 style={{ marginTop: 0 }}>📱 {t3('الهواتف', 'Phones', 'Téléphones')}</h3>
       <p className="muted small">
-        {t3('من يكتب في دفتر يسجّل النفقات والإيرادات من هاتفه، بعيداً عن المركز، والهاتف يرسلها حين يعود إلى شبكة المركز. يفتح على الهاتف هذا العنوان ويربطه مرة واحدة:', "Someone who writes in a book can record expenses and income on a phone, away from the centre; the phone sends them when it is back on the centre's network. On the phone, open this address and link it once:", "Qui écrit dans un livre peut noter dépenses et recettes sur un téléphone, loin du centre ; le téléphone les envoie de retour sur le réseau du centre. Sur le téléphone, ouvrez cette adresse et reliez-le une fois :")}{' '}
-        <b className="ltr">{address}</b>
+        {t3('من يكتب في دفتر يسجّل النفقات والإيرادات من هاتفه، بعيداً عن المركز، والهاتف يرسلها حين يعود إلى شبكة المركز.', "Someone who writes in a book can record expenses and income on a phone, away from the centre; the phone sends them when it is back on the centre's network.", "Qui écrit dans un livre peut noter dépenses et recettes sur un téléphone, loin du centre ; le téléphone les envoie de retour sur le réseau du centre.")}
       </p>
+      {where.start.length ? (
+        <>
+          <p className="small" style={{ marginBottom: 4 }}>{t3('على الهاتف، وهو على واي فاي المركز، افتح هذا العنوان واتبع الخطوات (مرة واحدة):', "On the phone, on the centre's Wi-Fi, open this address and follow the steps (once):", 'Sur le téléphone, sur le Wi-Fi du centre, ouvrez cette adresse et suivez les étapes (une fois) :')}</p>
+          {where.start.map((a) => <div key={a} className="ltr" style={{ fontSize: 20, fontWeight: 700, margin: '2px 0' }}>{a}</div>)}
+          {where.fingerprint && <p className="muted small">{t3('رقم الشهادة، ليُقارن بما يظهر على الهاتف:', "The certificate's number, to compare with the phone:", 'Le numéro du certificat, à comparer avec le téléphone :')} <code className="ltr">{where.fingerprint}</code></p>}
+        </>
+      ) : <p className="muted small">{t3('عنوان الهواتف لا يعمل على هذا الخادم.', "The phones' address is not running on this server.", "L'adresse des téléphones ne fonctionne pas sur ce serveur.")}</p>}
       {!list.length ? <p className="muted">{t3('لا هاتف مربوط بعد.', 'No phone is linked yet.', "Aucun téléphone n'est encore relié.")}</p> : (
         <table className="desk-table">
           <thead><tr>

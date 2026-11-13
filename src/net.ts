@@ -193,6 +193,8 @@ export const httpApi: Api = {
 };
 
 export const serverStatus = <T,>() => get<T>('/api/server/status');
+/** where the phones start (Admin → Users → Phones) */
+export const phoneWhere = () => get<{ start: string[]; app: string[]; fingerprint: string | null }>('/api/phone/where');
 export const serverConfig = (c: Record<string, unknown>) => post('/api/server/config', c);
 export const serverRestoreUpload = (base64: string, fileName: string) => post('/api/server/restore-upload', { base64, fileName });
 

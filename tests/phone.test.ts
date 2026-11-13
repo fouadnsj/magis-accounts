@@ -86,7 +86,7 @@ describe('the phone', () => {
     const sent = (await ph('/api/phone/push', { rows })).body;
     expect(sent.results.map((r: { ok: boolean }) => r.ok)).toEqual([true, true, false, false, false]);
     expect(sent.results[2].error.en).toMatch(/Explanation/);
-    expect(sent.results[3].error.en).toMatch(/expense or an income only/);
+    expect(sent.results[3].error.en).toMatch(/an expense, an income or an exchange only/);
     // the balance comes back with the answer: +100 −25
     expect(sent.pack.books[0].usd).toBe(book.usd + 75);
     // on the computer: the two rows, in the owner's name
@@ -107,6 +107,33 @@ describe('the phone', () => {
     expect(((await c.boss('/api/op/data', {})).body.attachments as { trx_id: string }[]).filter((a) => a.trx_id === 'phone-row-0002')).toHaveLength(1);
     // a photo for a row that is not here is refused
     expect((await ph('/api/phone/photo', { trxId: 'phone-row-0003', key: 'photo-key-0002', base64: PNG, mime: 'image/png' })).status).toBe(400);
+  });
+
+  it('an exchange (Fouad, 2026-11-13): dollars given for pounds received, as on the computer', async () => {
+    const c = await centre();
+    await c.boss('/api/op/heading.add', { name: 'Exchange', types: ['Exchange'] });
+    let L = (await c.boss('/api/op/data', {})).body.lists;
+    const xh = L.headings.find((h: { name: string }) => h.name === 'Exchange').id as number;
+    await c.boss('/api/op/line.add', { headingId: xh, name: 'Currency exchange' });
+    L = (await c.boss('/api/op/data', {})).body.lists;
+    const xl = L.lines.find((l: { name: string }) => l.name === 'Currency exchange').id as number;
+    const ph = c.phone((await c.boss('/api/phone/pair', { name: 'P' })).body.key as string);
+    const pack = (await ph('/api/phone/pack')).body;
+    expect(pack.headings.find((h: { id: number }) => h.id === xh).types).toEqual(['Exchange']);
+    expect(pack.books[0].rate).toBeGreaterThan(0);
+    const book = pack.books[0] as { id: number; usd: number; syp: number };
+    const base = { book_id: book.id, date: '2026-11-12', type: 'Exchange', heading_id: xh, line_id: xl, explanation: '', currency: 'USD' };
+    const sent = (await ph('/api/phone/push', { rows: [
+      { ...base, id: 'phone-exch-0001', amount: 100, syp: 14_250 },
+      { ...base, id: 'phone-exch-0002', amount: 100 }, // no pounds
+    ] })).body;
+    expect(sent.results.map((r: { ok: boolean }) => r.ok)).toEqual([true, false]);
+    expect(sent.results[1].error.en).toBe('Enter the pounds received');
+    // the book: 100 dollars less, 14,250 pounds more
+    expect(sent.pack.books[0].usd).toBe(book.usd - 100);
+    expect(sent.pack.books[0].syp).toBe(book.syp + 14_250);
+    const row = ((await c.boss('/api/op/data', {})).body.rows as { id: string; type: string; trf_usd: number; trf_syp: number; inc_usd: number; exp_usd: number }[]).find((r) => r.id === 'phone-exch-0001')!;
+    expect(row).toMatchObject({ type: 'Exchange', trf_usd: 100, trf_syp: 14_250, inc_usd: 0, exp_usd: 0 });
   });
 
   it('a wrong key, a phone cut off, 30 days without a sync, an owner switched off: the phone is out', async () => {

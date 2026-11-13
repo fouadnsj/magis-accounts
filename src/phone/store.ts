@@ -12,28 +12,35 @@ export interface Pack {
   color: string | null;
   asOf: string;
   validUntil: string;
-  books: { id: number; name: string; main: boolean; usd: number; syp: number }[];
-  headings: { id: number; name: string; code: string; types: ('Exp' | 'Income')[] }[];
+  /** rate: the book's latest exchange rate (older packs: none) */
+  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate?: number }[];
+  headings: { id: number; name: string; code: string; types: Kind[] }[];
   lines: { id: number; heading_id: number; name: string; code: string }[];
   parties: { id: number; name: string }[];
   closed: string[];
   bookClosed: { book_id: number; ym: string }[];
   fiscalStart: string | null;
   rate: number;
+  tolerance?: number;
 }
+
+/** expense, income, and exchange (dollars given for pounds received) */
+export type Kind = 'Exp' | 'Income' | 'Exchange';
 
 /** a row written on the phone. waiting: not sent yet; sent: the server has it; fix: the server refused it (its reason) */
 export interface Entry {
   id: string;
   book_id: number;
   date: string;
-  type: 'Exp' | 'Income';
+  type: Kind;
   heading_id: number;
   line_id: number;
   explanation: string;
   receipt: string;
+  /** an exchange: amount = the dollars given, syp = the pounds received */
   amount: number;
   currency: 'USD' | 'SYP';
+  syp?: number;
   state: 'waiting' | 'sent' | 'fix';
   error?: Msg | null;
   made_at: string;

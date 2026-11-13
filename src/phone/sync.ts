@@ -39,7 +39,7 @@ export async function sync(key: string): Promise<{ pack: Pack; result: SyncResul
   const res = { sent: 0, refused: 0, photos: 0 };
   let pack: Pack;
   if (waiting.length) {
-    const body = { rows: waiting.map((r) => ({ id: r.id, book_id: r.book_id, date: r.date, type: r.type, heading_id: r.heading_id, line_id: r.line_id, explanation: r.explanation, receipt: r.receipt || null, amount: r.amount, currency: r.currency })) };
+    const body = { rows: waiting.map((r) => ({ id: r.id, book_id: r.book_id, date: r.date, type: r.type, heading_id: r.heading_id, line_id: r.line_id, explanation: r.explanation, receipt: r.receipt || null, amount: r.amount, currency: r.currency, syp: r.syp })) };
     const out = await call<{ results: { id: string; ok: boolean; error?: Msg }[]; pack: Pack }>('/api/phone/push', body, key);
     for (const x of out.results) {
       const r = waiting.find((w) => w.id === x.id);
@@ -76,15 +76,18 @@ export function balance(pack: Pack, rows: Entry[], bookId: number) {
   let usd = b?.usd ?? 0, syp = b?.syp ?? 0, n = 0;
   for (const r of rows) {
     if (r.book_id !== bookId || r.state !== 'waiting') continue;
-    const sign = r.type === 'Income' ? 1 : -1;
-    if (r.currency === 'USD') usd += sign * r.amount; else syp += sign * r.amount;
+    if (r.type === 'Exchange') { usd -= r.amount; syp += r.syp ?? 0; }
+    else {
+      const sign = r.type === 'Income' ? 1 : -1;
+      if (r.currency === 'USD') usd += sign * r.amount; else syp += sign * r.amount;
+    }
     n++;
   }
   return { usd: Math.round(usd * 100) / 100, syp: Math.round(syp), waiting: n };
 }
 
 /** what the phone can already say about a row before the server sees it (the server checks everything again) */
-export function check(pack: Pack, r: Pick<Entry, 'book_id' | 'date' | 'type' | 'heading_id' | 'line_id' | 'explanation' | 'amount'>): Msg[] {
+export function check(pack: Pack, r: Pick<Entry, 'book_id' | 'date' | 'type' | 'heading_id' | 'line_id' | 'explanation' | 'amount' | 'syp'>): Msg[] {
   const out: Msg[] = [];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(r.date)) out.push({ ar: 'التاريخ مطلوب', en: 'The date is needed', fr: 'La date est nécessaire' });
   else {
@@ -92,9 +95,12 @@ export function check(pack: Pack, r: Pick<Entry, 'book_id' | 'date' | 'type' | '
     if (pack.closed.includes(ym) || pack.bookClosed.some((x) => x.book_id === r.book_id && x.ym === ym)) out.push({ ar: `الشهر ${ym} مغلق`, en: `The month ${ym} is closed`, fr: `Le mois ${ym} est clôturé` });
     if (pack.fiscalStart && r.date < pack.fiscalStart) out.push({ ar: 'التاريخ قبل بداية السنة المالية', en: 'The date is before the start of the financial year', fr: "La date est avant le début de l'exercice" });
   }
-  if (!(r.amount > 0)) out.push({ ar: 'أدخل مبلغاً', en: 'Enter an amount', fr: 'Saisissez un montant' });
+  if (r.type === 'Exchange') {
+    if (!(r.amount > 0)) out.push({ ar: 'أدخل الدولارات المدفوعة', en: 'Enter the dollars given', fr: 'Saisissez les dollars donnés' });
+    if (!((r.syp ?? 0) > 0)) out.push({ ar: 'أدخل الليرات المقبوضة', en: 'Enter the pounds received', fr: 'Saisissez les livres reçues' });
+  } else if (!(r.amount > 0)) out.push({ ar: 'أدخل مبلغاً', en: 'Enter an amount', fr: 'Saisissez un montant' });
   if (!r.heading_id) out.push({ ar: 'اختر البند', en: 'Choose the heading', fr: 'Choisissez la rubrique' });
   if (!r.line_id) out.push({ ar: 'اختر الخط', en: 'Choose the line', fr: 'Choisissez la ligne' });
-  if (!r.explanation.trim()) out.push(r.type === 'Exp' ? { ar: 'اكتب الشرح: على ماذا صُرف المال؟', en: 'Write the explanation: what was the money spent on?', fr: "Écrivez l'explication : à quoi a servi l'argent ?" } : { ar: 'اكتب الشرح: من أين جاء المال؟', en: 'Write the explanation: where does the money come from?', fr: "Écrivez l'explication : d'où vient l'argent ?" });
+  if (r.type !== 'Exchange' && !r.explanation.trim()) out.push(r.type === 'Exp' ? { ar: 'اكتب الشرح: على ماذا صُرف المال؟', en: 'Write the explanation: what was the money spent on?', fr: "Écrivez l'explication : à quoi a servi l'argent ?" } : { ar: 'اكتب الشرح: من أين جاء المال؟', en: 'Write the explanation: where does the money come from?', fr: "Écrivez l'explication : d'où vient l'argent ?" });
   return out;
 }

@@ -51,6 +51,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 .ph-big { font: inherit; font-size: 20px; font-weight: 700; min-height: 84px; border-radius: 16px; border: 2px solid; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
 .ph-big b { font-size: 30px; font-family: -apple-system, sans-serif; }
 .ph-big.exp { border-color: var(--red); } .ph-big.inc { border-color: var(--green); }
+.ph-big.exc { border-color: var(--navy); color: var(--navy); min-height: 56px; font-size: 17px; width: 100%; }
+.exc { color: var(--navy); }
 .ph-sync { font: inherit; font-size: 15px; min-height: 44px; border-radius: 12px; border: 1px dashed var(--line); background: transparent; color: var(--muted); }
 .ph-sync.ok { color: var(--green); } .ph-sync.offline { color: var(--red); border-color: #e7bdb2; }
 .ph-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }

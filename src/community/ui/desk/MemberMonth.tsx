@@ -4,7 +4,7 @@
 // "seen ✓" and a private question.
 import { useMemo, useState } from 'react';
 import { errText, promptBox, toast, todayIso } from '../../../ui/kit';
-import { CURS, accountBooks, monthSheetOf, prevMonth, rollUp, type CtyAccount, type Money } from '../../domain';
+import { CURS, accountBooks, forHouse, lastDay, monthSheetOf, prevMonth, rollUp, type CtyAccount, type Money } from '../../domain';
 import { useCty, bookLabel, bookName } from '../CtyApp';
 import { Thread } from '../Notes';
 import { CountHistory } from '../CountHistory';
@@ -21,6 +21,12 @@ export function MemberMonth({ initialBook, initialYm, fixed }: { initialBook: nu
   const book = d.books.find((b) => b.id === bookId) ?? people[0];
   const sheet = useMemo(() => (book ? monthSheetOf(d.entries, accountBooks(d.books, book), ym) : null), [d.entries, book, ym]);
   const closed = d.months.find((x) => x.book_id === book?.id && x.ym === ym);
+  // what he paid for the house this month (it counts with the house: Fouad, 15 November 2026)
+  const paidForHouse = useMemo(() => {
+    const t = { LOC: 0, USD: 0, EUR: 0 };
+    if (book) for (const v of forHouse(d.entries, new Set(accountBooks(d.books, book).map((b) => b.id)), `${ym}-01`, lastDay(ym)).values()) for (const c of CURS) t[c] -= v[c];
+    return t;
+  }, [d.entries, d.books, book, ym]);
   const notes = d.notes.filter((n) => n.book_id === book?.id && !n.parent_id && (n.ym === ym || d.entries.find((e) => e.id === n.entry_id)?.date.slice(0, 7) === ym));
   if (!book || !sheet) return <p className="muted">{t3('لا أعضاء.', 'No members.', 'Aucun membre.')}</p>;
 
@@ -112,6 +118,7 @@ export function MemberMonth({ initialBook, initialYm, fixed }: { initialBook: nu
               {sheet.received[c] ? <> · {t3('أخذ من القيم', 'received from the econome', "reçu de l'économe")} {f(sheet.received[c])}</> : null}
               {sheet.totalIncome[c] ? <> · {t3('دخل', 'income', 'revenus')} {f(sheet.totalIncome[c])}</> : null}
               {' · '}{t3('صرف', 'spent', 'dépensé')} {f(sheet.totalExpenses[c])}
+              {paidForHouse[c] ? <> ({t3('منها للبيت', 'of which for the house', 'dont pour la maison')} 🏠 {f(paidForHouse[c])})</> : null}
               {sheet.givenBack[c] ? <> · {t3('أعاد إلى القيم', 'gave back to the econome', "rendu à l'économe")} {f(sheet.givenBack[c])}</> : null}
               {' · '}{t3('بقي معه في آخر الشهر', 'has at the end of the month', 'a en fin de mois')} {f(sheet.kept[c])}
             </p>

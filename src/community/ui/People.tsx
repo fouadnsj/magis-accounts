@@ -38,7 +38,7 @@ export function PeopleScreen() {
     try { await s.api.call('cty.office.save', { office: o.office, heldBy, password: null }); setHeld({ ...held, [o.office]: heldBy }); await done(); } catch (e) { toast(errText(e), true); }
   };
   const savePerson = async (p: PersonRow, patch: Partial<PersonRow>) => {
-    try { await s.api.call('cty.person.save', { id: p.id, name: patch.name ?? p.name, active: patch.active ?? p.active, hasBank: patch.hasBank ?? p.hasBank }); await done(); } catch (e) { toast(errText(e), true); }
+    try { await s.api.call('cty.person.save', { id: p.id, name: patch.name ?? p.name, active: patch.active ?? p.active, hasBank: patch.hasBank ?? p.hasBank, ...(patch.byEconome !== undefined ? { byEconome: patch.byEconome } : {}) }); await done(); } catch (e) { toast(errText(e), true); }
   };
   const rename = async (p: PersonRow) => {
     const name = await promptBox(t3('الاسم', 'Name', 'Nom'), p.name);
@@ -80,12 +80,13 @@ export function PeopleScreen() {
       <Card>
         <div className="cty-label">{t3('الإخوة', 'The Jesuits', 'Les jésuites')}</div>
         <table className="cty-people">
-          <thead><tr><th>{t3('الاسم', 'Name', 'Nom')}</th><th>🏦</th><th>{t3('حاضر', 'Present', 'Présent')}</th><th /></tr></thead>
+          <thead><tr><th>{t3('الاسم', 'Name', 'Nom')}</th><th>🏦</th><th title={t3('القيم يمسك دفتره', 'The econome keeps his book', "L'économe tient son compte")}>💼</th><th>{t3('حاضر', 'Present', 'Présent')}</th><th /></tr></thead>
           <tbody>
             {data.persons.map((p) => (
               <tr key={p.id} className={p.active ? '' : 'off'}>
                 <td><b>{p.name}</b></td>
                 <td className="c"><input type="checkbox" checked={p.hasBank} disabled={!manage} onChange={() => savePerson(p, { hasBank: !p.hasBank })} /></td>
+                <td className="c"><input type="checkbox" checked={!!p.byEconome} disabled={!manage} onChange={() => savePerson(p, { byEconome: !p.byEconome })} /></td>
                 <td className="c"><input type="checkbox" checked={!!p.active} disabled={!manage} onChange={() => savePerson(p, { active: p.active ? 0 : 1 })} /></td>
                 <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
                   {manage && <button className="btn ghost small" onClick={() => rename(p)} title={t3('تغيير الاسم', 'Rename', 'Renommer')}>✎</button>}
@@ -110,7 +111,7 @@ export function PeopleScreen() {
           </div>
         )}
       </Card>
-      <p className="muted small">🔑 = {t3('كلمة سر جديدة (يغيّرها صاحبها عند دخوله)', 'a new password (its owner changes it at his next sign-in)', 'un nouveau mot de passe (son titulaire le change à sa prochaine connexion)')} · 🏦 = {t3('له حساب في المصرف', 'has a bank account', 'a un compte en banque')}</p>
+      <p className="muted small">🔑 = {t3('كلمة سر جديدة (يغيّرها صاحبها عند دخوله)', 'a new password (its owner changes it at his next sign-in)', 'un nouveau mot de passe (son titulaire le change à sa prochaine connexion)')} · 🏦 = {t3('له حساب في المصرف', 'has a bank account', 'a un compte en banque')} · 💼 = {t3('لا يستعمل البرنامج: القيم يمسك دفتره عنه', 'does not use the program: the econome keeps his book for him', "n'utilise pas le programme : l'économe tient son compte pour lui")}</p>
     </>
   );
 }

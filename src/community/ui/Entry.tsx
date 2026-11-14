@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CopyMenu } from '../../ui/CopyMenu';
 import { confirmBox, errText, parseAmount, promptBox, toast, todayIso } from '../../ui/kit';
 import { CURS, accountBooks, leafAccounts, usdValue, type CtyAccount, type CtyBook, type CtyEntry, type Cur, type EntryType } from '../domain';
-import type { ClaimReason } from '../chart';
+import { isHouseLine, type ClaimReason } from '../chart';
 import { useCty, bookName, partLabel, hatClass } from './CtyApp';
 import { officeLabel } from './People';
 import { accName, curCode, curLong, curName, money, moneyCur, t3, triName } from './text';
@@ -45,9 +45,14 @@ function keepCur(id: number, c: Cur) {
   try { localStorage.setItem(lastCurKey(id), c); } catch { /* no storage */ }
 }
 
-/** Which lines a book offers: a personal book the personal lines; the house and the econome's books all. */
-export function offered(accounts: CtyAccount[], book: CtyBook, type: 'Income' | 'Exp') {
-  const ok = (a: CtyAccount) => a.active && a.type === type && ((book.cty_kind !== 'personal' && book.cty_kind !== 'personal_bank') || a.scope === 'P');
+/**
+ * Which lines a book offers: a personal book the personal lines; the house and the econome's books all;
+ * "For the house" in a Jesuit's book, the house lines only (HOUSE_CODES).
+ */
+export function offered(accounts: CtyAccount[], book: CtyBook, type: 'Income' | 'Exp', forHouse = false) {
+  // the minister's list: the house book, and "For the house" in a Jesuit's book (Fouad, 15 November 2026)
+  const house = type === 'Exp' && (forHouse || book.cty_kind === 'house' || book.cty_kind === 'envelope');
+  const ok = (a: CtyAccount) => a.active && a.type === type && (house ? isHouseLine(accounts, a.id) : ((book.cty_kind !== 'personal' && book.cty_kind !== 'personal_bank') || a.scope === 'P'));
   const leaves = leafAccounts(accounts).filter(ok);
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const headingOfLeaf = (a: CtyAccount): CtyAccount => {
@@ -80,7 +85,11 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
   const group = accountBooks(d.books, main).filter((b) => d.kept.includes(b.id) || b.id === main.id);
   const [pocketId, setPocketId] = useState<number>(main.id);
   const book = d.books.find((b) => b.id === pocketId) ?? main;
-  const [kind, setKind] = useState<EntryType>(start.kind);
+  // the econome's books have no expenses (Fouad, 15 November 2026)
+  const econBook = (b: CtyBook) => ['cash', 'bank', 'economat'].includes(b.cty_kind ?? '');
+  const [kind, setKind] = useState<EntryType>(start.kind === 'Exp' && econBook(main) && !start.edit ? 'Income' : start.kind);
+  // "For the house": a Jesuit paid something for the community from his own pocket (Fouad, 15 November 2026)
+  const [forHouse, setForHouse] = useState<boolean>(!!src?.for_house);
   const [stage, setStage] = useState<'amount' | 'heading' | 'line' | 'save'>(editLike ? 'save' : 'amount');
   const [amount, setAmount] = useState(src ? String(src.amount) : '');
   const [cur, setCur] = useState<Cur>(src?.cur ?? lastCur(s.profile.id));
@@ -102,7 +111,9 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
   const n = parseAmount(amount);
   const n2 = parseAmount(amount2);
   const isLine = kind === 'Exp' || kind === 'Income';
-  const groups = useMemo(() => (isLine ? offered(d.accounts, book, kind as 'Income' | 'Exp') : []), [d.accounts, book, kind, isLine]);
+  const personalBook = book.cty_kind === 'personal' || book.cty_kind === 'personal_bank';
+  const houseToo = kind === 'Exp' && personalBook && forHouse;
+  const groups = useMemo(() => (isLine ? offered(d.accounts, book, kind as 'Income' | 'Exp', houseToo) : []), [d.accounts, book, kind, isLine, houseToo]);
 
   // the most used headings and lines first (last 12 months; the house counts with its envelopes)
   const { order, frequent } = useMemo(() => {
@@ -148,7 +159,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
   };
 
   // will the Superior be asked?
-  const limit = book.cty_kind === 'house' || book.cty_kind === 'envelope' ? d.limits.house : book.cty_kind === 'personal' || book.cty_kind === 'personal_bank' ? d.limits.personal : 0;
+  const limit = book.cty_kind === 'house' || book.cty_kind === 'envelope' || houseToo ? d.limits.house : book.cty_kind === 'personal' || book.cty_kind === 'personal_bank' ? d.limits.personal : 0;
   const usd = kind === 'Exp' && n > 0 ? usdValue(d.entries, cur, n, date, d.limits.startRate) : null;
   const asksSuperior = kind === 'Exp' && limit > 0 && n > 0 && (usd == null || usd >= limit) && !s.profile.perms.includes('cty.month_seen');
 
@@ -196,6 +207,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
           to_book_id: kind === 'Transfer' ? toBook : null,
           cur2: kind === 'Exchange' ? cur2 : null, amount2: kind === 'Exchange' ? n2 : null,
           note, claim: kind === 'Exp' ? claim : null,
+          for_house: houseToo ? 1 : 0,
         },
         reason,
       });
@@ -230,13 +242,14 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
     setCur(e.cur);
     setAccountId(e.account_id);
     setClaim(e.claim);
+    setForHouse(!!e.for_house);
     setNote('');
     setStage('save');
   };
 
   const [receipts, setReceipts] = useState<PendingReceipt[]>([]);
   const kinds: { k: EntryType; label: string }[] = [
-    { k: 'Exp', label: t3('صرفتُ', 'I spent', "J'ai dépensé") },
+    ...(econBook(book) && kind !== 'Exp' ? [] : [{ k: 'Exp' as EntryType, label: t3('صرفتُ', 'I spent', "J'ai dépensé") }]),
     { k: 'Income', label: t3('قبضتُ', 'I received', "J'ai reçu") },
     { k: 'Exchange', label: t3('صرافة', 'Exchange', 'Change') },
     { k: 'Transfer', label: t3('تحويل', 'Transfer', 'Transfert') },
@@ -269,6 +282,13 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
           <div className={`copy-banner ${unchangedCopy ? '' : 'ok'}`}>
             <b>⧉ {t3('نسخة', 'COPY', 'COPIE')}</b> — {t3('لم تُحفظ بعد.', 'not saved yet.', 'pas encore enregistrée.')}{' '}
             {unchangedCopy ? t3('غيّر شيئاً واحداً على الأقل (المبلغ أو التاريخ أو البند أو الملاحظة) ثم احفظ.', 'Change at least one thing (amount, date, line or note), then Save.', 'Changez au moins une chose (montant, date, ligne ou note), puis enregistrez.') : t3('راجعها ثم احفظ.', 'Check it, then Save.', 'Vérifiez, puis enregistrez.')}
+          </div>
+        )}
+        {kind === 'Exp' && personalBook && !readOnly && (
+          <div className="cty-forwho" role="radiogroup" aria-label={t3('لمن؟', 'For whom?', 'Pour qui ?')}>
+            <button role="radio" aria-checked={!forHouse} className={!forHouse ? 'on me' : ''} onClick={() => { if (forHouse) { setForHouse(false); setHeading(null); setAccountId(null); if (!editLike) setStage('amount'); } }}>👤 {t3('لي', 'For me', 'Pour moi')}</button>
+            <button role="radio" aria-checked={forHouse} className={forHouse ? 'on house' : ''} onClick={() => { if (!forHouse) { setForHouse(true); setHeading(null); setAccountId(null); if (!editLike) setStage('amount'); } }}>🏠 {t3('للبيت', 'For the house', 'Pour la maison')}</button>
+            {forHouse && <small>{t3('من جيبك، لكنها تُحسب مع نفقات البيت (طعام، وقود…)', 'From your pocket, but it counts with the house expenses (food, fuel…)', 'De votre poche, mais elle compte avec les dépenses de la maison (nourriture, carburant…)')}</small>}
           </div>
         )}
         {!editLike && isLine && <div className="cty-step">{stage === 'amount' ? t3('1 · كم؟', '1 · How much?', '1 · Combien ?') : stage === 'heading' ? t3('2 · أي نوع؟', '2 · Which category?', '2 · Quelle catégorie ?') : stage === 'line' ? t3('3 · بالتفصيل', '3 · Which one exactly?', '3 · Laquelle exactement ?') : t3('4 · احفظ', '4 · Save', '4 · Enregistrer')}</div>}
@@ -383,7 +403,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
             )}
             {!readOnly && (
               <div className={`cty-saveas ${hatClass(s.profile.office)}`}>
-                {t3('يُحفظ بصفة', 'Saved as', 'Enregistré comme')} <b>{officeLabel(s.profile.office)}</b> · {bookName(main)}
+                {t3('يُحفظ بصفة', 'Saved as', 'Enregistré comme')} <b>{officeLabel(s.profile.office)}</b> · {bookName(main)}{houseToo ? <> · <b>🏠 {t3('للبيت', 'for the house', 'pour la maison')}</b></> : null}
               </div>
             )}
             {!readOnly && (

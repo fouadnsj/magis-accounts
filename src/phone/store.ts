@@ -15,7 +15,7 @@ export interface Pack {
   /** rate: the book's latest exchange rate (older packs: none) */
   books: { id: number; name: string; main: boolean; usd: number; syp: number; rate?: number; bal?: Record<string, number>; kind?: string | null }[];
   headings: { id: number; name: string; code: string; types: Kind[]; names?: Msg }[];
-  lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null }[];
+  lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null; house?: boolean }[];
   parties: { id: number; name: string }[];
   closed: string[];
   bookClosed: { book_id: number; ym: string }[];
@@ -47,6 +47,8 @@ export interface Entry {
   /** an exchange in a community: what was received */
   cur2?: string;
   amount2?: number;
+  /** a community: a Jesuit's expense paid for the house (Fouad, 15 November 2026) */
+  for_house?: number;
   state: 'waiting' | 'sent' | 'fix';
   error?: Msg | null;
   made_at: string;

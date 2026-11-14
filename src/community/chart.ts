@@ -15,6 +15,18 @@
 //        H = house book only (the Minister's extra lines).
 // The Province econome may later change a code, a name, or add a line (cty_account).
 
+/**
+ * The headings a Jesuit may use "For the house" (Fouad, 15 November 2026: "only those of the minister"): food, the
+ * cars, furniture, equipment, transport, the house's upkeep, the employees, the church, the general expenses
+ * (electricity, water, gas, internet, insurance, generator), contractors and major works. Never the personal ones
+ * (formation, clothing, health, alms, retreat, travel abroad…). A line counts if it or one of its parents is here.
+ */
+export const HOUSE_CODES = ['61101', '62010', '62020', '62030', '62050', '62060', '62070', '62082', '63000', '65100', '65300'];
+export function isHouseLine(accounts: { id: number; code: string; parent_id: number | null }[], id: number | null | undefined): boolean {
+  for (let a = accounts.find((x) => x.id === id); a; a = accounts.find((x) => x.id === a!.parent_id)) if (HOUSE_CODES.includes(a.code)) return true;
+  return false;
+}
+
 export type CtyType = 'Income' | 'Exp';
 export type Scope = 'P' | 'H';
 export type ClaimReason = 'health' | 'scholastic' | 'provincial' | 'other';

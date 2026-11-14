@@ -445,3 +445,36 @@ describe('one account from several books: pocket + bank, house + envelopes', () 
     expect((await q.query('SELECT book_id FROM cty_month ORDER BY book_id')).length).toBeGreaterThanOrEqual(6); // house + envelope × the quarter's months
   });
 });
+
+describe('for the house, and the econome (Fouad, 15 November 2026)', () => {
+  it("a Jesuit's expense \"For the house\": the minister's lines only; it leaves his pocket", async () => {
+    const id = (await run('Jean', 'cty.entry.save', { entry: spend({ date: '2026-02-03', account_id: code('63100'), amount: 7000, for_house: 1 }) })) as string;
+    const e = (await loadEntries(db)).find((x) => x.id === id)!;
+    expect(e.for_house).toBe(1);
+    expect(monthSheet(await loadEntries(db), books.find((b) => b.id === bookOf('Jean'))!, '2026-02').totalExpenses.LOC).toBe(-7000);
+    // a personal line cannot be "for the house"; a house line without it stays refused in a pocket
+    await expect(run('Jean', 'cty.entry.save', { entry: spend({ date: '2026-02-03', account_id: code('61301'), for_house: 1 }) })).rejects.toThrow(/house lines/);
+    await expect(run('Jean', 'cty.entry.save', { entry: spend({ date: '2026-02-03', account_id: code('63100') }) })).rejects.toThrow(/house book/);
+  });
+  it("the minister's book takes the house lines only", async () => {
+    const house = books.find((b) => b.cty_kind === 'house')!.id;
+    await expect(run('Minister', 'cty.entry.save', { entry: spend({ book_id: house, date: '2026-02-04', account_id: code('61301') }) })).rejects.toThrow(/house lines/);
+    await run('Minister', 'cty.entry.save', { entry: spend({ book_id: house, date: '2026-02-04', account_id: code('62070') }) });
+  });
+  it("no expense in the econome's books", async () => {
+    const cash = books.find((b) => b.cty_kind === 'cash')!.id;
+    await expect(run('Econome', 'cty.entry.save', { entry: spend({ book_id: cash, date: '2026-02-05', account_id: code('63100') }) })).rejects.toThrow(/econome's books/);
+    await run('Econome', 'cty.entry.save', { entry: { book_id: cash, date: '2026-02-05', type: 'Income', account_id: code('72200'), cur: 'LOC', amount: 1000 } });
+  });
+  it('the econome writes in a brother\'s book only when he keeps it for him', async () => {
+    await expect(run('Econome', 'cty.entry.save', { entry: spend({ date: '2026-02-06' }) })).rejects.toThrow(/Not allowed/);
+    const jean = ((await run('Admin', 'cty.people')) as PeoplePayload).persons.find((p) => p.name === 'Jean')!;
+    await run('Admin', 'cty.person.save', { id: jean.id, name: 'Jean', byEconome: true });
+    expect(((await run('Admin', 'cty.people')) as PeoplePayload).persons.find((p) => p.name === 'Jean')!.byEconome).toBe(true);
+    ctx.Econome.profile = (await loadProfile(db, ctx.Econome.profile.id))!;
+    await run('Econome', 'cty.entry.save', { entry: spend({ date: '2026-02-06' }) });
+    await run('Admin', 'cty.person.save', { id: jean.id, name: 'Jean', byEconome: false });
+    ctx.Econome.profile = (await loadProfile(db, ctx.Econome.profile.id))!;
+    await expect(run('Econome', 'cty.entry.save', { entry: spend({ date: '2026-02-07' }) })).rejects.toThrow(/Not allowed/);
+  });
+});

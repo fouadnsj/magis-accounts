@@ -4,7 +4,7 @@
 // The econome and the Superior see the same page; what each may change is decided by the server.
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
-import { CURS, accountBooks, balanceOf, lastDay, monthSheetOf, prevMonth, totalUsd, type CtyBook, type Money } from '../../domain';
+import { CURS, accountBooks, balanceOf, forHouse, lastDay, zero, monthSheetOf, prevMonth, totalUsd, type CtyBook, type Money } from '../../domain';
 import { useRates } from '../usd';
 import { useCty, bookHelp, bookLabel, bookName } from '../CtyApp';
 import { BOOK_ICON } from '../icons';
@@ -50,7 +50,9 @@ function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => voi
     const disputed = d.entries.filter((e) => e.type === 'Transfer' && touches(e) && e.disputed_at).length;
     const notes = d.notes.filter((n) => n.book_id === b.id && !n.read_at && n.author_id !== sess.profile.id).length;
     const lastEntry = d.entries.filter(touches).reduce((mx, e) => (e.date > mx ? e.date : mx), '');
-    return { b, m, s, used, approvals, unconfirmed, disputed, notes, lastEntry, bal: balanceOf(d.entries, grp, end) };
+    const house = zero();
+    for (const v of forHouse(d.entries, ids, `${ym}-01`, lastDay(ym)).values()) for (const c of CURS) house[c] -= v[c];
+    return { b, m, s, used, approvals, unconfirmed, disputed, notes, lastEntry, house, bal: balanceOf(d.entries, grp, end) };
   }), [d, books, ym, end, sess.profile.id]);
   const neg = (x: Money): Money => ({ LOC: -x.LOC, USD: -x.USD, EUR: -x.EUR });
   const personal = (k: string | null) => k === 'personal' || k === 'house';
@@ -64,45 +66,52 @@ function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => voi
           <button disabled={ym >= today.slice(0, 7)} onClick={() => setYm(next(ym))}>›</button>
         </div>
       </div>
-      <p className="muted small">{t3('كل دفتر في الجماعة ومن يمسكه. اضغط على دفتر لترى تفاصيله: شهره، قيوده، وعدّ نقده.', 'Every book of the community and who keeps it. Click a book to see its details: its month, its entries, its counts.', 'Chaque compte de la communauté et qui le tient. Cliquez sur un compte pour voir son détail : son mois, ses écritures, ses comptages.')}</p>
-      <div className="cty-card desk-scroll">
-        <table className="desk-table">
-          <thead>
-            <tr>
-              <th>{t3('الدفتر', 'Book', 'Compte')}</th>
-              <th>{t3('يمسكه', 'Kept by', 'Tenu par')}</th>
-              <th>{t3('الشهر', 'Month', 'Mois')}</th>
-              <th>{t3('الرئيس', 'Superior', 'Supérieur')}</th>
-              {CURS.map((c) => <th key={c} className="num">{t3('الرصيد', 'Balance', 'Solde')} {curName(c, d.local)}</th>)}
-              <th className="num">{t3('الرصيد ≈ $', 'Balance ≈ $', 'Solde ≈ $')}</th>
-              <th className="num">{t3('صُرف في الشهر ≈ $', 'Spent this month ≈ $', 'Dépensé ce mois ≈ $')}</th>
-              <th>{t3('آخر قيد', 'Last entry', 'Dernière écriture')}</th>
-              <th>{t3('ينتظر', 'Waiting', 'En attente')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.b.id} className="click" onClick={() => onOpen(r.b.id)}>
-                <td><b>{BOOK_ICON[r.b.cty_kind ?? ''] ?? ''} {r.b.cty_kind === 'personal' ? bookName(r.b) : bookLabel(r.b)}</b></td>
-                <td className="small muted">{keptBy(r.b)}</td>
-                <td>{personal(r.b.cty_kind) ? (r.m ? <span className="ok">✓ {t3('مغلق', 'closed', 'clôturé')}</span> : r.used ? <span className="muted">{t3('مفتوح', 'open', 'ouvert')}</span> : <span className="muted">—</span>) : ''}
-                  {r.m && r.m.counted_loc != null && r.m.book_loc != null && r.m.counted_loc !== r.m.book_loc && <span className="desk-alert small"> · {t3('فرق', 'difference', 'écart')}</span>}</td>
-                <td>{r.m?.seen_at ? <span className="ok">✓</span> : r.m ? <span className="muted">…</span> : ''}</td>
-                {CURS.map((c) => <td key={c} className="num">{r.bal[c] ? money(r.bal[c], c) : <span className="muted">-</span>}</td>)}
-                <td className="num"><b>{totalUsd(r.bal, rates).usd ? money(totalUsd(r.bal, rates).usd, 'USD') : <span className="muted">-</span>}</b></td>
-                <td className="num">{totalUsd(neg(r.s.totalExpenses), rates).usd ? money(totalUsd(neg(r.s.totalExpenses), rates).usd, 'USD') : <span className="muted">-</span>}</td>
-                <td className="small muted">{r.lastEntry ? dayName(r.lastEntry) : '—'}</td>
-                <td className="small">
-                  {r.approvals > 0 && <span title={t3('بانتظار الرئيس', 'waiting for the Superior', 'en attente du Supérieur')}>⏳ {r.approvals} </span>}
-                  {r.unconfirmed > 0 && <span title={t3('مبالغ لم تؤكَّد', 'transfers not confirmed', 'transferts non confirmés')}>… {r.unconfirmed} </span>}
-                  {r.disputed > 0 && <span className="desk-alert" title={t3('قيل إن مبلغاً لم يصل', 'money said not received', 'montant dit non reçu')}>⚠ {r.disputed} </span>}
-                  {r.notes > 0 && <span title={t3('ملاحظات غير مقروءة', 'unread remarks', 'remarques non lues')}>✉︎ {r.notes}</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <p className="muted small">{t3('كل دفتر في الجماعة ومن يمسكه. اضغط على دفتر لترى تفاصيله: شهره، قيوده، وعدّ نقده.', 'Every book of the community, who keeps it, and where it stands. Click a card to see everything: its month, its entries, its counts.', 'Chaque compte de la communauté et qui le tient. Cliquez sur un compte pour voir son détail : son mois, ses écritures, ses comptages.')}</p>
+      {([
+        ['personal', t3('الإخوة', 'The brothers', 'Les frères')],
+        ['house', t3('البيت', 'The house', 'La maison')],
+        ['econ', t3('دفاتر القيم', "The econome's books", "Les comptes de l'économe")],
+      ] as const).map(([grp, title]) => {
+        const list = rows.filter((r) => (grp === 'econ' ? ['cash', 'economat'].includes(r.b.cty_kind ?? '') : r.b.cty_kind === grp));
+        if (!list.length) return null;
+        return (
+          <section key={grp}>
+            <h2 className="desk-h2">{title}</h2>
+            <div className="desk-bcards">
+              {list.map((r) => {
+                const usd = totalUsd(r.bal, rates).usd;
+                const spent = totalUsd(neg(r.s.totalExpenses), rates).usd;
+                const house = totalUsd(r.house, rates).usd;
+                return (
+                  <button key={r.b.id} className={`desk-bcard k-${r.b.cty_kind}`} onClick={() => onOpen(r.b.id)}>
+                    <div className="desk-bcard-top">
+                      <b>{BOOK_ICON[r.b.cty_kind ?? ''] ?? ''} {r.b.cty_kind === 'personal' ? bookName(r.b) : bookLabel(r.b)}</b>
+                      <span className="badges">
+                        {r.approvals > 0 && <i title={t3('بانتظار الرئيس', 'waiting for the Superior', 'en attente du Supérieur')}>⏳ {r.approvals}</i>}
+                        {r.unconfirmed > 0 && <i title={t3('مبالغ لم تؤكَّد', 'transfers not confirmed', 'transferts non confirmés')}>… {r.unconfirmed}</i>}
+                        {r.disputed > 0 && <i className="bad" title={t3('قيل إن مبلغاً لم يصل', 'money said not received', 'montant dit non reçu')}>⚠ {r.disputed}</i>}
+                        {r.notes > 0 && <i title={t3('ملاحظات غير مقروءة', 'unread remarks', 'remarques non lues')}>✉︎ {r.notes}</i>}
+                      </span>
+                    </div>
+                    <div className="small muted">{t3('يمسكه', 'Kept by', 'Tenu par')} {keptBy(r.b)}</div>
+                    <div className="desk-bcard-bal">
+                      {CURS.filter((c) => c === 'LOC' || r.bal[c]).map((c) => <div key={c}><b>{money(r.bal[c], c)}</b> <span className="muted">{curName(c, d.local)}</span></div>)}
+                      {CURS.some((c) => c !== 'LOC' && r.bal[c]) && <div className="small muted">≈ ${money(usd, 'USD')} {t3('الكل', 'in all', 'en tout')}</div>}
+                    </div>
+                    <div className="desk-bcard-foot">
+                      {personal(r.b.cty_kind) && <span>{r.m ? <span className="ok">✓ {t3('الشهر مغلق', 'month closed', 'mois clôturé')}</span> : r.used ? t3('الشهر مفتوح', 'month open', 'mois ouvert') : t3('لا قيود هذا الشهر', 'nothing this month', 'rien ce mois')}
+                        {r.m && r.m.counted_loc != null && r.m.book_loc != null && r.m.counted_loc !== r.m.book_loc && <span className="desk-alert"> · {t3('فرق', 'difference', 'écart')}</span>}
+                        {r.m && <> · {r.m.seen_at ? <span className="ok">✓ {t3('اطّلع الرئيس', 'seen by the Superior', 'vu par le Supérieur')}</span> : t3('لم يطّلع الرئيس', 'not seen yet', 'pas encore vu')}</>}</span>}
+                      {spent > 0 && <span>{t3('صُرف هذا الشهر', 'spent this month', 'dépensé ce mois')} ≈ ${money(spent, 'USD')}{house > 0 ? <> · 🏠 {t3('منها للبيت', 'of which for the house', 'dont maison')} ≈ ${money(house, 'USD')}</> : null}</span>}
+                      <span>{t3('آخر قيد', 'Last entry', 'Dernière écriture')}: {r.lastEntry ? dayName(r.lastEntry) : '—'}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
       <p className="muted small">⏳ {t3('بانتظار الرئيس', 'waiting for the Superior', 'en attente du Supérieur')} · … {t3('مبلغ لم يؤكَّد استلامه', 'money not yet confirmed as received', 'argent pas encore confirmé reçu')} · ⚠ {t3('قيل إنه لم يصل', 'said not received', 'dit non reçu')} · ✉︎ {t3('ملاحظات', 'remarks', 'remarques')}</p>
     </>
   );

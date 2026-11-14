@@ -3,6 +3,7 @@
 // the same checks. Same rules as the MAGIS centres for changes: every change of
 // an existing entry asks a reason, and a deletion keeps the whole entry in the audit.
 
+import { isHouseLine } from './chart';
 import type { Db, Stmt } from '../db/db';
 import { loadStyle, type CtyStyle } from './style';
 import { nowIso, one, uuid } from '../db/db';
@@ -12,7 +13,7 @@ import type { Perm } from '../perms';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CURS, accountBooks, approvalOf, balance, balanceOf, lastDay, leafAccounts, monthSheet, periodMonths, r2,
+  CURS, accountBooks, approvalOf, balance, balanceOf, forHouse, lastDay, leafAccounts, monthSheet, periodMonths, r2,
   type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
@@ -77,7 +78,7 @@ export interface CtyData {
 
 /** What the screen sends to save an entry (id absent = a new one). */
 export type EntryInput = Pick<CtyEntry, 'book_id' | 'date' | 'type' | 'cur' | 'amount'> &
-  Partial<Pick<CtyEntry, 'id' | 'account_id' | 'cur2' | 'amount2' | 'to_book_id' | 'note' | 'claim' | 'claim_note'>>;
+  Partial<Pick<CtyEntry, 'id' | 'account_id' | 'cur2' | 'amount2' | 'to_book_id' | 'note' | 'claim' | 'claim_note' | 'for_house'>>;
 
 // ---------------------------------------------------------------- permissions
 
@@ -132,9 +133,14 @@ export function entryProblems(e: EntryInput, accounts: CtyAccount[], books: CtyB
     else {
       if (acc.type !== e.type) out.push(m('هذا البند لا يناسب هذا النوع', 'This line does not belong to this type', 'Cette ligne ne correspond pas à ce type'));
       if (!leafAccounts(accounts).some((a) => a.id === acc.id)) out.push(m('اختر بنداً تفصيلياً', 'Choose a detailed line', 'Choisissez une ligne détaillée'));
-      if ((book?.cty_kind === 'personal' || book?.cty_kind === 'personal_bank') && acc.scope !== 'P') out.push(m('هذا البند لدفتر البيت', 'This line belongs to the house book', 'Cette ligne est pour le compte de la maison'));
+      // a Jesuit's own expense uses the personal lines; "For the house" may use every line (Fouad, 15 November 2026)
+      if (e.type === 'Exp' && (e.for_house || book?.cty_kind === 'house' || book?.cty_kind === 'envelope') && !isHouseLine(accounts, acc.id)) out.push(m('هذا البند ليس من بنود البيت', 'This line is not one of the house lines', "Cette ligne n'est pas une ligne de la maison"));
+      if ((book?.cty_kind === 'personal' || book?.cty_kind === 'personal_bank') && acc.scope !== 'P' && !(e.type === 'Exp' && e.for_house)) out.push(m('هذا البند لدفتر البيت', 'This line belongs to the house book', 'Cette ligne est pour le compte de la maison'));
     }
     if (e.to_book_id || e.cur2) out.push(m('حقول زائدة', 'Fields that do not belong to this type', "Champs qui n'appartiennent pas à ce type"));
+    // the econome's books have no expenses (Fouad, 15 November 2026): an expense is written by whoever spent it
+    if (e.type === 'Exp' && ['cash', 'bank', 'economat'].includes(book?.cty_kind ?? '')) out.push(m('لا نفقات في دفاتر القيم: تُكتب النفقة في دفتر من صرفها (يسوعي أو المدبر)', "No expenses in the econome's books: an expense is written in the book of whoever spent it (a Jesuit or the minister)", "Pas de dépenses dans les comptes de l'économe : une dépense s'écrit dans le compte de celui qui l'a faite (un jésuite ou le ministre)"));
+    if (e.for_house && !(e.type === 'Exp' && (book?.cty_kind === 'personal' || book?.cty_kind === 'personal_bank'))) out.push(m('«للبيت» لنفقة في دفتر يسوعي فقط', '"For the house" is only for an expense in a Jesuit\'s book', "« Pour la maison » seulement pour une dépense dans le compte d'un jésuite"));
   } else if (e.type === 'Transfer') {
     const to = books.find((b) => b.id === e.to_book_id);
     if (!to) out.push(m('إلى أي دفتر؟', 'To which book?', 'Vers quel compte ?'));
@@ -192,6 +198,7 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
     note: (e.note ?? '').trim() || null,
     claim: e.type === 'Exp' ? e.claim ?? null : null,
     claim_note: e.type === 'Exp' && e.claim ? (e.claim_note ?? '').trim() || null : null,
+    for_house: e.type === 'Exp' && e.for_house ? 1 : 0,
     // a changed transfer must be confirmed again by the receiver
     received_at: null, received_by: null, disputed_at: null, dispute_note: null,
     source: old?.source ?? null,
@@ -213,7 +220,8 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
     Object.assign(row, { received_at: old.received_at, received_by: old.received_by, disputed_at: old.disputed_at, dispute_note: old.dispute_note });
   }
   // The limit of the moment decides; an approved expense keeps its approval while amount and currency stay.
-  const appr = approvalOf(row, books.find((b) => b.id === row.book_id), await loadLimits(c.db), await loadEntries(c.db));
+  // (paid for the house: the house's limit)
+  const appr = approvalOf(row, row.for_house ? { cty_kind: 'house' } : books.find((b) => b.id === row.book_id), await loadLimits(c.db), await loadEntries(c.db));
   row.approval_needed = appr.needed ? 1 : 0;
   row.approval_usd = appr.usd;
   if (row.approval_needed) {
@@ -679,6 +687,13 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
       const t = (totals[k] ??= z());
       const p = (parts[b.cty_kind === 'house' ? 'house' : 'personal'][k] ??= z());
       for (const cur of CURS) { t[cur] = r2(t[cur] + v[cur]); p[cur] = r2(p[cur] + v[cur]); }
+    }
+    // what a Jesuit paid for the house goes from his part to the house's (Fouad, 15 November 2026)
+    if (b.cty_kind !== 'house') for (const [id, v] of forHouse(entries, new Set([b.id]), `${a.ym}-01`, lastDay(a.ym))) {
+      const k = code.get(id)?.code ?? '?';
+      const from = (parts.personal[k] ??= z());
+      const to = (parts.house[k] ??= z());
+      for (const cur of CURS) { from[cur] = r2(from[cur] - v[cur]); to[cur] = r2(to[cur] + v[cur]); }
     }
     for (const cur of CURS) {
       cash.carried[cur] = r2(cash.carried[cur] + s.carried[cur]);

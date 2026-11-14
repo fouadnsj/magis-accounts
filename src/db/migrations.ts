@@ -1770,4 +1770,13 @@ CREATE TABLE phone_photo (
 );
 `,
   },
+  {
+    n: 52,
+    name: 'communities: a Jesuit may spend for the house from his own pocket ("For the house")',
+    sql: `
+-- (Fouad, 2026-11-15) A Jesuit often pays something for the community (food, fuel...). The money leaves his pocket,
+-- but the expense counts with the house, not as his personal expense. 1 = for the house.
+ALTER TABLE cty_entry ADD COLUMN for_house INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

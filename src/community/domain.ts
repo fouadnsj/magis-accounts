@@ -67,6 +67,8 @@ export interface CtyEntry {
   refused_at: string | null;
   refused_by: string | null;
   refused_note: string | null;
+  /** an expense a Jesuit paid for the house from his own pocket: it counts with the house (Fouad, 15 November 2026) */
+  for_house: number;
   /** the country econome's decision on a claim (from the return file) */
   claim_status?: string | null;
   claim_accepted?: number | null;
@@ -263,6 +265,23 @@ export function sheet(entries: CtyEntry[], book: CtyBook, from: string, to: stri
   for (const map of [s.income, s.expenses]) for (const v of map.values()) for (const c of CURS) v[c] = r2(v[c]);
   return s;
 }
+
+/**
+ * The expenses Jesuits paid for the house from their own books (Fouad, 15 November 2026), by line, as in a sheet
+ * (negative amounts): they leave the pocket of the Jesuit but count with the house, not as personal expenses.
+ */
+export function forHouse(entries: CtyEntry[], bookIds: Set<number> | null, from: string, to: string): Map<number, Money> {
+  const out = new Map<number, Money>();
+  for (const e of entries) {
+    if (e.type !== 'Exp' || !e.for_house || e.date < from || e.date > to || (bookIds && !bookIds.has(e.book_id))) continue;
+    const v = out.get(e.account_id ?? 0) ?? zero();
+    v[e.cur] = r2(v[e.cur] - e.amount);
+    out.set(e.account_id ?? 0, v);
+  }
+  return out;
+}
+/** The entries without the expenses paid for the house (to count a Jesuit's own expenses). */
+export const ownOnly = (entries: CtyEntry[]) => entries.filter((e) => !(e.type === 'Exp' && e.for_house));
 
 export const monthSheet = (entries: CtyEntry[], book: CtyBook, ym: string) => sheet(entries, book, `${ym}-01`, lastDay(ym));
 /** The FDC "Total" tab: the whole year, October to September. */

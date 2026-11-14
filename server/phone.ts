@@ -6,6 +6,7 @@
 // A phone is paired once, by its owner signed in on it. It then holds a long random key (never the password); the
 // server keeps only the key's hash. A phone that has not come back for PHONE_DAYS days must be paired again, and
 // whoever manages the users can cut a phone off at once.
+import { isHouseLine } from '../src/community/chart';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { type Db, one } from '../src/db/db';
 import { auditStmt, blankTrx, closedMonths, getMeta, loadLists, loadTrx, UserError } from '../src/db/repo';
@@ -70,7 +71,7 @@ export interface PhonePack {
   books: { id: number; name: string; main: boolean; usd: number; syp: number; rate: number; bal?: Record<string, number>; kind?: string | null }[];
   headings: { id: number; name: string; code: string; types: PhoneType[]; names?: Msg }[];
   /** scope (communities): 'P' a line a Jesuit may use for himself; others are for the house */
-  lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null }[];
+  lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null; house?: boolean }[];
   parties: { id: number; name: string }[];
   /** months closed for everybody, and months this person's books are closed for */
   closed: string[];
@@ -147,6 +148,8 @@ export interface PhoneEntry {
   currency: string;
   /** an exchange: the pounds received */
   syp?: number;
+  /** a community: a Jesuit's expense paid for the house (1) */
+  for_house?: number;
   /** an exchange in a community: the currency and the amount received */
   cur2?: string | null;
   amount2?: number | null;
@@ -227,7 +230,7 @@ async function ctyPack(db: Db, profile: Profile, phone: PhoneRow): Promise<Phone
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const top = (a: CtyAccount) => { let h = a; while (h.parent_id != null && byId.get(h.parent_id)?.parent_id != null) h = byId.get(h.parent_id)!; return h; };
   const lines = leafAccounts(accounts).filter((a) => a.type === 'Exp' || a.type === 'Income')
-    .map((a) => ({ id: a.id, heading_id: top(a).id, name: a.name_en, code: a.code, names: accNames(a), scope: a.scope ?? null }));
+    .map((a) => ({ id: a.id, heading_id: top(a).id, name: a.name_en, code: a.code, names: accNames(a), scope: a.scope ?? null, house: isHouseLine(accounts, a.id) }));
   const heads = new Set(lines.map((l) => l.heading_id));
   const headings = accounts.filter((a) => heads.has(a.id)).sort((x, y) => x.sort - y.sort || x.code.localeCompare(y.code))
     .map((a) => ({ id: a.id, name: a.name_en, code: a.code, names: accNames(a), types: [a.type as PhoneType] }));
@@ -280,6 +283,7 @@ async function ctyPush(ctx: OpCtx, phone: PhoneRow, entries: PhoneEntry[]): Prom
           book_id: Number(e.book_id), date: String(e.date ?? ''), type: e.type, cur: e.currency, amount: Number(e.amount),
           account_id: ex ? null : Number(e.line_id) || null, to_book_id: null,
           cur2: ex ? String(e.cur2) : null, amount2: ex ? Number(e.amount2) : null, note, claim: null,
+          for_house: e.type === 'Exp' && e.for_house ? 1 : 0,
         },
       });
       await ctx.db.batch([auditStmt(ctx.who, 'phone-row', 'cty_entry', id, null, { phone: phone.name })]);

@@ -6,7 +6,7 @@
 // (The country econome has his own, by community, in country/Expenses.tsx: never a person.)
 import { Fragment, useMemo, useState } from 'react';
 import { errText, toast, todayIso } from '../../ui/kit';
-import { accountBooks, monthSheetOf, monthsOfYear, periodMonths, totalUsd, yearOf, type CtyBook, type Cur, type Money } from '../domain';
+import { accountBooks, forHouse, lastDay, monthSheetOf, ownOnly, monthsOfYear, periodMonths, totalUsd, yearOf, type CtyBook, type Cur, type Money } from '../domain';
 import { useCty, bookLabel, bookName } from './CtyApp';
 import { headingOf } from './Month';
 import { useRates } from './usd';
@@ -59,20 +59,24 @@ export function Report({ scope }: { scope: 'house' | 'community' }) {
   }, [from, to]);
 
   // expenses (positive) by member, month and line
+  const own = useMemo(() => ownOnly(d.entries), [d.entries]);
   const data = useMemo(() => {
     const out = new Map<string, Map<string, Map<number, Money>>>();
     for (const mb of members) {
       const per = new Map<string, Map<number, Money>>();
       for (const m of months) {
-        const s = monthSheetOf(d.entries, mb.books, m);
+        // a Jesuit's own expenses only; what the brothers paid "For the house" counts with the house (Fouad, 15 November 2026)
+        const s = monthSheetOf(mb.kind === 'house' ? d.entries : own, mb.books, m);
         const lines = new Map<number, Money>();
-        for (const [id, v] of s.expenses) lines.set(id, { LOC: -v.LOC, USD: -v.USD, EUR: -v.EUR });
+        const add = (id: number, v: Money) => { const t = lines.get(id) ?? { LOC: 0, USD: 0, EUR: 0 }; lines.set(id, { LOC: t.LOC - v.LOC, USD: t.USD - v.USD, EUR: t.EUR - v.EUR }); };
+        for (const [id, v] of s.expenses) add(id, v);
+        if (mb.kind === 'house') for (const [id, v] of forHouse(d.entries, null, `${m}-01`, lastDay(m))) add(id, v);
         per.set(m, lines);
       }
       out.set(mb.key, per);
     }
     return out;
-  }, [members, months, d.entries]);
+  }, [members, months, d.entries, own]);
 
   const val = (m: Money) => (cur === 'ALL' ? totalUsd(m, rates).usd : m[cur]);
   const fmt = (n: number) => money(n, cur === 'ALL' ? 'USD' : cur);

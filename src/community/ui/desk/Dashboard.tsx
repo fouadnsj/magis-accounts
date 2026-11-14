@@ -74,9 +74,9 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
 
       {/* the four things the econome does, "Give money" first: it is what he uses most */}
       {cash && d.kept.includes(cash.id) && (
-        <div className="desk-four">
+        <div className="desk-four three">
           <button className="give" onClick={give}><i>💰</i><b>{t3('إعطاء مال', 'Give money', 'Donner de l’argent')}</b><small>{t3('لأحد الإخوة أو للبيت', 'to a brother or to the house', 'à un frère ou à la maison')}</small></button>
-          <button className="out" onClick={() => write({ kind: 'Exp', bookId: cash.id })}><i>－</i><b>{t3('صرفتُ', 'Spent', 'Dépensé')}</b><small>{t3('نفقة من صندوق الجماعة', 'an expense from the community money', 'une dépense sur l’argent de la communauté')}</small></button>
+          {/* no "Spent": the econome's books have no expenses (Fouad, 15 November 2026) */}
           <button className="in" onClick={() => write({ kind: 'Income', bookId: cash.id })}><i>＋</i><b>{t3('قبضتُ', 'Received', 'Reçu')}</b><small>{t3('مال دخل الجماعة', 'money that came to the community', 'de l’argent arrivé à la communauté')}</small></button>
           <button className="exc" onClick={() => write({ kind: 'Exchange', bookId: cash.id })}><i>⇄</i><b>{t3('صرافة', 'Exchange', 'Change')}</b><small>{t3('تبديل عملة بأخرى', 'one currency for another', 'une monnaie contre une autre')}</small></button>
         </div>

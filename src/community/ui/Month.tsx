@@ -241,7 +241,7 @@ export function EntryRow({ e, showDate }: { e: CtyEntry; showDate?: boolean }) {
   const part = ids.size > 1 && fromBook && (e.type === 'Exp' || e.type === 'Income' || e.type === 'Exchange') ? ` · ${BOOK_ICON[fromBook.cty_kind ?? ''] ?? ''}${partLabel(fromBook)}` : '';
   let label: string;
   let sign: string;
-  if (e.type === 'Exp') { label = `${iconOf(acc?.code)} ${accName(acc)}${part}`; sign = '−'; }
+  if (e.type === 'Exp') { label = `${iconOf(acc?.code)} ${accName(acc)}${part}${e.for_house ? ` · 🏠 ${t3('للبيت', 'for the house', 'pour la maison')}` : ''}`; sign = '−'; }
   else if (e.type === 'Income') { label = `${iconOf(acc?.code)} ${accName(acc)}${part}`; sign = '+'; }
   else if (e.type === 'Transfer') {
     if (inner) { label = `↔ ${partLabel(fromBook!)} → ${partLabel(toBook!)}`; sign = ''; }

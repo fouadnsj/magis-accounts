@@ -60,7 +60,7 @@ const settingStmt = (key: string, value: string): Stmt => ({ sql: 'INSERT INTO s
 
 // ---------------------------------------------------------------- reading
 
-export interface PersonRow { id: number; name: string; active: number; hasBank: boolean; mustChange: number; bookId: number | null }
+export interface PersonRow { id: number; name: string; active: number; hasBank: boolean; mustChange: number; bookId: number | null; /** the econome keeps his book for him (he does not use the program) */ byEconome: boolean }
 export interface OfficeRow { office: Office; profileId: number; heldBy: string; mustChange: number }
 export interface PeoplePayload { persons: PersonRow[]; offices: OfficeRow[] }
 
@@ -68,13 +68,16 @@ export async function loadPeople(db: Db): Promise<PeoplePayload> {
   const ps = await db.query<{ id: number; name: string; cty_office: string | null; held_by: string | null; active: number; must_change: number }>('SELECT id, name, cty_office, held_by, active, must_change FROM profile ORDER BY active DESC, name');
   const persons: PersonRow[] = [];
   const offices: OfficeRow[] = [];
+  const econome = ps.find((p) => p.cty_office === 'econome')?.id ?? -1;
   for (const p of ps) {
     if (p.cty_office) {
       offices.push({ office: p.cty_office as Office, profileId: p.id, heldBy: p.held_by ?? '', mustChange: p.must_change });
       continue;
     }
     const books = await db.query<{ id: number; cty_kind: string; active: number }>('SELECT b.id, b.cty_kind, b.active FROM user_book ub JOIN book b ON b.id = ub.book_id WHERE ub.profile_id = ?', [p.id]);
-    persons.push({ id: p.id, name: p.name, active: p.active, mustChange: p.must_change, hasBank: books.some((b) => b.cty_kind === 'personal_bank' && b.active), bookId: books.find((b) => b.cty_kind === 'personal')?.id ?? null });
+    const bookId = books.find((b) => b.cty_kind === 'personal')?.id ?? null;
+    const byEconome = bookId != null && !!(await one(db, 'SELECT 1 AS x FROM user_book WHERE profile_id = ? AND book_id = ?', [econome, bookId]));
+    persons.push({ id: p.id, name: p.name, active: p.active, mustChange: p.must_change, hasBank: books.some((b) => b.cty_kind === 'personal_bank' && b.active), bookId, byEconome });
   }
   offices.sort((a, b) => OFFICES.indexOf(a.office) - OFFICES.indexOf(b.office));
   return { persons, offices };
@@ -103,7 +106,7 @@ async function requireCommunity(db: Db) {
 // ---------------------------------------------------------------- persons
 
 /** The administrator adds a Jesuit, renames him, marks that he left, or gives him a bank account. */
-async function savePerson(c: OpCtx, a: { id?: number | null; name: string; active?: number; password?: string | null; hasBank?: boolean }) {
+async function savePerson(c: OpCtx, a: { id?: number | null; name: string; active?: number; password?: string | null; hasBank?: boolean; byEconome?: boolean }) {
   await requireCommunity(c.db);
   const name = (a.name ?? '').trim();
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty', 'Le nom est vide'));
@@ -142,8 +145,22 @@ async function savePerson(c: OpCtx, a: { id?: number | null; name: string; activ
       { sql: "INSERT INTO user_book (profile_id, book_id) SELECT ?, (SELECT MAX(id) FROM book WHERE cty_kind = 'personal_bank')", params: [pid!] },
     );
   }
-  stmts.push(auditStmt(c.who, old ? 'edit' : 'add', 'profile', String(pid), old ? { name: old.name, active: old.active } : null, { name, active, hasBank: a.hasBank, password: a.password ? 'new' : undefined }));
+  stmts.push(auditStmt(c.who, old ? 'edit' : 'add', 'profile', String(pid), old ? { name: old.name, active: old.active } : null, { name, active, hasBank: a.hasBank, byEconome: a.byEconome, password: a.password ? 'new' : undefined }));
   await c.db.batch(stmts);
+  // a Jesuit who does not use the program: the econome keeps his book (and his bank) for him (Fouad, 15 November 2026);
+  // otherwise the econome writes in no one else's book
+  if (a.byEconome !== undefined) {
+    const econome = await one<{ id: number }>(c.db, "SELECT id FROM profile WHERE cty_office = 'econome'");
+    if (econome) {
+      const his = await c.db.query<{ book_id: number }>("SELECT ub.book_id FROM user_book ub JOIN book b ON b.id = ub.book_id WHERE ub.profile_id = ? AND b.cty_kind IN ('personal', 'personal_bank')", [pid!]);
+      const st: Stmt[] = [];
+      for (const b of his) {
+        st.push({ sql: 'DELETE FROM user_book WHERE profile_id = ? AND book_id = ?', params: [econome.id, b.book_id] });
+        if (a.byEconome) st.push({ sql: 'INSERT INTO user_book (profile_id, book_id) VALUES (?, ?)', params: [econome.id, b.book_id] });
+      }
+      await c.db.batch(st);
+    }
+  }
   return pid;
 }
 
@@ -217,7 +234,7 @@ export const PEOPLE_OPS = {
   },
   'cty.person.save': {
     check: (c: OpCtx) => { if (!can(c, 'users.manage')) throw refuse(); },
-    run: (c: OpCtx, a: { id?: number | null; name: string; active?: number; password?: string | null; hasBank?: boolean }) => savePerson(c, a),
+    run: (c: OpCtx, a: { id?: number | null; name: string; active?: number; password?: string | null; hasBank?: boolean; byEconome?: boolean }) => savePerson(c, a),
   },
   'cty.office.save': {
     check: (c: OpCtx) => { if (!can(c, 'users.manage')) throw refuse(); },

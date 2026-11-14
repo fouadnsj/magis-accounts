@@ -378,3 +378,10 @@
 .cty-hatchip { display: inline-block; background: var(--hat); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 650; margin-inline-end: 6px; }
 .cty-saveas { border-inline-start: 5px solid var(--hat); background: var(--hat-soft); padding: 6px 10px; border-radius: 6px; font-size: 13px; margin: 8px 0 4px; }
 .cty-saveas b { color: var(--hat); }
+/* "For me / For the house" on a Jesuit's expense (2026-11-15) */
+.cty-forwho { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 10px; }
+.cty-forwho button { flex: 1; font: inherit; font-size: 15px; padding: 9px 10px; border-radius: 10px; border: 1.5px solid var(--c-line); background: #fff; cursor: pointer; }
+.cty-forwho button.on.me { border-color: var(--c-deep); background: var(--c-soft); font-weight: 650; }
+.cty-forwho button.on.house { border-color: #c47a12; background: #fdf3e3; color: #8a5208; font-weight: 650; }
+.cty-forwho small { width: 100%; color: #8a5208; }
+.cty-tag-house { display: inline-block; font-size: 11px; border-radius: 8px; padding: 0 6px; background: #fdf3e3; color: #8a5208; margin-inline-start: 4px; }

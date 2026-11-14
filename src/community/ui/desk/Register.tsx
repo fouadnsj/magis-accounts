@@ -140,7 +140,7 @@ export function Register({ initialBook, initialYm, fixed }: { initialBook: numbe
                   <td className="muted">{e.n}</td>
                   <td>{e.date.slice(8, 10)}/{e.date.slice(5, 7)}</td>
                   {!book && <td>{bookName(d.books.find((b) => b.id === e.book_id))}</td>}
-                  <td>{label(e)}</td>
+                  <td>{label(e)}{e.for_house ? <span className="cty-tag-house">🏠 {t3('للبيت', 'for the house', 'pour la maison')}</span> : null}</td>
                   <td className="desk-note">{e.note}</td>
                   {CURS.map((c) => <td key={c} className={`num ${fx[c] < 0 ? 'out' : fx[c] > 0 ? 'in' : ''}`}>{fx[c] ? money(fx[c], c) : ''}</td>)}
                   {running && CURS.map((c) => <td key={'b' + c} className="num muted">{money(running.out.get(e.id)![c], c)}</td>)}

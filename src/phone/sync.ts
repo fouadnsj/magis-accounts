@@ -45,7 +45,7 @@ export async function sync(key: string): Promise<{ pack: Pack; result: SyncResul
   const res = { sent: 0, refused: 0, photos: 0 };
   let pack: Pack;
   if (waiting.length) {
-    const body = { rows: waiting.map((r) => ({ id: r.id, book_id: r.book_id, date: r.date, type: r.type, heading_id: r.heading_id, line_id: r.line_id, explanation: r.explanation, receipt: r.receipt || null, amount: r.amount, currency: r.currency, syp: r.syp, cur2: r.cur2, amount2: r.amount2 })) };
+    const body = { rows: waiting.map((r) => ({ id: r.id, book_id: r.book_id, date: r.date, type: r.type, heading_id: r.heading_id, line_id: r.line_id, explanation: r.explanation, receipt: r.receipt || null, amount: r.amount, currency: r.currency, syp: r.syp, cur2: r.cur2, amount2: r.amount2, for_house: r.for_house ? 1 : 0 })) };
     const out = await call<{ results: { id: string; ok: boolean; error?: Msg }[]; pack: Pack }>('/api/phone/push', body, key);
     for (const x of out.results) {
       const r = waiting.find((w) => w.id === x.id);

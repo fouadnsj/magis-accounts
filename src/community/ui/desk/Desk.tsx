@@ -17,6 +17,7 @@ import { MemberMonth } from './MemberMonth';
 import { Claims } from './Claims';
 import { Quarter } from './Quarter';
 import { Books } from './Books';
+import { Report } from '../Report';
 import { Chart } from './Chart';
 import { PeopleScreen } from '../People';
 import { RolesScreen } from '../Roles';
@@ -24,7 +25,7 @@ import { SendMonth } from './SendMonth';
 import { Statement } from './Statement';
 import { HostCharges } from './HostCharges';
 
-export type DeskPage = 'people' | 'dash' | 'books' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'chart' | 'mine' | 'settings' | 'roles';
+export type DeskPage = 'people' | 'dash' | 'books' | 'report' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'chart' | 'mine' | 'settings' | 'roles';
 
 export interface DeskNav {
   page: DeskPage;
@@ -53,6 +54,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
     each: t3('حساب كل واحد', "Each one's account", 'Le compte de chacun'),
     mine: t3('دفاتري', 'My books', 'Mes comptes'),
     approvals: t3('للموافقة', 'To approve', 'À approuver'),
+    report: t3('تقرير النفقات', 'Expenses report', 'Rapport des dépenses'),
   };
   const sections: { key: string; label: string; badge?: number; tabs: Tab[] }[] = superior ? [
     { key: 'approve', label: T.approvals, badge: waiting, tabs: [{ page: 'approvals', label: T.approvals }] },
@@ -62,8 +64,9 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
     { key: 'settings', label: t3('الإعدادات', 'Settings', 'Réglages'), tabs: [{ page: 'settings', label: t3('اللغة واللوحة', 'Language & control panel', 'Langue et tableau de bord') }] },
   ] : [
     { key: 'today', label: T.today, tabs: [{ page: 'dash', label: T.today, hidden: !sees }] },
-    { key: 'entries', label: t3('القيود', 'Entries', 'Écritures'), tabs: [
-      { page: 'register', label: T.list, hidden: !sees }, { page: 'quarter', label: T.charts, hidden: !sees }] },
+    // the entries and the report on the expenses (Fouad, 14 November 2026: "a wider vision")
+    { key: 'entries', label: t3('القيود والتقارير', 'Entries & reports', 'Écritures et rapports'), tabs: [
+      { page: 'register', label: T.list, hidden: !sees }, { page: 'report', label: T.report, hidden: !sees }, { page: 'quarter', label: T.charts, hidden: !sees }] },
     // "The books": every brother, the house, the cash, the économat, as the holders in MAGIS (Fouad, 14 November 2026)
     { key: 'books', label: t3('الدفاتر', 'The books', 'Les comptes'), badge: can('cty.month_seen') ? waiting : undefined, tabs: [
       { page: 'books', label: t3('كل الدفاتر', 'All the books', 'Tous les comptes'), hidden: !sees }, { page: 'mine', label: T.mine, hidden: !myBooks.length },
@@ -116,6 +119,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         {nav.page === 'send' && <SendMonth />}
         {nav.page === 'statement' && <Statement />}
         {nav.page === 'host' && <HostCharges />}
+        {nav.page === 'report' && <Report scope="community" />}
         {nav.page === 'books' && <Books initialBook={nav.bookId ?? null} initialYm={nav.ym} />}
         {nav.page === 'chart' && <Chart />}
         {nav.page === 'mine' && <div className="desk-narrow"><MyBooks /></div>}

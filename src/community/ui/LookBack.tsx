@@ -14,7 +14,7 @@ import { accName, curName, money, monthName, periodName, t3, yearName } from './
 type Mode = 'month' | 'quarter' | 'year';
 
 export function LookBack() {
-  const { d, book } = useCty();
+  const { d, book, go } = useCty();
   const today = todayIso();
   const [mode, setMode] = useState<Mode>('quarter');
   const [ym, setYm] = useState(today.slice(0, 7));
@@ -105,6 +105,9 @@ export function LookBack() {
         {parts.length > 0 && <p className="muted small">{t3('اضغط على بند لترى تفاصيله.', 'Tap a heading to see its lines.', 'Touchez une rubrique pour voir ses lignes.')}</p>}
       </Card>
 
+      {book.cty_kind === 'house' && (
+        <button className="btn cty-wide" onClick={() => go('report')}>📊 {t3('تقرير البيت المفصّل: حسب البند، شهراً بشهر، مقارنة', 'The detailed house report: by category, month by month, compare', 'Le rapport détaillé de la maison : par catégorie, mois par mois, comparer')}</button>
+      )}
       {mode !== 'month' && (
         <Card>
           <div className="cty-label">{t3('شهراً بشهر', 'Month by month', 'Mois par mois')}</div>

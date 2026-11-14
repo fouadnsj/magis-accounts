@@ -18,13 +18,14 @@ import { NotesScreen } from './Notes';
 import { Approvals } from './Approvals';
 import { SettingsScreen } from './Settings';
 import { Desk } from './desk/Desk';
+import { Report } from './Report';
 import { officeLabel } from './People';
 import { ctyHat, ctyHats, type CtyHats } from '../../net';
 import { PageGuard, ServerTooOld } from './Guard';
 import './cty.css';
 import './desk/desk.css';
 
-export type View = 'month' | 'look' | 'records' | 'notes' | 'approvals' | 'settings';
+export type View = 'month' | 'look' | 'records' | 'notes' | 'approvals' | 'settings' | 'report';
 
 interface Ctx {
   s: Session;
@@ -168,11 +169,12 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
             ))}
           </nav>
         )}
-        <main className="cty-page">
+        <main className={`cty-page ${view === 'report' ? 'cty-page-wide' : ''}`}>
           {err && <div className="alert err">{err}</div>}
           <PageGuard page={`${view}:${book.id}`}>
             {view === 'month' && <MonthScreen key={book.id} />}
             {view === 'look' && <LookBack key={book.id} />}
+            {view === 'report' && <><button className="btn" onClick={() => setView('look')}>‹ {t3('رجوع', 'Back', 'Retour')}</button><Report scope="house" /></>}
             {view === 'records' && <RecordsScreen key={book.id} />}
             {view === 'notes' && <NotesScreen />}
             {view === 'approvals' && approver && <Approvals />}
@@ -187,7 +189,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
         )}
         <nav className="cty-bar">
           <Tab on={view === 'month'} onClick={() => setView('month')} icon="◔" label={t3('شهري', 'My month', 'Mon mois')} />
-          <Tab on={view === 'look'} onClick={() => setView('look')} icon="▤" label={t3('نظرة', 'Look back', 'Regard')} />
+          <Tab on={view === 'look' || view === 'report'} onClick={() => setView('look')} icon="▤" label={t3('نظرة', 'Look back', 'Regard')} />
           <Tab on={view === 'records'} onClick={() => setView('records')} icon="☰" label={t3('كل القيود', 'Records', 'Écritures')} />
           <Tab on={view === 'notes'} onClick={() => setView('notes')} icon="✉︎" label={t3('ملاحظات', 'Notes', 'Notes')} badge={unread} />
           {approver && <Tab on={view === 'approvals'} onClick={() => setView('approvals')} icon="✓" label={t3('موافقات', 'Approvals', 'Accords')} badge={approvalsWaiting(d)} />}

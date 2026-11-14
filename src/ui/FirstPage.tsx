@@ -242,7 +242,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
             <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
           </button>
         )}
-        <button type="button" className="mg-door" style={{ '--centre': '#23263a', '--centre-deep': '#23263a' } as CSSProperties} onClick={() => setStep('admin')} aria-label={t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}>
+        <button type="button" className="mg-door" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d' } as CSSProperties} onClick={() => setStep('admin')} aria-label={t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}>
           <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/phone-192.png" alt="" className="round" /></div>
           <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>
           <div className="mg-said mg-door-said"><p className="tr" dir="ltr">AMDG</p></div>

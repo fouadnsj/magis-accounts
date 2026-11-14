@@ -2,7 +2,7 @@
 // the Jesuit mark and the MAGIS sun, and one card per database in its centre's colour.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type CentreKey } from '../brand';
-import { getLang, m, tx } from '../i18n';
+import { getLang, m, tx, type Msg } from '../i18n';
 import type { DbInfo, DirInfo } from '../net';
 import { mainListApi, serverCreateDb, serverImportDb, serverPeekDb, type DbFileInfo } from '../net';
 import { pickFile, toBase64 } from '../platform';
@@ -449,21 +449,27 @@ export function OwnBrand({ color, setColor, logo, setLogo }: { color: string; se
   );
 }
 
-export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => void; onCreated: (slug: string) => void; /** a community or country: no centre colours (they are chosen at setup) */ community?: boolean }) {
+/** what a new database is (Fouad, 14 November 2026: "not clear if I am creating a MAGIS db, HR db or cty db") */
+type NewKind = 'centre' | 'hr' | 'community' | 'country';
+
+export function CreateDb({ onCancel, onCreated, community: onlyCty }: { onCancel?: () => void; onCreated: (slug: string) => void; /** from the communities' side: a community or a country only */ community?: boolean }) {
+  // the first step: which kind (the communities' side offers its two only)
+  const [kind, setKind] = useState<NewKind | null>(null);
+  const community = kind === 'community' || kind === 'country';
   const [name, setName] = useState('');
   const [centre, setCentre] = useState<CentreKey | 'own' | null>(null);
   const [color, setColor] = useState('#2E7D32');
   const [logo, setLogo] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [ctyKind, setCtyKind] = useState<'community' | 'country'>('community');
-  const [isHr, setIsHr] = useState(false);
+  const ctyKind: 'community' | 'country' = kind === 'country' ? 'country' : 'community';
+  const isHr = kind === 'hr';
   // the list of headings and lines it follows (Fouad, 2026-11-07), when the server has lists
   const [lists, setLists] = useState<{ id: string; title: string }[]>([]);
   const [mainList, setMainList] = useState<string | null>(null);
   useEffect(() => {
-    if (!community) mainListApi.names().then((x) => { setLists(x); setMainList(x[0]?.id ?? null); }).catch(() => setLists([]));
-  }, [community]);
+    if (kind === 'centre') mainListApi.names().then((x) => { setLists(x); setMainList(x[0]?.id ?? null); }).catch(() => setLists([]));
+  }, [kind]);
   const chosen = centre ?? (name ? guessCentre(name) : null);
   // a database that exists elsewhere (a backup, an HR database made on another server): the file comes first; what is in
   // it is shown (its name, its users), then it is created under its own name (Fouad, 2026-11-12)
@@ -495,30 +501,47 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
     }
   };
   if (imp) return <ImportDb imp={imp} onBack={() => setImp(null)} onCreated={onCreated} />;
+  const KINDS: { k: NewKind; img: string; title: Msg; text: Msg }[] = [
+    { k: 'centre', img: '/brand/magis-sun.png', title: m('حسابات مركز ماجيس', 'MAGIS centre accounts', 'Comptes d’un centre MAGIS'), text: m('مركز، أو سنة جديدة، أو مشروع: السجل، الموازنة، المنح.', 'A centre, a new year or a project: the register, the budget, the grants.', 'Un centre, une nouvelle année ou un projet : registre, budget, subventions.') },
+    { k: 'hr', img: '/brand/magis-sun.png', title: m('الموارد البشرية', 'Human resources (HR)', 'Ressources humaines (RH)'), text: m('الأشخاص، الاتفاقيات، الرواتب، الوثائق. خاصة.', 'People, agreements, payroll, documents. Private.', 'Personnes, accords, paies, documents. Privée.') },
+    { k: 'community', img: '/brand/jesuits.png', title: m('جماعة يسوعية', 'A Jesuit community', 'Une communauté jésuite'), text: m('اليسوعيون وبيتهم، والقيم.', 'The Jesuits, their house, the econome.', "Les jésuites, leur maison, l'économe.") },
+    { k: 'country', img: '/brand/jesuits.png', title: m('قيم البلد', 'The country econome', "L'économe du pays"), text: m('ملفات الجماعات، المطالبات، الحساب مع الإقليم.', "The communities' files, claims, the account with the Province.", 'Fichiers des communautés, réclamations, compte avec la Province.') },
+  ];
+  const offered = KINDS.filter((x) => !onlyCty || x.k === 'community' || x.k === 'country');
+  if (!kind)
+    return (
+      <div className="panel" style={{ maxWidth: 820, margin: '0 auto' }}>
+        <h2>{t('قاعدة بيانات جديدة: ما هي؟', 'A new database: what is it?')}</h2>
+        <div className="newdb-kinds">
+          {offered.map((x) => (
+            <button key={x.k} type="button" className={`newdb-kind k-${x.k}`} onClick={() => setKind(x.k)}>
+              <img src={x.img} alt="" />
+              <b>{tx(x.title)}</b>
+              <span>{tx(x.text)}</span>
+            </button>
+          ))}
+        </div>
+        {!onlyCty && (
+          <p className="muted small" style={{ marginTop: 14 }}>
+            <button className="btn" disabled={busy} onClick={() => void fromFile()}>⬆ {t('من ملف قاعدة بيانات…', 'From a database file…')}</button>{' '}
+            {t('ملف ‎.db (نسخة احتياطية، أو قاعدة من خادم آخر) يأتي كما هو، بنوعه واسمه.', 'A .db file (a backup, or a database from another server) comes as it is, with its kind and its name.')}
+          </p>
+        )}
+        {err && <div className="alert err">{err}</div>}
+        {onCancel && <div className="modal-foot"><button className="btn" onClick={onCancel}>{t('رجوع', 'Back')}</button></div>}
+      </div>
+    );
+  const chosenKind = KINDS.find((x) => x.k === kind)!;
   return (
     <div className="panel" style={{ maxWidth: 720, margin: '0 auto' }}>
-      <h2>{community ? tx(m('جماعة أو بلد جديد', 'A new community or country', 'Une nouvelle communauté ou un pays')) : t('قاعدة بيانات جديدة', 'New database')}</h2>
-      {community && (
-        <div className="choice" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))', marginBottom: 12 }}>
-          <button type="button" className={ctyKind === 'community' ? 'on' : ''} onClick={() => setCtyKind('community')}>
-            <b>{tx(m('جماعة جديدة', 'A new community', 'Une nouvelle communauté'))}</b>
-            <span className="muted small">{tx(m('اليسوعيون وبيتهم، والقيم.', 'The Jesuits, their house, the econome.', "Les jésuites, leur maison, l'économe."))}</span>
-          </button>
-          <button type="button" className={ctyKind === 'country' ? 'on' : ''} onClick={() => setCtyKind('country')}>
-            <b>{tx(m('بلد جديد (قيم البلد)', 'A new country (country econome)', 'Un nouveau pays (économe du pays)'))}</b>
-            <span className="muted small">{tx(m('ملفات الجماعات، المطالبات، المصالحة.', "The communities' files, claims, reconciliation.", 'Fichiers des communautés, réclamations, réconciliation.'))}</span>
-          </button>
-        </div>
-      )}
-      <Field label={community ? (ctyKind === 'country' ? tx(m('اسم البلد', 'Name of the country', 'Nom du pays')) : tx(m('اسم الجماعة', 'Name of the community', 'Nom de la communauté'))) : t('الاسم (مثلاً: ماجيس حمص، حمص 2027، تجربة)', 'Name (e.g. MAGIS Homs, Homs 2027, Test)')}>
+      <div className={`newdb-chosen k-${kind}`}>
+        <img src={chosenKind.img} alt="" />
+        <div><span className="muted small">{t('قاعدة بيانات جديدة', 'New database')}</span><h2 style={{ margin: 0 }}>{tx(chosenKind.title)}</h2></div>
+        <button type="button" className="btn small ghost" onClick={() => { setKind(null); setErr(null); }}>{t('تغيير النوع', 'Change the kind')}</button>
+      </div>
+      <Field label={community ? (ctyKind === 'country' ? tx(m('اسم البلد', 'Name of the country', 'Nom du pays')) : tx(m('اسم الجماعة', 'Name of the community', 'Nom de la communauté'))) : isHr ? t('الاسم (مثلاً: الموارد البشرية)', 'Name (e.g. Human resources)') : t('الاسم (مثلاً: ماجيس حمص، حمص 2027، تجربة)', 'Name (e.g. MAGIS Homs, Homs 2027, Test)')}>
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      {!community && (
-        <label className="row" style={{ gap: 8, marginTop: 12 }}>
-          <input type="checkbox" checked={isHr} onChange={(e) => setIsHr(e.target.checked)} />
-          <span><b>{tx(m('هذه قاعدة الموارد البشرية', 'This is the HR database', "C'est la base des ressources humaines"))}</b> <span className="muted small">{tx(m('خاصة: الأشخاص والاتفاقيات والوثائق', 'private: people, agreements, documents', 'privée : personnes, accords, documents'))}</span></span>
-        </label>
-      )}
       {!community && !isHr && <><HousePick chosen={chosen} setCentre={setCentre} color={color} setColor={setColor} logo={logo} setLogo={setLogo} />
       {lists.length > 0 && (
         <Field label={t('قائمة البنود والخطوط (تُؤخذ كلها، ثم يُوقف ما لا يُستعمل)', 'List of headings and lines (taken whole; then switch off what is not used)')}>
@@ -529,12 +552,11 @@ export function CreateDb({ onCancel, onCreated, community }: { onCancel?: () => 
       )}</>}
       <p className="muted small">{community
         ? tx(m('بعدها: العنوان والألوان والأشخاص.', 'Next: its address, colours and people.', 'Ensuite : adresse, couleurs et personnes.'))
+        : isHr ? t('بعدها: أول مستخدم وكلمة سره.', 'Next: its first user and password.')
         : t('بعدها: تبدأ من ملف Excel، أو فارغة، أو من ملف البرنامج المكتبي.', 'Next: start from the Excel workbook, empty, or from the desktop program\'s file.')}</p>
-      {!community && <p className="muted small">{t('«من ملف قاعدة بيانات»: ملف ‎.db (نسخة احتياطية، أو قاعدة موارد بشرية من خادم آخر…) يأتي كما هو باسمه: الأشخاص والوثائق والمستخدمون معه. لا حاجة لكتابة الاسم هنا.', '"From a database file": a .db file (a backup, an HR database from another server…) comes as it is, under its own name — its people, documents and users with it. No need to write the name here.')}</p>}
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">
         {onCancel && <button className="btn" onClick={onCancel}>{t('رجوع', 'Back')}</button>}
-        {!community && <button className="btn" disabled={busy} onClick={() => void fromFile()}>⬆ {t('من ملف قاعدة بيانات…', 'From a database file…')}</button>}
         <button className="btn primary" disabled={!name.trim() || busy} onClick={go}>{t('متابعة', 'Continue')}</button>
       </div>
     </div>

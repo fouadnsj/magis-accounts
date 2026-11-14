@@ -785,3 +785,16 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 
 /* the full program opened from the phone app: one tap back to it (2026-11-14) */
 .back-to-phone { position: fixed; inset-inline-end: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 300; width: 52px; height: 52px; border-radius: 50%; background: #23263a; color: #fff; display: grid; place-items: center; font-size: 24px; text-decoration: none; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+
+/* a new database: first, what it is (2026-11-14) */
+.newdb-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 8px; }
+.newdb-kind { font: inherit; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 18px 12px; background: #fff; border: 1px solid #e6dfc9; border-top: 4px solid #B8891B; border-radius: 14px; cursor: pointer; }
+.newdb-kind:hover { border-color: #B8891B; box-shadow: 0 6px 18px rgba(120, 90, 20, 0.15); }
+.newdb-kind img { height: 52px; }
+.newdb-kind b { font-size: 16px; color: #3d2f0c; }
+.newdb-kind span { color: #6b6b6b; font-size: 13px; }
+.newdb-kind.k-hr { border-top-color: #6b3fa0; }
+.newdb-kind.k-community, .newdb-kind.k-country { border-top-color: #7a1414; }
+.newdb-chosen { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid #e6dfc9; }
+.newdb-chosen img { height: 44px; }
+.newdb-chosen > div { flex: 1; }

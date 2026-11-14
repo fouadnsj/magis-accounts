@@ -669,6 +669,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
   const code = new Map(accounts.map((x) => [x.id, x]));
   const z = (): Money => ({ LOC: 0, USD: 0, EUR: 0 });
   const totals: Record<string, Money> = {};
+  const parts: { personal: Record<string, Money>; house: Record<string, Money> } = { personal: {}, house: {} };
   const cash = { carried: z(), received: z(), givenBack: z(), kept: z(), income: z(), expenses: z() };
   const people = books.filter((b) => b.cty_kind === 'personal' || b.cty_kind === 'personal_bank' || b.cty_kind === 'house');
   for (const b of people) {
@@ -676,7 +677,8 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
     for (const [id, v] of [...s.income, ...s.expenses]) {
       const k = code.get(id)?.code ?? '?';
       const t = (totals[k] ??= z());
-      for (const cur of CURS) t[cur] = r2(t[cur] + v[cur]);
+      const p = (parts[b.cty_kind === 'house' ? 'house' : 'personal'][k] ??= z());
+      for (const cur of CURS) { t[cur] = r2(t[cur] + v[cur]); p[cur] = r2(p[cur] + v[cur]); }
     }
     for (const cur of CURS) {
       cash.carried[cur] = r2(cash.carried[cur] + s.carried[cur]);
@@ -702,7 +704,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
     kind: MONTH_FILE, version: 1,
     community: { uid: await communityUid(c.db), name: (await getMeta(c.db, 'organisation')) ?? '', country: await getMeta(c.db, 'country'), local: (await getMeta(c.db, 'local_currency')) ?? 'SYP' },
     ym: a.ym, made_at: nowIso(), made_by: c.who,
-    totals, cash, books: { cash: at('cash'), bank: at('bank'), economat: at('economat') },
+    totals, parts, cash, books: { cash: at('cash'), bank: at('bank'), economat: at('economat') },
     members: books.filter((b) => b.cty_kind === 'personal' && b.active).length,
     claims,
     charges: (await c.db.query<FileCharge & { status: string }>("SELECT id, date, to_uid, to_name, person, cur, amount, note, status FROM cty_charge WHERE substr(date, 1, 7) = ? ORDER BY date, id", [a.ym]))

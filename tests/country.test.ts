@@ -1,6 +1,7 @@
 // From the communities to the country econome and back: the monthly file (totals only),
 // claims decided, charges between communities, the account at the économat, the
 // year-end reconciliation, and the return file.
+import { r2 } from '../src/community/domain';
 import { describe, expect, it, beforeAll } from 'vitest';
 import type { Db } from '../src/db/db';
 import { loadProfile } from '../src/auth';
@@ -62,6 +63,10 @@ describe('a community: its month, consolidated, then its file', () => {
     expect(f.totals['63100'].LOC).toBe(-40000);
     expect(f.cash.expenses.LOC).toBe(-90000);
     expect(f.claims.map((c) => [c.amount, c.reason, c.book_kind, c.person])).toEqual([[30000, 'health', 'personal', 'JesA']]);
+    // personal and house apart (Fouad, 14 November 2026), adding up to the totals, with no name in them
+    for (const code of Object.keys(f.totals))
+      expect(r2((f.parts!.personal[code]?.LOC ?? 0) + (f.parts!.house[code]?.LOC ?? 0))).toBe(f.totals[code].LOC);
+    expect(JSON.stringify(f.parts)).not.toMatch(/JesA|JesB|Minister/);
   });
 });
 

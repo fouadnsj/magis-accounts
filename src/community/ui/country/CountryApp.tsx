@@ -21,13 +21,14 @@ import { Comparison, kindName, statusName } from '../desk/Statement';
 import { exportExcel } from '../desk/excel';
 import { ChartTable } from '../desk/Chart';
 import { Expenses } from './Expenses';
+import { CtyReport } from './CtyReport';
 import { WhoIs } from '../CtyApp';
 import { PageGuard, ServerTooOld } from '../Guard';
 import { Ring } from '../charts';
 import '../cty.css';
 import '../desk/desk.css';
 
-type Page = 'dash' | 'expenses' | 'claims' | 'charges' | 'accounts' | 'reco' | 'totals' | 'ctys' | 'chart' | 'settings';
+type Page = 'dash' | 'report' | 'expenses' | 'claims' | 'charges' | 'accounts' | 'reco' | 'totals' | 'ctys' | 'chart' | 'settings';
 let NAMES = new Map<string, { en: string; fr: string; ar: string }>(CHART.map((a) => [a.code, a]));
 /** The name of a code, from the country's chart (kept up to date when the data loads). */
 const codeName = (code: string) => {
@@ -66,6 +67,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
       { p: 'reco', label: t3('مصالحة آخر السنة', 'Year-end check', 'Vérification de fin d’année') },
     ] },
     { title: t3('معلومات', 'Information', 'Informations'), items: [
+      { p: 'report', label: t3('تقرير الجماعات', 'Communities report', 'Rapport des communautés') },
       { p: 'expenses', label: t3('النفقات بالتفصيل', 'Expenses in detail', 'Dépenses en détail') },
       { p: 'totals', label: t3('المجاميع حسب الرمز', 'Totals by code', 'Totaux par code') },
       { p: 'ctys', label: t3('الجماعات وملفات الرجوع', 'Communities & return files', 'Communautés et retours') },
@@ -97,6 +99,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
         {page === 'charges' && <Charges {...ctx} />}
         {page === 'accounts' && <Accounts {...ctx} />}
         {page === 'reco' && <Reco {...ctx} />}
+        {page === 'report' && <CtyReport d={d} />}
         {page === 'expenses' && <Expenses d={d} />}
         {page === 'totals' && <Totals {...ctx} />}
         {page === 'ctys' && <Ctys {...ctx} />}
@@ -162,7 +165,7 @@ function CommunityStatus({ d, go }: { d: CountryData; go: (p: Page) => void }) {
         </tr></thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.c.id} className="click" onClick={() => go('expenses')}>
+            <tr key={r.c.id} className="click" onClick={() => go('report')}>
               <td><b>{r.c.name}</b></td>
               <td>{r.last ? monthName(r.last.ym) : <span className="desk-alert">{t3('لا ملف', 'no file', 'aucun fichier')}</span>}</td>
               <td className="num">{r.last ? money(usd(r.last.file.books.cash), 'USD') : '—'}</td>

@@ -42,6 +42,12 @@ export interface MonthFile {
   made_by: string;
   /** income (+) and expenses (−) by code, members and house together */
   totals: Record<string, Money>;
+  /**
+   * The same totals in two parts (Fouad, 14 November 2026): the members' personal accounts together, and the house.
+   * Never one person: the country econome sees "personal expenses of the community", not a Jesuit's.
+   * (Files made before 14 November 2026 have no parts.)
+   */
+  parts?: { personal: Record<string, Money>; house: Record<string, Money> };
   /** members and house together: carried over, received from the econome, given back, kept */
   cash: { carried: Money; received: Money; givenBack: Money; kept: Money; income: Money; expenses: Money };
   /** what the econome's books held at the end of the month */

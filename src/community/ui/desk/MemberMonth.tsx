@@ -11,7 +11,8 @@ import { CountHistory } from '../CountHistory';
 import { accName, curName, money, monthName, t3 } from '../text';
 import { exportExcel } from './excel';
 
-export function MemberMonth({ initialBook, initialYm }: { initialBook: number | null; initialYm?: string }) {
+/** fixed: opened from "The books" on one book (no other book to choose). */
+export function MemberMonth({ initialBook, initialYm, fixed }: { initialBook: number | null; initialYm?: string; fixed?: boolean }) {
   const { d, s, reload, can } = useCty();
   const today = todayIso();
   const people = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
@@ -92,12 +93,32 @@ export function MemberMonth({ initialBook, initialYm }: { initialBook: number | 
         </div>
       </div>
       <div className="desk-filters">
-        <select value={book.id} onChange={(e) => setBookId(Number(e.target.value))}>
-          {people.map((b) => <option key={b.id} value={b.id}>{b.cty_kind === 'house' ? bookLabel(b) : bookName(b)}</option>)}
-        </select>
+        {!fixed && (
+          <select value={book.id} onChange={(e) => setBookId(Number(e.target.value))}>
+            {people.map((b) => <option key={b.id} value={b.id}>{b.cty_kind === 'house' ? bookLabel(b) : bookName(b)}</option>)}
+          </select>
+        )}
         <button className="btn" onClick={() => setYm(prevMonth(ym))}>‹</button>
         <span>{monthName(ym)}</span>
         <button className="btn" disabled={ym >= today.slice(0, 7)} onClick={() => setYm(nextOf(ym))}>›</button>
+      </div>
+      <div className="cty-card desk-short">
+        <div className="cty-label">{t3('باختصار', 'In short', 'En bref')}</div>
+        {CURS.filter((c) => [sheet.carried, sheet.received, sheet.totalIncome, sheet.totalExpenses, sheet.givenBack, sheet.kept].some((v) => v[c])).map((c) => {
+          const f = (v: number) => <b>{money(Math.abs(v), c)} {curName(c, d.local)}</b>;
+          return (
+            <p key={c} style={{ margin: '2px 0' }}>
+              {t3('بدأ الشهر بـ', 'Started the month with', 'A commencé le mois avec')} {f(sheet.carried[c])}
+              {sheet.received[c] ? <> · {t3('أخذ من القيم', 'received from the econome', "reçu de l'économe")} {f(sheet.received[c])}</> : null}
+              {sheet.totalIncome[c] ? <> · {t3('دخل', 'income', 'revenus')} {f(sheet.totalIncome[c])}</> : null}
+              {' · '}{t3('صرف', 'spent', 'dépensé')} {f(sheet.totalExpenses[c])}
+              {sheet.givenBack[c] ? <> · {t3('أعاد إلى القيم', 'gave back to the econome', "rendu à l'économe")} {f(sheet.givenBack[c])}</> : null}
+              {' · '}{t3('بقي معه في آخر الشهر', 'has at the end of the month', 'a en fin de mois')} {f(sheet.kept[c])}
+            </p>
+          );
+        })}
+        <p className="muted small" style={{ margin: '4px 0 0' }}>{closed ? `✓ ${t3('الشهر مغلق', 'The month is closed', 'Le mois est clôturé')}` : t3('الشهر لم يُغلق بعد', 'The month is not closed yet', "Le mois n'est pas encore clôturé")}
+          {' · '}{closed?.seen_at ? `✓ ${t3('اطّلع عليه الرئيس', 'seen by the Superior', 'vu par le Supérieur')}` : t3('لم يطّلع عليه الرئيس بعد', 'not yet seen by the Superior', 'pas encore vu par le Supérieur')}</p>
       </div>
       <div className="desk-two">
         <div className="cty-card">

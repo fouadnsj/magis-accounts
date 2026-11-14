@@ -135,7 +135,7 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.b.id} className="click" onClick={() => go({ page: 'member', bookId: r.b.id, ym })}>
+              <tr key={r.b.id} className="click" onClick={() => go({ page: 'books', bookId: r.b.id, ym })}>
                 <td><b>{r.b.cty_kind === 'house' ? bookLabel(r.b) : bookName(r.b)}</b></td>
                 <td>{r.m ? <span className="ok">✓ {t3('مغلق', 'closed', 'clôturé')}</span> : r.used ? <span className="muted">{t3('مفتوح', 'open', 'ouvert')}</span> : <span className="muted">—</span>}
                   {r.m && r.m.counted_loc != null && r.m.book_loc != null && r.m.counted_loc !== r.m.book_loc && <span className="desk-alert small"> · {t3('فرق', 'difference', 'écart')}</span>}</td>

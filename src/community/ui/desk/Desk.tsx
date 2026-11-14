@@ -16,7 +16,7 @@ import { Register } from './Register';
 import { MemberMonth } from './MemberMonth';
 import { Claims } from './Claims';
 import { Quarter } from './Quarter';
-import { ImportFdc } from './ImportFdc';
+import { Books } from './Books';
 import { Chart } from './Chart';
 import { PeopleScreen } from '../People';
 import { RolesScreen } from '../Roles';
@@ -24,7 +24,7 @@ import { SendMonth } from './SendMonth';
 import { Statement } from './Statement';
 import { HostCharges } from './HostCharges';
 
-export type DeskPage = 'people' | 'dash' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'import' | 'chart' | 'mine' | 'settings' | 'roles';
+export type DeskPage = 'people' | 'dash' | 'books' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'chart' | 'mine' | 'settings' | 'roles';
 
 export interface DeskNav {
   page: DeskPage;
@@ -64,8 +64,9 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
     { key: 'today', label: T.today, tabs: [{ page: 'dash', label: T.today, hidden: !sees }] },
     { key: 'entries', label: t3('القيود', 'Entries', 'Écritures'), tabs: [
       { page: 'register', label: T.list, hidden: !sees }, { page: 'quarter', label: T.charts, hidden: !sees }] },
-    { key: 'brothers', label: t3('الإخوة', 'The brothers', 'Les frères'), badge: can('cty.month_seen') ? waiting : undefined, tabs: [
-      { page: 'member', label: T.each, hidden: !sees }, { page: 'mine', label: T.mine, hidden: !myBooks.length },
+    // "The books": every brother, the house, the cash, the économat, as the holders in MAGIS (Fouad, 14 November 2026)
+    { key: 'books', label: t3('الدفاتر', 'The books', 'Les comptes'), badge: can('cty.month_seen') ? waiting : undefined, tabs: [
+      { page: 'books', label: t3('كل الدفاتر', 'All the books', 'Tous les comptes'), hidden: !sees }, { page: 'mine', label: T.mine, hidden: !myBooks.length },
       { page: 'approvals', label: T.approvals, hidden: !can('cty.month_seen') }] },
     { key: 'end', label: t3('آخر الفترة', 'End of the period', 'Fin de période'), tabs: [
       { page: 'send', label: t3('الموحّد ← البلد', 'Consolidated → country', 'Consolidé → pays'), hidden: !sees }] },
@@ -77,8 +78,8 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
       { page: 'people', label: t3('الحسابات', 'Accounts', 'Comptes'), hidden: !can('users.manage') && !can('cty.passwords') },
       { page: 'roles', label: t3('الصلاحيات', 'Roles and permissions', 'Rôles et permissions'), hidden: !can('users.manage') },
       { page: 'settings', label: t3('اللغة واللوحة', 'Language & control panel', 'Langue et tableau de bord') },
-      { page: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes'), hidden: !sees && !can('cty.chart') },
-      { page: 'import', label: t3('استيراد FDC', 'Import an FDC', 'Importer une FDC'), hidden: !can('data.import') }] },
+      { page: 'chart', label: t3('دليل الحسابات', 'Chart of codes', 'Plan des comptes'), hidden: !sees && !can('cty.chart') }] },
+    // ("Import an FDC" is no longer in the menu: Fouad, 14 November 2026, "not relevant"; ImportFdc.tsx stays in the code)
   ];
   const shown = sections.map((x) => ({ ...x, tabs: x.tabs.filter((t) => !t.hidden) })).filter((x) => x.tabs.length);
   const here = shown.find((x) => x.tabs.some((t) => t.page === nav.page));
@@ -115,7 +116,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         {nav.page === 'send' && <SendMonth />}
         {nav.page === 'statement' && <Statement />}
         {nav.page === 'host' && <HostCharges />}
-        {nav.page === 'import' && <ImportFdc />}
+        {nav.page === 'books' && <Books initialBook={nav.bookId ?? null} initialYm={nav.ym} />}
         {nav.page === 'chart' && <Chart />}
         {nav.page === 'mine' && <div className="desk-narrow"><MyBooks /></div>}
         {nav.page === 'settings' && <div className="desk-narrow"><SettingsScreen inDesk onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} /></div>}

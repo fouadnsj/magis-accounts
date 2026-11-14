@@ -9,7 +9,8 @@ import { iconOf } from '../icons';
 import { accName, curName, money, monthName, t3, yearName } from '../text';
 import { exportExcel } from './excel';
 
-export function Register({ initialBook, initialYm }: { initialBook: number | null; initialYm?: string }) {
+/** fixed: opened from "The books" on one book (no other book to choose). */
+export function Register({ initialBook, initialYm, fixed }: { initialBook: number | null; initialYm?: string; fixed?: boolean }) {
   const { d, write } = useCty();
   const today = todayIso();
   const [bookId, setBookId] = useState<number | null>(initialBook);
@@ -97,10 +98,12 @@ export function Register({ initialBook, initialYm }: { initialBook: number | nul
       </div>
       {opening && book && <OpeningSheet bookId={book.id} onClose={() => setOpening(false)} />}
       <div className="desk-filters">
-        <select value={bookId ?? ''} onChange={(e) => setBookId(e.target.value ? Number(e.target.value) : null)}>
-          <option value="">{t3('كل الدفاتر', 'All books', 'Tous les comptes')}</option>
-          {d.books.filter((b) => b.active).map((b) => <option key={b.id} value={b.id}>{bookName(b)}</option>)}
-        </select>
+        {!fixed && (
+          <select value={bookId ?? ''} onChange={(e) => setBookId(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">{t3('كل الدفاتر', 'All books', 'Tous les comptes')}</option>
+            {d.books.filter((b) => b.active).map((b) => <option key={b.id} value={b.id}>{bookName(b)}</option>)}
+          </select>
+        )}
         <select value={period} onChange={(e) => setPeriod(e.target.value)}>
           {periods.map((p) => <option key={p} value={p}>{p.startsWith('Y') ? yearName(Number(p.slice(1))) : monthName(p)}</option>)}
         </select>

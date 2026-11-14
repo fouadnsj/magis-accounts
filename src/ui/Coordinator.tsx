@@ -78,16 +78,18 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
         <>
           <div className="db-grid" style={{ marginTop: 12 }}>
             {centres.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
+            {/* the communities: a card like the others (Fouad, 14 November 2026: the small link was too hard to find) */}
+            {onCommunities && (
+              <button className="db-card" onClick={onCommunities}>
+                <div className="db-card-mark"><img src="/brand/jesuits.png" alt="" /></div>
+                <div className="db-card-text"><b>{t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</b><span>{t3('الجماعات وقيّم البلد ›', 'The communities and the country econome ›', "Les communautés et l'économe du pays ›")}</span></div>
+              </button>
+            )}
             <button className="db-card db-new" onClick={() => setCreating(true)}>
               <div className="db-card-mark"><span>＋</span></div>
               <div className="db-card-text"><b>{t3('قاعدة بيانات جديدة', 'New database', 'Nouvelle base')}</b><span>{t3('مركز، سنة جديدة، مشروع… مع قائمته', 'a centre, a new year, a project… with its list', 'un centre, une nouvelle année, un projet… avec sa liste')}</span></div>
             </button>
           </div>
-          {onCommunities && (
-            <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
-              <button className="btn small ghost" onClick={onCommunities}><img src="/brand/jesuits.png" alt="" style={{ height: 18, verticalAlign: 'middle' }} /> {t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} ›</button>
-            </div>
-          )}
           <Copies onChanged={onChanged} />
           <h3 style={{ marginTop: 18 }}>{t3('إيقاف، حذف، استعادة', 'Switch off, delete, put back', 'Désactiver, supprimer, remettre')}</h3>
           <ManageDbs inline coordinator onClose={() => undefined} onChanged={onChanged} />

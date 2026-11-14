@@ -7,6 +7,7 @@ import { errText, promptBox, toast } from '../../ui/kit';
 import type { Office, OfficeRow, PeoplePayload, PersonRow } from '../people';
 import { useCty, Card } from './CtyApp';
 import { t3 } from './text';
+import { GuideLink } from '../../guide/GuideView';
 
 export const officeLabel = (o: Office | string | null | undefined) =>
   o === 'superior' ? t3('الرئيس', 'Superior', 'Supérieur') : o === 'econome' ? t3('القيم', 'Econome', 'Économe') : o === 'minister' ? t3('المدبر', 'Minister', 'Ministre') : o === 'admin' ? t3('المشرف', 'Administrator', 'Administrateur') : t3('يسوعي', 'Jesuit', 'Jésuite');
@@ -52,7 +53,7 @@ export function PeopleScreen() {
 
   return (
     <>
-      <h1>{t3('الحسابات', 'Accounts', 'Comptes')}</h1>
+      <h1>{t3('الحسابات', 'Accounts', 'Comptes')}<GuideLink id="cty-admin" /></h1>
       {err && <div className="alert err">{err}</div>}
 
       <Card>

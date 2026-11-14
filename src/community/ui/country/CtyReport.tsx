@@ -10,6 +10,7 @@ import { Columns, Ring, SHADES } from '../charts';
 import { iconOf } from '../icons';
 import { accName, curName, money, monthName, periodName, t3, yearName } from '../text';
 import { exportExcel } from '../desk/excel';
+import { GuideLink } from '../../../guide/GuideView';
 
 type Part = 'all' | 'personal' | 'house';
 /** an amount in each currency, and `u` in dollars: each entry at its own rate (the file's), as MAGIS */
@@ -160,7 +161,7 @@ export function CtyReport({ d }: { d: CountryData }) {
   return (
     <div className="cty-report">
       <div className="desk-head">
-        <h1>{t3('تقرير الجماعات', 'Communities report', 'Rapport des communautés')} · {title}</h1>
+        <h1>{t3('تقرير الجماعات', 'Communities report', 'Rapport des communautés')} · {title}<GuideLink id="country-report" /></h1>
         <button className="btn" onClick={exportIt}>Excel</button>
       </div>
       <p className="muted small">{t3('كل جماعة كدفتر: نظرة عامة، ثم التفاصيل. النفقات الشخصية معاً لكل جماعة، لا تفاصيل أي شخص.', "Each community as a book: a general view, then the details. The personal expenses of each community together, never a person's detail.", "Chaque communauté comme un compte : une vue générale, puis le détail. Les dépenses personnelles de chaque communauté ensemble, jamais le détail d'une personne.")}</p>

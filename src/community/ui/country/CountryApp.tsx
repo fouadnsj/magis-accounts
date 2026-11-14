@@ -27,8 +27,11 @@ import { PageGuard, ServerTooOld } from '../Guard';
 import { Ring } from '../charts';
 import '../cty.css';
 import '../desk/desk.css';
+import { GuideLink } from '../../../guide/GuideView';
+import { COUNTRY_GUIDE } from '../../../guide/community';
+import { GuideCtx, GuideSun, GuideView } from '../../../guide/GuideView';
 
-type Page = 'dash' | 'report' | 'expenses' | 'claims' | 'charges' | 'accounts' | 'reco' | 'totals' | 'ctys' | 'chart' | 'settings';
+type Page = 'guide' | 'dash' | 'report' | 'expenses' | 'claims' | 'charges' | 'accounts' | 'reco' | 'totals' | 'ctys' | 'chart' | 'settings';
 let NAMES = new Map<string, { en: string; fr: string; ar: string }>(CHART.map((a) => [a.code, a]));
 /** The name of a code, from the country's chart (kept up to date when the data loads). */
 const codeName = (code: string) => {
@@ -41,6 +44,7 @@ const codeName = (code: string) => {
 export function CountryApp({ session, onLogout, onLang }: { session: Session; onLogout: () => void; onLang: () => void }) {
   const [d, setD] = useState<CountryData | null>(null);
   const [page, setPage] = useState<Page>('dash');
+  const [guideAt, setGuideAt] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const reload = useCallback(async () => {
     try {
@@ -76,7 +80,10 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
     ] },
   ];
   const ctx = { s: session, d, reload };
+  // the guide (Fouad, 15 November 2026): its own place in the menu, and the "Guide" button of a page opens its section
+  const openGuide = (id: string) => { setGuideAt(id); setPage('guide'); };
   return (
+    <GuideCtx.Provider value={openGuide}>
     <div className="cty desk">
       <aside className="desk-side">
         <div className="desk-org"><b>{session.organisation}</b><WhoIs profile={session.profile} light /></div>
@@ -89,6 +96,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
           </div>
         ))}
         <div className="desk-spacer" />
+        <button className={page === 'guide' ? 'on' : ''} onClick={() => openGuide('country-start')}><span><GuideSun light /> {t3('الدليل', 'Guide', 'Guide')}</span></button>
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">
@@ -109,9 +117,11 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
             save={async (account, reason) => { await session.api.call('country.account.save', { account, reason }); await reload(); }} />
         )}
         {page === 'settings' && <Settings onLang={onLang} onLogout={onLogout} s={session} d={d} reload={reload} />}
+        {page === 'guide' && <><div className="desk-head"><h1><GuideSun size={28} /> {t3('الدليل', 'Guide', 'Guide')}</h1></div><GuideView key={guideAt ?? ''} sections={COUNTRY_GUIDE} initial={guideAt} /></>}
         </PageGuard>
       </main>
     </div>
+    </GuideCtx.Provider>
   );
 }
 
@@ -201,7 +211,7 @@ function Home({ s, d, reload, go }: P & { go: (p: Page) => void }) {
   return (
     <>
       <div className="desk-head">
-        <h1>{t3('ما يجب فعله هذا الشهر', 'What to do this month', 'À faire ce mois-ci')}</h1>
+        <h1>{t3('ما يجب فعله هذا الشهر', 'What to do this month', 'À faire ce mois-ci')}<GuideLink id="country-start" /></h1>
       </div>
       <div className="cty-monthnav" style={{ margin: '0 0 10px' }}>
         <button onClick={() => setYm(step(ym, -1))} aria-label="previous">‹</button>
@@ -278,7 +288,7 @@ function Files({ s, d, reload, bare }: P & { bare?: boolean }) {
     <>
       {!bare && (
         <div className="desk-head">
-          <h1>{t3('الملفات الشهرية للجماعات', "The communities' monthly files", 'Les fichiers mensuels des communautés')}</h1>
+          <h1>{t3('الملفات الشهرية للجماعات', "The communities' monthly files", 'Les fichiers mensuels des communautés')}<GuideLink id="country-start" /></h1>
           <button className="btn primary" onClick={bring}>{t3('أدخل ملفاً…', 'Bring in a file…', 'Importer un fichier…')}</button>
         </div>
       )}
@@ -353,7 +363,7 @@ function Claims({ s, d, reload }: P) {
   return (
     <>
       <div className="desk-head">
-        <h1>{t3('المطالبات من الإقليم', 'Claims from the Province', 'Réclamations à la Province')}</h1>
+        <h1>{t3('المطالبات من الإقليم', 'Claims from the Province', 'Réclamations à la Province')}<GuideLink id="country-claims" /></h1>
         <div className="cty-seg" style={{ margin: 0 }}>
           <button className={show === 'waiting' ? 'on' : ''} onClick={() => setShow('waiting')}>{t3('بانتظار', 'Waiting', 'En attente')}</button>
           <button className={show === 'all' ? 'on' : ''} onClick={() => setShow('all')}>{t3('الكل', 'All', 'Toutes')}</button>
@@ -415,7 +425,7 @@ function Charges({ s, d, reload }: P) {
   };
   return (
     <>
-      <div className="desk-head"><h1>{t3('تكاليف بين الجماعات', 'Charges between communities', 'Charges entre communautés')}</h1></div>
+      <div className="desk-head"><h1>{t3('تكاليف بين الجماعات', 'Charges between communities', 'Charges entre communautés')}<GuideLink id="country-claims" /></h1></div>
       <p className="muted">{t3('مثلاً: يسوعي من حمص أقام 3 ليالٍ في بيروت. بيروت تستضيف، وحمص تُحمَّل.', 'E.g. a Jesuit of Homs stayed 3 nights in Beirut: Beirut hosted, Homs is charged.', 'P. ex. un jésuite de Homs a passé 3 nuits à Beyrouth : Beyrouth a accueilli, Homs est facturé.')}</p>
       <Proposals s={s} d={d} reload={reload} />
       <div className="cty-label" style={{ marginTop: 14 }}>{t3('أو سجّلها بنفسك', 'Or record one yourself', 'Ou enregistrez-en une vous-même')}</div>
@@ -528,7 +538,7 @@ function Accounts({ s, d, reload }: P) {
   return (
     <>
       <div className="desk-head">
-        <h1>{t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat")}</h1>
+        <h1>{t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat")}<GuideLink id="country-accounts" /></h1>
         <select value={ctyId} onChange={(e) => setCtyId(Number(e.target.value))}>{d.ctys.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
       </div>
       <p className="muted small">{t3('هنا تظهر حركات المال بين الجماعة والإقليم. الأرقام الموجبة (+) لصالح الجماعة، والسالبة (−) عليها.', 'Here is the money between the community and the Province. A plus (+) is in the community’s favour, a minus (−) is what the community owes.', 'Ici, l’argent entre la communauté et la Province. Un plus (+) est en faveur de la communauté, un moins (−) est ce qu’elle doit.')}</p>
@@ -599,7 +609,7 @@ function Reco({ d }: P) {
   return (
     <>
       <div className="desk-head">
-        <h1>{t3('مصالحة آخر السنة', 'Year-end reconciliation', 'Réconciliation annuelle')}</h1>
+        <h1>{t3('مصالحة آخر السنة', 'Year-end reconciliation', 'Réconciliation annuelle')}<GuideLink id="country-accounts" /></h1>
         <button className="btn" onClick={exportIt}>Excel</button>
       </div>
       <div className="desk-filters">
@@ -686,7 +696,7 @@ function Totals({ d }: P) {
   };
   return (
     <>
-      <div className="desk-head"><h1>{t3('المجاميع حسب الرمز', 'Totals by code', 'Totaux par code')}</h1><button className="btn" onClick={exportIt}>Excel</button></div>
+      <div className="desk-head"><h1>{t3('المجاميع حسب الرمز', 'Totals by code', 'Totaux par code')}<GuideLink id="country-report" /></h1><button className="btn" onClick={exportIt}>Excel</button></div>
       <div className="desk-filters">
         <button className="btn" onClick={() => setYear(year - 1)}>‹</button><span>{yearName(year)}</span><button className="btn" onClick={() => setYear(year + 1)}>›</button>
         <div className="cty-curs" style={{ margin: 0 }}>{CURS.map((c) => <button key={c} className={c === cur ? 'on' : ''} onClick={() => setCur(c)}>{curName(c, d.local)}</button>)}</div>

@@ -10,6 +10,7 @@ import { headingOf } from '../Month';
 import { useCty, bookHelp, bookLabel, bookName } from '../CtyApp';
 import { accName, curName, dayName, money, monthName, t3 } from '../text';
 import type { DeskNav } from './Desk';
+import { GuideLink } from '../../../guide/GuideView';
 
 export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
   const { d, give, write } = useCty();
@@ -72,7 +73,7 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
       <div className="desk-head">
         <div className="cty-monthnav" style={{ margin: 0 }}>
           <button onClick={() => setYm(prevMonth(ym))}>‹</button>
-          <h1>{monthName(ym)}</h1>
+          <h1>{monthName(ym)}<GuideLink id="cty-econome" /></h1>
           <button disabled={ym >= today.slice(0, 7)} onClick={() => setYm(nextMonth(ym))}>›</button>
         </div>
         <button className="btn" onClick={() => go({ page: 'register' })}>{t3('كل القيود', 'All entries', 'Toutes les écritures')}</button>

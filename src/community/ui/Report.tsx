@@ -14,6 +14,7 @@ import { Columns, Ring, SHADES } from './charts';
 import { iconOf } from './icons';
 import { accName, curName, money, monthName, periodName, t3, yearName } from './text';
 import { exportExcel } from './desk/excel';
+import { GuideLink } from '../../guide/GuideView';
 
 type View = 'cat' | 'months' | 'members';
 /** an amount in each currency, and `u` all of it in dollars at the rate of each entry */
@@ -150,7 +151,7 @@ export function Report({ scope }: { scope: 'house' | 'community' }) {
   return (
     <div className="cty-report">
       <div className="desk-head">
-        <h1>{scope === 'house' ? t3('تقرير البيت', 'The house report', 'Rapport de la maison') : t3('تقرير النفقات', 'Expenses report', 'Rapport des dépenses')} · {title}</h1>
+        <h1>{scope === 'house' ? t3('تقرير البيت', 'The house report', 'Rapport de la maison') : t3('تقرير النفقات', 'Expenses report', 'Rapport des dépenses')} · {title}<GuideLink id="cty-reports" /></h1>
         <button className="btn" onClick={exportIt}>Excel</button>
       </div>
 

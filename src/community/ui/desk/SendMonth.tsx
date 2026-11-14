@@ -14,6 +14,7 @@ import { accName, curName, money, monthName, periodName, t3 } from '../text';
 import { claimName } from './Claims';
 import { exportExcel } from './excel';
 import { ctyAnswers, ctyCountry, ctySend } from '../../../net';
+import { GuideLink } from '../../../guide/GuideView';
 
 export function SendMonth() {
   const { d, s, reload, can } = useCty();
@@ -101,7 +102,7 @@ export function SendMonth() {
   return (
     <>
       <div className="desk-head">
-        <h1>{t3('شهر الجماعة الموحّد', "The community's consolidated month", 'Le mois consolidé de la communauté')}</h1>
+        <h1>{t3('شهر الجماعة الموحّد', "The community's consolidated month", 'Le mois consolidé de la communauté')}<GuideLink id="cty-period" /></h1>
         <div className="row">
           <button className="btn" onClick={exportIt} disabled={!file}>Excel</button>
           <button className="btn" onClick={() => window.print()}>{t3('طباعة', 'Print', 'Imprimer')}</button>

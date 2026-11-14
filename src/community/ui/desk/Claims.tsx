@@ -7,6 +7,7 @@ import type { ClaimReason } from '../../chart';
 import { useCty, bookName } from '../CtyApp';
 import { accName, curName, money, t3, yearName } from '../text';
 import { exportExcel } from './excel';
+import { GuideLink } from '../../../guide/GuideView';
 
 export const claimName = (r: ClaimReason | null): string =>
   r === 'health' ? t3('صحة', 'Health', 'Santé')
@@ -46,7 +47,7 @@ export function Claims() {
   return (
     <>
       <div className="desk-head">
-        <h1>{t3('المطالبات من الإقليم', 'Claims from the Province', 'Réclamations à la Province')}</h1>
+        <h1>{t3('المطالبات من الإقليم', 'Claims from the Province', 'Réclamations à la Province')}<GuideLink id="cty-province" /></h1>
         <button className="btn" onClick={exportIt}>Excel</button>
       </div>
       <div className="desk-filters">

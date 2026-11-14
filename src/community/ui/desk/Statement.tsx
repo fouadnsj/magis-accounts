@@ -8,6 +8,7 @@ import { compareSides, type Comparison as Cmp, type MoveKind, type MoveStatus, t
 import type { ProvinceLine } from '../../files';
 import { useCty } from '../CtyApp';
 import { curName, money, t3, yearName } from '../text';
+import { GuideLink } from '../../../guide/GuideView';
 
 export const kindName = (k: string): string =>
   k === 'claim' ? t3('مطالبة مقبولة', 'Claim accepted', 'Réclamation acceptée')
@@ -105,7 +106,7 @@ export function Statement() {
   const years = [...new Set(d.statement.map((l) => yearOf(l.date)))].sort((a, b) => b - a);
   return (
     <>
-      <div className="desk-head"><h1>{t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat")}</h1></div>
+      <div className="desk-head"><h1>{t3('الحساب عند الإيكونوماتو', 'Account at the économat', "Compte à l'économat")}<GuideLink id="cty-province" /></h1></div>
       <div className="cty-card cty-explain">
         <b>{t3('ما هذا؟', 'What is this?', "Qu'est-ce que c'est ?")}</b>
         <p>{t3('هذا حساب جماعتكم عند خزينة الإقليم (الإيكونوماتو)، كما يمسكه قيم البلد. فيه ما للجماعة على الإقليم (مطالبات قُبلت، استضافة إخوة من جماعات أخرى) وما عليها (مساهمات، تكاليف إخوتنا عند غيرنا، مال استلمته).', 'This is your community’s account with the Province treasury (the économat), as the country econome keeps it. It shows what the Province owes the community (claims accepted, brothers of other communities hosted) and what the community owes (cotisations, our brothers’ stays elsewhere, money it received).', "C'est le compte de votre communauté auprès de la trésorerie de la Province (l'économat), tel que l'économe du pays le tient. Il montre ce que la Province doit à la communauté (réclamations acceptées, frères d'autres communautés accueillis) et ce que la communauté doit (cotisations, séjours de nos frères ailleurs, argent reçu).")}</p>

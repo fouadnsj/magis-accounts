@@ -9,6 +9,7 @@ import { Columns, Ring } from '../charts';
 import { iconOf } from '../icons';
 import { accName, curName, money, monthName, t3, yearName } from '../text';
 import { exportExcel } from '../desk/excel';
+import { GuideLink } from '../../../guide/GuideView';
 
 /** an amount in each currency, and `u` in dollars */
 type Amt = Money & { u: number };
@@ -103,7 +104,7 @@ export function Expenses({ d }: { d: CountryData }) {
   return (
     <>
       <div className="desk-head">
-        <h1>{type === 'Exp' ? t3('كل النفقات بالتفصيل', 'All the expenses in detail', 'Toutes les dépenses en détail') : t3('كل الدخل بالتفصيل', 'All the income in detail', 'Tous les revenus en détail')}</h1>
+        <h1>{type === 'Exp' ? t3('كل النفقات بالتفصيل', 'All the expenses in detail', 'Toutes les dépenses en détail') : t3('كل الدخل بالتفصيل', 'All the income in detail', 'Tous les revenus en détail')}<GuideLink id="country-report" /></h1>
         <button className="btn" onClick={exportIt}>Excel</button>
       </div>
       <div className="desk-filters">

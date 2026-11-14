@@ -6,6 +6,7 @@ import { errText, parseAmount, promptBox, toast, todayIso } from '../../../ui/ki
 import { CURS, type Cur } from '../../domain';
 import { useCty } from '../CtyApp';
 import { curName, money, t3 } from '../text';
+import { GuideLink } from '../../../guide/GuideView';
 
 export function HostCharges() {
   const { d, s, reload } = useCty();
@@ -28,7 +29,7 @@ export function HostCharges() {
       : <span className="muted">{t3('بانتظار قيم البلد', 'waiting for the country econome', "en attente de l'économe du pays")}</span>);
   return (
     <>
-      <div className="desk-head"><h1>{t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés')}</h1></div>
+      <div className="desk-head"><h1>{t3('تكاليف على جماعات أخرى', 'Charges to other communities', 'Charges à d’autres communautés')}<GuideLink id="cty-province" /></h1></div>
       <p className="muted">{t3('مثلاً: يسوعي من حمص أقام عندنا 3 ليالٍ. نسجّلها هنا، فتذهب في ملف الشهر، ويوافق عليها قيم البلد.', 'E.g. a Jesuit of Homs stayed 3 nights with us. Record it here: it goes in the month’s file, and the country econome approves it.', "P. ex. un jésuite de Homs a passé 3 nuits chez nous. Enregistrez-le ici : il part dans le fichier du mois, et l'économe du pays l'approuve.")}</p>
       <div className="cty-card">
         <div className="desk-filters" style={{ marginBottom: 0 }}>

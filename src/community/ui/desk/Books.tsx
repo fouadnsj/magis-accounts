@@ -12,6 +12,7 @@ import { curName, dayName, money, monthName, t3 } from '../text';
 import { MemberMonth } from './MemberMonth';
 import { Register } from './Register';
 import { CountHistory } from '../CountHistory';
+import { GuideLink } from '../../../guide/GuideView';
 
 const ORDER = ['personal', 'house', 'cash', 'economat'];
 
@@ -31,7 +32,8 @@ function keptBy(b: CtyBook): string {
 }
 
 function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => void; onOpen: (id: number) => void }) {
-  const { d, s: sess } = useCty();
+  const { d, s: sess, can } = useCty();
+  const bookGuide = can('book.own') ? 'cty-econome' : 'cty-superior';
   const rates = useRates();
   // what was spent, in dollars at the rate of each expense (as MAGIS)
   const usdOf = useEntryUsd();
@@ -64,7 +66,7 @@ function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => voi
       <div className="desk-head">
         <div className="cty-monthnav" style={{ margin: 0 }}>
           <button onClick={() => setYm(prevMonth(ym))}>‹</button>
-          <h1>{t3('الدفاتر', 'The books', 'Les comptes')} · {monthName(ym)}</h1>
+          <h1>{t3('الدفاتر', 'The books', 'Les comptes')} · {monthName(ym)}<GuideLink id={bookGuide} /></h1>
           <button disabled={ym >= today.slice(0, 7)} onClick={() => setYm(next(ym))}>›</button>
         </div>
       </div>
@@ -122,7 +124,8 @@ function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => voi
 type Tab = 'month' | 'entries' | 'counts';
 
 function OneBook({ bookId, ym, onBack }: { bookId: number; ym: string; onBack: () => void }) {
-  const { d } = useCty();
+  const { d, can } = useCty();
+  const bookGuide = can('book.own') ? 'cty-econome' : 'cty-superior';
   const book = d.books.find((b) => b.id === bookId);
   const withMonth = book?.cty_kind === 'personal' || book?.cty_kind === 'house';
   const [tab, setTab] = useState<Tab>(withMonth ? 'month' : 'entries');
@@ -137,7 +140,7 @@ function OneBook({ bookId, ym, onBack }: { bookId: number; ym: string; onBack: (
       <div className="desk-bookhead">
         <button className="btn" onClick={onBack}>‹ {t3('كل الدفاتر', 'All the books', 'Tous les comptes')}</button>
         <div>
-          <h1 style={{ margin: 0 }}>{BOOK_ICON[book.cty_kind ?? ''] ?? ''} {book.cty_kind === 'personal' ? bookName(book) : bookLabel(book)}</h1>
+          <h1 style={{ margin: 0 }}>{BOOK_ICON[book.cty_kind ?? ''] ?? ''} {book.cty_kind === 'personal' ? bookName(book) : bookLabel(book)}<GuideLink id={bookGuide} /></h1>
           <div className="small muted">{t3('يمسكه', 'Kept by', 'Tenu par')} {keptBy(book)} · {bookHelp(book.cty_kind)}</div>
         </div>
       </div>

@@ -24,8 +24,10 @@ import { RolesScreen } from '../Roles';
 import { SendMonth } from './SendMonth';
 import { Statement } from './Statement';
 import { HostCharges } from './HostCharges';
+import { COMMUNITY_GUIDE } from '../../../guide/community';
+import { GuideCtx, GuideSun, GuideView } from '../../../guide/GuideView';
 
-export type DeskPage = 'people' | 'dash' | 'books' | 'report' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'chart' | 'mine' | 'settings' | 'roles';
+export type DeskPage = 'people' | 'dash' | 'books' | 'report' | 'register' | 'member' | 'approvals' | 'claims' | 'quarter' | 'send' | 'statement' | 'host' | 'chart' | 'mine' | 'settings' | 'roles' | 'guide';
 
 export interface DeskNav {
   page: DeskPage;
@@ -86,9 +88,13 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
     // ("Import an FDC" is no longer in the menu: Fouad, 14 November 2026, "not relevant"; ImportFdc.tsx stays in the code)
   ];
   const shown = sections.map((x) => ({ ...x, tabs: x.tabs.filter((t) => !t.hidden) })).filter((x) => x.tabs.length);
+  // the guide (Fouad, 15 November 2026): its own place in the menu, and the "Guide" button of a page opens its section
+  const [guideAt, setGuideAt] = useState<string | null>(null);
+  const openGuide = (id: string) => { setGuideAt(id); go({ page: 'guide' }); };
   const here = shown.find((x) => x.tabs.some((t) => t.page === nav.page));
 
   return (
+    <GuideCtx.Provider value={openGuide}>
     <div className={`cty desk ${hatClass(s.profile.office)}`}>
       <aside className="desk-side">
         <div className="desk-org"><b>{s.organisation}</b><WhoIs profile={s.profile} light />{s.mode === 'server' && <Hats light />}</div>
@@ -100,6 +106,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
           ))}
         </div>
         <div className="desk-spacer" />
+        <button className={nav.page === 'guide' ? 'on' : ''} onClick={() => openGuide(superior ? 'cty-superior' : can('users.manage') && !sees ? 'cty-admin' : 'cty-econome')}><span><GuideSun light /> {t3('الدليل', 'Guide', 'Guide')}</span></button>
         {myBooks.length > 0 && <button onClick={onPhone}>📱 {t3('عرض الهاتف', 'Phone view', 'Vue téléphone')}</button>}
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
@@ -127,9 +134,11 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         {nav.page === 'settings' && <div className="desk-narrow"><SettingsScreen inDesk onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} /></div>}
         {nav.page === 'people' && <div className="desk-narrow"><PeopleScreen /></div>}
         {nav.page === 'roles' && <div className="desk-narrow" style={{ maxWidth: 900 }}><RolesScreen /></div>}
+        {nav.page === 'guide' && <><div className="desk-head"><h1><GuideSun size={28} /> {t3('الدليل', 'Guide', 'Guide')}</h1></div><GuideView key={guideAt ?? ''} sections={COMMUNITY_GUIDE} initial={guideAt} /></>}
         </PageGuard>
       </main>
     </div>
+    </GuideCtx.Provider>
   );
 }
 

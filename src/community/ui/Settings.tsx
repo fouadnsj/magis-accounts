@@ -1,7 +1,7 @@
 // Settings: the person's language; for the Superior, the people and their roles; for the
 // econome (his control panel): closing by quarter or month, a bank or not, the banknotes
 // counted at closing, and the Superior's approval limits.
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { errText, parseAmount, toast } from '../../ui/kit';
 import { getLang, setLang, type LangMode } from '../../i18n';
 import { CURS, type Cur } from '../domain';
@@ -12,6 +12,7 @@ import { curName, t3 } from './text';
 import type { Palette, StyleInput } from '../style';
 import { DEFAULT_STYLE, StylePicker } from './StylePicker';
 import { GateCard } from './CtyGate';
+import { GuideCtx, GuideLink, GuideSun } from '../../guide/GuideView';
 
 const LANGS: { l: LangMode; label: string }[] = [
   { l: 'en', label: 'English' },
@@ -21,6 +22,7 @@ const LANGS: { l: LangMode; label: string }[] = [
 
 export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDesk }: { onLang: () => void; onLogout: () => void; onCloseDb?: () => void; onDatabases?: () => void; inDesk?: boolean }) {
   const { d, s, reload, can, go } = useCty();
+  const openGuide = useContext(GuideCtx);
   const [people, setPeople] = useState(false);
   const lang = getLang();
   if (people) return <><button className="cty-back" onClick={() => setPeople(false)}>‹ {t3('الإعدادات', 'Settings', 'Réglages')}</button><PeopleScreen /></>;
@@ -28,13 +30,18 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDes
   return (
     <>
       {!inDesk && <button className="cty-back" onClick={() => go('month')}>‹ {t3('شهري', 'My month', 'Mon mois')}</button>}
-      <h1>{t3('الإعدادات', 'Settings', 'Réglages')}</h1>
+      <h1>{t3('الإعدادات', 'Settings', 'Réglages')}<GuideLink id="cty-admin" /></h1>
       <Card>
         <div className="cty-label">{t3('اللغة', 'Language', 'Langue')}</div>
         <div className="cty-tiles small">
           {LANGS.map((x) => <button key={x.l} className={lang === x.l ? 'on' : ''} onClick={() => { setLang(x.l); onLang(); }}>{x.label}</button>)}
         </div>
       </Card>
+      {!inDesk && (
+        <Card>
+          <button className="btn cty-wide" onClick={() => openGuide(can('users.manage') ? 'cty-admin' : can('cty.view_all') ? 'cty-econome' : 'cty-start')}><GuideSun size={20} /> {t3('الدليل: كيف يعمل البرنامج', 'Guide: how the program works', 'Guide : comment fonctionne le programme')}</button>
+        </Card>
+      )}
       {(can('book.own') || can('users.manage')) && <CtyPhones />}
       {!inDesk && (can('users.manage') || can('cty.view_all')) && (
         <Card>

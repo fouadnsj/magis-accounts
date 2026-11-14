@@ -8,6 +8,7 @@ import { useCty, bookLabel, bookName } from '../CtyApp';
 import { accName, curName, money, t3, yearName } from '../text';
 import { exportExcel } from './excel';
 import { QuartersByCategory } from './QuarterView';
+import { GuideLink } from '../../../guide/GuideView';
 
 const QUARTERS: Record<number, [string, string]> = { 1: ['10-01', '12-31'], 2: ['01-01', '03-31'], 3: ['04-01', '06-30'], 4: ['07-01', '09-30'] };
 
@@ -102,7 +103,7 @@ export function Quarter() {
   return (
     <>
       <div className="desk-head">
-        <h1>{t3('الفصول والبنود', 'Quarters and categories', 'Trimestres et catégories')}</h1>
+        <h1>{t3('الفصول والبنود', 'Quarters and categories', 'Trimestres et catégories')}<GuideLink id="cty-reports" /></h1>
         <div className="cty-seg" style={{ margin: 0 }}>
           <button className={view === 'cat' ? 'on' : ''} onClick={() => setView('cat')}>{t3('كل البنود فصلاً بفصل', 'Every category by quarter', 'Chaque catégorie par trimestre')}</button>
           <button className={view === 'member' ? 'on' : ''} onClick={() => setView('member')}>{t3('الملف الفصلي: عمود لكل واحد', 'Quarterly file: a column for each', 'Fichier trimestriel : une colonne par membre')}</button>

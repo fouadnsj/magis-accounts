@@ -24,8 +24,10 @@ import { ctyHat, ctyHats, type CtyHats } from '../../net';
 import { PageGuard, ServerTooOld } from './Guard';
 import './cty.css';
 import './desk/desk.css';
+import { COMMUNITY_GUIDE } from '../../guide/community';
+import { GuideCtx, GuideSun, GuideView } from '../../guide/GuideView';
 
-export type View = 'month' | 'look' | 'records' | 'notes' | 'approvals' | 'settings' | 'report';
+export type View = 'month' | 'look' | 'records' | 'notes' | 'approvals' | 'settings' | 'report' | 'guide';
 
 interface Ctx {
   s: Session;
@@ -62,6 +64,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   const [d, setD] = useState<CtyData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>('month');
+  const [guideAt, setGuideAt] = useState<string | null>(null);
   const [bookId, setBookId] = useState<number | null>(null);
   const [sheet, setSheet] = useState<EntryStart | null>(null);
   // a copy opened from an entry starts a fresh sheet
@@ -169,6 +172,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
             ))}
           </nav>
         )}
+        <GuideCtx.Provider value={(id) => { setGuideAt(id); setView('guide'); }}>
         <main className={`cty-page ${view === 'report' ? 'cty-page-wide' : ''}`}>
           {err && <div className="alert err">{err}</div>}
           <PageGuard page={`${view}:${book.id}`}>
@@ -179,11 +183,13 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
             {view === 'notes' && <NotesScreen />}
             {view === 'approvals' && approver && <Approvals />}
             {view === 'settings' && <SettingsScreen onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />}
+            {view === 'guide' && <><button className="cty-back" onClick={() => setView('settings')}>‹ {t3('الإعدادات', 'Settings', 'Réglages')}</button><h1><GuideSun size={26} /> {t3('الدليل', 'Guide', 'Guide')}</h1><GuideView key={guideAt ?? ''} sections={COMMUNITY_GUIDE} initial={guideAt} /></>}
           </PageGuard>
           {view === 'settings' && wide && can('cty.view_all') && (
             <button className="btn cty-wide" onClick={() => choosePhone(false)}>🖥 {t3('عرض الحاسوب', 'Computer view', 'Vue ordinateur')}</button>
           )}
         </main>
+        </GuideCtx.Provider>
         {view !== 'settings' && !['cash', 'bank', 'economat'].includes(book.cty_kind ?? '') && (
           <button className="cty-plus" onClick={() => setSheet({ kind: 'Exp' })} aria-label={t3('صرفتُ', 'I spent', "J'ai dépensé")}>＋</button>
         )}

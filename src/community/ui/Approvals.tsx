@@ -8,6 +8,7 @@ import { useCty, Card } from './CtyApp';
 import { Thread } from './Notes';
 import { iconOf } from './icons';
 import { accName, dayName, money, moneyCur, t3 } from './text';
+import { GuideLink } from '../../guide/GuideView';
 
 export function Approvals() {
   const { d, s, reload } = useCty();
@@ -49,7 +50,7 @@ export function Approvals() {
 
   return (
     <>
-      <h1>{t3('بانتظار موافقتك', 'Waiting for your approval', 'En attente de votre accord')}</h1>
+      <h1>{t3('بانتظار موافقتك', 'Waiting for your approval', 'En attente de votre accord')}<GuideLink id="cty-superior" /></h1>
       <p className="muted small">{t3(`الحد: البيت $${d.limits.house}، الشخص $${d.limits.personal}.`, `Limits: house $${d.limits.house}, each person $${d.limits.personal}.`, `Limites : maison ${d.limits.house} $, chaque personne ${d.limits.personal} $.`)}</p>
       {err && <div className="alert err">{err}</div>}
       {items && items.length === 0 && <Card><p className="muted" style={{ margin: 0 }}>✓ {t3('لا شيء ينتظر.', 'Nothing is waiting.', "Rien n'attend.")}</p></Card>}

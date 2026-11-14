@@ -184,7 +184,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
             <button className="btn cty-wide" onClick={() => choosePhone(false)}>🖥 {t3('عرض الحاسوب', 'Computer view', 'Vue ordinateur')}</button>
           )}
         </main>
-        {view !== 'settings' && (
+        {view !== 'settings' && !['cash', 'bank', 'economat'].includes(book.cty_kind ?? '') && (
           <button className="cty-plus" onClick={() => setSheet({ kind: 'Exp' })} aria-label={t3('صرفتُ', 'I spent', "J'ai dépensé")}>＋</button>
         )}
         <nav className="cty-bar">

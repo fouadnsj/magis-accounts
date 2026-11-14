@@ -6,22 +6,23 @@
 // (The country econome has his own, by community, in country/Expenses.tsx: never a person.)
 import { Fragment, useMemo, useState } from 'react';
 import { errText, toast, todayIso } from '../../ui/kit';
-import { accountBooks, forHouse, lastDay, monthSheetOf, ownOnly, monthsOfYear, periodMonths, totalUsd, yearOf, type CtyBook, type Cur, type Money } from '../domain';
+import { accountBooks, monthsOfYear, periodMonths, yearOf, type CtyBook, type Cur, type Money } from '../domain';
 import { useCty, bookLabel, bookName } from './CtyApp';
 import { headingOf } from './Month';
-import { useRates } from './usd';
+import { useEntryUsd } from './usd';
 import { Columns, Ring, SHADES } from './charts';
 import { iconOf } from './icons';
 import { accName, curName, money, monthName, periodName, t3, yearName } from './text';
 import { exportExcel } from './desk/excel';
 
 type View = 'cat' | 'months' | 'members';
+/** an amount in each currency, and `u` all of it in dollars at the rate of each entry */
+type Amt = Money & { u: number };
 type CurPick = Cur | 'ALL';
 interface Member { key: string; label: string; books: CtyBook[]; kind: 'personal' | 'house' | 'cash' }
 
 export function Report({ scope }: { scope: 'house' | 'community' }) {
   const { d } = useCty();
-  const rates = useRates();
   const today = todayIso();
   const thisYm = today.slice(0, 7);
   const [from, setFrom] = useState(periodMonths(thisYm, 'quarter')[0]);
@@ -59,26 +60,32 @@ export function Report({ scope }: { scope: 'house' | 'community' }) {
   }, [from, to]);
 
   // expenses (positive) by member, month and line
-  const own = useMemo(() => ownOnly(d.entries), [d.entries]);
+  // each expense in dollars at its own rate, as MAGIS (Fouad, 15 November 2026)
+  const usdOf = useEntryUsd();
   const data = useMemo(() => {
-    const out = new Map<string, Map<string, Map<number, Money>>>();
+    // member → month → line → amounts (positive), and `u` its dollars
+    const out = new Map<string, Map<string, Map<number, Amt>>>();
+    const inMonths = new Set(months);
     for (const mb of members) {
-      const per = new Map<string, Map<number, Money>>();
-      for (const m of months) {
+      const ids = new Set(mb.books.map((b) => b.id));
+      const per = new Map<string, Map<number, Amt>>(months.map((m) => [m, new Map()]));
+      for (const e of d.entries) {
+        if (e.type !== 'Exp' || !inMonths.has(e.date.slice(0, 7))) continue;
         // a Jesuit's own expenses only; what the brothers paid "For the house" counts with the house (Fouad, 15 November 2026)
-        const s = monthSheetOf(mb.kind === 'house' ? d.entries : own, mb.books, m);
-        const lines = new Map<number, Money>();
-        const add = (id: number, v: Money) => { const t = lines.get(id) ?? { LOC: 0, USD: 0, EUR: 0 }; lines.set(id, { LOC: t.LOC - v.LOC, USD: t.USD - v.USD, EUR: t.EUR - v.EUR }); };
-        for (const [id, v] of s.expenses) add(id, v);
-        if (mb.kind === 'house') for (const [id, v] of forHouse(d.entries, null, `${m}-01`, lastDay(m))) add(id, v);
-        per.set(m, lines);
+        const mine = mb.kind === 'house' ? ids.has(e.book_id) || !!e.for_house : ids.has(e.book_id) && !e.for_house;
+        if (!mine) continue;
+        const lines = per.get(e.date.slice(0, 7))!;
+        const t = lines.get(e.account_id ?? 0) ?? { LOC: 0, USD: 0, EUR: 0, u: 0 };
+        t[e.cur] += e.amount;
+        t.u += usdOf.get(e.id) ?? 0;
+        lines.set(e.account_id ?? 0, t);
       }
       out.set(mb.key, per);
     }
     return out;
-  }, [members, months, d.entries, own]);
+  }, [members, months, d.entries, usdOf]);
 
-  const val = (m: Money) => (cur === 'ALL' ? totalUsd(m, rates).usd : m[cur]);
+  const val = (m: Amt) => (cur === 'ALL' ? m.u : m[cur]);
   const fmt = (n: number) => money(n, cur === 'ALL' ? 'USD' : cur);
   const unit = cur === 'ALL' ? t3('≈ $ (كل العملات)', '≈ $ (all currencies)', '≈ $ (toutes monnaies)') : curName(cur, d.local);
 

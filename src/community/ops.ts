@@ -221,7 +221,7 @@ async function saveEntry(c: OpCtx, a: { entry: EntryInput; reason?: string | nul
   }
   // The limit of the moment decides; an approved expense keeps its approval while amount and currency stay.
   // (paid for the house: the house's limit)
-  const appr = approvalOf(row, row.for_house ? { cty_kind: 'house' } : books.find((b) => b.id === row.book_id), await loadLimits(c.db), await loadEntries(c.db));
+  const appr = approvalOf(row, row.for_house ? { cty_kind: 'house' } : books.find((b) => b.id === row.book_id), await loadLimits(c.db), await loadEntries(c.db), row.book_id);
   row.approval_needed = appr.needed ? 1 : 0;
   row.approval_usd = appr.usd;
   if (row.approval_needed) {

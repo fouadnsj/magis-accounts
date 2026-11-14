@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
 import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, monthsOfYear, sheetOf, prevMonth, rateFromExchanges, totalUsd, yearOf, type CtyBook, type Cur, type Money } from '../../domain';
-import { AllUsd, useRates } from '../usd';
+import { AllUsd, useEntryUsd, useRates } from '../usd';
 import { Columns, Ring } from '../charts';
 import { headingOf } from '../Month';
 import { useCty, bookHelp, bookLabel, bookName } from '../CtyApp';
@@ -14,6 +14,8 @@ import type { DeskNav } from './Desk';
 export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
   const { d, give, write } = useCty();
   const rates = useRates();
+  // what was spent, in dollars at the rate of each expense (as MAGIS); what is held, at today's rate
+  const usdOf = useEntryUsd();
   const today = todayIso();
   const [ym, setYm] = useState(today.slice(0, 7));
   const end = ym === today.slice(0, 7) ? today : lastDay(ym);
@@ -34,8 +36,11 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
     const lastEntry = d.entries.filter((e) => ids.has(e.book_id) || (e.to_book_id != null && ids.has(e.to_book_id))).reduce((mx, e) => (e.date > mx ? e.date : mx), '');
     const yr = yearOf(`${ym}-01`);
     const ySpent = sheetOf(d.entries, grp(b), `${yr}-10-01`, end).totalExpenses;
-    return { b, m, s, pocket: balanceOf(d.entries, grp(b), end), unconfirmed, disputed, approvals, used, lastEntry, ySpent };
-  }), [d, ym, end, people]);
+    const spentIn = (from: string, to: string) => d.entries.reduce((n, e) => (e.type === 'Exp' && ids.has(e.book_id) && e.date >= from && e.date <= to ? n + (usdOf.get(e.id) ?? 0) : n), 0);
+    const spentU = spentIn(`${ym}-01`, lastDay(ym));
+    const yU = spentIn(`${yr}-10-01`, end);
+    return { b, m, s, pocket: balanceOf(d.entries, grp(b), end), unconfirmed, disputed, approvals, used, lastEntry, ySpent, spentU, yU };
+  }), [d, ym, end, people, usdOf]);
 
   // where the community's money went (members and house together) and month by month
   const spentParts = useMemo(() => {
@@ -52,7 +57,6 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
     before: people.reduce((n, b) => n - monthSheetOf(d.entries, grp(b), `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`).totalExpenses.LOC, 0),
   }));
 
-  const neg = (m: Money): Money => ({ LOC: -m.LOC, USD: -m.USD, EUR: -m.EUR });
   const sum = (f: (r: (typeof rows)[number]) => Money): Money => rows.reduce((t, r) => ({ LOC: t.LOC + f(r).LOC, USD: t.USD + f(r).USD, EUR: t.EUR + f(r).EUR }), { LOC: 0, USD: 0, EUR: 0 });
   // what is left to do
   const last = prevMonth(today.slice(0, 7));
@@ -60,6 +64,8 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
   const claims = d.entries.filter((e) => e.claim && e.date.slice(0, 7) === ym);
   const usdLoc = rateFromExchanges(d.entries, 'USD', 'LOC', today);
   const eurLoc = rateFromExchanges(d.entries, 'EUR', 'LOC', today);
+  // the euro to the dollar: a euro ↔ dollar exchange, otherwise through the pound (Fouad, 15 November 2026)
+  const eurUsd = rates.eur;
 
   return (
     <>
@@ -88,6 +94,7 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
           <div className="cty-label">{t3('السعر (آخر صرافة)', 'Rate (last exchange)', 'Taux (dernier change)')}</div>
           <div>$1 = {money(usdLoc ?? d.limits.startRate, 'LOC')} {curName('LOC', d.local)} {usdLoc == null && <span className="muted small">({t3('سعر البداية', 'starting rate', 'taux de départ')})</span>}</div>
           {eurLoc != null && <div>€1 = {money(eurLoc, 'LOC')} {curName('LOC', d.local)}</div>}
+          {eurUsd != null && <div>€1 = ${money(eurUsd, 'USD')}</div>}
         </div>
       </div>
 
@@ -140,26 +147,26 @@ export function Dashboard({ go }: { go: (n: DeskNav) => void }) {
                 <td>{r.m ? <span className="ok">✓ {t3('مغلق', 'closed', 'clôturé')}</span> : r.used ? <span className="muted">{t3('مفتوح', 'open', 'ouvert')}</span> : <span className="muted">—</span>}
                   {r.m && r.m.counted_loc != null && r.m.book_loc != null && r.m.counted_loc !== r.m.book_loc && <span className="desk-alert small"> · {t3('فرق', 'difference', 'écart')}</span>}</td>
                 <td>{r.m?.seen_at ? '✓' : r.m ? <span className="muted">…</span> : ''}</td>
-                <td className="num">{totalUsd(neg(r.s.totalExpenses), rates).usd ? money(totalUsd(neg(r.s.totalExpenses), rates).usd, 'USD') : <span className="muted">-</span>}</td>
+                <td className="num">{r.spentU ? money(r.spentU, 'USD') : <span className="muted">-</span>}</td>
                 {CURS.map((c) => <td key={c} className="num">{r.pocket[c] ? money(r.pocket[c], c) : <span className="muted">-</span>}</td>)}
                 <td className="num"><b>{totalUsd(r.pocket, rates).usd ? money(totalUsd(r.pocket, rates).usd, 'USD') : <span className="muted">-</span>}</b></td>
-                <td className="num">{totalUsd(neg(r.ySpent), rates).usd ? money(totalUsd(neg(r.ySpent), rates).usd, 'USD') : <span className="muted">-</span>}</td>
+                <td className="num">{r.yU ? money(r.yU, 'USD') : <span className="muted">-</span>}</td>
                 <td className="small muted">{r.lastEntry ? dayName(r.lastEntry) : '—'}</td>
                 <td className="small">{[r.unconfirmed ? '…' : '', r.disputed ? '⚠' : '', r.approvals ? '⏳' : ''].join(' ')}</td>
               </tr>
             ))}
             <tr className="fdc-total">
               <td colSpan={3}>{t3('مجموع الجماعة بالدولار', 'The whole community, in dollars', 'Toute la communauté, en dollars')}</td>
-              <td className="num">{money(totalUsd(sum((r) => neg(r.s.totalExpenses)), rates).usd, 'USD')}</td>
+              <td className="num">{money(rows.reduce((n, r) => n + r.spentU, 0), 'USD')}</td>
               {CURS.map((c) => <td key={c} className="num">{money(rows.reduce((n, r) => n + r.pocket[c], 0), c)}</td>)}
               <td className="num">{money(totalUsd(sum((r) => r.pocket), rates).usd, 'USD')}</td>
-              <td className="num">{money(totalUsd(sum((r) => neg(r.ySpent)), rates).usd, 'USD')}</td>
+              <td className="num">{money(rows.reduce((n, r) => n + r.yU, 0), 'USD')}</td>
               <td />
               <td />
             </tr>
           </tbody>
         </table>
-        <p className="muted small">{t3('كل العملات محوّلة إلى دولار بسعر آخر صرافة.', 'All currencies are converted to dollars at the rate of the last exchange.', 'Toutes les monnaies sont converties en dollars au taux du dernier change.')}{totalUsd(sum((r) => r.pocket), rates).missing ? ` ${t3('(اليورو دون سعر لا يُحسب)', '(euros with no rate are left out)', '(les euros sans taux sont exclus)')}` : ''}</p>
+        <p className="muted small">{t3('ما صُرف: كل نفقة بسعر يومها (كما في ماجيس). ما في اليد: بسعر آخر صرافة.', 'What was spent: each expense at the rate of its day (as in MAGIS). What is held: at the rate of the last exchange.', 'Ce qui a été dépensé : chaque dépense au taux de son jour (comme dans MAGIS). Ce qui est en main : au taux du dernier change.')}{totalUsd(sum((r) => r.pocket), rates).missing ? ` ${t3('(اليورو دون سعر لا يُحسب)', '(euros with no rate are left out)', '(les euros sans taux sont exclus)')}` : ''}</p>
       </div>
     </>
   );

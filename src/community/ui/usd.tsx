@@ -2,9 +2,15 @@
 // It gives the econome and the Superior a single figure for the whole.
 import { useMemo } from 'react';
 import { todayIso } from '../../ui/kit';
-import { ratesAt, totalUsd, type Money, type Rates } from '../domain';
+import { entriesUsd, ratesAt, totalUsd, type Money, type Rates } from '../domain';
 import { useCty } from './CtyApp';
 import { money, t3 } from './text';
+
+/** Each income and expense in dollars at its own rate (as MAGIS): for the "≈ $" of the reports. */
+export function useEntryUsd(): Map<string, number> {
+  const { d } = useCty();
+  return useMemo(() => entriesUsd(d.entries, d.limits.startRate), [d.entries, d.limits.startRate]);
+}
 
 export function useRates(): Rates {
   const { d } = useCty();

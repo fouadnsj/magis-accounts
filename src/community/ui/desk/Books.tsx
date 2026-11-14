@@ -4,8 +4,8 @@
 // The econome and the Superior see the same page; what each may change is decided by the server.
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
-import { CURS, accountBooks, balanceOf, forHouse, lastDay, zero, monthSheetOf, prevMonth, totalUsd, type CtyBook, type Money } from '../../domain';
-import { useRates } from '../usd';
+import { CURS, accountBooks, balanceOf, lastDay, monthSheetOf, prevMonth, totalUsd, type CtyBook } from '../../domain';
+import { useEntryUsd, useRates } from '../usd';
 import { useCty, bookHelp, bookLabel, bookName } from '../CtyApp';
 import { BOOK_ICON } from '../icons';
 import { curName, dayName, money, monthName, t3 } from '../text';
@@ -33,6 +33,8 @@ function keptBy(b: CtyBook): string {
 function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => void; onOpen: (id: number) => void }) {
   const { d, s: sess } = useCty();
   const rates = useRates();
+  // what was spent, in dollars at the rate of each expense (as MAGIS)
+  const usdOf = useEntryUsd();
   const today = todayIso();
   const end = ym === today.slice(0, 7) ? today : lastDay(ym);
   const books = useMemo(() => d.books.filter((b) => b.active && ORDER.includes(b.cty_kind ?? ''))
@@ -50,11 +52,11 @@ function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => voi
     const disputed = d.entries.filter((e) => e.type === 'Transfer' && touches(e) && e.disputed_at).length;
     const notes = d.notes.filter((n) => n.book_id === b.id && !n.read_at && n.author_id !== sess.profile.id).length;
     const lastEntry = d.entries.filter(touches).reduce((mx, e) => (e.date > mx ? e.date : mx), '');
-    const house = zero();
-    for (const v of forHouse(d.entries, ids, `${ym}-01`, lastDay(ym)).values()) for (const c of CURS) house[c] -= v[c];
-    return { b, m, s, used, approvals, unconfirmed, disputed, notes, lastEntry, house, bal: balanceOf(d.entries, grp, end) };
+    let spentU = 0;
+    let houseU = 0;
+    for (const e of d.entries) if (e.type === 'Exp' && ids.has(e.book_id) && e.date.slice(0, 7) === ym) { spentU += usdOf.get(e.id) ?? 0; if (e.for_house) houseU += usdOf.get(e.id) ?? 0; }
+    return { b, m, s, used, approvals, unconfirmed, disputed, notes, lastEntry, spentU, houseU, bal: balanceOf(d.entries, grp, end) };
   }), [d, books, ym, end, sess.profile.id]);
-  const neg = (x: Money): Money => ({ LOC: -x.LOC, USD: -x.USD, EUR: -x.EUR });
   const personal = (k: string | null) => k === 'personal' || k === 'house';
 
   return (
@@ -80,8 +82,8 @@ function AllBooks({ ym, setYm, onOpen }: { ym: string; setYm: (x: string) => voi
             <div className="desk-bcards">
               {list.map((r) => {
                 const usd = totalUsd(r.bal, rates).usd;
-                const spent = totalUsd(neg(r.s.totalExpenses), rates).usd;
-                const house = totalUsd(r.house, rates).usd;
+                const spent = r.spentU;
+                const house = r.houseU;
                 return (
                   <button key={r.b.id} className={`desk-bcard k-${r.b.cty_kind}`} onClick={() => onOpen(r.b.id)}>
                     <div className="desk-bcard-top">

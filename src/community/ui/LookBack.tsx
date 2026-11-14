@@ -54,7 +54,7 @@ export function LookBack() {
   // all currencies together, about, in dollars (at the rate of each day)
   const aboutUsd = useMemo(() => {
     let x = 0;
-    for (const e of d.entries) if (e.type === 'Exp' && group.some((b) => b.id === e.book_id) && e.date >= from && e.date <= to) x += usdValue(d.entries, e.cur, e.amount, e.date, d.limits.startRate) ?? 0;
+    for (const e of d.entries) if (e.type === 'Exp' && group.some((b) => b.id === e.book_id) && e.date >= from && e.date <= to) x += usdValue(d.entries, e.cur, e.amount, e.date, d.limits.startRate, [e.book_id]) ?? 0;
     return x;
   }, [d, book.id, from, to]);
   const opened = open != null ? groups.get(open) : undefined;

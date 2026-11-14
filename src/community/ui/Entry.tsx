@@ -160,7 +160,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
 
   // will the Superior be asked?
   const limit = book.cty_kind === 'house' || book.cty_kind === 'envelope' || houseToo ? d.limits.house : book.cty_kind === 'personal' || book.cty_kind === 'personal_bank' ? d.limits.personal : 0;
-  const usd = kind === 'Exp' && n > 0 ? usdValue(d.entries, cur, n, date, d.limits.startRate) : null;
+  const usd = kind === 'Exp' && n > 0 ? usdValue(d.entries, cur, n, date, d.limits.startRate, [book.id]) : null;
   const asksSuperior = kind === 'Exp' && limit > 0 && n > 0 && (usd == null || usd >= limit) && !s.profile.perms.includes('cty.month_seen');
 
   // where money goes: the other books of the same account first (bank, envelopes), then the

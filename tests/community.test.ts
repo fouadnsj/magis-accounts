@@ -7,7 +7,7 @@ import { loadProfile } from '../src/auth';
 import { runOp, type OpCtx } from '../src/ops';
 import { CHART } from '../src/community/chart';
 import { loadAccounts, loadBooks, loadEntries } from '../src/community/repo';
-import { balance, monthSheet, quarterOf, rateFromExchanges, rollUp, yearOf, type CtyBook } from '../src/community/domain';
+import { balance, monthSheet, quarterOf, rateFromExchanges, rollUp, usdValue, yearOf, type CtyBook } from '../src/community/domain';
 import type { ApprovalItem, CtyData, EntryInput } from '../src/community/ops';
 import type { PeoplePayload } from '../src/community/people';
 import { nodeDb } from './nodeDb';
@@ -476,5 +476,31 @@ describe('for the house, and the econome (Fouad, 15 November 2026)', () => {
     await run('Admin', 'cty.person.save', { id: jean.id, name: 'Jean', byEconome: false });
     ctx.Econome.profile = (await loadProfile(db, ctx.Econome.profile.id))!;
     await expect(run('Econome', 'cty.entry.save', { entry: spend({ date: '2026-02-07' }) })).rejects.toThrow(/Not allowed/);
+  });
+});
+
+describe('the rate, as in MAGIS (Fouad, 15 November 2026)', () => {
+  const ex = (id: string, book: number, date: string, cur: 'LOC' | 'USD' | 'EUR', amount: number, cur2: 'LOC' | 'USD' | 'EUR', amount2: number) =>
+    ({ id, n: null, book_id: book, date, type: 'Exchange', account_id: null, cur, amount, cur2, amount2, to_book_id: null, note: null, claim: null, claim_note: null, received_at: null, received_by: null, disputed_at: null, dispute_note: null, source: null, approval_needed: 0, approval_usd: null, approved_at: null, approved_by: null, refused_at: null, refused_by: null, refused_note: null, for_house: 0, created_at: '', created_by: null, updated_at: null }) as const;
+  const list = [
+    ex('a', 1, '2026-01-10', 'USD', 100, 'LOC', 1300000), // 13,000 in book 1
+    ex('b', 2, '2026-01-20', 'USD', 100, 'LOC', 1400000), // 14,000 in book 2, later
+    ex('c', 2, '2026-01-20', 'USD', 100, 'LOC', 1500000), // 15,000 the same day: averaged with b
+    ex('d', 2, '2026-01-21', 'EUR', 100, 'USD', 110), // a euro → dollar exchange
+    ex('e', 1, '2026-01-22', 'EUR', 100, 'LOC', 1600000), // a euro → pound exchange
+  ];
+  it('the same book first, then any book; several exchanges of the latest day are averaged', () => {
+    expect(rateFromExchanges([...list], 'USD', 'LOC', '2026-01-31', [1])).toBe(13000);
+    expect(rateFromExchanges([...list], 'USD', 'LOC', '2026-01-31', [2])).toBe(14500);
+    expect(rateFromExchanges([...list], 'USD', 'LOC', '2026-01-31')).toBe(14500);
+    expect(rateFromExchanges([...list], 'USD', 'LOC', '2026-01-31', [9])).toBe(14500);
+    expect(rateFromExchanges([...list], 'USD', 'LOC', '2026-01-15')).toBe(13000);
+  });
+  it('the euro: to the dollar directly, or to the pound, then through the pound', () => {
+    expect(usdValue([...list], 'EUR', 100, '2026-01-31')).toBe(110);
+    const noDirect = list.filter((x) => x.id !== 'd');
+    // €100 = 1,600,000 pounds; the pound at 14,500 for $1 → $110.34
+    expect(usdValue([...noDirect], 'EUR', 100, '2026-01-31')).toBe(110.34);
+    expect(rateFromExchanges([...list], 'EUR', 'LOC', '2026-01-31')).toBe(16000);
   });
 });

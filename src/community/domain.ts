@@ -137,14 +137,24 @@ export const noLimits = (): Limits => ({ house: 0, personal: 0, startRate: 0 });
  * Euros without a direct exchange to dollars go through the local currency.
  * null: nothing tells the rate (euros never exchanged).
  */
-export function usdValue(entries: CtyEntry[], cur: Cur, amount: number, date: string, startRate = 0): number | null {
+export function usdValue(entries: CtyEntry[], cur: Cur, amount: number, date: string, startRate = 0, bookIds?: readonly number[] | null): number | null {
   if (cur === 'USD') return amount;
-  const direct = rateFromExchanges(entries, cur, 'USD', date);
+  const direct = rateFromExchanges(entries, cur, 'USD', date, bookIds);
   if (direct != null) return r2(amount * direct);
-  const locToUsd = rateFromExchanges(entries, 'LOC', 'USD', date) ?? (startRate > 0 ? 1 / startRate : null);
+  const locToUsd = rateFromExchanges(entries, 'LOC', 'USD', date, bookIds) ?? (startRate > 0 ? 1 / startRate : null);
   if (cur === 'LOC') return locToUsd != null ? r2(amount * locToUsd) : null;
-  const eurToLoc = rateFromExchanges(entries, 'EUR', 'LOC', date);
+  const eurToLoc = rateFromExchanges(entries, 'EUR', 'LOC', date, bookIds);
   return eurToLoc != null && locToUsd != null ? r2(amount * eurToLoc * locToUsd) : null;
+}
+
+/**
+ * Each income and expense in dollars at ITS OWN rate (its date, its book first), as MAGIS does for every row
+ * (Fouad, 15 November 2026). The reports add these up for "≈ $"; balances use the rate of today.
+ */
+export function entriesUsd(entries: CtyEntry[], startRate: number): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const e of entries) if (e.type === 'Exp' || e.type === 'Income') out.set(e.id, usdValue(entries, e.cur, e.amount, e.date, startRate, [e.book_id]) ?? 0);
+  return out;
 }
 
 /** What one unit of each currency is worth in dollars (null: nothing tells it). */
@@ -174,10 +184,10 @@ export function totalUsd(m: Money, r: Rates): { usd: number; missing: boolean } 
  * Does this expense wait for the Superior? usd: its value in dollars (null = no rate).
  * Without any rate (euros never exchanged) the program cannot tell: the expense waits.
  */
-export function approvalOf(e: Pick<CtyEntry, 'type' | 'cur' | 'amount' | 'date'>, book: Pick<CtyBook, 'cty_kind'> | undefined, l: Limits, entries: CtyEntry[]): { needed: boolean; usd: number | null } {
+export function approvalOf(e: Pick<CtyEntry, 'type' | 'cur' | 'amount' | 'date'>, book: Pick<CtyBook, 'cty_kind'> | undefined, l: Limits, entries: CtyEntry[], bookId?: number | null): { needed: boolean; usd: number | null } {
   const limit = book?.cty_kind === 'house' ? l.house : book?.cty_kind === 'personal' ? l.personal : 0;
   if (e.type !== 'Exp' || !(limit > 0)) return { needed: false, usd: null };
-  const usd = usdValue(entries, e.cur, e.amount, e.date, l.startRate);
+  const usd = usdValue(entries, e.cur, e.amount, e.date, l.startRate, bookId != null ? [bookId] : null);
   return { needed: usd == null || usd >= limit, usd };
 }
 
@@ -315,17 +325,30 @@ export function leafAccounts(accounts: CtyAccount[]): CtyAccount[] {
  * How many units of `to` one unit of `from` was worth at the last exchange between
  * them up to `until`, in any book of the community (never typed). null if none yet.
  */
-export function rateFromExchanges(entries: CtyEntry[], from: Cur, to: Cur, until: string): number | null {
+/**
+ * The rate from `from` to `to` on a day, as in MAGIS (Fouad, 15 November 2026: "as in MAGIS"): the latest day with an
+ * exchange of that pair on or before `until`, IN THE SAME BOOK first (`bookIds`), else in any book of the community;
+ * when that day has several exchanges, their rates are averaged. null: no exchange tells it.
+ */
+export function rateFromExchanges(entries: CtyEntry[], from: Cur, to: Cur, until: string, bookIds?: readonly number[] | null): number | null {
   if (from === to) return 1;
-  let best: CtyEntry | null = null;
-  for (const e of entries) {
-    if (e.type !== 'Exchange' || !e.cur2 || !e.amount2 || e.date > until) continue;
-    const pair = (e.cur === from && e.cur2 === to) || (e.cur === to && e.cur2 === from);
-    if (pair && (!best || e.date > best.date || (e.date === best.date && (e.n ?? 0) > (best.n ?? 0)))) best = e;
-  }
-  if (!best) return null;
-  // the exchange gave `amount` of cur and received `amount2` of cur2
-  return best.cur === from ? best.amount2! / best.amount : best.amount / best.amount2!;
+  // rates are averaged the way MAGIS writes them: pounds for 1 dollar (or 1 euro), dollars for 1 euro
+  const base: Cur = from === 'LOC' ? to : to === 'LOC' ? from : from === 'EUR' ? from : to;
+  const quote: Cur = base === from ? to : from;
+  const pick = (only: Set<number> | null): number | null => {
+    let day = '';
+    let rates: number[] = [];
+    for (const e of entries) {
+      if (e.type !== 'Exchange' || !e.cur2 || !e.amount2 || !e.amount || e.date > until || (only && !only.has(e.book_id))) continue;
+      if (!((e.cur === base && e.cur2 === quote) || (e.cur === quote && e.cur2 === base))) continue;
+      // the exchange gave `amount` of cur and received `amount2` of cur2: how much `quote` for 1 `base`
+      const r = e.cur === base ? e.amount2 / e.amount : e.amount / e.amount2;
+      if (e.date > day) { day = e.date; rates = [r]; } else if (e.date === day) rates.push(r);
+    }
+    return rates.length ? rates.reduce((a, b) => a + b, 0) / rates.length : null;
+  };
+  const avg = (bookIds?.length ? pick(new Set(bookIds)) : null) ?? pick(null);
+  return avg == null ? null : from === base ? avg : 1 / avg;
 }
 
 

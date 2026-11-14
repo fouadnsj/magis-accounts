@@ -142,12 +142,13 @@ export function MonthScreen() {
       {/* the four things a person does. The econome, who gives money all day, has "Give money" big on top;
           everyone else spends far more than he transfers: "I spent" is the big one (Fouad, 20 October 2026) */}
       <div className="cty-four">
-        {keepsCash ? (
+        {keepsCash && ['cash', 'bank', 'economat'].includes(book.cty_kind ?? '') ? (
           <>
             <button className="trf wide" onClick={give}><i>💰</i>{t3('إعطاء مال', 'Give money', "Donner de l'argent")}<small>{t3('لأحد الإخوة أو للبيت', 'to a Jesuit or to the house', 'à un jésuite ou à la maison')}</small></button>
-            <button className="out" onClick={() => write({ kind: 'Exp' })}><i>－</i>{t3('صرفتُ', 'I spent', "J'ai dépensé")}</button>
+            {/* no "I spent": the econome's books have no expenses (Fouad, 15 November 2026) */}
             <button className="in" onClick={() => write({ kind: 'Income' })}><i>＋</i>{t3('قبضتُ', 'I received', "J'ai reçu")}</button>
             <button className="exc" onClick={() => write({ kind: 'Exchange' })}><i>⇄</i>{t3('صرافة', 'Exchange', 'Change')}</button>
+            <button className="trf" onClick={() => write({ kind: 'Transfer' })}><i>↔</i>{t3('تحويل', 'Transfer', 'Transfert')}</button>
           </>
         ) : (
           <>

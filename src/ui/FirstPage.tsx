@@ -232,22 +232,21 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
         )}
       </main>
       <ValuesFoot />
-      {/* under the values (Fouad, 15 November 2026): the Jesuit communities and the administrator, as two badges */}
-      <div className="mg-badges">
+      {/* under the values, two doors like the centres' (Fouad, 15 November 2026): the Jesuit communities and the administrator */}
+      <div className="mg-doors two">
         {onCommunities && (
-          <button type="button" className="mg-badge jesuits" onClick={() => setStep('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
-            <img src="/brand/jesuits.png" alt="" />
-            <span className="mg-badge-text">
-              <b>{t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</b>
-              <i className="amdg"><span dir="rtl">لمجد الله الأعظم</span><span>Ad Majorem Dei Gloriam</span><span>{t3('', 'For the greater glory of God', 'Pour la plus grande gloire de Dieu')}</span></i>
-            </span>
-            <span className="mg-badge-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+          <button type="button" className="mg-door" style={{ '--centre': '#B8891B', '--centre-deep': '#5B191D' } as CSSProperties} onClick={() => setStep('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
+            <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/jesuits.png" alt="" /></div>
+            <b>{t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</b>
+            <Said msg={{ ar: 'لمجد الله الأعظم', en: 'Ad Majorem Dei Gloriam · For the greater glory of God', fr: 'Ad Majorem Dei Gloriam · Pour la plus grande gloire de Dieu' }} className="mg-door-said" />
+            <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
           </button>
         )}
-        <button type="button" className="mg-badge admin" onClick={() => setStep('admin')}>
-          <span className="mg-badge-icon">🔑</span>
-          <span className="mg-badge-text"><b>{t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}</b></span>
-          <span className="mg-badge-go">›</span>
+        <button type="button" className="mg-door" style={{ '--centre': '#23263a', '--centre-deep': '#23263a' } as CSSProperties} onClick={() => setStep('admin')} aria-label={t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}>
+          <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/phone-192.png" alt="" className="round" /></div>
+          <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>
+          <div className="mg-said mg-door-said"><p className="tr" dir="ltr">AMDG</p></div>
+          <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
         </button>
       </div>
     </div>

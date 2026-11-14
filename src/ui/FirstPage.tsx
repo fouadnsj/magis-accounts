@@ -214,7 +214,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
           <b>{t3('أهلاً وسهلاً', 'Welcome', 'Bienvenue')}</b>
           <span>{t3('اختر بيتك، ثم ادخل باسمك وكلمة سرك.', 'Choose your house, then sign in with your name and your password.', 'Choisissez votre maison, puis entrez avec votre nom et votre mot de passe.')}</span>
         </div>
-        <div className="mg-doors">
+        <div className={`mg-doors ${onCommunities ? 'four' : ''}`}>
           {HOUSES.map((k) => (
             <button key={k} type="button" className="mg-door" style={houseVars(k)} onClick={() => setStep(k)} aria-label={`${tx(CENTRES[k].name)} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
               <div className="mg-door-mark"><span className="mg-hh-halo" /><img src={CENTRES[k].mark!} alt="" /></div>
@@ -223,6 +223,14 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
               <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
             </button>
           ))}
+          {/* the Jesuit communities, a door like the centres (Fouad, 15 November 2026) */}
+          {onCommunities && (
+            <button type="button" className="mg-door mg-door-jesuits" style={{ '--centre': '#B8891B', '--centre-deep': '#5B191D' } as CSSProperties} onClick={() => setStep('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
+              <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/jesuits.png" alt="" /></div>
+              <b>{t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</b>
+              <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+            </button>
+          )}
         </div>
         {server && (
           <p className="muted small" style={{ textAlign: 'center' }}>
@@ -231,7 +239,6 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
           </p>
         )}
         <div className="mg-others">
-          {onCommunities && <button type="button" className="btn ghost" onClick={() => setStep('jesuits')}><img src="/brand/jesuits.png" alt="" /> {t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</button>}
           <button type="button" className="btn ghost" onClick={() => setStep('admin')}>🔑 {t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}</button>
         </div>
       </main>

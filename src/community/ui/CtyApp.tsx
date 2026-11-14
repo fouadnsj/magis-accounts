@@ -148,7 +148,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
 
   return (
     <CtyCtx.Provider value={ctx}>
-      <div className="cty">
+      <div className={`cty ${hatClass(session.profile.office)}`}>
         <header className="cty-top">
           <div className="cty-org">
             <b>{session.organisation}</b>
@@ -160,6 +160,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
             <button className="cty-signout" onClick={onLogout}>⏻ {t3('خروج', 'Sign out', 'Sortir')}</button>
           </span>
         </header>
+        <HatBand />
         {phoneBooks.length > 1 && view !== 'settings' && view !== 'approvals' && (
           <nav className="cty-books">
             {phoneBooks.map((b) => (
@@ -286,6 +287,25 @@ export function Hats({ light }: { light?: boolean }) {
           {x.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** The class that colours the whole page after the hat being worn (Fouad, 14 November 2026: "more visible"). */
+export const hatClass = (office?: string | null) => `hat-${office || 'person'}`;
+
+/**
+ * A band across the page: "You are working as: Econome". Its colour is the hat's, as is the frame of the page,
+ * so that nothing is written under the wrong hat.
+ */
+export function HatBand() {
+  const { s } = useCty();
+  const o = s.profile.office;
+  return (
+    <div className={`cty-hatband ${hatClass(o)}`}>
+      <span>{t3('تعمل الآن بصفة', 'You are working as', 'Vous travaillez comme')}</span>{' '}
+      <b>{officeLabel(o)}</b>
+      <span className="muted-on">{o ? ` · ${t3('بيد', 'held by', 'tenu par')} ${s.profile.held_by ?? ''}` : ` · ${s.profile.name}`}</span>
     </div>
   );
 }

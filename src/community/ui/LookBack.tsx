@@ -4,12 +4,12 @@
 // A mirror, not a control: no alarms, no "budget exceeded".
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../ui/kit';
-import { accountBooks, monthSheetOf, monthsOfYear, periodMonths, quarterOf, sheetOf, usdValue, yearOf, type Cur } from '../domain';
+import { accountBooks, monthSheetOf, monthsOfYear, periodMonths, sheetOf, usdValue, yearOf, type Cur } from '../domain';
 import { iconOf } from './icons';
 import { useCty, Card, bookLabel } from './CtyApp';
 import { headingOf, usedCurs } from './Month';
 import { Columns, Ring } from './charts';
-import { accName, curName, money, monthName, t3, yearName } from './text';
+import { accName, curName, money, monthName, periodName, t3, yearName } from './text';
 
 type Mode = 'month' | 'quarter' | 'year';
 
@@ -26,7 +26,7 @@ export function LookBack() {
   const months = mode === 'month' ? [ym] : mode === 'quarter' ? periodMonths(ym, 'quarter') : monthsOfYear(yearOf(`${ym}-01`));
   const from = `${months[0]}-01`;
   const to = `${months[months.length - 1]}-31`;
-  const title = mode === 'month' ? monthName(ym) : mode === 'quarter' ? `T${quarterOf(from)} · ${monthName(months[0], true)} – ${monthName(months[2])}` : yearName(yearOf(from));
+  const title = mode === 'month' ? monthName(ym) : mode === 'quarter' ? periodName(months) : yearName(yearOf(from));
   const step = (k: number) => setYm(shift(ym, k * (mode === 'month' ? 1 : mode === 'quarter' ? 3 : 12)));
 
   const group = useMemo(() => accountBooks(d.books, book), [d.books, book]);

@@ -53,6 +53,26 @@ export function monthName(ym: string, short = false): string {
   const name = l === 'both' ? `${pick('ar')} · ${pick('en')}` : pick(l === 'fr' ? 'fr' : l === 'ar' ? 'ar' : 'en');
   return short ? name : `${name} ${y}`;
 }
+/** "1st quarter", the year starting in October (Oct–Dec = 1st). */
+export function quarterWord(q: number): string {
+  const ar = ['الفصل الأول', 'الفصل الثاني', 'الفصل الثالث', 'الفصل الرابع'][q - 1];
+  const en = ['1st quarter', '2nd quarter', '3rd quarter', '4th quarter'][q - 1];
+  const fr = ['1er trimestre', '2e trimestre', '3e trimestre', '4e trimestre'][q - 1];
+  return t3(ar, en, fr);
+}
+/**
+ * A period said in full (Fouad, 14 November 2026: "the period must be more clear"):
+ * one month → "October 2026"; a quarter → "1st quarter · October – December 2026".
+ */
+export function periodName(months: string[]): string {
+  if (months.length <= 1) return monthName(months[0]);
+  const first = months[0];
+  const last = months[months.length - 1];
+  const q = Number(first.slice(5, 7)) >= 10 ? 1 : Math.floor((Number(first.slice(5, 7)) - 1) / 3) + 2;
+  const sameYear = first.slice(0, 4) === last.slice(0, 4);
+  const from = sameYear ? monthName(first).replace(/ \d{4}$/, '') : monthName(first);
+  return `${months.length === 3 ? `${quarterWord(q)} · ` : ''}${from} – ${monthName(last)}`;
+}
 /** "Oct 2025 – Sept 2026" */
 export const yearName = (y: number) => `${monthName(`${y}-10`, true)} ${y} – ${monthName(`${y + 1}-09`, true)} ${y + 1}`;
 

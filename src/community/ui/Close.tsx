@@ -5,10 +5,10 @@
 import { useEffect, useState } from 'react';
 import { confirmBox, errText, parseAmount, toast, todayIso } from '../../ui/kit';
 import { tx, type Msg } from '../../i18n';
-import { CURS, accountBooks, balanceOf, lastDay, periodMonths, quarterOf, r2, type Cur } from '../domain';
+import { CURS, accountBooks, balanceOf, lastDay, periodMonths, r2, type Cur } from '../domain';
 import { useCty, Card, bookLabel } from './CtyApp';
 import { usedCurs } from './Month';
-import { curName, money, monthName, t3 } from './text';
+import { curName, money, periodName, t3 } from './text';
 
 /** `check`: only count the cash (any day, today's balance), without closing anything. */
 export function CloseMonth({ ym, onDone, check }: { ym: string; onDone: () => void; check?: boolean }) {
@@ -35,7 +35,7 @@ export function CloseMonth({ ym, onDone, check }: { ym: string; onDone: () => vo
   const n = (k: string) => parseAmount(qty[k] ?? '') || 0;
   const counted = (c: Cur) => r2(d.settings.notes[c].reduce((sum, v) => sum + v * n(`${c}${v}`), 0) + (parseAmount(other[c]) || 0));
   const diffs = curs.map((c) => [c, r2(counted(c) - held[c])] as const).filter(([, x]) => x !== 0);
-  const title = months.length > 1 ? `T${quarterOf(`${months[0]}-01`)} (${months[0].slice(5)}–${last.slice(5)}/${last.slice(0, 4)})` : monthName(last);
+  const title = periodName(months);
 
   const close = async () => {
     setBusy(true);

@@ -3,12 +3,12 @@
 // the entries, and the closing of the period (the quarter, or the month).
 import { useMemo, useState } from 'react';
 import { promptBox, toast, errText, todayIso } from '../../ui/kit';
-import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, periodMonths, prevMonth, quarterOf, type CtyBook, type CtyAccount, type CtyEntry, type Cur, type Money } from '../domain';
+import { CURS, accountBooks, balance, balanceOf, lastDay, monthSheetOf, periodMonths, prevMonth, type CtyBook, type CtyAccount, type CtyEntry, type Cur, type Money } from '../domain';
 import { useCty, Card, bookHelp, bookLabel, bookName, partLabel } from './CtyApp';
 import { BOOK_ICON, iconOf } from './icons';
 import { Ring } from './charts';
 import { AllUsd } from './usd';
-import { accName, curName, dayName, money, moneyCur, monthName, t3 } from './text';
+import { accName, curName, dayName, money, moneyCur, monthName, periodName, t3 } from './text';
 import { CloseMonth } from './Close';
 import { CountHistory } from './CountHistory';
 
@@ -62,7 +62,6 @@ export function MonthScreen() {
   const lastEnd = lastPeriod[lastPeriod.length - 1];
   const lastOpen = Number(today.slice(8, 10)) > 5 && !d.months.some((x) => x.book_id === book.id && x.ym === lastEnd) && d.entries.some((e) => mine(e) && e.date.slice(0, 7) <= lastEnd);
   /** "T1 (Oct–Dec 2026)", short in every language */
-  const periodName = (months: string[]) => (months.length > 1 ? `T${quarterOf(`${months[0]}-01`)} (${months[0].slice(5)}–${months[2].slice(5)}/${months[2].slice(0, 4)})` : monthName(months[0]));
 
   // where the money went, by heading
   const cur0: Cur = curs.length === 1 ? 'LOC' : curs.reduce((best, c) => (-sheet.totalExpenses[c] > -sheet.totalExpenses[best] ? c : best), 'LOC' as Cur);

@@ -2,11 +2,11 @@
 // quarter, year or everything; by category or a word. Tap a record to change it.
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../ui/kit';
-import { CURS, accountBooks, periodMonths, quarterOf, yearOf, monthsOfYear, type CtyEntry, type EntryType } from '../domain';
+import { CURS, accountBooks, periodMonths, yearOf, monthsOfYear, type CtyEntry, type EntryType } from '../domain';
 import { useCty, Card, bookLabel } from './CtyApp';
 import { EntryRow, headingOf } from './Month';
 import { iconOf } from './icons';
-import { accName, curName, money, monthName, t3, yearName } from './text';
+import { accName, curName, money, monthName, periodName, t3, yearName } from './text';
 
 type Mode = 'month' | 'quarter' | 'year' | 'all';
 
@@ -22,7 +22,7 @@ export function RecordsScreen() {
   const ids = new Set(group.map((b) => b.id));
 
   const months = mode === 'month' ? [ym] : mode === 'quarter' ? periodMonths(ym, 'quarter') : mode === 'year' ? monthsOfYear(yearOf(`${ym}-01`)) : [];
-  const title = mode === 'all' ? t3('كل القيود', 'Everything', 'Tout') : mode === 'month' ? monthName(ym) : mode === 'quarter' ? `T${quarterOf(`${months[0]}-01`)} · ${months[0].slice(5)}–${months[2].slice(5)}/${months[2].slice(0, 4)}` : yearName(yearOf(`${ym}-01`));
+  const title = mode === 'all' ? t3('كل القيود', 'Everything', 'Tout') : mode === 'month' ? monthName(ym) : mode === 'quarter' ? periodName(months) : yearName(yearOf(`${ym}-01`));
   const step = (k: number) => setYm(shift(ym, k * (mode === 'month' ? 1 : mode === 'quarter' ? 3 : 12)));
 
   const headings = useMemo(() => {

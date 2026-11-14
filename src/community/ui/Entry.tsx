@@ -10,7 +10,8 @@ import { CopyMenu } from '../../ui/CopyMenu';
 import { confirmBox, errText, parseAmount, promptBox, toast, todayIso } from '../../ui/kit';
 import { CURS, accountBooks, leafAccounts, usdValue, type CtyAccount, type CtyBook, type CtyEntry, type Cur, type EntryType } from '../domain';
 import type { ClaimReason } from '../chart';
-import { useCty, bookName, partLabel } from './CtyApp';
+import { useCty, bookName, partLabel, hatClass } from './CtyApp';
+import { officeLabel } from './People';
 import { accName, curCode, curLong, curName, money, moneyCur, t3, triName } from './text';
 import { BOOK_ICON, iconOf, tintOf } from './icons';
 import { Receipts, uploadReceipts, type PendingReceipt } from './Receipts';
@@ -258,7 +259,8 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
           </div>
         )}
       </div>
-      <div className="cty-sheet-title">
+      <div className={`cty-sheet-title ${hatClass(s.profile.office)}`}>
+        <span className="cty-hatchip">{officeLabel(s.profile.office)}</span>
         <b>{s.profile.name}</b> · {triName(s.profile.access_name)} — {BOOK_ICON[main.cty_kind ?? ''] ?? ''} {main.cty_kind === 'personal' || main.cty_kind === 'personal_bank' ? t3('دفترك', 'his own account', 'son compte') : bookName(main)}
       </div>
       <div className="cty-sheet-body">
@@ -377,6 +379,11 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
                 ⏳ {usd == null
                   ? t3('لا نعرف السعر بعد: سيُطلب رأي الرئيس.', 'No rate known yet: the Superior will be asked.', 'Pas encore de taux : le Supérieur sera consulté.')
                   : t3(`نحو $${money(usd, 'USD')}، فوق $${limit}: سيُطلب رأي الرئيس.`, `About $${money(usd, 'USD')}, above $${limit}: the Superior will be asked.`, `Environ ${money(usd, 'USD')} $, au-delà de ${limit} $ : le Supérieur sera consulté.`)}
+              </div>
+            )}
+            {!readOnly && (
+              <div className={`cty-saveas ${hatClass(s.profile.office)}`}>
+                {t3('يُحفظ بصفة', 'Saved as', 'Enregistré comme')} <b>{officeLabel(s.profile.office)}</b> · {bookName(main)}
               </div>
             )}
             {!readOnly && (

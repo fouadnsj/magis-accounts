@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { accountBooks, balanceOf } from '../../domain';
 import { BOOK_ICON } from '../icons';
 import { curName, money } from '../text';
-import { useCty, bookHelp, bookLabel, bookRole, Hats, WhoIs } from '../CtyApp';
+import { useCty, bookHelp, bookLabel, bookRole, Hats, HatBand, WhoIs, hatClass } from '../CtyApp';
 import { PageGuard } from '../Guard';
 import { t3 } from '../text';
 import { MonthScreen } from '../Month';
@@ -84,7 +84,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   const here = shown.find((x) => x.tabs.some((t) => t.page === nav.page));
 
   return (
-    <div className="cty desk">
+    <div className={`cty desk ${hatClass(s.profile.office)}`}>
       <aside className="desk-side">
         <div className="desk-org"><b>{s.organisation}</b><WhoIs profile={s.profile} light />{s.mode === 'server' && <Hats light />}</div>
         <div className="desk-group">
@@ -99,6 +99,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">
+        <HatBand />
         {here && here.tabs.length > 1 && (
           <div className="desk-tabs" role="tablist">
             {here.tabs.map((t) => <button key={t.page} role="tab" aria-selected={t.page === nav.page} className={t.page === nav.page ? 'on' : ''} onClick={() => go({ page: t.page })}>{t.label}{t.page === 'approvals' && waiting ? <i className="cty-badge static">{waiting}</i> : null}</button>)}

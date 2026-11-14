@@ -10,7 +10,7 @@ import { pickFile, saveFile } from '../../../platform';
 import { CURS, periodMonths, prevMonth, type Money } from '../../domain';
 import { MONTH_BUNDLE, type MonthBundle, type MonthFile, type ReturnFile } from '../../files';
 import { useCty, bookLabel, bookName } from '../CtyApp';
-import { accName, curName, money, monthName, t3 } from '../text';
+import { accName, curName, money, monthName, periodName, t3 } from '../text';
 import { claimName } from './Claims';
 import { exportExcel } from './excel';
 import { ctyAnswers, ctyCountry, ctySend } from '../../../net';
@@ -109,7 +109,9 @@ export function SendMonth() {
       </div>
       <div className="desk-filters">
         <button className="btn" onClick={() => setYm(prevMonth(ym))}>‹</button>
-        <span><b>{monthName(ym)}</b></span>
+        <span>{quarterly
+          ? <><b>{periodName(period)}</b> <span className="muted small">· {t3('الشهر المعروض', 'month shown', 'mois affiché')}: {monthName(ym)}</span></>
+          : <b>{monthName(ym)}</b>}</span>
         <button className="btn" disabled={ym >= today.slice(0, 7)} onClick={() => setYm(next(ym))}>›</button>
         {closed ? <span className="ok">✓ {t3('شهر الجماعة مغلق', "The community's month is closed", 'Le mois de la communauté est clôturé')}</span> : <span className="muted">{t3('غير مغلق بعد', 'not closed yet', 'pas encore clôturé')}</span>}
       </div>
@@ -151,7 +153,7 @@ export function SendMonth() {
                 ))}
               </tbody>
             </table>
-            {quarterly && <p className="muted small">{t3('الإغلاق كل فصل', 'Closing every quarter', 'Clôture chaque trimestre')}: {monthName(period[0], true)} – {monthName(period[2])}</p>}
+            {quarterly && <p className="muted small">{t3('الإغلاق كل فصل', 'Closing every quarter', 'Clôture chaque trimestre')}: {periodName(period)}</p>}
             {!closed && can('month.close') && <button className="btn primary cty-wide" disabled={!allClosed} onClick={closeIt}>{quarterly ? t3('أغلق فصل الجماعة', "Close the community's quarter", 'Clôturer le trimestre de la communauté') : t3('أغلق شهر الجماعة', "Close the community's month", 'Clôturer le mois de la communauté')}</button>}
             {closed && can('month.close') && <button className="btn primary cty-wide" onClick={makeFile}>{t3('اصنع الملف لقيم البلد', 'Make the file for the country econome', "Faire le fichier pour l'économe du pays")}{quarterly ? ` (${t3('3 أشهر', '3 months', '3 mois')})` : ''}</button>}
             {closed && can('month.close') && country && <button className="btn cty-wide" style={{ marginTop: 6 }} onClick={sendDirect}>{t3(`أو أرسله مباشرة إلى ${country}`, `Or send it directly to ${country}`, `Ou l'envoyer directement à ${country}`)}</button>}

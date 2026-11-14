@@ -55,6 +55,7 @@ export const PERM_GROUPS = [
       { key: 'month.close', label: m('إغلاق الشهر (المكتب)', 'Close the month (office)') },
       { key: 'month.reopen', label: m('إعادة فتح شهر', 'Reopen a month') },
       { key: 'users.manage', label: m('المستخدمون وملفات الصلاحيات', 'Users and permission profiles') },
+      { key: 'users.holders', label: m('يضيف أمناء الصناديق، وكلمات سرهم ودفاترهم (لا غير)', 'Adds book holders, their passwords and books (nothing more)', 'Ajoute des teneurs de caisse, leurs mots de passe et leurs caisses (rien de plus)') },
       { key: 'users.passwords', label: m('يعيد تعيين كلمة سر أي شخص (إلا من يدير المستخدمين)', "Resets anyone's password (except those who manage users)", "Réinitialise le mot de passe de chacun (sauf de ceux qui gèrent les utilisateurs)") },
       { key: 'data.backup', label: m('النسخ الاحتياطية', 'Backups') },
       { key: 'data.restore', label: m('استرجاع نسخة', 'Restore a backup') },

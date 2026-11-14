@@ -1208,7 +1208,27 @@ async function usersList(c: OpCtx): Promise<UserRow[]> {
   const ub = await c.db.query<{ profile_id: number; book_id: number }>('SELECT * FROM user_book');
   const users = rows.map((r) => ({ ...r, books: ub.filter((x) => x.profile_id === r.id).map((x) => x.book_id) }));
   // (who may reset passwords sees the list of names, to choose whose password)
-  return can(c, 'users.manage') || can(c, 'users.passwords') ? users : users.filter((u) => u.id === c.profile.id);
+  return can(c, 'users.manage') || can(c, 'users.passwords') || can(c, 'users.holders') ? users : users.filter((u) => u.id === c.profile.id);
+}
+
+// ---- "Adds book holders" (Fouad, 14 November 2026): the accountant may add a book holder, give him his books and a
+// password, switch him off — and nothing more: never the Superior's password, never a role with more rights.
+/** rights a book holder's role never has */
+const NOT_A_HOLDER = ['register.edit', 'register.main', 'users.manage', 'users.holders', 'users.passwords', 'data.backup', 'data.restore', 'data.import', 'month.reopen', 'lists.manage', 'lists.donors', 'budget.edit'];
+/** a role this person may give: a book holder's (keeps a book, no office right), and nothing he has not himself */
+const holderRole = (c: OpCtx, perms: string[]) => perms.includes('book.own') && !perms.some((p) => NOT_A_HOLDER.includes(p)) && perms.every((p) => p === 'book.own' || can(c, p as Perm));
+async function rolePerms(db: Db, accessId: number | null | undefined): Promise<string[] | null> {
+  const a = accessId == null ? null : await one<{ perms: string }>(db, 'SELECT perms FROM access_profile WHERE id = ?', [accessId]);
+  return a ? cleanPerms(JSON.parse(a.perms)) : null;
+}
+async function personPerms(db: Db, id: number): Promise<string[] | null> {
+  const p = await one<{ access_id: number | null }>(db, 'SELECT access_id FROM profile WHERE id = ?', [id]);
+  return p ? rolePerms(db, p.access_id) : null;
+}
+/** may this person (with "Adds book holders") act on that user? a book holder only */
+async function holderOnly(c: OpCtx, id: number) {
+  const perms = await personPerms(c.db, id);
+  if (!perms || !holderRole(c, perms)) throw new UserError(m('لأمناء الصناديق فقط', 'For book holders only', 'Pour les teneurs de caisse seulement'));
 }
 
 /** At least one active person must keep the right to manage users, or nobody could ever fix anything. */
@@ -1226,7 +1246,13 @@ function wholeHr(c: OpCtx) {
 }
 
 async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) {
-  need(c, 'users.manage');
+  need(c, 'users.manage', 'users.holders');
+  if (!can(c, 'users.manage')) {
+    // a book holder's role only, for a new user or one who is a book holder already
+    const perms = await rolePerms(c.db, a.access_id);
+    if (!perms || !holderRole(c, perms)) throw new UserError(m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement'));
+    if (a.id) await holderOnly(c, a.id);
+  }
   const name = a.name.trim();
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
   const acc = await one<{ perms: string }>(c.db, 'SELECT perms FROM access_profile WHERE id = ?', [a.access_id]);
@@ -1366,7 +1392,14 @@ export const OPS = {
   'audit.list': { check: (c: OpCtx) => need(c, 'audit.view'), run: (c: OpCtx) => c.db.query<AuditRow>('SELECT * FROM audit_log ORDER BY id DESC LIMIT 500') },
   'importLog.list': { check: (c: OpCtx) => need(c, 'data.import'), run: (c: OpCtx) => c.db.query<ImportLogRow>('SELECT * FROM import_log ORDER BY id DESC LIMIT 30') },
   'users.list': { check: anyone, run: (c: OpCtx) => usersList(c) },
-  'access.list': { check: (c: OpCtx) => need(c, 'users.manage'), run: (c: OpCtx) => accessList(c) },
+  // (who adds book holders sees the book holders' roles only)
+  'access.list': {
+    check: (c: OpCtx) => need(c, 'users.manage', 'users.holders'),
+    run: async (c: OpCtx) => {
+      const all = await accessList(c);
+      return can(c, 'users.manage') ? all : all.filter((r) => holderRole(c, cleanPerms(r.perms as string[])));
+    },
+  },
   'closing.problems': {
     check: anyone,
     run: (c: OpCtx, a: { ym: string; bookId: number | null }) => {
@@ -1719,12 +1752,13 @@ export const OPS = {
 
   // ---------------------------------------------------------------- users and permission profiles
   // (in the HR database, someone who sees some centres only manages users on the HR users page, within their centres)
-  'user.save': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) => saveUser(c, a) },
+  'user.save': { check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) => saveUser(c, a) },
   'users.createKeepers': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx) => createKeepers(c) },
   'user.deactivate': {
-    check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); },
+    check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); },
     run: async (c: OpCtx, a: { id: number }) => {
       if (a.id === c.profile.id) throw new UserError(m('لا توقف نفسك', 'You cannot deactivate yourself'));
+      if (!can(c, 'users.manage')) await holderOnly(c, a.id);
       await c.db.batch([{ sql: 'UPDATE profile SET active = 0 WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'deactivate', 'profile', String(a.id), null, null)]);
     },
   },
@@ -1734,7 +1768,8 @@ export const OPS = {
       // someone else's password: who manages users, or who may reset passwords — but only
       // who manages users resets the password of another who manages users (Fouad, 19 October 2026)
       if (a.id !== c.profile.id) wholeHr(c);
-      if (a.id !== c.profile.id && !can(c, 'users.manage')) {
+      if (a.id !== c.profile.id && !can(c, 'users.manage') && can(c, 'users.holders') && !can(c, 'users.passwords')) await holderOnly(c, a.id);
+      else if (a.id !== c.profile.id && !can(c, 'users.manage')) {
         need(c, 'users.passwords');
         const target = await one<{ perms: string | null }>(c.db, 'SELECT a.perms FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.id = ?', [a.id]);
         if (!target || cleanPerms(JSON.parse(target.perms ?? '[]')).includes('users.manage'))

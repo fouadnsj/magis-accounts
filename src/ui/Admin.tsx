@@ -36,7 +36,7 @@ export function Admin() {
     { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
     { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
     { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore') || (can('data.export') && s.mode === 'server')) || s.mode === 'preview' },
-    { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : can('users.passwords') ? t('كلمات السر', 'Passwords') : t('كلمة السر', 'Password') },
+    { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : can('users.holders') ? t('أمناء الصناديق', 'Book holders') : can('users.passwords') ? t('كلمات السر', 'Passwords') : t('كلمة السر', 'Password') },
     { value: 'access', label: t('الأدوار والصلاحيات', 'Roles and permissions'), hidden: !can('users.manage') },
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
@@ -448,10 +448,15 @@ function Users() {
   const [edit, setEdit] = useState<Partial<UserRow> | null>(null);
   const [pinFor, setPinFor] = useState<UserRow | null>(null);
   const manage = can('users.manage');
+  // "Adds book holders" (Fouad, 14 November 2026): the book holders only — never the Superior, never a role
+  const holders = !manage && can('users.holders');
   const refresh = async () => {
     setList(await s.api.call('users.list'));
-    if (manage) setAccess(await s.api.call('access.list'));
+    if (manage || holders) setAccess(await s.api.call('access.list'));
   };
+  /** may this person change that user? (with "Adds book holders": a book holder only; the list holds their roles only) */
+  const mine = (u: UserRow) => manage || (holders && access.some((a) => a.id === u.access_id));
+  const pinOk = (u: UserRow) => manage || u.id === s.profile.id || mine(u) || can('users.passwords');
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -488,14 +493,20 @@ function Users() {
               <td><b>{u.name}</b></td><td>{biName(u.access_name)}</td><td>{u.books.map(bookName).join('، ') || '—'}</td>
               <td className="right nowrap">
                 <SignAsButton s={s} profileId={u.id} name={u.name} small />{' '}
-                {manage && <button className="btn small" onClick={() => setEdit(u)}>✎</button>}{' '}
-                <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>{' '}
-                {manage && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)}>✕</button>}
+                {mine(u) && <button className="btn small" onClick={() => setEdit(u)}>✎</button>}{' '}
+                {pinOk(u) && <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>}{' '}
+                {mine(u) && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)}>✕</button>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {holders && s.install === 'office' && (
+        <div className="modal-foot">
+          <span className="muted small" style={{ marginInlineEnd: 'auto' }}>{t('تضيف أمناء الصناديق وتغيّر كلمات سرهم ودفاترهم. الأدوار والآخرون للرئيس.', 'You add book holders and change their passwords and books. Roles and the others are for the Superior.')}</span>
+          <button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {t('أمين صندوق', 'Book holder')}</button>
+        </div>
+      )}
       {manage && s.install === 'office' && (
         <div className="modal-foot">
           {unkept.length > 0 && (

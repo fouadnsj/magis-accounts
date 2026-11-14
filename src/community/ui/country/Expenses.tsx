@@ -4,11 +4,14 @@
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
 import type { CountryData } from '../../country';
-import { CURS, monthsOfYear, quarterOf, rollUp, totalUsd, yearOf, zero, type Cur, type CtyAccount, type Money, type Rates } from '../../domain';
+import { CURS, monthsOfYear, quarterOf, totalUsd, yearOf, zero, type Cur, type CtyAccount, type Money, type Rates } from '../../domain';
 import { Columns, Ring } from '../charts';
 import { iconOf } from '../icons';
 import { accName, curName, money, monthName, t3, yearName } from '../text';
 import { exportExcel } from '../desk/excel';
+
+/** an amount in each currency, and `u` in dollars */
+type Amt = Money & { u: number };
 
 export function Expenses({ d }: { d: CountryData }) {
   const latest = d.months.map((m) => m.ym).sort().pop();
@@ -20,25 +23,37 @@ export function Expenses({ d }: { d: CountryData }) {
   const [qsel, setQsel] = useState<number>(quarterOf(latest ? `${latest}-01` : todayIso()));
   const cur: Cur = view === 'ALL' ? 'USD' : view;
   const rates: Rates = { loc: d.rates.startRate > 0 ? 1 / d.rates.startRate : null, eur: d.rates.eurUsd };
-  const pick = (m: Money | undefined): number => (!m ? 0 : view === 'ALL' ? totalUsd(m, rates).usd : m[cur]);
+  // ALL: the dollars the community's file gives for each code (each entry at its own rate, as MAGIS); an older file: the settings' rates
+  const pick = (m: Amt | undefined): number => (!m ? 0 : view === 'ALL' ? m.u : m[cur]);
   const byCode = useMemo(() => new Map(d.accounts.map((a) => [a.code, a])), [d.accounts]);
   const active = d.ctys.filter((c) => c.active);
 
   /** every account's amount in some months of a year, for one community or all (rolled up to headings). */
   const agg = (y: number, test: (ym: string) => boolean, only: number | null) => {
-    const by = new Map<number, Money>();
-    let total = zero();
+    const by = new Map<number, Amt>();
+    const total: Amt = { ...zero(), u: 0 };
     for (const f of d.months) {
       if (yearOf(`${f.ym}-01`) !== y || !test(f.ym) || (only != null && f.cty_id !== only)) continue;
       for (const [code, v] of Object.entries(f.file.totals)) {
         const a = byCode.get(code);
         if (!a || a.type !== type) continue;
-        const t = by.get(a.id) ?? zero();
-        for (const c of CURS) { const x = type === 'Exp' ? -v[c] : v[c]; t[c] += x; total[c] += x; }
+        const t = by.get(a.id) ?? { ...zero(), u: 0 };
+        const sign = type === 'Exp' ? -1 : 1;
+        for (const c of CURS) { const x = sign * v[c]; t[c] += x; total[c] += x; }
+        const u = sign * (f.file.usd?.totals[code] ?? totalUsd(v, rates).usd);
+        t.u += u; total.u += u;
         by.set(a.id, t);
       }
     }
-    return { rolled: rollUp(d.accounts, by), total };
+    // the lines added up to their headings and families
+    const rolled = new Map<number, Amt>();
+    for (const [id, v] of by) for (let a: number | null = id; a != null; a = d.accounts.find((x) => x.id === a)?.parent_id ?? null) {
+      const t = rolled.get(a) ?? { ...zero(), u: 0 };
+      for (const c of CURS) t[c] += v[c];
+      t.u += v.u;
+      rolled.set(a, t);
+    }
+    return { rolled, total };
   };
   const qMonths = (y: number, q: number) => monthsOfYear(y).slice((q - 1) * 3, q * 3);
   const quarters = (y: number, only: number | null) => [1, 2, 3, 4].map((q) => agg(y, (ym) => qMonths(y, q).includes(ym), only));

@@ -48,6 +48,11 @@ export interface MonthFile {
    * (Files made before 14 November 2026 have no parts.)
    */
   parts?: { personal: Record<string, Money>; house: Record<string, Money> };
+  /**
+   * The same in dollars, each entry at its own rate as in MAGIS (Fouad, 15 November 2026): income +, expenses −.
+   * (Files made before then have none: the country econome then uses the rates of his settings.)
+   */
+  usd?: { totals: Record<string, number>; personal: Record<string, number>; house: Record<string, number> };
   /** members and house together: carried over, received from the econome, given back, kept */
   cash: { carried: Money; received: Money; givenBack: Money; kept: Money; income: Money; expenses: Money };
   /** what the econome's books held at the end of the month */

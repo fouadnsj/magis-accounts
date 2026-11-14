@@ -67,6 +67,12 @@ describe('a community: its month, consolidated, then its file', () => {
     for (const code of Object.keys(f.totals))
       expect(r2((f.parts!.personal[code]?.LOC ?? 0) + (f.parts!.house[code]?.LOC ?? 0))).toBe(f.totals[code].LOC);
     expect(JSON.stringify(f.parts)).not.toMatch(/JesA|JesB|Minister/);
+    // and in dollars, each entry at its own rate (Fouad, 15 November 2026): the two parts add up to the totals
+    expect(Object.keys(f.usd!.totals).sort()).toEqual(Object.keys(f.totals).sort());
+    for (const code of Object.keys(f.usd!.totals)) {
+      expect(r2((f.usd!.personal[code] ?? 0) + (f.usd!.house[code] ?? 0))).toBe(f.usd!.totals[code]);
+      expect(Math.sign(f.usd!.totals[code])).toBe(Math.sign(f.totals[code].LOC + f.totals[code].USD + f.totals[code].EUR));
+    }
   });
 });
 

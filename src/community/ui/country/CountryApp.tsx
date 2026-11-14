@@ -146,12 +146,13 @@ function CommunityStatus({ d, go }: { d: CountryData; go: (p: Page) => void }) {
   const rows = d.ctys.filter((c) => c.active).map((c) => {
     const files = d.months.filter((m) => m.cty_id === c.id).sort((a, b) => a.ym.localeCompare(b.ym));
     const last = files[files.length - 1];
-    const spent: Money = { LOC: 0, USD: 0, EUR: 0 };
+    // spent this year, in dollars: each entry at its own rate when the file gives it (as MAGIS), else the settings' rates
+    let spentU = 0;
     for (const f of files) if (yearOf(`${f.ym}-01`) === year) for (const [code, v] of Object.entries(f.file.totals)) {
       const a = d.accounts.find((x) => x.code === code);
-      if (a?.type === 'Exp') for (const k of CURS) spent[k] -= v[k];
+      if (a?.type === 'Exp') spentU -= f.file.usd?.totals[code] ?? usd(v);
     }
-    return { c, last, spent, claims: d.claims.filter((x) => x.cty_id === c.id && x.status === 'waiting').length, diffs: disagreements(sidesOf(d, c.id)) };
+    return { c, last, spentU, claims: d.claims.filter((x) => x.cty_id === c.id && x.status === 'waiting').length, diffs: disagreements(sidesOf(d, c.id)) };
   });
   const total = (f: (r: (typeof rows)[number]) => number) => rows.reduce((n, r) => n + f(r), 0);
   return (
@@ -171,7 +172,7 @@ function CommunityStatus({ d, go }: { d: CountryData; go: (p: Page) => void }) {
               <td className="num">{r.last ? money(usd(r.last.file.books.cash), 'USD') : '—'}</td>
               <td className="num">{r.last ? money(usd(r.last.file.books.bank), 'USD') : '—'}</td>
               <td className="num">{r.last ? money(usd(r.last.file.books.economat), 'USD') : '—'}</td>
-              <td className="num"><b>{money(usd(r.spent), 'USD')}</b></td>
+              <td className="num"><b>{money(r.spentU, 'USD')}</b></td>
               <td className="num">{r.claims ? <span className="desk-alert">{r.claims}</span> : ''}</td>
               <td>{r.diffs ? <span className="desk-alert">⚠ {r.diffs}</span> : <span className="ok">✓</span>}</td>
             </tr>
@@ -180,7 +181,7 @@ function CommunityStatus({ d, go }: { d: CountryData; go: (p: Page) => void }) {
             <td className="num">{money(total((r) => (r.last ? usd(r.last.file.books.cash) : 0)), 'USD')}</td>
             <td className="num">{money(total((r) => (r.last ? usd(r.last.file.books.bank) : 0)), 'USD')}</td>
             <td className="num">{money(total((r) => (r.last ? usd(r.last.file.books.economat) : 0)), 'USD')}</td>
-            <td className="num">{money(total((r) => usd(r.spent)), 'USD')}</td><td /><td /></tr>
+            <td className="num">{money(total((r) => r.spentU), 'USD')}</td><td /><td /></tr>
         </tbody>
       </table>
       <p className="muted small">{t3('كل شيء بالدولار (الأسعار في «الإعدادات»). الأرصدة كما في آخر ملف أرسلته الجماعة.', 'Everything in dollars (rates in “Settings”). Balances are as in the last file each community sent.', 'Tout en dollars (taux dans « Réglages »). Les soldes sont ceux du dernier fichier envoyé par chaque communauté.')} {t3('اضغط على جماعة لترى نفقاتها بالتفصيل.', 'Click a community to see its expenses in detail.', 'Cliquez une communauté pour voir ses dépenses en détail.')}</p>

@@ -13,7 +13,7 @@ import type { Perm } from '../perms';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CURS, accountBooks, approvalOf, balance, balanceOf, forHouse, lastDay, leafAccounts, monthSheet, periodMonths, r2,
+  CURS, accountBooks, approvalOf, balance, balanceOf, entriesUsd, forHouse, lastDay, leafAccounts, monthSheet, periodMonths, r2,
   type CtyAccount, type CtyBook, type CtyEntry, type Cur, type Limits, type Money,
 } from './domain';
 import { importFdc, type FdcImportResult } from './importFdc';
@@ -704,6 +704,18 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
       cash.expenses[cur] = r2(cash.expenses[cur] + s.totalExpenses[cur]);
     }
   }
+  // the same in dollars, each entry at its own rate (as MAGIS)
+  const usdOf = entriesUsd(entries, (await loadLimits(c.db)).startRate);
+  const usd: { totals: Record<string, number>; personal: Record<string, number>; house: Record<string, number> } = { totals: {}, personal: {}, house: {} };
+  const peopleIds = new Map(people.map((b) => [b.id, b.cty_kind]));
+  for (const e of entries) {
+    if ((e.type !== 'Exp' && e.type !== 'Income') || e.date.slice(0, 7) !== a.ym || !peopleIds.has(e.book_id)) continue;
+    const k = code.get(e.account_id ?? -1)?.code ?? '?';
+    const v = (e.type === 'Exp' ? -1 : 1) * (usdOf.get(e.id) ?? 0);
+    const part = peopleIds.get(e.book_id) === 'house' || (e.type === 'Exp' && e.for_house) ? 'house' : 'personal';
+    usd.totals[k] = r2((usd.totals[k] ?? 0) + v);
+    usd[part][k] = r2((usd[part][k] ?? 0) + v);
+  }
   const at = (kind: string) => { const b = books.find((x) => x.cty_kind === kind); return b ? balance(entries, b, lastDay(a.ym)) : z(); };
   // the minister who keeps the house book (for a claim on the house)
   const houseKeeper = (await one<{ name: string }>(c.db, "SELECT held_by AS name FROM profile WHERE cty_office = 'minister' AND active = 1"))?.name ?? null;
@@ -719,7 +731,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
     kind: MONTH_FILE, version: 1,
     community: { uid: await communityUid(c.db), name: (await getMeta(c.db, 'organisation')) ?? '', country: await getMeta(c.db, 'country'), local: (await getMeta(c.db, 'local_currency')) ?? 'SYP' },
     ym: a.ym, made_at: nowIso(), made_by: c.who,
-    totals, parts, cash, books: { cash: at('cash'), bank: at('bank'), economat: at('economat') },
+    totals, parts, usd, cash, books: { cash: at('cash'), bank: at('bank'), economat: at('economat') },
     members: books.filter((b) => b.cty_kind === 'personal' && b.active).length,
     claims,
     charges: (await c.db.query<FileCharge & { status: string }>("SELECT id, date, to_uid, to_name, person, cur, amount, note, status FROM cty_charge WHERE substr(date, 1, 7) = ? ORDER BY date, id", [a.ym]))

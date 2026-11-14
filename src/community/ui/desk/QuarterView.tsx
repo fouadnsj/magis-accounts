@@ -5,56 +5,73 @@
 //    and a click on a slice opens that category.
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../../ui/kit';
-import { CURS, accountBooks, quarterOf, rollUp, sheetOf, totalUsd, yearOf, zero, type Cur, type CtyAccount, type CtyBook, type Money } from '../../domain';
+import { CURS, accountBooks, quarterOf, yearOf, type Cur, type CtyAccount, type CtyBook, type CtyEntry, type Money } from '../../domain';
 import { useCty, bookLabel, bookName } from '../CtyApp';
-import { useRates } from '../usd';
+import { useEntryUsd } from '../usd';
 import { Columns, Ring } from '../charts';
 import { iconOf } from '../icons';
 import { accName, curName, money, monthName, t3, yearName } from '../text';
 import { exportExcel } from './excel';
 
 const RANGE: Record<number, [string, string]> = { 1: ['10-01', '12-31'], 2: ['01-01', '03-31'], 3: ['04-01', '06-30'], 4: ['07-01', '09-30'] };
+/** an amount in each currency, and `u` all of it in dollars at the rate of each entry (as MAGIS: Fouad, 15 November 2026) */
+type Amt = Money & { u: number };
+const zA = (): Amt => ({ LOC: 0, USD: 0, EUR: 0, u: 0 });
 const range = (year: number, q: number): [string, string] => [`${q === 1 ? year : year + 1}-${RANGE[q][0]}`, `${q === 1 ? year : year + 1}-${RANGE[q][1]}`];
 
 export function QuartersByCategory() {
   const { d } = useCty();
   const [year, setYear] = useState(yearOf(todayIso()));
   const [view, setView] = useState<Cur | 'ALL'>('LOC');
-  const rates = useRates();
-  // ALL = every currency converted to dollars, for ONE total
+  const usdOf = useEntryUsd();
+  // ALL = every currency converted to dollars, each entry at its own rate, for ONE total
   const cur: Cur = view === 'ALL' ? 'USD' : view;
-  const pick = (m: Money | undefined): number => (!m ? 0 : view === 'ALL' ? totalUsd(m, rates).usd : m[cur]);
+  const pick = (m: Amt | undefined): number => (!m ? 0 : view === 'ALL' ? m.u : m[cur]);
   const [type, setType] = useState<'Exp' | 'Income'>('Exp');
   const [sel, setSel] = useState<number | null>(null); // a category, or null = everything of that type
   const [qsel, setQsel] = useState<number>(quarterOf(todayIso()));
   const mains = d.books.filter((b) => b.active && (b.cty_kind === 'personal' || b.cty_kind === 'house'));
 
+  /** the lines added up to their headings and families */
+  const rollA = (by: Map<number, Amt>) => {
+    const out = new Map<number, Amt>();
+    for (const [id, v] of by) for (let a: number | null = id; a != null; a = d.accounts.find((x) => x.id === a)?.parent_id ?? null) {
+      const t = out.get(a) ?? zA();
+      for (const c of CURS) t[c] += v[c];
+      t.u += v.u;
+      out.set(a, t);
+    }
+    return out;
+  };
+  /** an entry of this member's (or of the house): what a Jesuit paid "For the house" counts with the house */
+  const groups = mains.map((b) => ({ b, ids: new Set(accountBooks(d.books, b).map((x) => x.id)) }));
+  const belongs = (e: CtyEntry, g: (typeof groups)[number]) =>
+    g.b.cty_kind === 'house' ? g.ids.has(e.book_id) || (e.type === 'Exp' && !!e.for_house) : g.ids.has(e.book_id) && !(e.type === 'Exp' && e.for_house);
+  const add = (t: Amt, e: CtyEntry) => { t[e.cur] += e.amount; t.u += usdOf.get(e.id) ?? 0; };
+
   /** For each quarter of a year: every account's amount (money in or out), members and house together. */
   const compute = (y: number) => [1, 2, 3, 4].map((q) => {
     const [from, to] = range(y, q);
-    const by = new Map<number, Money>();
-    let total = zero();
-    const per: { b: CtyBook; rolled: Map<number, Money>; total: Money }[] = [];
-    for (const b of mains) {
-      const s = sheetOf(d.entries, accountBooks(d.books, b), from, to);
-      const mine = new Map<number, Money>();
-      for (const [id, v] of type === 'Exp' ? s.expenses : s.income) {
-        const t = by.get(id) ?? zero();
-        const u = zero();
-        for (const c of CURS) { const x = type === 'Exp' ? -v[c] : v[c]; t[c] += x; u[c] = x; }
-        by.set(id, t);
-        mine.set(id, u);
+    const by = new Map<number, Amt>();
+    const total = zA();
+    const per: { b: CtyBook; rolled: Map<number, Amt>; total: Amt }[] = [];
+    for (const g of groups) {
+      const mine = new Map<number, Amt>();
+      const bt = zA();
+      for (const e of d.entries) {
+        if (e.type !== type || e.date < from || e.date > to || !belongs(e, g)) continue;
+        const id = e.account_id ?? 0;
+        const t = by.get(id) ?? zA(); add(t, e); by.set(id, t);
+        const u = mine.get(id) ?? zA(); add(u, e); mine.set(id, u);
+        add(total, e); add(bt, e);
       }
-      const tot = type === 'Exp' ? s.totalExpenses : s.totalIncome;
-      const bt = zero();
-      for (const c of CURS) { const x = type === 'Exp' ? -tot[c] : tot[c]; total[c] += x; bt[c] = x; }
-      per.push({ b, rolled: rollUp(d.accounts, mine), total: bt });
+      per.push({ b: g.b, rolled: rollA(mine), total: bt });
     }
-    return { rolled: rollUp(d.accounts, by), total, per };
+    return { rolled: rollA(by), total, per };
   });
 
-  const now = useMemo(() => compute(year), [year, d.entries, d.books, d.accounts, type]); // eslint-disable-line
-  const before = useMemo(() => compute(year - 1), [year, d.entries, d.books, d.accounts, type]); // eslint-disable-line
+  const now = useMemo(() => compute(year), [year, d.entries, d.books, d.accounts, type, usdOf]); // eslint-disable-line
+  const before = useMemo(() => compute(year - 1), [year, d.entries, d.books, d.accounts, type, usdOf]); // eslint-disable-line
   const accounts = d.accounts.filter((a) => a.type === type && now.some((q) => q.rolled.has(a.id) && (pick(q.rolled.get(a.id)) !== 0)));
   const depth = (a: CtyAccount) => { let n = 0; for (let p = a.parent_id; p != null; p = d.accounts.find((x) => x.id === p)?.parent_id ?? null) n++; return n; };
   const val = (qs: typeof now, q: number, id: number | null) => (id == null ? pick(qs[q - 1].total) : pick(qs[q - 1].rolled.get(id)));
@@ -76,20 +93,17 @@ export function QuartersByCategory() {
   const monthly = useMemo(() => {
     const at = (y: number, m: string) => {
       const ym = `${y + (Number(m) <= 9 ? 1 : 0)}-${m}`;
-      let n = 0;
-      for (const b of mains) {
-        const s = sheetOf(d.entries, accountBooks(d.books, b), `${ym}-01`, `${ym}-31`);
-        if (sel == null) n += type === 'Exp' ? -pick(s.totalExpenses) : pick(s.totalIncome);
-        else {
-          const by = new Map<number, Money>();
-          for (const [id, v] of type === 'Exp' ? s.expenses : s.income) by.set(id, v);
-          n += pick(rollUp(d.accounts, by).get(sel)) * (type === 'Exp' ? -1 : 1);
-        }
+      const by = new Map<number, Amt>();
+      const t = zA();
+      for (const g of groups) for (const e of d.entries) {
+        if (e.type !== type || e.date.slice(0, 7) !== ym || !belongs(e, g)) continue;
+        add(t, e);
+        const x = by.get(e.account_id ?? 0) ?? zA(); add(x, e); by.set(e.account_id ?? 0, x);
       }
-      return n;
+      return sel == null ? pick(t) : pick(rollA(by).get(sel));
     };
     return ['10', '11', '12', '01', '02', '03', '04', '05', '06', '07', '08', '09'].map((m) => ({ label: m, title: monthName(`${Number(m) >= 10 ? year : year + 1}-${m}`), now: Math.max(0, at(year, m)), before: Math.max(0, at(year - 1, m)) }));
-  }, [d.entries, d.books, d.accounts, year, sel, view, rates, type]); // eslint-disable-line
+  }, [d.entries, d.books, d.accounts, year, sel, view, usdOf, type]); // eslint-disable-line
 
   const cols = [1, 2, 3, 4].map((q) => ({ label: `T${q}`, title: `T${q} · ${yearName(year)}`, now: Math.max(0, val(now, q, sel)), before: Math.max(0, val(before, q, sel)) }));
   // the ring of the chosen quarter: its headings (or, inside a heading, its lines)

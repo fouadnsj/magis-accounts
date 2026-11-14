@@ -12,6 +12,8 @@ import { accName, curName, money, monthName, periodName, t3, yearName } from '..
 import { exportExcel } from '../desk/excel';
 
 type Part = 'all' | 'personal' | 'house';
+/** an amount in each currency, and `u` in dollars: each entry at its own rate (the file's), as MAGIS */
+type Amt = Money & { u: number };
 type View = 'ctys' | 'cat' | 'months';
 
 export function CtyReport({ d }: { d: CountryData }) {
@@ -28,7 +30,12 @@ export function CtyReport({ d }: { d: CountryData }) {
   const [open, setOpen] = useState<number | null>(null);
 
   const rates: Rates = { loc: d.rates.startRate > 0 ? 1 / d.rates.startRate : null, eur: d.rates.eurUsd };
-  const val = (m: Money | undefined) => (!m ? 0 : cur === 'ALL' ? totalUsd(m, rates).usd : m[cur]);
+  const val = (m: Amt | undefined) => (!m ? 0 : cur === 'ALL' ? m.u : m[cur]);
+  /** a file's dollars for a code (sign as in the file), or, for an older file, the settings' rates */
+  const usdOf = (f: CountryData['months'][number]['file'], p: Part, code: string, v: Money) => {
+    const u = f.usd?.[p === 'all' ? 'totals' : p]?.[code];
+    return u != null ? u : totalUsd(v, rates).usd;
+  };
   const fmt = (n: number) => money(n, cur === 'ALL' ? 'USD' : cur);
   const unit = cur === 'ALL' ? t3('≈ $ (كل العملات)', '≈ $ (all currencies)', '≈ $ (toutes monnaies)') : curName(cur, d.local);
   const byCode = useMemo(() => new Map(d.accounts.map((a) => [a.code, a])), [d.accounts]);
@@ -54,27 +61,28 @@ export function CtyReport({ d }: { d: CountryData }) {
 
   // expenses (positive) and income, by community, month and line; and which months lack the parts
   const data = useMemo(() => {
-    const exp = new Map<string, Map<number, Money>>(); // key `${cty}:${ym}`
-    const inc = new Map<string, Money>();
+    const exp = new Map<string, Map<number, Amt>>(); // key `${cty}:${ym}`
+    const inc = new Map<string, Amt>();
     const noParts = new Set<string>();
     for (const f of d.months) {
       if (!months.includes(f.ym)) continue;
       const k = `${f.cty_id}:${f.ym}`;
       const codes = codesOf(f.file, part);
       if (!codes) { noParts.add(k); continue; }
-      const lines = new Map<number, Money>();
-      const income = zero();
+      const lines = new Map<number, Amt>();
+      const income: Amt = { ...zero(), u: 0 };
       for (const [code, v] of Object.entries(codes)) {
         const a = byCode.get(code);
         if (!a) continue;
-        if (a.type === 'Exp') lines.set(a.id, { LOC: -v.LOC, USD: -v.USD, EUR: -v.EUR });
-        else if (a.type === 'Income') for (const c of CURS) income[c] += v[c];
+        const u = usdOf(f.file, part, code, v);
+        if (a.type === 'Exp') lines.set(a.id, { LOC: -v.LOC, USD: -v.USD, EUR: -v.EUR, u: -u });
+        else if (a.type === 'Income') { for (const c of CURS) income[c] += v[c]; income.u += u; }
       }
       exp.set(k, lines);
       inc.set(k, income);
     }
     return { exp, inc, noParts };
-  }, [d.months, months, part, byCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [d.months, months, part, byCode, rates.loc, rates.eur]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** the expenses of some communities and months, of one heading (or the chosen ones), of one line */
   const sum = (cs: { id: number }[], ms: string[], headId: number | null, lineId: number | null = null) => {
@@ -100,7 +108,7 @@ export function CtyReport({ d }: { d: CountryData }) {
         const a = byCode.get(code);
         if (a?.type !== 'Exp') continue;
         if (heads.length && !heads.includes(headOf(a)?.id ?? -1)) continue;
-        n -= val(v);
+        n -= val({ ...v, u: usdOf(f.file, p, code, v) });
       }
     }
     return { n, missing };

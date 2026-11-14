@@ -782,3 +782,6 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .check-list li { padding: 4px 0; }
 .check-list li.ok { color: #1d5a20; }
 .check-list li.bad { color: #8e1c1c; }
+
+/* the full program opened from the phone app: one tap back to it (2026-11-14) */
+.back-to-phone { position: fixed; inset-inline-end: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 300; width: 52px; height: 52px; border-radius: 50%; background: #23263a; color: #fff; display: grid; place-items: center; font-size: 24px; text-decoration: none; box-shadow: 0 4px 14px rgba(0,0,0,.25); }

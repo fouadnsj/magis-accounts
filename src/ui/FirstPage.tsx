@@ -81,7 +81,7 @@ type Step = CentreKey | 'admin' | 'jesuits';
 /** the Jesuits' door has its own address: …/jesuits */
 const atJesuits = () => { try { return location.pathname.replace(/\/+$/, '') === '/jesuits'; } catch { return false; } };
 
-export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunities, jesuits }: {
+export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunities, jesuits, server }: {
   hello: Hello;
   /** signed out after a while without activity */
   notice?: boolean;
@@ -94,6 +94,8 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   onCommunities?: () => void;
   /** open on the Jesuits' door (after a Jesuit signs out) */
   jesuits?: boolean;
+  /** the desktop app: the server it is connected to, and going to another one */
+  server?: { address: string; onChange: () => void };
 }) {
   const last = remembered();
   const [step, setStep] = useState<Step | null>(jesuits || atJesuits() ? 'jesuits' : notice && last.house ? last.house : null);
@@ -222,6 +224,12 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
             </button>
           ))}
         </div>
+        {server && (
+          <p className="muted small" style={{ textAlign: 'center' }}>
+            {t3('متصل بالخادم', 'Connected to the server', 'Connecté au serveur')} <span className="ltr">{server.address.replace(/^https:\/\//, '')}</span> ·{' '}
+            <button type="button" className="btn ghost small" onClick={server.onChange}>{t3('تغيير الخادم', 'Change server', 'Changer de serveur')}</button>
+          </p>
+        )}
         <div className="mg-others">
           {onCommunities && <button type="button" className="btn ghost" onClick={() => setStep('jesuits')}><img src="/brand/jesuits.png" alt="" /> {t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</button>}
           <button type="button" className="btn ghost" onClick={() => setStep('admin')}>🔑 {t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}</button>

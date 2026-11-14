@@ -15,7 +15,7 @@ import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { mainListApi, serverRestoreUpload } from '../net';
 import { MainListPanel } from './MainListPanel';
-import { pickFile, toBase64 } from '../platform';
+import { pickFile, saveFile, toBase64 } from '../platform';
 import { notesOf } from './Cash';
 import { GuideLink } from '../guide/GuideView';
 import { Checks } from './Checks';
@@ -35,7 +35,7 @@ export function Admin() {
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
     { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
     { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
-    { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore')) || s.mode === 'preview' },
+    { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore') || (can('data.export') && s.mode === 'server')) || s.mode === 'preview' },
     { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : can('users.passwords') ? t('كلمات السر', 'Passwords') : t('كلمة السر', 'Password') },
     { value: 'access', label: t('الأدوار والصلاحيات', 'Roles and permissions'), hidden: !can('users.manage') },
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
@@ -356,7 +356,20 @@ function Backups() {
   const { s, reload, can } = useApp();
   const [list, setList] = useState<BackupFile[]>([]);
   const [comparing, setComparing] = useState<BackupFile | null>(null);
-  const refresh = () => s.api.call('backup.list').then(setList).catch((e) => toast(errText(e), true));
+  const refresh = () => (can('data.backup') || can('data.restore') ? s.api.call('backup.list').then(setList).catch((e) => toast(errText(e), true)) : Promise.resolve());
+  // a copy to send by mail (Fouad, 14 November 2026): a fresh one, or one from the list; saved where the person chooses
+  const download = async (b?: BackupFile) => {
+    try {
+      const r = await s.api.call('backup.download', { name: b?.name ?? null });
+      const bytes = Uint8Array.from(atob(r.base64), (ch) => ch.charCodeAt(0));
+      const label = (s.organisation || 'magis').replace(/[^\w\u0600-\u06FF -]/g, '').trim().replace(/\s+/g, '-');
+      const name = `${label}_${r.name}`;
+      await saveFile(name, ['db'], bytes, t('احفظ النسخة', 'Save the copy'));
+      if (!b) await refresh();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -403,15 +416,18 @@ function Backups() {
         <p className="muted small" style={{ margin: 0 }}>{t('نسخة كل يوم، ونسخة قبل كل استيراد أو استرجاع. «مقارنة» تُظهر ما تغيّر منذ النسخة، وتعيد سطراً واحداً كما كان.', 'One copy every day, and one before every import or restore. "Compare" shows what changed since the copy, and puts one row back as it was.')}</p>
         <div className="row">
           {s.mode === 'server' && can('data.restore') && <button className="btn" onClick={fromFile}>{t('استرجاع من ملف…', 'Restore from a file…')}</button>}
+          {s.mode === 'server' && <button className="btn" onClick={() => void download()}>⬇ {t('نزّل آخر نسخة (لإرسالها)', 'Download the latest copy (to send)')}</button>}
           {can('data.backup') && <button className="btn primary" onClick={now}>{t('نسخة الآن', 'Back up now')}</button>}
         </div>
       </div>
+      {s.mode === 'server' && <p className="muted small" style={{ marginTop: 0 }}>{t('«نزّل آخر نسخة» يأخذ نسخة الآن ويحفظها حيث تختار، لترسلها بالبريد. الصور والمستندات المرفقة ليست فيها.', '"Download the latest copy" takes a copy now and saves it where you choose, to send it by mail. The attached photos and documents are not in it.')}</p>}
       <table className="t">
         <thead><tr><th>{t('الملف', 'File')}</th><th>{t('التاريخ', 'Date')}</th><th className="n">KB</th><th /></tr></thead>
         <tbody>
           {list.map((b) => (
             <tr key={b.path}><td className="code">{b.name}</td><td className="ltr">{new Date(b.modified).toLocaleString('en-GB')}</td><td className="n">{Math.round(b.size / 1024)}</td>
               <td className="right nowrap">
+                {s.mode === 'server' && <button className="btn small" onClick={() => void download(b)} title={t('تنزيل', 'Download')}>⬇</button>}{' '}
                 {can('data.restore') && <button className="btn small primary" onClick={() => setComparing(b)}>⇄ {t('مقارنة', 'Compare')}</button>}{' '}
                 {can('data.restore') && <button className="btn small" onClick={() => restore(b)}>{t('استرجاع', 'Restore')}</button>}
               </td></tr>

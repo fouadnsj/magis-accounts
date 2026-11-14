@@ -136,6 +136,24 @@ describe('the phone', () => {
     expect(row).toMatchObject({ type: 'Exchange', trf_usd: 100, trf_syp: 14_250, inc_usd: 0, exp_usd: 0 });
   });
 
+  it('the full program from the phone, only with a good key (14 November 2026); a backup to send by mail', async () => {
+    const c = await centre();
+    const key = (await c.boss('/api/phone/pair', { name: 'Phone F' })).body.key as string;
+    const r = await fetch(c.base + '/api/phone/session', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` }, body: '{}' });
+    expect(r.status).toBe(200);
+    const cookie = r.headers.getSetCookie().find((x) => x.startsWith('magis_sid='))!.split(';')[0];
+    const me = (await (await fetch(c.base + '/api/me', { headers: { Cookie: cookie } })).json()) as { profile: { name: string }; phone: boolean };
+    expect(me).toMatchObject({ profile: { name: 'Boss' }, phone: true });
+    // a wrong key: nothing
+    expect((await fetch(c.base + '/api/phone/session', { method: 'POST', headers: { Authorization: `Bearer ${key}x` } })).status).toBe(401);
+    // the latest copy, as a file to send
+    const dl = await c.boss('/api/op/backup.download', {});
+    expect(dl.status).toBe(200);
+    expect(dl.body.name).toMatch(/_export\.db$/);
+    expect(Buffer.from(dl.body.base64, 'base64').subarray(0, 15).toString()).toBe('SQLite format 3');
+    expect((await c.boss('/api/op/backup.download', { name: '../config.json' })).status).toBe(400);
+  });
+
   it('a wrong key, a phone cut off, 30 days without a sync, an owner switched off: the phone is out', async () => {
     const c = await centre();
     const key = (await c.boss('/api/phone/pair', { name: 'Phone A' })).body.key as string;

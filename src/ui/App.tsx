@@ -58,6 +58,10 @@ export function App() {
   const [browseTop, setBrowseTop] = useState(false);
   /** server: from the first page to the communities' side (their own password, then their people) */
   const [ctySide, setCtySide] = useState(false);
+  /** opened from the phone app (its "full program"): a way back to it */
+  const [fromPhone, setFromPhone] = useState(false);
+  /** desktop app: back to the list of servers, to open another one */
+  const [pickServer, setPickServer] = useState(false);
   /** a Jesuit signed out: back to the Jesuits' door, not to the houses (Fouad, 13 November 2026) */
   const [jesuitDoor, setJesuitDoor] = useState(false);
   /** signed out for inactivity: said on the login page */
@@ -116,11 +120,28 @@ export function App() {
   /** Desktop app: connect to the centre's server and remember it. */
   const connect = useCallback(async (address: string) => {
     const cfg = await getConfig();
-    const same = cfg.server && cfg.server.address === address;
-    const r = await connectRemote(address, same ? cfg.server!.fingerprint : null);
-    await setConfig({ ...cfg, server: { address, fingerprint: r.fingerprint } });
+    // the certificate remembered for this address (the current server, or one of those opened before)
+    const known = cfg.server?.address === address ? cfg.server : (cfg.servers ?? []).find((x) => x.address === address);
+    const r = await connectRemote(address, known?.fingerprint ?? null);
+    const label = [...new Set(r.hello.dbs.filter((d) => d.kind === 'centre' || d.kind === 'hr').map((d) => d.organisation))].slice(0, 4).join(' · ');
+    const servers = [{ address, fingerprint: r.fingerprint, label: label || (cfg.servers ?? []).find((x) => x.address === address)?.label, last: new Date().toISOString() }, ...(cfg.servers ?? []).filter((x) => x.address !== address)].slice(0, 12);
+    await setConfig({ ...cfg, server: { address, fingerprint: r.fingerprint }, servers });
     setBootErr(null);
+    setPickServer(false);
     setServer(r.hello);
+  }, []);
+
+  /** Desktop app: another server (moving from centre to centre): out of this one, then the list of servers. */
+  const changeServer = useCallback(async () => {
+    await serverLogout();
+    await disconnectRemote();
+    const cfg = await getConfig();
+    await setConfig({ ...cfg, server: null });
+    setSession(null);
+    setServerDb(null);
+    setBrowsing(false);
+    setPickServer(true);
+    setServer(null);
   }, []);
 
   /** Desktop app: stop using the server; back to the files of this computer. */
@@ -153,6 +174,7 @@ export function App() {
         if (h) {
           setServer(h);
           const me = await serverMe();
+          if (me?.phone) setFromPhone(true);
           const db = me ? h.dbs.find((d) => d.slug === me.db) : undefined;
           if (me?.profile && db) {
             setServerDb(db);
@@ -202,6 +224,8 @@ export function App() {
 
   /** Signing out is complete (Fouad, 31 October 2026): out of the database and of the directory, back to the first page. */
   const logout = useCallback(() => {
+    // opened from the phone app: signing out goes back to it
+    if (fromPhone) { void serverLogout().then(() => { location.href = '/phone.html'; }); return; }
     if (server) void (async () => { await serverLogout(); await dirLogout(); await refreshServer(); })();
     setJesuitDoor(sessionRef.current?.kind === 'community' || sessionRef.current?.kind === 'country');
     dropDraft();
@@ -212,7 +236,7 @@ export function App() {
     setServerDb(null);
     setBrowsing(false);
     setCtySide(false);
-  }, [server, refreshServer]);
+  }, [server, refreshServer, fromPhone]);
 
   /** No activity for too long: out, but a half-typed entry is kept for the same person. Several tabs of one browser share
    *  one sign-in: a tab left alone must not end it while the person works in another tab, nor end the sign-in of
@@ -271,6 +295,7 @@ export function App() {
         onCommunities={server.ctyGate || server.dbs.some((d) => d.kind === 'community' || d.kind === 'country') ? () => setCtySide(true) : undefined}
         jesuits={jesuitDoor}
         key={jesuitDoor ? 'jesuits' : 'houses'}
+        server={remoteBase ? { address: remoteBase, onChange: () => void changeServer() } : undefined}
       />
     );
   else if (server && ((!session && !serverDb) || (session && browsing)))
@@ -294,6 +319,7 @@ export function App() {
         onCtyUnlocked={async () => { await refreshServer(); }}
         address={remoteBase}
         onLeave={remoteBase ? leaveServer : undefined}
+        onChangeServer={remoteBase ? () => void changeServer() : undefined}
         onBackIn={session ? () => setBrowsing(false) : undefined}
         onOpen={async (db) => {
           if (session && db.slug === serverDb?.slug && !db.setupNeeded) return setBrowsing(false);
@@ -400,7 +426,7 @@ export function App() {
   else if (session && mustChange)
     body = <ForcePassword session={session} onDone={() => setMustChange(false)} onLogout={logout} />;
   else if (!server && !opened)
-    body = <Welcome onCreated={onCreated} onOpenPath={openPath} newWebDb={webDb} bootErr={bootErr} onConnect={connect} />;
+    body = <Welcome onCreated={onCreated} onOpenPath={openPath} newWebDb={webDb} bootErr={bootErr} onConnect={connect} serverFirst={pickServer} key={pickServer ? 'servers' : 'welcome'} />;
   else if (!server && opened && !session)
     body = (
       <Login
@@ -448,6 +474,9 @@ export function App() {
       {session?.as && <SignAsBanner name={session.profile.name} as={session.as} />}
       {!isDesktop() && !server && <div className="preview-banner">{t('معاينة في المتصفح — لا يُحفظ شيء', 'Browser preview — nothing is saved')}</div>}
       {body}
+      {fromPhone && (
+        <a href="/phone.html" className="back-to-phone" title={t('رجوع إلى تطبيق الهاتف', 'Back to the phone app')}>📱</a>
+      )}
       <ConfirmHost />
       <PromptHost />
       <ToastHost />

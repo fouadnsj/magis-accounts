@@ -173,7 +173,7 @@ export const serverSignIn = (centre: string, name: string, password: string) =>
 export const serverEnter = (db: string) => post<{ profile: Profile; mustChange: boolean }>('/api/signin/enter', { db });
 
 /** Already logged in (cookie still valid)? */
-export const serverMe = () => get<{ profile: Profile; mustChange: boolean; db: string; as?: SignedAs | null } | null>('/api/me').catch(() => null);
+export const serverMe = () => get<{ profile: Profile; mustChange: boolean; db: string; as?: SignedAs | null; phone?: boolean } | null>('/api/me').catch(() => null);
 
 /** "sign in as" (Fouad, 31 October 2026): who really is there, and whether they may act */
 export interface SignedAs { by: string; mode: 'view' | 'act' }

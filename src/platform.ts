@@ -97,7 +97,10 @@ export interface LocalConfig {
   ctyGate?: { salt: string; hash: string } | null;
   /** the centre's server this app opens on (desktop app used on the network) */
   server?: { address: string; fingerprint: string } | null;
+  /** every server this app has opened (Fouad, 14 November 2026: "I move from centre to centre"): the newest first */
+  servers?: KnownServer[];
 }
+export interface KnownServer { address: string; fingerprint: string; /** what it holds, as seen when last opened */ label?: string; last: string }
 
 export async function getConfig(): Promise<LocalConfig> {
   if (!isDesktop()) return {};

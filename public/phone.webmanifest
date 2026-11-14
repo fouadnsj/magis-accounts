@@ -2,7 +2,7 @@
   "name": "MAGIS — phone",
   "short_name": "MAGIS",
   "start_url": "/phone.html",
-  "scope": "/phone.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#fbf8f1",
   "theme_color": "#23263a",

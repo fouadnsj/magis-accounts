@@ -3,7 +3,7 @@
 // the first link; the phone sends by itself when it finds the server again.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { allPhotos, allRows, delPhoto, delRow, kvDel, kvGet, kvSet, lockKey, newId, openKey, putPhoto, putRow, wipe, type Entry, type Kind, type Link, type Msg, type Pack, type Photo } from './store';
-import { api, balance, check, Offline, Refused, sync, Unlinked } from './sync';
+import { api, balance, check, Offline, openFull, Refused, sync, Unlinked } from './sync';
 
 type Lang = 'ar' | 'en' | 'fr';
 let lang: Lang = ((): Lang => {
@@ -292,6 +292,12 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
         <button className="ph-big exc" disabled={!pack.books.length} onClick={() => setForm({ type: 'Exchange' })}><span>⇄ {pack.kind === 'community' ? t('صرافة', 'Exchange', 'Change') : t('تصريف: دولار ← ليرة', 'Exchange: dollars → pounds', 'Change : dollars → livres')}</span></button>
       )}
 
+      {/* the full program while connected (Fouad, 14 November 2026); with no connection the phone stays as it is */}
+      {net.state === 'ok' && (
+        <button className="ph-btn" onClick={async () => { try { await openFull(keyOf); } catch (e) { setNet({ state: 'offline', text: errText(e) }); } }}>
+          🖥 {t('البرنامج الكامل', 'The full program', 'Le programme complet')}
+        </button>
+      )}
       <button className={`ph-sync ${net.state}`} onClick={() => void doSync()} disabled={net.state === 'busy'}>
         {net.state === 'busy' ? t('يُرسل…', 'Sending…', 'Envoi…')
           : net.state === 'offline' ? `⚠ ${net.text ?? t('لا اتصال بالخادم', 'No connection to the server', 'Pas de connexion au serveur')} — ${t('حاول من جديد', 'try again', 'réessayer')}`

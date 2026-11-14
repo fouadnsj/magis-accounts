@@ -62,6 +62,8 @@ export interface FileOps {
   docWrite(rel: string, bytes: Uint8Array): Promise<void>;
   docRead(rel: string): Promise<Uint8Array>;
   docExists(rel: string): Promise<boolean>;
+  /** a backup copy's bytes, to save elsewhere (the server only) */
+  backupRead?(name: string): Promise<Uint8Array>;
 }
 
 export interface AttachmentRow {
@@ -2031,6 +2033,23 @@ export const OPS = {
   // ---------------------------------------------------------------- backups
   'backup.list': { check: (c: OpCtx) => need(c, 'data.backup', 'data.restore'), run: (c: OpCtx) => c.files.list() },
   'backup.now': { check: (c: OpCtx) => need(c, 'data.backup'), run: (c: OpCtx) => c.files.backupNow('manual') },
+  // a copy to send by mail (Fouad, 14 November 2026: "the app is on several servers; the accountant sends it to be
+  // checked"): a fresh copy taken now, or one from the list, as a file
+  'backup.download': {
+    check: (c: OpCtx) => need(c, 'data.backup', 'data.restore', 'data.export'),
+    run: async (c: OpCtx, a: { name?: string | null }) => {
+      if (!c.files.backupRead) throw new UserError(m('على الخادم فقط', 'On the server only', 'Sur le serveur seulement'));
+      let name = a.name ? String(a.name) : '';
+      if (!name) {
+        const made = await c.files.backupNow('export');
+        name = String(made ?? '').split(/[\\/]/).pop() ?? '';
+      }
+      const bytes = await c.files.backupRead(name);
+      let b = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) b += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { name, base64: btoa(b), size: bytes.length };
+    },
+  },
   /** The register of a backup copy, as this person may see it (to compare with now). */
   'backup.compare': {
     check: (c: OpCtx) => need(c, 'data.restore'),

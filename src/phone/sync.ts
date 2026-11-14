@@ -30,6 +30,12 @@ export const api = {
   logout: async () => { await call('/api/logout', {}).catch(() => undefined); await call('/api/dir/logout', {}).catch(() => undefined); },
 };
 
+/** the full program, as in a browser, opened with this phone's key (only while the server answers) */
+export async function openFull(key: string) {
+  await call('/api/phone/session', {}, key);
+  location.href = '/';
+}
+
 export interface SyncResult { sent: number; refused: number; photos: number }
 
 /** One sync: rows waiting → the server; photos of the rows it has → the server; the fresh pack is kept. */

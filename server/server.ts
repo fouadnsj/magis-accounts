@@ -283,6 +283,8 @@ interface Session {
   /** in a community (Fouad, 13 November 2026): the PERSON who signed in. The offices he holds are "hats" he puts on
    *  without another password; this stays the same while he changes hats. */
   person?: number;
+  /** opened from the phone app with its key (Fouad, 14 November 2026: the full program while the phone is connected) */
+  phone?: true;
 }
 /** the person behind a community sign-in: a profile that is not an office */
 const personOf = (p: Profile) => (p.office ? undefined : p.id);
@@ -426,6 +428,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     },
     async docExists(rel) {
       return fs.existsSync(docPath(c, rel));
+    },
+    async backupRead(name) {
+      const base = path.basename(name);
+      const from = path.join(c.backupsDir, base);
+      if (base !== name || !base.endsWith('.db') || !fs.existsSync(from)) throw new HttpError(400, { ar: 'نسخة غير موجودة', en: 'Backup not found', fr: 'Copie introuvable' });
+      return new Uint8Array(fs.readFileSync(from));
     },
     async backupRows(name) {
       const base = path.basename(name);
@@ -2362,7 +2370,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     if (url === '/api/me')
       // idleMs: how long since the person last did something (in any tab of this browser); read by a background check
-      return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange, db: found[1].db, idleMs: Date.now() - found[1].last, as: found[1].as ? { by: found[1].as.by, mode: found[1].as.mode } : null } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
+      return send(res, found ? 200 : 401, found ? { profile: found[1].profile, mustChange: found[1].mustChange, db: found[1].db, idleMs: Date.now() - found[1].last, as: found[1].as ? { by: found[1].as.by, mode: found[1].as.mode } : null, phone: !!found[1].phone } : { error: { ar: 'سجّل الدخول', en: 'Please log in' } });
     // "sign in as": only someone who manages the users of this database; the way back is always open
     if (url === '/api/as' && method === 'POST') {
       if (!found) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
@@ -2460,7 +2468,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
     if (url === '/api/phone/where' && method === 'GET') return send(res, 200, phoneWhere());
-    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo') {
+    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session') {
       if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
       // the key: "database:phone:secret"
       const [slug, pid, key] = (/^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '').split(':');
@@ -2473,6 +2481,16 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const owner = await loadProfile(pc.handle.db, phone.profile_id);
       if (!owner || !mayPhone(owner)) throw unlinked;
       if (url === '/api/phone/pack') return send(res, 200, await phonePack(pc.handle.db, owner, phone));
+      // the full program, as in a browser, while the phone is on the server's network: a session for its owner, with
+      // exactly his rights; nothing more than his password would open (with no connection the phone stays as it is)
+      if (url === '/api/phone/session') {
+        if (found) sessions.delete(found[0]);
+        const sid = randomBytes(32).toString('base64url');
+        const must = !!(await one<{ m: number }>(pc.handle.db, 'SELECT must_change AS m FROM profile WHERE id = ?', [owner.id]))?.m;
+        sessions.set(sid, { db: pc.slug, profile: owner, mustChange: must, last: Date.now(), ip, person: personOf(owner), phone: true });
+        log(`phone ${pc.slug}: ${owner.name} opened the full program from "${phone.name}" (${ip})`);
+        return send(res, 200, { ok: true }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
+      }
       const ctx: OpCtx = { db: pc.handle.db, profile: owner, who: owner.name, install: 'office', files: pc.files };
       if (url === '/api/phone/push') {
         const body = (await readBody(req)) as { rows?: PhoneEntry[] };

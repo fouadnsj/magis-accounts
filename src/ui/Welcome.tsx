@@ -8,8 +8,8 @@ import { tauriDb } from '../db/tauriDb';
 import { createHolder, createOffice } from '../setup';
 import { applySeed, readWorkbook, type ImportReport } from '../io/importWorkbook';
 import { parseListsPackage, type ListsPackage } from '../io/keeperFiles';
-import { baseName, getConfig, setConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath, type KnownDb } from '../platform';
-import { Field, errText, t } from './kit';
+import { baseName, getConfig, setConfig, isDesktop, pickExistingDbPath, pickFile, pickNewDbPath, type KnownDb, type KnownServer } from '../platform';
+import { Field, confirmBox, errText, t } from './kit';
 import { BrandFrame, DbCard } from './Landing';
 import { CommunityForm, CountryForm } from '../community/ui/NewCommunity';
 import { createCountry } from '../community/country';
@@ -19,14 +19,16 @@ import { CtyUnlock, localGateCheck, localGateOpen, localGateSave, localGateSet }
 
 type Mode = 'choose' | 'office' | 'holder' | 'server' | 'community' | 'country';
 
-export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect }: {
+export function Welcome({ onCreated, onOpenPath, newWebDb, bootErr, onConnect, serverFirst }: {
   onConnect?: (address: string) => Promise<void>;
+  /** open on the list of servers (after "Change server") */
+  serverFirst?: boolean;
   onCreated: (db: Db, path: string | null) => Promise<void>;
   onOpenPath: (path: string) => Promise<void>;
   newWebDb: () => Promise<Db>;
   bootErr: string | null;
 }) {
-  const [mode, setMode] = useState<Mode>('choose');
+  const [mode, setMode] = useState<Mode>(serverFirst && onConnect ? 'server' : 'choose');
   /** the first choice: the MAGIS centres, or the Jesuit communities */
   const [area, setArea] = useState<'centres' | 'cty' | null>(null);
   const [err, setErr] = useState<string | null>(bootErr);
@@ -176,28 +178,49 @@ function ServerForm({ onBack, onConnect }: { onBack: () => void; onConnect: (add
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // the servers opened before on this computer (Fouad, 14 November 2026: one per centre he visits)
+  const [known, setKnown] = useState<KnownServer[]>([]);
   useEffect(() => {
-    getConfig().then((c) => c.server && setAddress(c.server.address));
+    getConfig().then((c) => { setKnown(c.servers ?? (c.server ? [{ ...c.server, last: '' }] : [])); });
   }, []);
-  const go = async () => {
+  const go = async (a = address) => {
     setErr(null);
     setBusy(true);
     try {
-      await onConnect(address.trim());
+      await onConnect(a.trim());
     } catch (e) {
+      setAddress(a);
       setErr(errText(e));
     } finally {
       setBusy(false);
     }
   };
-  const forget = async () => {
+  // forget a server: its address and its remembered certificate (when it was reinstalled, or not used any more)
+  const forget = async (a = address) => {
+    if (a !== address && !(await confirmBox(t(`نسيان الخادم ${a}؟`, `Forget the server ${a}?`)))) return;
     const c = await getConfig();
-    await setConfig({ ...c, server: null });
+    const servers = (c.servers ?? []).filter((x) => x.address !== a.trim());
+    await setConfig({ ...c, server: c.server?.address === a.trim() ? null : c.server, servers });
+    setKnown(servers);
     setErr(null);
   };
   return (
     <div className="panel" style={{ maxWidth: 620, margin: '0 auto' }}>
       <h2>{t('خادم المركز', "The centre's server")}</h2>
+      {known.length > 0 && (
+        <div className="server-list">
+          {known.map((x) => (
+            <div key={x.address} className="row server-item">
+              <button type="button" className="btn" disabled={busy} onClick={() => void go(x.address)} style={{ flex: 1, textAlign: 'start' }}>
+                <b className="ltr">{x.address}</b>{x.label ? <span className="muted small"> · {x.label}</span> : null}
+                {x.last && <span className="muted small"> · {x.last.slice(0, 10)}</span>}
+              </button>
+              <button type="button" className="btn ghost small" title={t('نسيان', 'Forget')} onClick={() => void forget(x.address)}>✕</button>
+            </div>
+          ))}
+          <p className="muted small" style={{ marginBottom: 4 }}>{t('أو خادم آخر:', 'Or another server:')}</p>
+        </div>
+      )}
       <p className="muted">{t('العنوان موجود على الخادم في: الإدارة ← الخادم (مثلاً 192.168.1.20).', 'The address is shown on the server in Admin → Server (e.g. 192.168.1.20).')}</p>
       <form onSubmit={(e) => { e.preventDefault(); void go(); }}>
         <Field label={t('عنوان الخادم', 'Server address')}>
@@ -206,8 +229,8 @@ function ServerForm({ onBack, onConnect }: { onBack: () => void; onConnect: (add
         {err && <div className="alert err" style={{ marginTop: 10 }}>{err}</div>}
         <div className="modal-foot">
           <button type="button" className="btn" onClick={onBack}>{t('رجوع', 'Back')}</button>
-          {err && <button type="button" className="btn ghost" onClick={forget}>{t('نسيان الخادم', 'Forget this server')}</button>}
-          <button className="btn primary" disabled={busy || !address.trim()}>{busy ? '…' : t('اتصال', 'Connect')}</button>
+          {err && <button type="button" className="btn ghost" onClick={() => void forget()}>{t('نسيان الخادم', 'Forget this server')}</button>}
+          <button className="btn primary" disabled={busy || !address.trim()} onClick={(e) => { e.preventDefault(); void go(); }}>{busy ? '…' : t('اتصال', 'Connect')}</button>
         </div>
       </form>
     </div>

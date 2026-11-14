@@ -191,7 +191,7 @@ export function DbCard({ db, onOpen, path }: { db: DbInfo; onOpen: () => void; /
 }
 
 /** Server: the list of databases, and a new one. */
-export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, dir, isLocal, onDirChanged, onDirSignOut, onOpen, onCreated, signedIn, address, onLeave, onBackIn, startArea, ctyLocked, onCtyUnlocked, onHome, home }: {
+export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage, onManaged, dir, isLocal, onDirChanged, onDirSignOut, onOpen, onCreated, signedIn, address, onLeave, onChangeServer, onBackIn, startArea, ctyLocked, onCtyUnlocked, onHome, home }: {
   dbs: DbInfo[];
   canCreate: boolean;
   canCreateCty?: boolean;
@@ -210,6 +210,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
   /** desktop app: the server's address, and the way back to this computer's files */
   address?: string | null;
   onLeave?: () => void;
+  onChangeServer?: () => void;
   onBackIn?: () => void;
   /** signed in from a community (or a centre): the list opens on that side */
   startArea?: 'centres' | 'cty' | null;
@@ -279,7 +280,10 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
       {address && (
         <div className="row muted small" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
           <span>{t('متصل بخادم المركز', "Connected to the centre's server")} · <span className="ltr">{address}</span></span>
-          {onLeave && <button className="btn small ghost" onClick={onLeave}>{t('ترك الخادم (ملفات هذا الحاسوب)', "Leave the server (this computer's files)")}</button>}
+          <span className="row" style={{ gap: 4 }}>
+            {onChangeServer && <button className="btn small ghost" onClick={onChangeServer}>{t('تغيير الخادم', 'Change server')}</button>}
+            {onLeave && <button className="btn small ghost" onClick={onLeave}>{t('ترك الخادم (ملفات هذا الحاسوب)', "Leave the server (this computer's files)")}</button>}
+          </span>
         </div>
       )}
       {!creating ? (

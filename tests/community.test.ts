@@ -89,6 +89,13 @@ describe('entries', () => {
     expect(jean.entries.some((e) => e.book_id === bookOf('Marc'))).toBe(false);
     expect(paul.entries.some((e) => e.book_id === bookOf('Marc'))).toBe(true);
   });
+  it('the Superior sees every book but changes no record that is not his (Fouad, 14 November 2026)', async () => {
+    const paul = (await run('Superior', 'cty.data')) as CtyData;
+    const theirs = paul.entries.find((e) => e.book_id === bookOf('Marc'))!;
+    await expect(run('Superior', 'cty.entry.save', { entry: { ...theirs, amount: 1 } })).rejects.toThrow(/Not allowed/);
+    await expect(run('Superior', 'cty.entry.save', { entry: spend({ book_id: bookOf('Marc'), amount: 5 }) })).rejects.toThrow(/Not allowed/);
+    await expect(run('Superior', 'cty.entry.delete', { id: theirs.id, reason: 'x' })).rejects.toThrow(/Not allowed/);
+  });
 });
 
 describe('money from the econome, exchange, end of the month', () => {

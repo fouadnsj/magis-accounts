@@ -43,7 +43,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   // the Superior's own short screen (Fouad, 13 November 2026): approve, read each one's month, see the community
   const superior = can('cty.month_seen') && !can('book.own') && !can('users.manage');
   const waiting = d.entries.filter((e) => e.approval_needed && !e.approved_at && !e.refused_at).length;
-  const [nav, setNav] = useState<DeskNav>({ page: superior ? (waiting ? 'approvals' : 'member') : sees ? 'dash' : 'people' });
+  const [nav, setNav] = useState<DeskNav>({ page: superior ? (waiting ? 'approvals' : 'books') : sees ? 'dash' : 'people' });
   const go = (n: DeskNav) => setNav(n);
   // six places at most (Fouad, 13 November 2026: "simple"); a place with several pages shows them as tabs
   type Tab = { page: DeskPage; label: string; hidden?: boolean };
@@ -58,9 +58,10 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
   };
   const sections: { key: string; label: string; badge?: number; tabs: Tab[] }[] = superior ? [
     { key: 'approve', label: T.approvals, badge: waiting, tabs: [{ page: 'approvals', label: T.approvals }] },
-    { key: 'read', label: t3('قراءة الشهر', 'Read the month', 'Lire le mois'), tabs: [{ page: 'member', label: T.each }] },
-    { key: 'cty', label: t3('الجماعة', 'The community', 'La communauté'), tabs: [{ page: 'dash', label: T.today }] },
-    { key: 'entries', label: t3('القيود', 'Entries', 'Écritures'), tabs: [{ page: 'register', label: T.list }, { page: 'quarter', label: T.charts }] },
+    // like the Superior in MAGIS (Fouad, 14 November 2026): every book, approve, remarks, reports; he changes no record
+    { key: 'books', label: t3('الدفاتر', 'The books', 'Les comptes'), tabs: [{ page: 'books', label: t3('كل الدفاتر', 'All the books', 'Tous les comptes') }] },
+    { key: 'reports', label: t3('التقارير', 'Reports', 'Rapports'), tabs: [{ page: 'report', label: T.report }, { page: 'quarter', label: T.charts }] },
+    { key: 'cty', label: t3('الجماعة', 'The community', 'La communauté'), tabs: [{ page: 'dash', label: T.today }, { page: 'register', label: t3('كل القيود', 'All the entries', 'Toutes les écritures') }] },
     { key: 'settings', label: t3('الإعدادات', 'Settings', 'Réglages'), tabs: [{ page: 'settings', label: t3('اللغة واللوحة', 'Language & control panel', 'Langue et tableau de bord') }] },
   ] : [
     { key: 'today', label: T.today, tabs: [{ page: 'dash', label: T.today, hidden: !sees }] },

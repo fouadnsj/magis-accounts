@@ -11,13 +11,15 @@ import { exportExcel } from './excel';
 
 /** fixed: opened from "The books" on one book (no other book to choose). */
 export function Register({ initialBook, initialYm, fixed }: { initialBook: number | null; initialYm?: string; fixed?: boolean }) {
-  const { d, write } = useCty();
+  const { d, write, can } = useCty();
   const today = todayIso();
   const [bookId, setBookId] = useState<number | null>(initialBook);
   const [period, setPeriod] = useState<string>(initialYm ?? today.slice(0, 7)); // YYYY-MM, or Y2025 for a year
   const [type, setType] = useState<EntryType | ''>('');
   const [q, setQ] = useState('');
   const book = d.books.find((b) => b.id === bookId);
+  // the Superior reads: no new entry, no opening (Fouad, 14 November 2026)
+  const mayWrite = can('cty.write_all') || (bookId != null && d.kept.includes(bookId));
   const [opening, setOpening] = useState(false);
 
   const inPeriod = (date: string) => (period.startsWith('Y') ? yearOf(date) === Number(period.slice(1)) : date.slice(0, 7) === period);
@@ -91,8 +93,8 @@ export function Register({ initialBook, initialYm, fixed }: { initialBook: numbe
       <div className="desk-head">
         <h1>{book ? `${t3('دفتر', 'Journal', 'Journal')} · ${bookName(book)}` : t3('السجل', 'Register', 'Registre')}</h1>
         <div className="row">
-          <button className="btn primary" disabled={!book} title={book ? '' : t3('اختر دفتراً', 'Choose a book', 'Choisissez un compte')} onClick={() => book && write({ kind: 'Exp', bookId: book.id })}>＋ {t3('قيد جديد', 'New entry', 'Nouvelle écriture')}</button>
-          {book && <button className="btn" onClick={() => setOpening(true)}>{t3('ما كان فيه في البداية…', 'Amount at the start…', 'Montant au départ…')}</button>}
+          {mayWrite && <button className="btn primary" disabled={!book} title={book ? '' : t3('اختر دفتراً', 'Choose a book', 'Choisissez un compte')} onClick={() => book && write({ kind: 'Exp', bookId: book.id })}>＋ {t3('قيد جديد', 'New entry', 'Nouvelle écriture')}</button>}
+          {book && mayWrite && <button className="btn" onClick={() => setOpening(true)}>{t3('ما كان فيه في البداية…', 'Amount at the start…', 'Montant au départ…')}</button>}
           <button className="btn" onClick={exportIt}>Excel</button>
         </div>
       </div>

@@ -451,14 +451,14 @@ export function App() {
     body = (
       <>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <CtyLang onLang={() => force((x) => x + 1)}><CountryApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} /></CtyLang>
+        <CtyLang onLang={() => force((x) => x + 1)}><CountryApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onHome={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} /></CtyLang>
       </>
     );
   else if (session?.kind === 'community')
     body = (
       <>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <CtyLang onLang={() => force((x) => x + 1)}><CtyApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onCloseDb={server ? undefined : closeDb} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} /></CtyLang>
+        <CtyLang onLang={() => force((x) => x + 1)}><CtyApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onCloseDb={server ? undefined : closeDb} onDatabases={server ? async () => { await refreshServer(); setBrowsing(true); } : undefined} onHome={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} /></CtyLang>
       </>
     );
   else

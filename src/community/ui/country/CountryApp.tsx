@@ -41,7 +41,7 @@ const codeName = (code: string) => {
   return l === 'fr' ? a.fr : l === 'ar' ? a.ar : l === 'en' ? a.en : `${a.ar} · ${a.en}`;
 };
 
-export function CountryApp({ session, onLogout, onLang }: { session: Session; onLogout: () => void; onLang: () => void }) {
+export function CountryApp({ session, onLogout, onLang, onHome }: { session: Session; onLogout: () => void; onLang: () => void; /** back to the first page, without signing out */ onHome?: () => void }) {
   const [d, setD] = useState<CountryData | null>(null);
   const [page, setPage] = useState<Page>('dash');
   const [guideAt, setGuideAt] = useState<string | null>(null);
@@ -97,6 +97,7 @@ export function CountryApp({ session, onLogout, onLang }: { session: Session; on
         ))}
         <div className="desk-spacer" />
         <button className={page === 'guide' ? 'on' : ''} onClick={() => openGuide('country-start')}><span><GuideSun light /> {t3('الدليل', 'Guide', 'Guide')}</span></button>
+        {onHome && <button onClick={onHome}>🏠 {t3('الصفحة الأولى', 'Home page', "Page d'accueil")}</button>}
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">

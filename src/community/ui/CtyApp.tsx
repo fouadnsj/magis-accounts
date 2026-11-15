@@ -54,12 +54,14 @@ export function useCty(): Ctx {
 
 const KIND_ORDER = ['personal', 'house', 'cash', 'bank', 'economat'];
 
-export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
+export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases, onHome }: {
   session: Session;
   onLogout: () => void;
   onLang: () => void;
   onCloseDb?: () => void;
   onDatabases?: () => void;
+  /** back to the first page (the databases), without signing out */
+  onHome?: () => void;
 }) {
   const [d, setD] = useState<CtyData | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -144,7 +146,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
   if (desk)
     return (
       <CtyCtx.Provider value={ctx}>
-        <Desk onPhone={() => choosePhone(true)} onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} />
+        <Desk onPhone={() => choosePhone(true)} onLang={onLang} onLogout={onLogout} onCloseDb={onCloseDb} onDatabases={onDatabases} onHome={onHome} />
         {sheet && <EntrySheet key={sheetKey} start={sheet} onClose={() => setSheet(null)} onCopy={openCopy} />}
         {giving && <GiveSheet onClose={() => setGiving(false)} />}
       </CtyCtx.Provider>
@@ -161,6 +163,7 @@ export function CtyApp({ session, onLogout, onLang, onCloseDb, onDatabases }: {
           </div>
           <span className="cty-topbtns">
             <button className="cty-icon" onClick={() => setView('settings')} aria-label={t3('الإعدادات', 'Settings', 'Réglages')}>⚙︎</button>
+            {onHome && <button className="cty-icon" onClick={onHome} aria-label={t3('الصفحة الأولى', 'Home page', "Page d'accueil")} title={t3('الصفحة الأولى', 'Home page', "Page d'accueil")}>🏠</button>}
             <button className="cty-signout" onClick={onLogout}>⏻ {t3('خروج', 'Sign out', 'Sortir')}</button>
           </span>
         </header>

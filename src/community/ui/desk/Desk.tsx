@@ -36,8 +36,8 @@ export interface DeskNav {
   ym?: string;
 }
 
-export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
-  onPhone: () => void; onLang: () => void; onLogout: () => void; onCloseDb?: () => void; onDatabases?: () => void;
+export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases, onHome }: {
+  onPhone: () => void; onLang: () => void; onLogout: () => void; onCloseDb?: () => void; onDatabases?: () => void; onHome?: () => void;
 }) {
   const { s, d, can, myBooks } = useCty();
   // the Administrator sees no record: his window starts on the accounts
@@ -108,6 +108,7 @@ export function Desk({ onPhone, onLang, onLogout, onCloseDb, onDatabases }: {
         <div className="desk-spacer" />
         <button className={nav.page === 'guide' ? 'on' : ''} onClick={() => openGuide(superior ? 'cty-superior' : can('users.manage') && !sees ? 'cty-admin' : 'cty-econome')}><span><GuideSun light /> {t3('الدليل', 'Guide', 'Guide')}</span></button>
         {myBooks.length > 0 && <button onClick={onPhone}>📱 {t3('عرض الهاتف', 'Phone view', 'Vue téléphone')}</button>}
+        {onHome && <button onClick={onHome}>🏠 {t3('الصفحة الأولى', 'Home page', "Page d'accueil")}</button>}
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </aside>
       <main className="desk-main">

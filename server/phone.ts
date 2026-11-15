@@ -10,7 +10,7 @@ import { isHouseLine } from '../src/community/chart';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { type Db, one } from '../src/db/db';
 import { auditStmt, blankTrx, closedMonths, getMeta, loadLists, loadTrx, UserError } from '../src/db/repo';
-import { has, type Profile } from '../src/auth';
+import { has, listProfiles, loadProfile, type Profile } from '../src/auth';
 import { runOp, type OpCtx } from '../src/ops';
 import { holders } from '../src/domain/reports';
 import { rateOn } from '../src/domain/compute';
@@ -68,7 +68,9 @@ export interface PhonePack {
   validUntil: string;
   /** the books this person writes in, with what each should hold now */
   /** rate: the book's latest exchange rate (SYP for one USD), to warn about a mistyped exchange */
-  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate: number; bal?: Record<string, number>; kind?: string | null }[];
+  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate: number; bal?: Record<string, number>; kind?: string | null; office?: string | null }[];
+  /** a community: the books money may be given to (the brothers, the house, the community cash) */
+  targets?: { id: number; name: string; kind: string | null }[];
   headings: { id: number; name: string; code: string; types: PhoneType[]; names?: Msg }[];
   /** scope (communities): 'P' a line a Jesuit may use for himself; others are for the house */
   lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null; house?: boolean }[];
@@ -86,7 +88,7 @@ export interface PhonePack {
 }
 
 /** what a phone records: expenses, income and (Fouad, 2026-11-13) exchanges; transfers stay on the computer */
-export type PhoneType = 'Exp' | 'Income' | 'Exchange';
+export type PhoneType = 'Exp' | 'Income' | 'Exchange' | 'Transfer';
 const PHONE_TYPES: readonly string[] = ['Exp', 'Income', 'Exchange'];
 
 /** the books a person writes in from a phone: the ones kept, Main with its right; every book for who writes everywhere */
@@ -150,6 +152,8 @@ export interface PhoneEntry {
   syp?: number;
   /** a community: a Jesuit's expense paid for the house (1) */
   for_house?: number;
+  /** a community: a transfer, to which book */
+  to_book_id?: number | null;
   /** an exchange in a community: the currency and the amount received */
   cur2?: string | null;
   amount2?: number | null;
@@ -218,13 +222,38 @@ export async function phonePhoto(ctx: OpCtx, a: { trxId: string; key: string; ba
 // through 'cty.entry.save' with the rights of the account the phone belongs to (approval limits included).
 
 const CTY_CURS = ['LOC', 'USD', 'EUR'];
+/** a community's phone also gives money: the econome to a brother or the house, a Jesuit back to the econome (15 November 2026) */
+const CTY_TYPES: readonly string[] = ['Exp', 'Income', 'Exchange', 'Transfer'];
+
+/**
+ * The accounts behind a Jesuit's phone (Fouad, 15 November 2026): the person, and the offices he holds (the hats:
+ * minister, econome…). The phone holds the books of all of them; each row is saved with the account that keeps its book.
+ */
+async function phoneAccounts(db: Db, owner: Profile): Promise<Profile[]> {
+  const all = await listProfiles(db);
+  // a phone paired while wearing a hat: the person behind that office
+  const personName = (owner.office ? owner.held_by ?? '' : owner.name).trim().toLowerCase();
+  const person = owner.office ? all.find((q) => !q.office && q.name.trim().toLowerCase() === personName) : owner;
+  const ids = [
+    ...(person ? [person.id] : [owner.id]),
+    ...all.filter((q) => q.office && q.office !== 'admin' && q.office !== 'superior' && (q.held_by ?? '').trim().toLowerCase() === personName).map((q) => q.id),
+  ];
+  const out: Profile[] = [];
+  for (const id of [...new Set(ids)]) { const p = id === owner.id ? owner : await loadProfile(db, id); if (p && p.active !== 0) out.push(p); }
+  return out;
+}
 const accNames = (a: CtyAccount): Msg => ({ ar: a.name_ar || a.name_en, en: a.name_en, fr: a.name_fr || a.name_en });
 
 async function ctyPack(db: Db, profile: Profile, phone: PhoneRow): Promise<PhonePack> {
   const [books, accounts, entries] = await Promise.all([loadBooks(db), loadAccounts(db), loadEntries(db)]);
   const stamp = now();
-  // his books, but not the account at the économat (that one moves with the Province, never from a phone)
-  const mine = books.filter((b) => b.active && profile.books.includes(b.id) && b.cty_kind !== 'economat');
+  // his books and those of his offices (the house for the minister, the cash for the econome), but not the account at
+  // the économat (that one moves with the Province, never from a phone)
+  const who = await phoneAccounts(db, profile);
+  const keeper = (id: number) => who.find((p) => p.books.includes(id));
+  const order = ['personal', 'personal_bank', 'house', 'envelope', 'cash', 'bank'];
+  const mine = books.filter((b) => b.active && keeper(b.id) && b.cty_kind !== 'economat').sort((a, b) => order.indexOf(a.cty_kind ?? '') - order.indexOf(b.cty_kind ?? ''));
+  const label = (b: (typeof books)[number]) => b.cty_kind === 'personal' ? (b.keeper_name ?? b.name) : b.cty_kind === 'house' ? 'The house · البيت · La maison' : b.cty_kind === 'cash' ? 'Community cash · صندوق الجماعة · Caisse' : b.cty_kind === 'bank' ? 'Bank · المصرف · Banque' : b.cty_kind === 'envelope' ? `✉ ${b.name}` : b.name;
   // the category as on the computer (Entry.tsx, offered): the highest level under the top group (Health › Doctors);
   // a line straight under a top group is its own category
   const byId = new Map(accounts.map((a) => [a.id, a]));
@@ -250,8 +279,9 @@ async function ctyPack(db: Db, profile: Profile, phone: PhoneRow): Promise<Phone
       // everything written in it (the phone counts every row it holds the same way)
       const bal = ctyBalance(entries, b, '9999-12-31');
       const r = (x: number) => Math.round(x * 100) / 100;
-      return { id: b.id, name: b.cty_kind === 'personal' ? (b.keeper_name ?? b.name) : b.name, main: false, usd: r(bal.USD), syp: r(bal.LOC), rate: 0, bal: { LOC: r(bal.LOC), USD: r(bal.USD), EUR: r(bal.EUR) }, kind: b.cty_kind };
+      return { id: b.id, name: label(b), main: false, usd: r(bal.USD), syp: r(bal.LOC), rate: 0, bal: { LOC: r(bal.LOC), USD: r(bal.USD), EUR: r(bal.EUR) }, kind: b.cty_kind, office: keeper(b.id)?.office ?? null };
     }),
+    targets: books.filter((b) => b.active && ['personal', 'house', 'cash', 'bank'].includes(b.cty_kind ?? '')).map((b) => ({ id: b.id, name: label(b), kind: b.cty_kind })),
     headings,
     lines,
     parties: [],
@@ -267,26 +297,30 @@ async function ctyPack(db: Db, profile: Profile, phone: PhoneRow): Promise<Phone
 
 async function ctyPush(ctx: OpCtx, phone: PhoneRow, entries: PhoneEntry[]): Promise<PhoneResult[]> {
   const out: PhoneResult[] = [];
+  const who = await phoneAccounts(ctx.db, ctx.profile);
   for (const e of entries.slice(0, 200)) {
     const id = String(e?.id ?? '');
     try {
       if (!ID.test(id)) throw new UserError(m('سطر بلا رقم', 'A row without its number', 'Une ligne sans son numéro'));
       if (await one(ctx.db, 'SELECT 1 AS x FROM cty_entry WHERE id = ?', [id])) { out.push({ id, ok: true, already: true }); continue; }
-      if (!PHONE_TYPES.includes(e.type)) throw new UserError(m('من الهاتف: نفقة أو إيراد أو صرافة فقط', 'From a phone: an expense, an income or an exchange only', "Depuis un téléphone : une dépense, une recette ou un change seulement"));
+      if (!CTY_TYPES.includes(e.type)) throw new UserError(m('من الهاتف: نفقة أو إيراد أو صرافة أو تحويل فقط', 'From a phone: an expense, an income, an exchange or a transfer only', "Depuis un téléphone : une dépense, une recette, un change ou un transfert seulement"));
+      // saved with the account that keeps this book: himself, or his office (minister, econome)
+      const by = who.find((p) => p.books.includes(Number(e.book_id))) ?? ctx.profile;
+      const tr = e.type === 'Transfer';
       if (!CTY_CURS.includes(e.currency) || (e.type === 'Exchange' && !CTY_CURS.includes(String(e.cur2))))
         throw new UserError(m('العملة غير معروفة', 'Unknown currency', 'Monnaie inconnue'));
       const ex = e.type === 'Exchange';
       const note = [String(e.explanation ?? '').trim(), e.receipt ? `#${String(e.receipt).trim()}` : ''].filter(Boolean).join(' · ').slice(0, 500) || null;
-      await runOp(ctx, 'cty.entry.save', {
+      await runOp({ ...ctx, profile: by, who: by.name }, 'cty.entry.save', {
         newId: id,
         entry: {
           book_id: Number(e.book_id), date: String(e.date ?? ''), type: e.type, cur: e.currency, amount: Number(e.amount),
-          account_id: ex ? null : Number(e.line_id) || null, to_book_id: null,
+          account_id: ex || tr ? null : Number(e.line_id) || null, to_book_id: tr ? Number(e.to_book_id) || null : null,
           cur2: ex ? String(e.cur2) : null, amount2: ex ? Number(e.amount2) : null, note, claim: null,
           for_house: e.type === 'Exp' && e.for_house ? 1 : 0,
         },
       });
-      await ctx.db.batch([auditStmt(ctx.who, 'phone-row', 'cty_entry', id, null, { phone: phone.name })]);
+      await ctx.db.batch([auditStmt(by.name, 'phone-row', 'cty_entry', id, null, { phone: phone.name })]);
       out.push({ id, ok: true });
     } catch (err) {
       if (!(err instanceof UserError)) throw err;

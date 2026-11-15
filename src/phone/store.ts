@@ -13,7 +13,9 @@ export interface Pack {
   asOf: string;
   validUntil: string;
   /** rate: the book's latest exchange rate (older packs: none) */
-  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate?: number; bal?: Record<string, number>; kind?: string | null }[];
+  books: { id: number; name: string; main: boolean; usd: number; syp: number; rate?: number; bal?: Record<string, number>; kind?: string | null; office?: string | null }[];
+  /** a community: the books money may be given to (15 November 2026) */
+  targets?: { id: number; name: string; kind: string | null }[];
   headings: { id: number; name: string; code: string; types: Kind[]; names?: Msg }[];
   lines: { id: number; heading_id: number; name: string; code: string; names?: Msg; scope?: string | null; house?: boolean }[];
   parties: { id: number; name: string }[];
@@ -28,7 +30,7 @@ export interface Pack {
 }
 
 /** expense, income, and exchange (dollars given for pounds received) */
-export type Kind = 'Exp' | 'Income' | 'Exchange';
+export type Kind = 'Exp' | 'Income' | 'Exchange' | 'Transfer';
 
 /** a row written on the phone. waiting: not sent yet; sent: the server has it; fix: the server refused it (its reason) */
 export interface Entry {
@@ -49,6 +51,8 @@ export interface Entry {
   amount2?: number;
   /** a community: a Jesuit's expense paid for the house (Fouad, 15 November 2026) */
   for_house?: number;
+  /** a community: a transfer (give money, give back), to which book */
+  to_book_id?: number | null;
   state: 'waiting' | 'sent' | 'fix';
   error?: Msg | null;
   made_at: string;

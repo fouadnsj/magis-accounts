@@ -96,3 +96,4 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 .ph-forwho button.on { border-color: #333; font-weight: 650; }
 .ph-forwho button.on.house { border-color: #c47a12; background: #fdf3e3; color: #8a5208; }
 .ph-forwho small { width: 100%; color: #8a5208; }
+.ph-big.trf { border-color: #7a5c8f; color: #5b3f70; min-height: 56px; font-size: 17px; width: 100%; margin-bottom: 8px; }

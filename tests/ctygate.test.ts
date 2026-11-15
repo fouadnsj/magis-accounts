@@ -193,7 +193,8 @@ describe("server: the communities' password", () => {
     const pack = (await phone('/api/phone/pack')).body as { kind: string; curs: { code: string }[]; books: { id: number; kind: string; bal: Record<string, number> }[]; lines: { id: number; heading_id: number; scope: string | null; names: { fr: string } }[]; headings: { id: number; types: string[] }[] };
     expect(pack.kind).toBe('community');
     expect(pack.curs.map((c) => c.code)).toEqual(['LOC', 'USD', 'EUR']);
-    expect(pack.books.map((b) => b.kind)).toEqual(['personal']); // as himself: his pocket only
+    // his pocket, and the books of the offices he holds (Fouad, 15 November 2026): the house as minister, the cash as econome
+    expect(pack.books.map((b) => b.kind)).toEqual(['personal', 'house', 'cash']);
     const pocket = pack.books[0];
     const line = pack.lines.find((l) => l.scope === 'P' && pack.headings.find((h) => h.id === l.heading_id)!.types.includes('Exp'))!;
     expect(line.names.fr).toBeTruthy();
@@ -217,5 +218,28 @@ describe("server: the communities' password", () => {
     const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
     expect((await phone('/api/phone/photo', { trxId: 'cty-phone-0001', key: 'cty-photo-0001', base64: PNG, mime: 'image/png' })).body).toEqual({ ok: true });
     expect((await call('/api/op/cty.doc.list', { entryId: 'cty-phone-0001' }, marc.cookie)).body).toHaveLength(1);
+
+    // the minister's house and the econome's cash, from the same phone (Fouad, 15 November 2026)
+    const house = sent.pack.books.find((b) => b.kind === 'house')!;
+    const cash = sent.pack.books.find((b) => b.kind === 'cash')!;
+    const houseLine = (pack as unknown as { lines: { id: number; heading_id: number; house?: boolean }[] }).lines.find((l) => l.house)!;
+    const targets = (sent.pack as unknown as { targets: { id: number; kind: string }[] }).targets;
+    const more = [
+      { id: 'cty-phone-0010', book_id: house.id, date: '2027-01-07', type: 'Exp', heading_id: houseLine.heading_id, line_id: houseLine.id, explanation: 'bread', amount: 5000, currency: 'LOC' },
+      { id: 'cty-phone-0011', book_id: cash.id, date: '2027-01-07', type: 'Transfer', heading_id: 0, line_id: 0, explanation: '', amount: 20000, currency: 'LOC', to_book_id: pocket.id },
+      { id: 'cty-phone-0012', book_id: cash.id, date: '2027-01-07', type: 'Exp', heading_id: houseLine.heading_id, line_id: houseLine.id, explanation: 'no', amount: 10, currency: 'LOC' },
+      { id: 'cty-phone-0013', book_id: pocket.id, date: '2027-01-07', type: 'Transfer', heading_id: 0, line_id: 0, explanation: '', amount: 1000, currency: 'LOC', to_book_id: targets.find((x) => x.kind === 'cash')!.id },
+    ];
+    const r2 = (await phone('/api/phone/push', { rows: more })).body as { results: { ok: boolean; error?: { en: string } }[] };
+    expect(r2.results.map((r) => r.ok)).toEqual([true, true, false, true]);
+    expect(r2.results[2].error!.en).toMatch(/econome's books/);
+    // each saved by the account that keeps its book: the minister's office, the econome's office, Marc himself
+    const hats = (await call('/api/cty/hats', undefined, marc.cookie)).body as { hats: { profileId: number; office: string }[] };
+    await call('/api/cty/hat', { profileId: hats.hats.find((h) => h.office === 'econome')!.profileId }, marc.cookie);
+    const d2 = (await call('/api/op/cty.data', {}, marc.cookie)).body as { entries: { id: string; created_by: string | null; to_book_id: number | null }[] };
+    const by = (id: string) => d2.entries.find((e) => e.id === id)?.created_by ?? '';
+    expect(by('cty-phone-0010')).toMatch(/Minister/);
+    expect(by('cty-phone-0011')).toMatch(/Econome/);
+    expect(by('cty-phone-0013')).toBe('Marc');
   });
 });

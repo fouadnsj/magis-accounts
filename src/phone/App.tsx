@@ -33,6 +33,14 @@ const linesFor = (p: Pack, bookId: number, type: Kind = 'Exp', forHouse = false)
   return p.lines.filter((l) => !((k === 'personal' || k === 'personal_bank') && l.scope !== 'P'));
 };
 /** a community: the econome's cash and bank have no expenses (Fouad, 15 November 2026) */
+/** the transfer button's words: the econome gives money, a Jesuit gives back, the minister gives to an envelope */
+const giveLabel = (p: Pack, bookId: number) => {
+  const k = p.books.find((b) => b.id === bookId)?.kind;
+  return k === 'cash' || k === 'bank' ? t('إعطاء مال', 'Give money', "Donner de l'argent") : k === 'personal' || k === 'personal_bank' ? t('إعادة إلى القيم', 'Give back', 'Rendre') : t('تحويل', 'Transfer', 'Transfert');
+};
+/** a book's name in the phone's language (a community's house, cash and bank are named here, not by the server) */
+const bkName = (b: { name: string; kind?: string | null }) =>
+  b.kind === 'house' ? t('البيت', 'The house', 'La maison') : b.kind === 'cash' ? t('صندوق الجماعة', 'Community cash', 'Caisse de la communauté') : b.kind === 'bank' ? t('المصرف', 'Bank', 'Banque') : b.name;
 const noExpense = (p: Pack, bookId: number) => p.kind === 'community' && ['cash', 'bank', 'economat'].includes(p.books.find((b) => b.id === bookId)?.kind ?? '');
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const when = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -250,7 +258,10 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
   const count = (s: Entry['state']) => mine.filter((r) => r.state === s).length;
   const unsent = (id: number) => rows.filter((r) => r.book_id === id && r.state !== 'sent').length;
   const shown = mine.filter((r) => r.state === tab).sort((a, b) => (tab === 'sent' ? (b.sent_at ?? '').localeCompare(a.sent_at ?? '') : b.made_at.localeCompare(a.made_at))).slice(0, 100);
-  const lineName = (r: Entry) => { const x = pack.lines.find((y) => y.id === r.line_id) ?? pack.headings.find((h) => h.id === r.heading_id); return x ? nm(x) : r.type === 'Exchange' ? t('صرافة', 'Exchange', 'Change') : ''; };
+  const lineName = (r: Entry) => {
+    if (r.type === 'Transfer') { const b = [...(pack.targets ?? []), ...pack.books].find((x) => x.id === r.to_book_id); return `→ ${b ? bkName(b) : '?'}`; }
+    const x = pack.lines.find((y) => y.id === r.line_id) ?? pack.headings.find((h) => h.id === r.heading_id); return x ? nm(x) : r.type === 'Exchange' ? t('صرافة', 'Exchange', 'Change') : '';
+  };
   const daysLeft = Math.floor((Date.parse(pack.validUntil) - Date.now()) / 86_400_000);
 
   if (form) return <RowForm pack={pack} type={form.type} row={form.row} bookId={bookId} photos={photos.filter((p) => p.trxId === form.row?.id)} onClose={async (saved) => { setForm(null); await load(); if (saved) { setTab('waiting'); void doSync(true); } }} />;
@@ -282,10 +293,10 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
       )}
       {net.state !== 'out' && daysLeft <= 7 && <div className="ph-alert">{daysLeft < 0 ? t('مرّ أكثر من 30 يوماً: اتصل بشبكة المركز.', "More than 30 days: connect to the centre's network.", 'Plus de 30 jours : connectez-vous au réseau du centre.') : t(`بقي ${daysLeft} يوماً قبل وجوب الاتصال بالمركز.`, `${daysLeft} days left before the phone must reach the centre.`, `Il reste ${daysLeft} jours avant que le téléphone doive joindre le centre.`)}</div>}
 
-      {pack.books.length > 1 && <div className="ph-chips">{pack.books.map((b) => <button key={b.id} className={b.id === bookId ? 'on' : ''} onClick={() => setBookId(b.id)}>{b.name}{unsent(b.id) ? <i>{unsent(b.id)}</i> : null}</button>)}</div>}
+      {pack.books.length > 1 && <div className="ph-chips">{pack.books.map((b) => <button key={b.id} className={b.id === bookId ? 'on' : ''} onClick={() => setBookId(b.id)}>{bkName(b)}{unsent(b.id) ? <i>{unsent(b.id)}</i> : null}</button>)}</div>}
       {!pack.books.length ? <div className="ph-alert">{t('لا دفتر لك للكتابة فيه.', 'You have no book to write in.', "Vous n'avez pas de livre où écrire.")}</div> : (
         <section className="ph-balance">
-          <small>{pack.books.find((b) => b.id === bookId)?.name}</small>
+          <small>{(() => { const b = pack.books.find((x) => x.id === bookId); return b ? bkName(b) : ''; })()}</small>
           <div className="ph-amounts">{cursOf(pack).filter((c, i) => i < 2 || bal.bal[c]).map((c) => <span key={c} className="ltr">{c === 'USD' ? `$${num(bal.bal[c] ?? 0, 2)}` : c === 'EUR' ? `€${num(bal.bal[c] ?? 0, 2)}` : <>{num(bal.bal[c] ?? 0)} <i>{curLabel(c)}</i></>}</span>)}</div>
           <p>{t('كما في آخر مزامنة', 'as of the last sync', 'à la dernière synchronisation')} <span className="ltr">{when(pack.asOf)}</span>{bal.waiting ? ` · ${t(`مع ${bal.waiting} سطراً ينتظر هنا`, bal.waiting === 1 ? 'with 1 row waiting here' : `with ${bal.waiting} rows waiting here`, bal.waiting === 1 ? 'avec 1 ligne en attente ici' : `avec ${bal.waiting} lignes en attente ici`)}` : ''}</p>
         </section>
@@ -295,6 +306,9 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
         <button className="ph-big exp" disabled={!pack.books.length || noExpense(pack, bookId)} onClick={() => setForm({ type: 'Exp' })}><b>−</b>{t('نفقة', 'Expense', 'Dépense')}</button>
         <button className="ph-big inc" disabled={!pack.books.length} onClick={() => setForm({ type: 'Income' })}><b>+</b>{t('إيراد', 'Income', 'Recette')}</button>
       </div>
+      {pack.kind === 'community' && (
+        <button className="ph-big trf" disabled={!pack.books.length} onClick={() => setForm({ type: 'Transfer' })}><span>↔ {giveLabel(pack, bookId)}</span></button>
+      )}
       {(pack.kind === 'community' || pack.headings.some((h) => h.types.includes('Exchange'))) && (
         <button className="ph-big exc" disabled={!pack.books.length} onClick={() => setForm({ type: 'Exchange' })}><span>⇄ {pack.kind === 'community' ? t('صرافة', 'Exchange', 'Change') : t('تصريف: دولار ← ليرة', 'Exchange: dollars → pounds', 'Change : dollars → livres')}</span></button>
       )}
@@ -353,6 +367,7 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
     heading_id: row?.heading_id ?? 0, line_id: row?.line_id ?? 0, explanation: row?.explanation ?? '', receipt: row?.receipt ?? '',
     syp: row?.syp ? String(row.syp) : '',
     for_house: !!row?.for_house,
+    to_book_id: row?.to_book_id ?? 0,
   }));
   const ex = type === 'Exchange';
   const cty = pack.kind === 'community';
@@ -372,6 +387,12 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
   const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
   // an exchange has (usually) one heading with one line: chosen by the phone, not shown
   const exOnly = ex && (cty || (headings.length === 1 && pack.lines.filter((x) => x.heading_id === headings[0].id).length === 1));
+  // a transfer (a community): no heading; to whom — the econome's cash first for a Jesuit giving back
+  const tr = type === 'Transfer';
+  const fromKind = pack.books.find((b) => b.id === f.book_id)?.kind ?? '';
+  const targets = [...(pack.targets ?? []), ...pack.books.filter((b) => b.kind === 'envelope' && fromKind === 'house').map((b) => ({ id: b.id, name: b.name, kind: b.kind ?? null }))]
+    .filter((b, i, all) => b.id !== f.book_id && all.findIndex((x) => x.id === b.id) === i)
+    .sort((a, b) => (fromKind === 'personal' || fromKind === 'personal_bank' ? Number(b.kind === 'cash') - Number(a.kind === 'cash') : 0));
   useEffect(() => {
     if (exOnly && !cty && !f.heading_id) set({ heading_id: headings[0].id, line_id: pack.lines.find((x) => x.heading_id === headings[0].id)!.id });
   }, [exOnly]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -390,7 +411,7 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
   };
   const save = async () => {
     const amount = toNum(f.amount);
-    const e: Entry = { id, book_id: f.book_id, date: f.date, type, heading_id: f.heading_id, line_id: f.line_id, explanation: f.explanation.trim(), receipt: f.receipt.trim(), amount, currency: ex && !cty ? 'USD' : f.currency, ...(ex && !cty ? { syp: toNum(f.syp) } : {}), ...(ex && cty ? { cur2: f.cur2, amount2: toNum(f.amount2), heading_id: 0, line_id: 0 } : {}), ...(houseChoice && f.for_house ? { for_house: 1 } : {}), state: 'waiting', error: null, made_at: row?.made_at ?? new Date().toISOString() };
+    const e: Entry = { id, book_id: f.book_id, date: f.date, type, heading_id: f.heading_id, line_id: f.line_id, explanation: f.explanation.trim(), receipt: f.receipt.trim(), amount, currency: ex && !cty ? 'USD' : f.currency, ...(ex && !cty ? { syp: toNum(f.syp) } : {}), ...(ex && cty ? { cur2: f.cur2, amount2: toNum(f.amount2), heading_id: 0, line_id: 0 } : {}), ...(houseChoice && f.for_house ? { for_house: 1 } : {}), ...(tr ? { to_book_id: f.to_book_id || null, heading_id: 0, line_id: 0 } : {}), state: 'waiting', error: null, made_at: row?.made_at ?? new Date().toISOString() };
     const bad = check(pack, e);
     if (bad.length) return setErrs(bad);
     setBusy(true);
@@ -414,13 +435,13 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
     <div className="ph-page">
       <header className="ph-top">
         <button className="ph-icon" onClick={() => void onClose(false)} aria-label="back">{lang === 'ar' ? '→' : '←'}</button>
-        <div className="mid"><b className={type === 'Exp' ? 'exp' : type === 'Income' ? 'inc' : 'exc'}>{type === 'Exp' ? t('نفقة', 'Expense', 'Dépense') : type === 'Income' ? t('إيراد', 'Income', 'Recette') : t('تصريف', 'Exchange', 'Change')}</b></div>
+        <div className="mid"><b className={type === 'Exp' ? 'exp' : type === 'Income' ? 'inc' : 'exc'}>{type === 'Exp' ? t('نفقة', 'Expense', 'Dépense') : type === 'Income' ? t('إيراد', 'Income', 'Recette') : type === 'Transfer' ? giveLabel(pack, f.book_id) : t('تصريف', 'Exchange', 'Change')}</b></div>
         <span style={{ width: 40 }} />
       </header>
       {row?.state === 'fix' && row.error && <div className="ph-alert">{t('رفضه الخادم', 'The server refused it', 'Le serveur l’a refusé')}: {tm(row.error)}</div>}
       {errs.length > 0 && <div className="ph-alert">{errs.map((x, i) => <div key={i}>{tm(x)}</div>)}</div>}
       <div className="ph-card">
-        {pack.books.length > 1 && <label>{t('الدفتر', 'Book', 'Livre')}<select value={f.book_id} onChange={(e) => set({ book_id: Number(e.target.value), heading_id: 0, line_id: 0 })}>{pack.books.filter((b) => type !== 'Exp' || !noExpense(pack, b.id)).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>}
+        {pack.books.length > 1 && <label>{t('الدفتر', 'Book', 'Livre')}<select value={f.book_id} onChange={(e) => set({ book_id: Number(e.target.value), heading_id: 0, line_id: 0 })}>{pack.books.filter((b) => type !== 'Exp' || !noExpense(pack, b.id)).map((b) => <option key={b.id} value={b.id}>{bkName(b)}</option>)}</select></label>}
         {houseChoice && (
           <div className="ph-forwho">
             <button type="button" className={!f.for_house ? 'on' : ''} onClick={() => set({ for_house: false, heading_id: 0, line_id: 0 })}>👤 {t('لي', 'For me', 'Pour moi')}</button>
@@ -462,7 +483,14 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
         </label>
         )}
         <label>{t('التاريخ', 'Date', 'Date')}<input type="date" className="ltr" value={f.date} max={today()} onChange={(e) => set({ date: e.target.value })} /></label>
-        {!exOnly && <>
+        {tr && (
+          <label>{t('لمن؟', 'To whom?', 'À qui ?')}
+            <select value={f.to_book_id} onChange={(e) => set({ to_book_id: Number(e.target.value) })}>
+              <option value={0}>—</option>{targets.map((b) => <option key={b.id} value={b.id}>{bkName(b)}</option>)}
+            </select>
+          </label>
+        )}
+        {!exOnly && !tr && <>
         <label>{t('البند', 'Heading', 'Rubrique')}
           <select value={f.heading_id} onChange={(e) => { const h = Number(e.target.value); const ls = usable.filter((x) => x.heading_id === h); set({ heading_id: h, line_id: ls.length === 1 ? ls[0].id : 0 }); }}>
             <option value={0}>—</option>{headings.map((h) => <option key={h.id} value={h.id}>{h.code ? `${h.code} · ` : ''}{nm(h)}</option>)}

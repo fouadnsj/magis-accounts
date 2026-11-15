@@ -2,6 +2,7 @@
 // English and French. Each page has a "Guide" button (the MAGIS sun) that opens its section. What is written here
 // says what the screens do.
 import { m, type Msg } from '../i18n';
+import { PHONE_INSTALL } from './phoneInstall';
 
 export interface GuideStep { title: Msg; text: Msg }
 export interface GuideSection { id: string; icon: string; title: Msg; intro: Msg; steps: GuideStep[] }
@@ -158,6 +159,7 @@ export const ACCOUNTS_GUIDE: GuideSection[] = [
       s(m('30 يوماً، والإيقاف', '30 days, and cutting off', '30 jours, et couper'), m('يجب أن يتصل الهاتف بالخادم مرة كل 30 يوماً على الأقل، وإلا يُربط من جديد. في الإدارة ← المستخدمون ← الهواتف يمكن إيقاف هاتف فوراً (ضاع، أو غادر صاحبه).', 'A phone must reach the server at least once every 30 days, or it is linked again. In Admin → Users → Phones a phone can be cut off at once (lost, or its owner left).', "Un téléphone doit joindre le serveur au moins une fois tous les 30 jours, sinon il est relié à nouveau. Dans Administration → Utilisateurs → Téléphones on peut couper un téléphone tout de suite (perdu, ou son propriétaire est parti).")),
     ],
   },
+  PHONE_INSTALL,
 ];
 
 export const HR_GUIDE: GuideSection[] = [

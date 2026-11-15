@@ -153,7 +153,15 @@ export function startPage(o: { lang: string | null; acceptLanguage: string; host
   const body = !app || !o.fingerprint
     ? `<p class="box">${t('الهاتف غير مفعّل على هذا الخادم.', 'Phones are not switched on for this server.', 'Les téléphones ne sont pas activés sur ce serveur.')}</p>`
     : `
-<p>${t('مرة واحدة، في المركز، على شبكة الواي فاي الخاصة به.', "Once, at the centre, on its Wi-Fi.", 'Une fois, au centre, sur son Wi-Fi.')}</p>
+<div class="box before">
+<b>${t('قبل أن تبدأ', 'Before you start', 'Avant de commencer')}</b>
+<ul>
+<li>${t('مرة واحدة فقط، في البيت أو المركز، والهاتف على شبكة الواي فاي الخاصة به.', 'Once only, at the house or the centre, with the phone on its Wi-Fi.', 'Une seule fois, à la maison ou au centre, avec le téléphone sur son Wi-Fi.')}</li>
+<li>${t('آيفون: افتح هذه الصفحة في Safari. أندرويد: في Chrome.', 'iPhone: open this page in Safari. Android: in Chrome.', 'iPhone : ouvrez cette page dans Safari. Android : dans Chrome.')}</li>
+<li>${t('يكفي نحو 5 دقائق. تحتاج اسمك وكلمة سرك في البرنامج، ورمز قفل هاتفك (للآيفون).', 'About 5 minutes. You need your name and password in the program, and your phone\'s passcode (iPhone).', 'Environ 5 minutes. Il faut votre nom et votre mot de passe du programme, et le code de votre téléphone (iPhone).')}</li>
+<li>${t('ثلاث خطوات: 1 الشهادة، 2 الأيقونة على الشاشة، 3 ربط الهاتف باسمك.', 'Three steps: 1 the certificate, 2 the icon on the screen, 3 link the phone to your name.', 'Trois étapes : 1 le certificat, 2 l\'icône sur l\'écran, 3 relier le téléphone à votre nom.')}</li>
+</ul>
+</div>
 
 <h2>1 · ${t('الشهادة', 'The certificate', 'Le certificat')}</h2>
 <p>${t('تجعل الهاتف يثق بخادم المركز. لا تصلح لأي موقع آخر.', "It lets the phone trust the centre's server. It is good for no other site.", "Elle permet au téléphone de faire confiance au serveur du centre. Elle ne vaut pour aucun autre site.")}</p>
@@ -171,7 +179,7 @@ export function startPage(o: { lang: string | null; acceptLanguage: string; host
 <li>${t('وإلا: «الإعدادات» ← «الأمان» ← «التشفير وبيانات الاعتماد» ← «تثبيت شهادة» ← «شهادة CA» ← اختر الملف الذي نُزّل. (تختلف الأسماء قليلاً من هاتف لآخر.)', 'Otherwise: <i>Settings</i> → <i>Security</i> → <i>Encryption &amp; credentials</i> → <i>Install a certificate</i> → <i>CA certificate</i> → choose the downloaded file. (The names change a little from phone to phone.)', 'Sinon : <i>Paramètres</i> → <i>Sécurité</i> → <i>Chiffrement et identifiants</i> → <i>Installer un certificat</i> → <i>Certificat CA</i> → choisissez le fichier téléchargé. (Les noms changent un peu selon le téléphone.)')}</li>
 </ol>
 </div>
-<p class="small">${t('رقم الشهادة (للمقارنة بما يظهر على الحاسوب، الإدارة ← المستخدمون ← الهواتف):', 'The certificate\'s number (to compare with the computer, Admin → Users → Phones):', 'Le numéro du certificat (à comparer avec l\'ordinateur, Administration → Utilisateurs → Téléphones) :')}<br><code>${esc(o.fingerprint)}</code></p>
+<p class="small">${t('رقم الشهادة (للمقارنة بما يظهر على الحاسوب: الإدارة ← المستخدمون ← الهواتف، أو الإعدادات ← الهاتف في الجماعات):', 'The certificate\'s number (to compare with the computer: Admin → Users → Phones, or Settings → The phone in the communities):', 'Le numéro du certificat (à comparer avec l\'ordinateur : Administration → Utilisateurs → Téléphones, ou Réglages → Le téléphone dans les communautés) :')}<br><code>${esc(o.fingerprint)}</code></p>
 
 <h2>2 · ${t('التطبيق على الشاشة الرئيسية', 'The app on the home screen', "L'application sur l'écran d'accueil")}</h2>
 <p><a class="btn" href="${esc(app)}">${t('افتح MAGIS', 'Open MAGIS', 'Ouvrir MAGIS')}</a><br><code>${esc(app)}</code></p>
@@ -182,7 +190,31 @@ export function startPage(o: { lang: string | null; acceptLanguage: string; host
 
 <h2>3 · ${t('اربط الهاتف', 'Link the phone', 'Relier le téléphone')}</h2>
 <p>${t('افتح MAGIS من أيقونته على الشاشة الرئيسية، واربطه هناك: اسمك وكلمة السر، ثم رمز للهاتف.', 'Open MAGIS from its icon on the home screen and link it there: your name and password, then a code for the phone.', "Ouvrez MAGIS par son icône sur l'écran d'accueil et reliez-le là : votre nom et mot de passe, puis un code pour le téléphone.")}</p>
-<p class="small">${t('على الآيفون: اربطه من الأيقونة، لا من Safari؛ فهما لا يتشاركان ما يحفظانه.', 'On an iPhone: link it from the icon, not from Safari; the two do not share what they keep.', "Sur iPhone : reliez-le depuis l'icône, pas depuis Safari ; les deux ne partagent pas ce qu'ils gardent.")}</p>`;
+<p class="small">${t('على الآيفون: اربطه من الأيقونة، لا من Safari؛ فهما لا يتشاركان ما يحفظانه.', 'On an iPhone: link it from the icon, not from Safari; the two do not share what they keep.', "Sur iPhone : reliez-le depuis l'icône, pas depuis Safari ; les deux ne partagent pas ce qu'ils gardent.")}</p>
+<div class="box">
+<ol>
+<li>${t('اختر بيتك (أو «جماعات اليسوعيين»).', 'Choose your house (or "Jesuit communities").', 'Choisissez votre maison (ou « Communautés jésuites »).')}</li>
+<li>${t('اكتب اسمك وكلمة سرك كما في البرنامج، واسماً للهاتف، ثم «اربط».', 'Write your name and password as in the program, and a name for the phone, then <i>Link</i>.', 'Écrivez votre nom et votre mot de passe comme dans le programme, et un nom pour le téléphone, puis <i>Relier</i>.')}</li>
+<li>${t('اختر رمزاً للهاتف من 4 إلى 8 أرقام، مرتين. تفتح به التطبيق كل مرة. الخادم لا يعرفه: احفظه.', 'Choose a code for the phone, 4 to 8 digits, twice. You open the app with it each time. The server does not know it: remember it.', 'Choisissez un code pour le téléphone, de 4 à 8 chiffres, deux fois. Vous ouvrez l\'application avec lui à chaque fois. Le serveur ne le connaît pas : retenez-le.')}</li>
+</ol>
+</div>
+
+<h2>4 · ${t('كل يوم', 'Every day', 'Chaque jour')}</h2>
+<ul>
+<li>${t('اكتب نفقاتك وإيراداتك حتى بلا اتصال، مع صورة الإيصال.', 'Write your expenses and income even with no connection, with the photo of the receipt.', 'Notez vos dépenses et recettes même sans connexion, avec la photo du reçu.')}</li>
+<li>${t('حين يعود الهاتف إلى واي فاي البيت، يرسل ما ينتظر وحده (أو اضغط «أرسل الآن»). ما يرفضه الخادم يظهر في «للتصحيح».', 'When the phone is back on the Wi-Fi, it sends what is waiting by itself (or press <i>Send now</i>). What the server refuses shows under <i>To fix</i>.', 'De retour sur le Wi-Fi, le téléphone envoie seul ce qui attend (ou touchez <i>Envoyer maintenant</i>). Ce que le serveur refuse apparaît dans <i>À corriger</i>.')}</li>
+<li>${t('يجب أن يتصل الهاتف بالبيت مرة كل 30 يوماً على الأقل.', 'The phone must reach the house at least once every 30 days.', 'Le téléphone doit joindre la maison au moins une fois tous les 30 jours.')}</li>
+</ul>
+
+<h2>${t('إن لم ينجح شيء', 'If something goes wrong', 'Si quelque chose ne va pas')}</h2>
+<div class="box">
+<p><b>${t('«هذا الاتصال ليس خاصاً» أو تحذير عن الشهادة', '"This connection is not private", or a warning about the certificate', '« Cette connexion n\'est pas privée », ou un avertissement sur le certificat')}</b><br>${t('الخطوة 1 لم تكتمل. على الآيفون لا تنسَ الأخيرة: الإعدادات ← عام ← حول ← إعدادات الثقة بالشهادات ← فعّل «MAGIS phones».', 'Step 1 is not finished. On an iPhone, do not forget the last part: Settings → General → About → Certificate Trust Settings → switch on <i>MAGIS phones</i>.', 'L\'étape 1 n\'est pas finie. Sur iPhone, n\'oubliez pas la dernière partie : Réglages → Général → Informations → Réglages des certificats → activez <i>MAGIS phones</i>.')}</p>
+<p><b>${t('الصفحة لا تُفتح', 'The page does not open', 'La page ne s\'ouvre pas')}</b><br>${t('الهاتف ليس على واي فاي البيت، أو العنوان غير صحيح. اطلب العنوان من المسؤول: يجده على الحاسوب في «الإدارة ← المستخدمون ← الهواتف» (المراكز) أو «الإعدادات ← الهاتف» (الجماعات).', 'The phone is not on the house\'s Wi-Fi, or the address is wrong. Ask the person in charge for the address: it is on the computer in <i>Admin → Users → Phones</i> (centres) or <i>Settings → The phone</i> (communities).', 'Le téléphone n\'est pas sur le Wi-Fi de la maison, ou l\'adresse est fausse. Demandez l\'adresse au responsable : elle est sur l\'ordinateur dans <i>Administration → Utilisateurs → Téléphones</i> (centres) ou <i>Réglages → Le téléphone</i> (communautés).')}</p>
+<p><b>${t('«الاسم أو كلمة السر غير صحيحة»', '"The name or the password is not right"', '« Le nom ou le mot de passe n\'est pas juste »')}</b><br>${t('اكتبهما كما تدخل إلى البرنامج على الحاسوب. إن كانت كلمة السر جديدة، غيّرها أولاً على الحاسوب.', 'Write them as you sign in on the computer. If the password is new, change it first on the computer.', 'Écrivez-les comme pour entrer dans le programme sur l\'ordinateur. Si le mot de passe est nouveau, changez-le d\'abord sur l\'ordinateur.')}</p>
+<p><b>${t('نسيتُ رمز الهاتف', 'I forgot the phone\'s code', 'J\'ai oublié le code du téléphone')}</b><br>${t('اضغط «نسيتُ الرمز» ثم اربط الهاتف من جديد. ما لم يُرسل بعد يضيع: أرسله قبل ذلك إن أمكن.', 'Press <i>I forgot the code</i>, then link the phone again. What was not sent yet is lost: send it first if you can.', 'Touchez <i>J\'ai oublié le code</i>, puis reliez à nouveau le téléphone. Ce qui n\'est pas encore envoyé est perdu : envoyez-le d\'abord si possible.')}</p>
+<p><b>${t('ضاع الهاتف', 'The phone is lost', 'Le téléphone est perdu')}</b><br>${t('قل للمسؤول: يوقفه فوراً من الحاسوب.', 'Tell the person in charge: they cut it off at once from the computer.', 'Dites-le au responsable : il le coupe tout de suite depuis l\'ordinateur.')}</p>
+</div>
+<p class="small noprint">🖨 ${t('لطباعة هذه الخطوات: افتح هذه الصفحة على الحاسوب ثم «طباعة».', 'To print these steps: open this page on a computer, then <i>Print</i>.', 'Pour imprimer ces étapes : ouvrez cette page sur un ordinateur, puis <i>Imprimer</i>.')}</p>`;
   return `<!doctype html>
 <html lang="${l}" dir="${l === 'ar' ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MAGIS · ${t('الهاتف', 'Phone', 'Téléphone')}</title>
@@ -195,6 +227,8 @@ h2{font-size:18px;margin:26px 0 6px;color:#7a1414}
 .btn{display:inline-block;background:#b8862b;color:#fff;padding:12px 18px;border-radius:10px;text-decoration:none;font-weight:600}
 .box{background:#fff;border:1px solid #e4dccb;border-radius:12px;padding:12px 14px}ol{margin:4px 0 10px;padding-inline-start:22px}li{margin:4px 0}
 code{direction:ltr;unicode-bidi:embed;word-break:break-all;font-size:13px}.small{font-size:14px;color:#5b5e70}
+.before{border-color:#b8862b;background:#fffaf0}.before ul{margin:6px 0 0;padding-inline-start:20px}ul{padding-inline-start:22px}
+.btn.light{background:#fff;color:#7a1414;border:1px solid #d8cfbd}@media print{.noprint,.langs,.btn{display:none}body{background:#fff}}
 </style></head><body><main>
 <header><img src="/brand/phone-180.png" alt=""><h1>${t('MAGIS على هاتفك', 'MAGIS on your phone', 'MAGIS sur votre téléphone')}</h1></header>
 <nav class="langs">${langs}</nav>

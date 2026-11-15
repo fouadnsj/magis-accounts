@@ -16,7 +16,8 @@ const tm = (x: Msg) => (lang === 'ar' ? x.ar : lang === 'fr' ? x.fr ?? x.en : x.
 const num = (n: number, d = 0) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 /** the local currency's name (a community: its own, e.g. SYP; LOC is how the community calls it) */
 let localName = 'SYP';
-const money = (n: number, cur: string) => (cur === 'USD' ? `$${num(n, 2)}` : cur === 'EUR' ? `€${num(n, 2)}` : `${num(n)} ${cur === 'LOC' ? localName : cur}`);
+/** an amount with its currency; a negative one as −$4.00, not $-4.00 */
+const money = (n: number, cur: string) => { const m = n < 0 ? '−' : ''; const v = Math.abs(n); return cur === 'USD' ? `${m}$${num(v, 2)}` : cur === 'EUR' ? `${m}€${num(v, 2)}` : `${m}${num(v)} ${cur === 'LOC' ? localName : cur}`; };
 const curLabel = (c: string) => (c === 'LOC' ? localName : c);
 /** the currencies of this pack: a community's three, or the centre's dollars and pounds */
 const cursOf = (p: Pack) => (p.curs ?? [{ code: 'USD', label: '$' }, { code: 'SYP', label: 'SYP' }]).map((c) => c.code);
@@ -297,7 +298,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
       {!pack.books.length ? <div className="ph-alert">{t('لا دفتر لك للكتابة فيه.', 'You have no book to write in.', "Vous n'avez pas de livre où écrire.")}</div> : (
         <section className="ph-balance">
           <small>{(() => { const b = pack.books.find((x) => x.id === bookId); return b ? bkName(b) : ''; })()}</small>
-          <div className="ph-amounts">{cursOf(pack).filter((c, i) => i < 2 || bal.bal[c]).map((c) => <span key={c} className="ltr">{c === 'USD' ? `$${num(bal.bal[c] ?? 0, 2)}` : c === 'EUR' ? `€${num(bal.bal[c] ?? 0, 2)}` : <>{num(bal.bal[c] ?? 0)} <i>{curLabel(c)}</i></>}</span>)}</div>
+          <div className="ph-amounts">{cursOf(pack).filter((c, i) => i < 2 || bal.bal[c]).map((c) => <span key={c} className="ltr">{c === 'USD' || c === 'EUR' ? money(bal.bal[c] ?? 0, c) : <>{num(bal.bal[c] ?? 0)} <i>{curLabel(c)}</i></>}</span>)}</div>
           <p>{t('كما في آخر مزامنة', 'as of the last sync', 'à la dernière synchronisation')} <span className="ltr">{when(pack.asOf)}</span>{bal.waiting ? ` · ${t(`مع ${bal.waiting} سطراً ينتظر هنا`, bal.waiting === 1 ? 'with 1 row waiting here' : `with ${bal.waiting} rows waiting here`, bal.waiting === 1 ? 'avec 1 ligne en attente ici' : `avec ${bal.waiting} lignes en attente ici`)}` : ''}</p>
         </section>
       )}
@@ -444,7 +445,7 @@ function RowForm({ pack, type, row, bookId, photos, onClose }: { pack: Pack; typ
         {pack.books.length > 1 && <label>{t('الدفتر', 'Book', 'Livre')}<select value={f.book_id} onChange={(e) => set({ book_id: Number(e.target.value), heading_id: 0, line_id: 0 })}>{pack.books.filter((b) => type !== 'Exp' || !noExpense(pack, b.id)).map((b) => <option key={b.id} value={b.id}>{bkName(b)}</option>)}</select></label>}
         {houseChoice && (
           <div className="ph-forwho">
-            <button type="button" className={!f.for_house ? 'on' : ''} onClick={() => set({ for_house: false, heading_id: 0, line_id: 0 })}>👤 {t('لي', 'For me', 'Pour moi')}</button>
+            <button type="button" className={!f.for_house ? 'on' : ''} onClick={() => set({ for_house: false, heading_id: 0, line_id: 0 })}>👤 {t('شخصي', 'For me', 'Pour moi')}</button>
             <button type="button" className={f.for_house ? 'on house' : ''} onClick={() => set({ for_house: true, heading_id: 0, line_id: 0 })}>🏠 {t('للبيت', 'For the house', 'Pour la maison')}</button>
             {f.for_house && <small>{t('من جيبك، وتُحسب مع نفقات البيت', 'From your pocket, counted with the house expenses', 'De votre poche, comptée avec la maison')}</small>}
           </div>

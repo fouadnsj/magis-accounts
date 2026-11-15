@@ -286,7 +286,7 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
         )}
         {kind === 'Exp' && personalBook && !readOnly && (
           <div className="cty-forwho" role="radiogroup" aria-label={t3('لمن؟', 'For whom?', 'Pour qui ?')}>
-            <button role="radio" aria-checked={!forHouse} className={!forHouse ? 'on me' : ''} onClick={() => { if (forHouse) { setForHouse(false); setHeading(null); setAccountId(null); if (!editLike) setStage('amount'); } }}>👤 {t3('لي', 'For me', 'Pour moi')}</button>
+            <button role="radio" aria-checked={!forHouse} className={!forHouse ? 'on me' : ''} onClick={() => { if (forHouse) { setForHouse(false); setHeading(null); setAccountId(null); if (!editLike) setStage('amount'); } }}>👤 {t3('شخصي', 'For me', 'Pour moi')}</button>
             <button role="radio" aria-checked={forHouse} className={forHouse ? 'on house' : ''} onClick={() => { if (!forHouse) { setForHouse(true); setHeading(null); setAccountId(null); if (!editLike) setStage('amount'); } }}>🏠 {t3('للبيت', 'For the house', 'Pour la maison')}</button>
             {forHouse && <small>{t3('من جيبك، لكنها تُحسب مع نفقات البيت (طعام، وقود…)', 'From your pocket, but it counts with the house expenses (food, fuel…)', 'De votre poche, mais elle compte avec les dépenses de la maison (nourriture, carburant…)')}</small>}
           </div>

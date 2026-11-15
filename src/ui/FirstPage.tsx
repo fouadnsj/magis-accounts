@@ -237,8 +237,9 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
         {onCommunities && (
           <button type="button" className="mg-door" style={{ '--centre': '#B8891B', '--centre-deep': '#5B191D' } as CSSProperties} onClick={() => setStep('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
             <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/jesuits.png" alt="" /></div>
-            <b>{t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</b>
-            <Said msg={{ ar: 'لمجد الله الأعظم', en: 'Ad Majorem Dei Gloriam · For the greater glory of God', fr: 'Ad Majorem Dei Gloriam · Pour la plus grande gloire de Dieu' }} className="mg-door-said" />
+            <b>{t3('اليسوعيون', 'Jesuits', 'Jésuites')}</b>
+            {/* the sentence in Latin only (Fouad, 15 November 2026) */}
+            <div className="mg-said mg-door-said"><p className="tr" dir="ltr"><i>Ad Majorem Dei Gloriam</i></p></div>
             <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
           </button>
         )}

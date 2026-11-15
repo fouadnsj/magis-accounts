@@ -705,7 +705,7 @@ async function monthFile(c: OpCtx, a: { ym: string; preview?: boolean }): Promis
     }
   }
   // the same in dollars, each entry at its own rate (as MAGIS)
-  const usdOf = entriesUsd(entries, (await loadLimits(c.db)).startRate);
+  const usdOf = entriesUsd(entries, (await loadLimits(c.db)).startRate, (e) => e.date.slice(0, 7) === a.ym);
   const usd: { totals: Record<string, number>; personal: Record<string, number>; house: Record<string, number> } = { totals: {}, personal: {}, house: {} };
   const peopleIds = new Map(people.map((b) => [b.id, b.cty_kind]));
   for (const e of entries) {

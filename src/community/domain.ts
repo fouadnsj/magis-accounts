@@ -151,9 +151,11 @@ export function usdValue(entries: CtyEntry[], cur: Cur, amount: number, date: st
  * Each income and expense in dollars at ITS OWN rate (its date, its book first), as MAGIS does for every row
  * (Fouad, 15 November 2026). The reports add these up for "≈ $"; balances use the rate of today.
  */
-export function entriesUsd(entries: CtyEntry[], startRate: number): Map<string, number> {
+export function entriesUsd(entries: CtyEntry[], startRate: number, only?: (e: CtyEntry) => boolean): Map<string, number> {
   const out = new Map<string, number>();
-  for (const e of entries) if (e.type === 'Exp' || e.type === 'Income') out.set(e.id, usdValue(entries, e.cur, e.amount, e.date, startRate, [e.book_id]) ?? 0);
+  // only the exchanges tell a rate: looking at them alone gives the same answer, much faster after some years
+  const exchanges = entries.filter((e) => e.type === 'Exchange');
+  for (const e of entries) if ((e.type === 'Exp' || e.type === 'Income') && (!only || only(e))) out.set(e.id, usdValue(exchanges, e.cur, e.amount, e.date, startRate, [e.book_id]) ?? 0);
   return out;
 }
 

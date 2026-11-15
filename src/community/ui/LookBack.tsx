@@ -4,17 +4,20 @@
 // A mirror, not a control: no alarms, no "budget exceeded".
 import { useMemo, useState } from 'react';
 import { todayIso } from '../../ui/kit';
-import { accountBooks, monthSheetOf, monthsOfYear, periodMonths, sheetOf, usdValue, yearOf, type Cur } from '../domain';
+import { accountBooks, monthSheetOf, monthsOfYear, periodMonths, sheetOf, yearOf, type Cur } from '../domain';
 import { iconOf } from './icons';
 import { useCty, Card, bookLabel } from './CtyApp';
 import { headingOf, usedCurs } from './Month';
 import { Columns, Ring } from './charts';
 import { accName, curName, money, monthName, periodName, t3, yearName } from './text';
+import { useEntryUsd } from './usd';
 
 type Mode = 'month' | 'quarter' | 'year';
 
 export function LookBack() {
   const { d, book, go } = useCty();
+  // each expense in dollars at its own rate (as MAGIS), computed once
+  const usdOf = useEntryUsd();
   const today = todayIso();
   const [mode, setMode] = useState<Mode>('quarter');
   const [ym, setYm] = useState(today.slice(0, 7));
@@ -54,9 +57,9 @@ export function LookBack() {
   // all currencies together, about, in dollars (at the rate of each day)
   const aboutUsd = useMemo(() => {
     let x = 0;
-    for (const e of d.entries) if (e.type === 'Exp' && group.some((b) => b.id === e.book_id) && e.date >= from && e.date <= to) x += usdValue(d.entries, e.cur, e.amount, e.date, d.limits.startRate, [e.book_id]) ?? 0;
+    for (const e of d.entries) if (e.type === 'Exp' && group.some((b) => b.id === e.book_id) && e.date >= from && e.date <= to) x += usdOf.get(e.id) ?? 0;
     return x;
-  }, [d, book.id, from, to]);
+  }, [d, group, from, to, usdOf]);
   const opened = open != null ? groups.get(open) : undefined;
 
   return (

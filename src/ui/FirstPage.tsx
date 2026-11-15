@@ -233,7 +233,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
       </main>
       <ValuesFoot />
       {/* under the values, two doors like the centres' (Fouad, 15 November 2026): the Jesuit communities and the administrator */}
-      <div className="mg-doors two">
+      <div className={`mg-doors two ${onCommunities ? "" : "one"}`}>
         {onCommunities && (
           <button type="button" className="mg-door" style={{ '--centre': '#B8891B', '--centre-deep': '#5B191D' } as CSSProperties} onClick={() => setStep('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
             <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/jesuits.png" alt="" /></div>

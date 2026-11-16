@@ -8,7 +8,7 @@ import { getLang, m, tx, type Msg } from '../i18n';
 import { serverEnter, serverSignIn, type DbInfo, type Hello } from '../net';
 import type { Profile } from '../auth';
 import { BrandFrame, Charter, DbCard, ValuesFoot } from './Landing';
-import { DirSetup } from './Directory';
+import { DirSetup, Forgot } from './Directory';
 import { Field, errText } from './kit';
 
 const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
@@ -112,6 +112,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [setup, setSetup] = useState(false);
+  const [forgot, setForgot] = useState(false);
   const pwRef = useRef<HTMLInputElement>(null);
   useEffect(() => { setErr(null); setPw(''); }, [step]);
 
@@ -173,7 +174,8 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
           {notice && <div className="alert info">{t3('خرجتَ تلقائياً بعد مدة بلا نشاط. ادخل من جديد لتتابع.', 'You were signed out after a while without activity. Sign in again to continue.', "Vous avez été déconnecté après un moment sans activité. Reconnectez-vous pour continuer.")}</div>}
           {noAdmin ? (
             <>
-              <div className="alert info">{t3('لم يُعدّ المدير بعد على هذا الخادم. يُعدّ مرة واحدة من حاسوب الخادم نفسه.', 'No administrator is set up on this server yet. It is set up once, on the server computer itself.', "Aucun administrateur n'est encore défini sur ce serveur. Il se définit une fois, sur l'ordinateur du serveur.")}</div>
+              <div className="alert info">{t3('لم يُعدّ المدير بعد على هذا الخادم. يُعدّ مرة واحدة من حاسوب الخادم نفسه.', 'No administrator is set up on this server yet. It is set up once, on the server computer itself.', "Aucun administrateur n'est encore défini sur ce serveur. Il se définit une fois, sur l'ordinateur du serveur.")}
+                {!hello.local && <><br />{t3('على حاسوب الخادم، افتح https://localhost:8443 ثم «المدير» ← «إعداد المدير».', 'On the server computer, open https://localhost:8443, then "Administrator" → "Set up the administrator".', "Sur l'ordinateur du serveur, ouvrez https://localhost:8443, puis « Administrateur » → « Définir l'administrateur ».")}</>}</div>
               <div className="modal-foot">
                 <button type="button" className="btn ghost" onClick={() => setStep(null)}>‹ {t3('رجوع', 'Back', 'Retour')}</button>
                 {hello.local && <button type="button" className="btn primary" onClick={() => setSetup(true)}>{t3('إعداد المدير', 'Set up the administrator', "Définir l'administrateur")}</button>}
@@ -188,6 +190,13 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
                 <button type="button" className="btn ghost" onClick={() => setStep(null)}>‹ {jes ? t3('مراكز ماجيس', 'MAGIS centres', 'Centres MAGIS') : t3('رجوع', 'Back', 'Retour')}</button>
                 <button className="btn primary" disabled={!name.trim() || !pw || busy}>{t3('دخول', 'Enter', 'Entrer')}</button>
               </div>
+              {admin && (
+                <p className="small muted" style={{ marginTop: 12 }}>
+                  {hello.local
+                    ? <button type="button" className="btn ghost small" onClick={() => setForgot(true)}>🔑 {t3('نسيت كلمة سر المدير؟', "Forgot the administrator's password?", "Mot de passe de l'administrateur oublié ?")}</button>
+                    : t3('نسيت كلمة السر؟ على حاسوب الخادم نفسه، افتح https://localhost:8443 ثم «المدير».', 'Forgot the password? On the server computer itself, open https://localhost:8443, then "Administrator".', "Mot de passe oublié ? Sur l'ordinateur du serveur, ouvrez https://localhost:8443, puis « Administrateur ».")}
+                </p>
+              )}
             </form>
           )}
           {jes && onCommunities && (
@@ -197,6 +206,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
           )}
         </div>
         {setup && <DirSetup onClose={() => setSetup(false)} onDone={async () => { setSetup(false); await onDir(); }} />}
+        {forgot && <Forgot onClose={() => setForgot(false)} />}
       </BrandFrame>
     );
   }

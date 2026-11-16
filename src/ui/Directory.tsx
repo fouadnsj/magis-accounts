@@ -50,7 +50,8 @@ export function DirSignIn({ local, onDone }: { local: boolean; onDone: () => Pro
 }
 
 /** On the server computer: a new password, with the password of the Superior of any database. */
-function Forgot({ onClose }: { onClose: () => void }) {
+/** A new password for a person of the directory (the administrator), on the server computer, with any Superior's password. */
+export function Forgot({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [pw, setPw] = useState('');
   const [sup, setSup] = useState('');

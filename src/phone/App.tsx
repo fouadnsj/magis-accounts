@@ -75,6 +75,30 @@ export function App() {
     onUnlink={async (all) => { if (all) { await wipe(); setPack(null); } else await kvDel('link'); setKey(null); setLink(null); }} />;
 }
 
+// ---- the icon on the home screen (Fouad, 16 November 2026: "I can't find the icon to add the app on Android").
+// Chrome on Android offers its own prompt only once the page is installable; we keep it and show our own button.
+type InstallEvt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+let installEvt: InstallEvt | null = null;
+if (typeof window !== 'undefined') window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e as InstallEvt; window.dispatchEvent(new Event('ph-install')); });
+const standalone = () => { try { return window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true; } catch { return false; } };
+
+/** "Add MAGIS to the home screen": a button when the phone allows it, else the steps (Chrome, Android). */
+function InstallHint() {
+  const [, redraw] = useState(0);
+  useEffect(() => { const f = () => redraw((n) => n + 1); window.addEventListener('ph-install', f); window.addEventListener('appinstalled', f); return () => { window.removeEventListener('ph-install', f); window.removeEventListener('appinstalled', f); }; }, []);
+  if (standalone() || /iPhone|iPad|iPod/.test(navigator.userAgent)) return null; // already an app, or an iPhone (Share → Add to Home Screen, said elsewhere)
+  if (installEvt) return (
+    <button className="ph-btn" onClick={async () => { const e = installEvt!; installEvt = null; await e.prompt(); redraw((n) => n + 1); }}>📲 {t('أضف MAGIS إلى الشاشة الرئيسية', 'Add MAGIS to the home screen', "Ajouter MAGIS à l'écran d'accueil")}</button>
+  );
+  return (
+    <details className="ph-install">
+      <summary>📲 {t('أين أيقونة الشاشة الرئيسية؟', 'Where is the home-screen icon?', "Où est l'icône de l'écran d'accueil ?")}</summary>
+      <p>{t('في Chrome: القائمة ⋮ (أعلى اليمين) ← «إضافة إلى الشاشة الرئيسية» (أو «تثبيت التطبيق»).', 'In Chrome: the menu ⋮ (top right) → "Add to Home screen" (or "Install app").', 'Dans Chrome : le menu ⋮ (en haut à droite) → « Ajouter à l\'écran d\'accueil » (ou « Installer l\'application »).')}</p>
+      <p>{t('لا تجدها؟ افتح هذه الصفحة في Chrome نفسه (لا في متصفح آخر ولا في تبويب خاص)، وتأكد أنه لا تحذير عن الشهادة (الخطوة 1 في صفحة البداية). ثم أغلق Chrome وافتح الصفحة من جديد.', "Cannot find it? Open this page in Chrome itself (not another browser, not a private tab), and make sure there is no certificate warning (step 1 of the start page). Then close Chrome and open the page again.", "Vous ne la trouvez pas ? Ouvrez cette page dans Chrome lui-même (pas un autre navigateur, pas un onglet privé), et vérifiez qu'il n'y a pas d'avertissement de certificat (étape 1 de la page de départ). Puis fermez Chrome et rouvrez la page.")}</p>
+    </details>
+  );
+}
+
 function LangPick({ lang: l, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
   return <div className="ph-lang">{(['ar', 'en', 'fr'] as Lang[]).map((x) => <button key={x} className={x === l ? 'on' : ''} onClick={() => setLang(x)}>{x === 'ar' ? 'عربي' : x === 'en' ? 'English' : 'Français'}</button>)}</div>;
 }
@@ -135,6 +159,7 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
     <div className="ph-page">
       <div className="ph-brand"><img src="/brand/magis-sun.png" alt="" /><h1>MAGIS</h1><p>{t('تسجيل الحركات بعيداً عن المركز', 'Recording away from the centre', 'Enregistrer loin du centre')}</p></div>
       <LangPick lang={l} setLang={setLang} />
+      <InstallHint />
       {err && <div className="ph-alert">{err}</div>}
       {got ? (
         <div className="ph-card">
@@ -143,11 +168,16 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
           <label>{t('الرمز (4 إلى 8 أرقام)', 'Code (4 to 8 digits)', 'Code (4 à 8 chiffres)')}<input type="password" inputMode="numeric" autoComplete="off" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
           <label>{t('الرمز مرة ثانية', 'The code again', 'Le code encore')}<input type="password" inputMode="numeric" autoComplete="off" value={code2} onChange={(e) => setCode2(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
           <button className="ph-btn gold" disabled={busy} onClick={finish}>{t('ابدأ', 'Start', 'Commencer')}</button>
+          {/* not the right account? start again without wiping the phone (Fouad, 16 November 2026) */}
+          <button className="ph-linkbtn" disabled={busy} onClick={() => { setGot(null); setChoose(null); setCode(''); setCode2(''); setPassword(''); setErr(null); }}>‹ {t('رجوع: غيّر البيت أو الاسم', 'Back: change the house or the name', 'Retour : changer de maison ou de nom')}</button>
         </div>
       ) : choose ? (
         <div className="ph-card">
           <b>{t('أي حسابات؟', 'Which accounts?', 'Quels comptes ?')}</b>
+          <p className="ph-muted">{HOUSES.find(([k]) => k === house)?.[1]()} · {name.trim()}</p>
           {choose.dbs.map((d) => <button key={d.slug} className="ph-btn" disabled={busy} onClick={() => pick(d.slug)}>{d.organisation}</button>)}
+          {/* a way back, to change the house or the name (Fouad, 16 November 2026) */}
+          <button className="ph-linkbtn" disabled={busy} onClick={async () => { setBusy(true); await api.logout(); setChoose(null); setPassword(''); setErr(null); setBusy(false); }}>‹ {t('رجوع: غيّر البيت أو الاسم', 'Back: change the house or the name', 'Retour : changer de maison ou de nom')}</button>
         </div>
       ) : iosSafari && !here ? (
         <div className="ph-card">
@@ -198,6 +228,7 @@ function Lock({ link, pack, onOpen, onForget }: { link: Link; pack: Pack | null;
   return (
     <div className="ph-page">
       <div className="ph-brand"><img src="/brand/magis-sun.png" alt="" /><h1>{pack?.organisation ?? 'MAGIS'}</h1><p>{pack?.user}</p></div>
+      <InstallHint />
       {err && <div className="ph-alert">{err}</div>}
       <div className="ph-card">
         <label>{t('رمز هذا الهاتف', "This phone's code", 'Le code de ce téléphone')}

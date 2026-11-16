@@ -12,7 +12,7 @@ import { errText, fmtDate, toast } from './kit';
 import { BrandFrame, CreateDb, DbCard, HouseOpen } from './Landing';
 import { ManageDbs } from './ManageDbs';
 import { DirAdmin } from './Directory';
-import { Tabs } from './kit';
+import { Modal, Tabs } from './kit';
 import { MainListPanel, takeMainListWish } from './MainListPanel';
 import { ProvinceBook } from './ProvinceBook';
 import { ProvinceGrants } from './ProvinceGrants';
@@ -42,8 +42,11 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
   useEffect(() => { void loadWaiting(); }, []);
   useEffect(() => { if (sec === 'waiting') void loadWaiting(); }, [sec]);
   const [creating, setCreating] = useState(false);
+  const [hrPick, setHrPick] = useState(false);
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   const centres = dbs.filter((x) => !isCty(x));
+  // HR is shared by all the centres: its own button beside the houses (Fouad, 16 November 2026)
+  const hrDbs = dbs.filter((x) => x.kind === 'hr' && !x.setupNeeded);
   if (creating)
     return (
       <BrandFrame wide invite={false}>
@@ -56,6 +59,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
         <h1 style={{ margin: 0 }}>🧭 {t3('المنسّق', 'Coordinator', 'Coordinateur')}</h1>
         <span className="row" style={{ gap: 6 }}>
+          {hrDbs.length > 0 && <button className="btn small" onClick={() => (hrDbs.length === 1 ? onOpen(hrDbs[0]) : setHrPick(true))}>👥 {t3('الموارد البشرية', 'HR', 'RH')}</button>}
           {signedIn && onBackIn && <button className="btn small" onClick={onBackIn}>{t3('رجوع إلى', 'Back to', 'Retour à')} {signedIn.db}</button>}
           <button className="btn small ghost" onClick={onSignOut}>{dir.person?.name} · {t3('خروج', 'Sign out', 'Se déconnecter')}</button>
         </span>
@@ -99,6 +103,11 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       {sec === 'province' && <div style={{ marginTop: 12 }}><ProvinceBook /></div>}
       {sec === 'lists' && <div style={{ marginTop: 12 }}><MainListPanel dbs={centres.filter((d) => !d.kind || d.kind === 'centre')} onReload={onChanged} /></div>}
       {sec === 'people' && <div style={{ marginTop: 12 }}><DirAdmin inline onClose={() => undefined} onChanged={onChanged} /></div>}
+      {hrPick && (
+        <Modal title={t3('الموارد البشرية · اختر قاعدة', 'HR · choose a database', 'RH · choisissez une base')} onClose={() => setHrPick(false)}>
+          <div className="mg-places">{hrDbs.map((d) => <DbCard key={d.slug} db={d} onOpen={() => { setHrPick(false); onOpen(d); }} />)}</div>
+        </Modal>
+      )}
     </BrandFrame>
     </HouseOpen>
   );

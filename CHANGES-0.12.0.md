@@ -65,6 +65,18 @@ says "build". Three new database updates (58, 59, 60); each database is copied b
 - A guide page *Accommodation and calendar*; a checklist (`TEST-2026-11-14.md`, section 18); this list.
 - The full test suite passes (new tests in `tests/hosting.test.ts`, one in `tests/inventory.test.ts`).
 
+## Rehearsal on copies of the real databases (22 November 2026, done by me)
+Copies of the real Homs (11 Nov, schema 49) and Aleppo (30 Oct, schema 35; and the new November one) were upgraded with
+this version, in a temporary folder: 11 to 25 updates applied in about 40 ms; **every row of every table is still there**,
+the entries are **identical** (checked by a fingerprint of all columns they had before); the database integrity check and the
+foreign-key check pass; the program opens each file as each of its people (Superior, Accountant, book holders) and answers;
+the Superior and the Accountant received the new ticks and the book holders none. Through the real server program the
+same happened: a `before-update` copy of each database (same size as the original), the upgrade, a daily backup.
+What you will see on real data: Homs shows **12 purchases to register** in the Inventory (the furniture and equipment lines
+are ticked by name); the calendar is off until switched on; Aleppo shows none.
+Not rehearsed: the real server's other databases (HR, communities) and anything newer than those copies; the Windows
+installer itself. See `../test-servers/REHEARSAL-ON-REAL-DATA.md` to rehearse on a fresh copy.
+
 ## Still to check on your side (not done by me)
 - The Excel file opened in Excel (the colour scales and the six-plus sheets).
 - The phone on a real Android: offline booking, then connection, then the review window; the Day/Week/Month views.

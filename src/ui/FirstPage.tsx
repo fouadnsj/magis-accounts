@@ -29,6 +29,8 @@ const SENTENCE: Record<'jaramana' | 'aleppo' | 'homs', Msg> = {
   aleppo: m('كلُّ إنسانٍ يدخل من هنا هو بداية', 'Everyone who comes through here is a beginning', 'Chaque personne qui entre ici est un commencement'),
   homs: m('أيدٍ مفتوحة، بعد كلِّ ما فُقد', 'Open hands, after everything that was lost', 'Des mains ouvertes, après tout ce qui a été perdu'),
 };
+/** The Jesuits' sentence, like each house's: Ad Majorem Dei Gloriam (Fouad, 21 November 2026) */
+const AMDG = m('لمجد الله الأعظم', 'Ad Majorem Dei Gloriam', 'Ad Majorem Dei Gloriam');
 const houseVars = (k: CentreKey) => ({ '--centre': CENTRES[k].color, '--centre-deep': CENTRES[k].deep } as CSSProperties);
 
 /** A sentence in Arabic and, under it, in English or French (Arabic alone when the program is in Arabic). */
@@ -57,10 +59,11 @@ function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: bool
     <div className="mg-opening">
       {/* the Jesuit sun at the top IS the Jesuits' badge (Fouad, 21 November 2026: no repeating): a door like the houses */}
       {jesuits ? (
-        <button type="button" className="mg-badge mg-sunbtn" onClick={() => onPick('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`} title="لمجد الله الأعظم">
+        <button type="button" className="mg-badge mg-sunbtn" onClick={() => onPick('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
           {sun}
           <b>{t3('اليسوعيون', 'Jesuits', 'Jésuites')}</b>
-          <span className="mg-badge-sub"><i>Ad Majorem Dei Gloriam</i> · {t3('دخول', 'Sign in', 'Entrer')} ›</span>
+          <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+          <Said msg={AMDG} className="mg-door-said" />
         </button>
       ) : <div className="mg-sunbtn">{sun}</div>}
       <div className="mg-o-houses">
@@ -97,6 +100,7 @@ function JesuitHero() {
     <div className="mg-househero">
       <div className="mg-hh-mark"><span className="mg-hh-halo" /><img src="/brand/jesuits.png" alt="" /></div>
       <div className="mg-eyebrow">{t3('الرهبنة اليسوعية · إقليم الشرق الأدنى', 'Society of Jesus · Province of the Near East', 'Compagnie de Jésus · Province du Proche-Orient')}</div>
+      <Said msg={AMDG} className="mg-hh-said" />
       <div className="mg-hh-hope">{t3('حسابات الجماعات', "The communities' accounts", 'Les comptes des communautés')}</div>
     </div>
   );

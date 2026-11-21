@@ -828,3 +828,16 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-doors.two { grid-template-columns: repeat(2, 1fr); max-width: 545px; padding: 0 16px 34px; }
 .mg-door-mark img.round { border-radius: 22%; }
 .mg-doors.two.one { grid-template-columns: 1fr; max-width: 272px; }
+
+/* the Coordinator's first page: every database in three doors (Fouad, 21 November 2026) */
+.coord-doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; margin-top: 12px; align-items: start; }
+.coord-door { background: #fff; border: 1px solid #ece4d0; border-top: 5px solid var(--door); border-radius: 16px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.coord-door header { display: flex; align-items: center; gap: 12px; }
+.coord-door header b { display: block; font-family: var(--serif); font-size: 21px; font-weight: 600; color: var(--ink); }
+.coord-door header small { color: var(--soft); font-size: 12.5px; }
+.coord-door-mark { width: 54px; height: 54px; display: grid; place-items: center; flex: none; font-size: 34px; }
+.coord-door-mark img { max-width: 54px; max-height: 54px; }
+.coord-door-body { display: flex; flex-direction: column; gap: 10px; }
+.coord-door-body .db-card { padding: 12px; }
+.coord-door-body .db-card-mark { width: 52px; height: 52px; }
+.coord-door-body .db-card-mark img { max-width: 52px; max-height: 52px; }

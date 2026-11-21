@@ -13,7 +13,7 @@ import { errText, fmtDate, toast } from './kit';
 import { BrandFrame, CreateDb, DbCard, HouseOpen } from './Landing';
 import { ManageDbs } from './ManageDbs';
 import { DirAdmin } from './Directory';
-import { Modal, Tabs } from './kit';
+import { Tabs } from './kit';
 import { MainListPanel, takeMainListWish } from './MainListPanel';
 import { ProvinceBook } from './ProvinceBook';
 import { ProvinceGrants } from './ProvinceGrants';
@@ -37,18 +37,19 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
   onBackIn?: () => void;
 }) {
   // sent from a centre's Lists → Budget ("Change it in the list"): open on the budget lists
-  const [sec, setSec] = useState<Sec>(() => (takeMainListWish() ? 'lists' : 'waiting'));
+  const [sec, setSec] = useState<Sec>(() => (takeMainListWish() ? 'lists' : 'dbs'));
   // what is waiting: the first page, and its count on the tab
   const [waiting, setWaiting] = useState<Waiting | null>(null);
   const loadWaiting = () => waitingApi.get().then(setWaiting).catch(() => setWaiting({ at: '', count: 0, groups: [] }));
   useEffect(() => { void loadWaiting(); }, []);
   useEffect(() => { if (sec === 'waiting') void loadWaiting(); }, [sec]);
   const [creating, setCreating] = useState(false);
-  const [hrPick, setHrPick] = useState(false);
   const isCty = (x: DbInfo) => x.kind === 'community' || x.kind === 'country';
   const centres = dbs.filter((x) => !isCty(x));
-  // HR is shared by all the centres: its own button beside the houses (Fouad, 16 November 2026)
-  const hrDbs = dbs.filter((x) => x.kind === 'hr' && !x.setupNeeded);
+  // the first page of the Coordinator: every database, in three doors (Fouad, 21 November 2026): the centres, HR, the communities
+  const hrDbs = dbs.filter((x) => x.kind === 'hr');
+  const ctyDbs = dbs.filter(isCty);
+  const centreDbs = dbs.filter((x) => !isCty(x) && x.kind !== 'hr');
   if (creating)
     return (
       <BrandFrame wide invite={false}>
@@ -61,7 +62,6 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
         <h1 style={{ margin: 0 }}>🧭 {t3('المنسّق', 'Coordinator', 'Coordinateur')}</h1>
         <span className="row" style={{ gap: 6 }}>
-          {hrDbs.length > 0 && <button className="btn small" onClick={() => (hrDbs.length === 1 ? onOpen(hrDbs[0]) : setHrPick(true))}>👥 {t3('الموارد البشرية', 'HR', 'RH')}</button>}
           {signedIn && onBackIn && <button className="btn small" onClick={onBackIn}>{t3('رجوع إلى', 'Back to', 'Retour à')} {signedIn.db}</button>}
           <button className="btn small ghost" onClick={onSignOut}>{dir.person?.name} · {t3('خروج', 'Sign out', 'Se déconnecter')}</button>
         </span>
@@ -72,8 +72,8 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
           "Ce que tout le réseau partage : les bases, les listes du budget, les personnes et leurs accès. Le Coordinateur voit et gère, mais ne change jamais les écritures d'un centre : pour cela, entrez dans le centre. Chaque centre garde son autonomie.")}
       </p>
       <Tabs value={sec} onChange={setSec} tabs={[
-        { value: 'waiting', label: `${t3('ما ينتظر', 'What is waiting', 'Ce qui attend')}${waiting?.count ? ` (${waiting.count})` : ''}` },
         { value: 'dbs', label: t3('قواعد البيانات', 'Databases', 'Bases de données') },
+        { value: 'waiting', label: `${t3('ما ينتظر', 'What is waiting', 'Ce qui attend')}${waiting?.count ? ` (${waiting.count})` : ''}` },
         { value: 'grants', label: t3('المنح', 'Grants', 'Subventions') },
         { value: 'province', label: t3('حساب الإقليم', 'Province account', 'Compte de la Province') },
         { value: 'lists', label: t3('قوائم الموازنة', 'Budget lists', 'Listes du budget') },
@@ -83,15 +83,26 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       {sec === 'waiting' && <div style={{ marginTop: 12 }}><CoordinatorWaiting data={waiting} onGo={(a: Area) => setSec(a)} onRefresh={() => void loadWaiting()} /></div>}
       {sec === 'dbs' && (
         <>
-          <div className="db-grid" style={{ marginTop: 12 }}>
-            {centres.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
-            {/* the communities: a card like the others (Fouad, 14 November 2026: the small link was too hard to find) */}
-            {onCommunities && (
-              <button className="db-card" onClick={onCommunities}>
-                <div className="db-card-mark"><img src="/brand/jesuits.png" alt="" /></div>
-                <div className="db-card-text"><b>{t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')}</b><span>{t3('الجماعات وقيّم البلد ›', 'The communities and the country econome ›', "Les communautés et l'économe du pays ›")}</span></div>
-              </button>
-            )}
+          <div className="coord-doors">
+            {([
+              { key: 'centres', color: '#8C1D40', title: t3('مراكز ماجيس', 'MAGIS centres', 'Centres MAGIS'), sub: t3('جرمانا · حلب · حمص', 'Jaramana · Aleppo · Homs', 'Jaramana · Alep · Homs'), mark: <img src="/brand/magis-sun.png" alt="" />, list: centreDbs },
+              { key: 'hr', color: '#2F5D62', title: t3('الموارد البشرية', 'Human resources', 'Ressources humaines'), sub: t3('الأشخاص والاتفاقيات والرواتب', 'People, agreements, payroll', 'Personnes, accords, paie'), mark: <span>👥</span>, list: hrDbs },
+              { key: 'cty', color: '#B8891B', title: t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites'), sub: t3('الجماعات وقيّم البلد', 'The communities and the country econome', "Les communautés et l'économe du pays"), mark: <img src="/brand/jesuits.png" alt="" />, list: ctyDbs },
+            ]).map((dr) => (
+              <section key={dr.key} className="coord-door" style={{ '--door': dr.color } as React.CSSProperties}>
+                <header>
+                  <span className="coord-door-mark">{dr.mark}</span>
+                  <div><b>{dr.title}</b><small>{dr.sub} · {dr.list.length}</small></div>
+                </header>
+                <div className="coord-door-body">
+                  {dr.list.map((d) => <DbCard key={d.slug} db={d} onOpen={() => onOpen(d)} />)}
+                  {!dr.list.length && <p className="muted small" style={{ margin: 0 }}>{t3('لا قاعدة بعد', 'No database yet', 'Aucune base encore')}</p>}
+                  {dr.key === 'cty' && onCommunities && <button type="button" className="btn small ghost" onClick={onCommunities}>{t3('إنشاء وإدارة الجماعات ›', 'Make and manage the communities ›', 'Créer et gérer les communautés ›')}</button>}
+                </div>
+              </section>
+            ))}
+          </div>
+          <div className="db-grid" style={{ marginTop: 14 }}>
             <button className="db-card db-new" onClick={() => setCreating(true)}>
               <div className="db-card-mark"><span>＋</span></div>
               <div className="db-card-text"><b>{t3('قاعدة بيانات جديدة', 'New database', 'Nouvelle base')}</b><span>{t3('مركز، سنة جديدة، مشروع… مع قائمته', 'a centre, a new year, a project… with its list', 'un centre, une nouvelle année, un projet… avec sa liste')}</span></div>
@@ -107,11 +118,6 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       {sec === 'lists' && <div style={{ marginTop: 12 }}><MainListPanel dbs={centres.filter((d) => !d.kind || d.kind === 'centre')} onReload={onChanged} /></div>}
       {sec === 'inventory' && <div style={{ marginTop: 12 }}><CoordinatorInventory /></div>}
       {sec === 'people' && <div style={{ marginTop: 12 }}><DirAdmin inline onClose={() => undefined} onChanged={onChanged} /></div>}
-      {hrPick && (
-        <Modal title={t3('الموارد البشرية · اختر قاعدة', 'HR · choose a database', 'RH · choisissez une base')} onClose={() => setHrPick(false)}>
-          <div className="mg-places">{hrDbs.map((d) => <DbCard key={d.slug} db={d} onOpen={() => { setHrPick(false); onOpen(d); }} />)}</div>
-        </Modal>
-      )}
     </BrandFrame>
     </HouseOpen>
   );

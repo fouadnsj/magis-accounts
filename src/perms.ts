@@ -58,6 +58,15 @@ export const PERM_GROUPS = [
     ],
   },
   {
+    key: 'hosting',
+    label: m('الإقامة والتقويم', 'Hosting and calendar'),
+    perms: [
+      { key: 'hosting.view', label: m('يرى التقويم والحجوزات (من دون الأسعار)', 'Sees the calendar and the bookings (never the prices)') },
+      { key: 'hosting.book', label: m('يسجّل الحجوزات ويعدّلها ويؤكّدها (من دون الأسعار)', 'Makes, changes and confirms the bookings (never the prices)') },
+      { key: 'hosting.keep', label: m('يمسك التقويم: المباني والغرف والخدمات، يرى الأسعار والدفعات ويحدّدها', 'Keeps the calendar: buildings, rooms, services; sees and sets the prices and the payments') },
+    ],
+  },
+  {
     key: 'admin',
     label: m('الإدارة', 'Admin'),
     perms: [
@@ -156,6 +165,8 @@ export const HR_ADMIN_PERMS = ['users.manage', 'data.backup', 'data.restore', 'd
 export function withImplied(perms: Perm[]): Perm[] {
   const out = new Set(perms);
   if (perms.includes('inventory.manage')) out.add('inventory.view');
+  if (perms.includes('hosting.keep')) out.add('hosting.book');
+  if (perms.includes('hosting.book')) out.add('hosting.view');
   if (perms.some((p) => p.startsWith('hr.'))) out.add('hr.view');
   if (perms.some((p) => p === 'hr.agreements' || p === 'hr.scale' || p === 'hr.pay' || p === 'hr.approve' || p === 'hr.paid' || p === 'hr.hourly' || p === 'hr.donors' || p === 'hr.reports')) out.add('hr.salary');
   return [...out];

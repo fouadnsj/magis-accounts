@@ -1927,4 +1927,95 @@ ALTER TABLE inv_item ADD COLUMN origin_id INTEGER REFERENCES inv_origin(id);
 UPDATE inv_item SET origin_id = CASE origin WHEN 'bought' THEN 1 WHEN 'gift' THEN 2 ELSE 3 END;
 `,
   },
+  {
+    n: 58,
+    name: 'accommodation and events: buildings, rooms, bookings, services, payments to suggest',
+    sql: `
+-- (Fouad, 2026-11-22) A centre may host groups (Al-Ard is a farm with guest houses): buildings with rooms, a booking per
+-- group (a stay, or an event in a hall), the services sold with it, and payments that the accountant turns into entries.
+-- The section is switched on per centre (meta sec_hosting). The amounts are seen only by those who keep the calendar.
+CREATE TABLE host_building (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE host_room (
+  id          INTEGER PRIMARY KEY,
+  building_id INTEGER NOT NULL REFERENCES host_building(id),
+  name        TEXT NOT NULL,
+  beds        INTEGER NOT NULL DEFAULT 0,
+  kind        TEXT NOT NULL DEFAULT 'bedroom' CHECK (kind IN ('bedroom','hall','other')),
+  active      INTEGER NOT NULL DEFAULT 1,
+  sort        INTEGER NOT NULL DEFAULT 0,
+  place_id    INTEGER REFERENCES inv_place(id),   -- the same room as a place of the inventory
+  UNIQUE (building_id, name)
+);
+CREATE TABLE host_service (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO host_service (name, sort) VALUES
+  ('Breakfast · فطور', 1), ('Lunch · غداء', 2), ('Dinner · عشاء', 3), ('Break · استراحة', 4),
+  ('Logistics · تجهيزات', 5), ('Heating · تدفئة', 6), ('Other · أخرى', 7);
+CREATE TABLE host_booking (
+  id           INTEGER PRIMARY KEY,
+  code         TEXT NOT NULL UNIQUE,
+  kind         TEXT NOT NULL DEFAULT 'stay' CHECK (kind IN ('stay','event')),
+  status       TEXT NOT NULL DEFAULT 'option' CHECK (status IN ('option','confirmed','arrived','left','cancelled')),
+  group_name   TEXT NOT NULL,
+  contact      TEXT,
+  phone        TEXT,
+  people       INTEGER NOT NULL DEFAULT 0,
+  from_day     TEXT NOT NULL,
+  to_day       TEXT NOT NULL,
+  price_mode   TEXT CHECK (price_mode IN ('person','group')),
+  rate         REAL,
+  currency     TEXT NOT NULL DEFAULT 'USD' CHECK (currency IN ('USD','SYP')),
+  note         TEXT,
+  cancel_reason TEXT,
+  source       TEXT NOT NULL DEFAULT 'desk',
+  review       INTEGER NOT NULL DEFAULT 0,
+  client_ref   TEXT UNIQUE,                  -- the phone's own number for a booking, so it is never made twice
+  created_by   TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT
+);
+CREATE INDEX host_booking_days ON host_booking(from_day, to_day);
+CREATE TABLE host_alloc (
+  booking_id INTEGER NOT NULL REFERENCES host_booking(id) ON DELETE CASCADE,
+  room_id    INTEGER NOT NULL REFERENCES host_room(id),
+  beds       INTEGER,                         -- the beds used; NULL: the whole room
+  PRIMARY KEY (booking_id, room_id)
+);
+CREATE TABLE host_line (
+  id         INTEGER PRIMARY KEY,
+  booking_id INTEGER NOT NULL REFERENCES host_booking(id) ON DELETE CASCADE,
+  service_id INTEGER REFERENCES host_service(id),
+  label      TEXT NOT NULL,
+  qty        REAL NOT NULL DEFAULT 1,
+  amount     REAL NOT NULL DEFAULT 0          -- the agreed amount for the whole line, in the booking's currency
+);
+CREATE TABLE host_pay (
+  id         INTEGER PRIMARY KEY,
+  booking_id INTEGER NOT NULL REFERENCES host_booking(id),
+  amount     REAL NOT NULL,
+  currency   TEXT NOT NULL CHECK (currency IN ('USD','SYP')),
+  paid_on    TEXT NOT NULL,
+  method     TEXT NOT NULL DEFAULT 'cash',
+  receipt_no TEXT NOT NULL UNIQUE,            -- also written on the entry of the register: that is how the two are linked
+  status     TEXT NOT NULL DEFAULT 'suggested' CHECK (status IN ('suggested','refused')),
+  note       TEXT,
+  who        TEXT,
+  at         TEXT NOT NULL
+);
+-- the Accountant and the Superior keep the calendar; whoever sees every book may look
+UPDATE access_profile SET perms = replace(perms, ']', ',"hosting.view","hosting.book","hosting.keep"]')
+ WHERE perms LIKE '%"register.view"%' AND perms LIKE '%"lists.manage"%' AND perms NOT LIKE '%"hosting.view"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"hosting.view"]')
+ WHERE perms LIKE '%"register.view"%' AND perms NOT LIKE '%"hosting.view"%';
+`,
+  },
 ];

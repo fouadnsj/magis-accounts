@@ -41,6 +41,7 @@ import { HR_RUN_OPS, HR_RUN_READ_ONLY } from './hr/runOps';
 import { HR_SESSION_OPS, HR_SESSION_READ_ONLY } from './hr/sessions';
 import { HR_STAGE4_OPS, HR_STAGE4_READ_ONLY } from './hr/stage4';
 import { INV_OPS, INV_READ_ONLY, invLite } from './inventory/ops';
+import { HOST_OPS, HOST_READ_ONLY, hostLite } from './hosting/ops';
 import type { InvLite } from './inventory/inv';
 import { STYLE_OPS } from './community/style';
 
@@ -189,6 +190,7 @@ export interface DataPayload {
   grantsBookId: number | null;
   /** the inventory's lines and the purchases already listed (only for those who see the inventory) */
   inv?: InvLite | null;
+  host?: { on: boolean; review: number; toEnter: number } | null;
 }
 
 export interface CashCountRow {
@@ -388,6 +390,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     grants, grantParts, grantShares, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
     grantsBookId: Number(await getMeta(db, 'grants_book_id')) || null,
     inv: await invLite(c),
+    host: await hostLite(c),
   };
 }
 
@@ -1409,6 +1412,8 @@ export const OPS = {
   ...HR_SESSION_OPS,
   // the inventory: src/inventory/ops.ts
   ...INV_OPS,
+  // accommodation, events and the calendar: src/hosting/ops.ts
+  ...HOST_OPS,
   // the look of a community or country database: src/community/style.ts
   ...STYLE_OPS,
   // ---------------------------------------------------------------- reading
@@ -2176,7 +2181,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'phone.list', 'province.sends', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY, ...INV_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'phone.list', 'province.sends', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY, ...INV_READ_ONLY, ...HOST_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

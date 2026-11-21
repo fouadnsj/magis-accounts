@@ -64,6 +64,8 @@ export interface Data {
   attachments: AttachmentRow[];
   /** the inventory's lines and the purchases already listed (null: this person does not see the inventory) */
   inv: InvLite | null;
+  /** the hosting section: null when it is off or this person does not see it */
+  host: { on: boolean; review: number; toEnter: number } | null;
 }
 
 interface Ctx {
@@ -118,6 +120,7 @@ async function loadData(s: Session, background = false): Promise<Data> {
     listsVersion: p.listsVersion,
     attachments: p.attachments ?? [],
     inv: p.inv ?? null,
+    host: p.host ?? null,
   };
 }
 

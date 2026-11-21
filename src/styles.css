@@ -847,3 +847,28 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-amdg { text-align: center; margin-top: 2px; }
 .mg-amdg .ar { font-size: 17px; line-height: 1.5; color: var(--ink); }
 .mg-amdg .tr { font-size: 13px; font-style: italic; color: #7a6a4a; }
+
+/* Accommodation and calendar (0.12.0): rooms by day */
+.host-wrap { max-height: 70vh; }
+.host-grid { border-collapse: separate; border-spacing: 0; font-size: 12px; }
+.host-grid th, .host-grid td { border-bottom: 1px solid var(--line); border-inline-end: 1px solid var(--line); min-width: 38px; height: 30px; text-align: center; padding: 0 2px; white-space: nowrap; }
+.host-grid thead th { position: sticky; top: 0; background: var(--panel); z-index: 2; line-height: 1.1; padding: 3px 2px; }
+.host-grid th.today { background: var(--brand-2); color: #fff; }
+.host-grid th.first { border-inline-start: 2px solid var(--ink); }
+.host-grid th.host-room { position: sticky; inset-inline-start: 0; background: var(--panel); z-index: 3; text-align: start; min-width: 130px; padding: 0 8px; }
+.host-grid thead th.host-room { z-index: 4; }
+.host-building td { background: var(--line); font-weight: 700; text-align: start; padding: 2px 8px; }
+.host-free { cursor: pointer; }
+.host-free:hover { background: color-mix(in srgb, var(--centre) 12%, transparent); }
+.host-cell { cursor: pointer; overflow: hidden; text-overflow: ellipsis; max-width: 70px; color: #fff; font-size: 11px; }
+.host-cell.option { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--centre) 35%, #fff), color-mix(in srgb, var(--centre) 35%, #fff) 5px, color-mix(in srgb, var(--centre) 15%, #fff) 5px, color-mix(in srgb, var(--centre) 15%, #fff) 10px); color: var(--ink); }
+.host-cell.confirmed { background: var(--centre); }
+.host-cell.arrived { background: #2e7d32; }
+.host-cell.left { background: #8a8a8a; }
+.host-cell.clash { background: #c62828; }
+.host-key { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.host-key .host-cell { display: inline-block; padding: 1px 8px; border-radius: 4px; cursor: default; max-width: none; }
+.host-badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; color: #fff; background: #8a8a8a; }
+.host-badge.option { background: #b8860b; } .host-badge.confirmed { background: var(--centre); } .host-badge.arrived { background: #2e7d32; } .host-badge.cancelled { background: #c62828; }
+.host-pick { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.host-pick-row { display: flex; gap: 10px; align-items: center; padding: 2px 0; }

@@ -28,6 +28,8 @@ const today = () => nowIso().slice(0, 10);
 
 /** is the section switched on for this centre? */
 export const sectionOn = async (db: OpCtx['db']) => (await getMeta(db, 'sec_hosting')) === '1';
+/** the inventory is on unless a centre switched it off */
+export const inventoryOn = async (db: OpCtx['db']) => (await getMeta(db, 'sec_inventory')) !== '0';
 
 export async function loadHosting(c: OpCtx): Promise<HostData> {
   const d: HostData = {
@@ -328,8 +330,9 @@ export const HOST_OPS = {
   /** the section is switched on or off for this centre */
   'host.section': {
     check: (c: OpCtx) => { if (!has(c.profile, 'lists.manage')) throw refuse(); },
-    run: async (c: OpCtx, a: { on: boolean }) => {
-      await c.db.batch([setMetaStmt('sec_hosting', a.on ? '1' : '0'), auditStmt(c.who, 'update', 'sec_hosting', null, null, { on: !!a.on })]);
+    run: async (c: OpCtx, a: { on: boolean; section?: 'hosting' | 'inventory' }) => {
+      const key = a.section === 'inventory' ? 'sec_inventory' : 'sec_hosting';
+      await c.db.batch([setMetaStmt(key, a.on ? '1' : '0'), auditStmt(c.who, 'update', key, null, null, { on: !!a.on })]);
       return { ok: true };
     },
   },
@@ -341,13 +344,13 @@ export const HOST_READ_ONLY = ['host.get'];
 export async function hostLite(c: OpCtx) {
   const can = has(c.profile, 'hosting.view') || has(c.profile, 'hosting.book') || has(c.profile, 'hosting.keep');
   const on = await sectionOn(c.db);
-  if (!on) return can || has(c.profile, 'lists.manage') ? { on: false, review: 0, toEnter: 0 } : null;
+  if (!on) return can || has(c.profile, 'lists.manage') ? { on: false, review: 0, toEnter: 0, inventoryOn: await inventoryOn(c.db) } : null;
   if (!can) return null;
   const review = looksAtAll(c) ? ((await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM host_booking WHERE review = 1 AND status <> ?', ['cancelled']))?.n ?? 0) : 0;
   const toEnter = keeps(c)
     ? ((await one<{ n: number }>(c.db, "SELECT COUNT(*) AS n FROM host_pay WHERE status = 'suggested' AND receipt_no NOT IN (SELECT receipt FROM trx WHERE receipt IS NOT NULL AND type = 'Income')"))?.n ?? 0)
     : 0;
-  return { on: true, review, toEnter };
+  return { on: true, review, toEnter, inventoryOn: await inventoryOn(c.db) };
 }
 
 /** the bookings made on a phone that wait for a look, with what each runs into (for the window shown at the connection) */

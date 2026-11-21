@@ -56,7 +56,7 @@ const recall = (k: string) => {
 };
 
 /** A new entry with some choices already made (an envelope's Give / Spent / Put back). */
-export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null; /** a copy of this record (opens as a new entry, saved only when he presses Save) */ copyOf?: Trx; date?: string }
+export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null; /** a copy of this record (opens as a new entry, saved only when he presses Save) */ copyOf?: Trx; date?: string; /** an entry suggested by another part of the program (a payment of the calendar): the form opens with these filled in */ prefill?: { amount: number; currency: 'USD' | 'SYP'; explanation: string; receipt: string } }
 export type EntryStart = TrxType | Trx | NewEntry;
 const isPreset = (x: EntryStart): x is NewEntry => typeof x === 'object' && 'preset' in x;
 
@@ -169,10 +169,11 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     const book = L.books.find((b) => b.id === bookId);
     const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
     return {
-      type, date: recall('lastDate') ?? todayIso(), bookId,
+      type, date: pre?.date ?? recall('lastDate') ?? todayIso(), bookId,
       accountId: null,
       cityId: book?.city_id ?? L.settings.def_city_id,
-      headingId: h, lineId: l, partyId: null, explanation: '', receipt: '', currency: null, amount: '',
+      headingId: h, lineId: l, partyId: null, explanation: pre?.prefill?.explanation ?? '', receipt: pre?.prefill?.receipt ?? '',
+      currency: pre?.prefill?.currency ?? null, amount: pre?.prefill ? String(pre.prefill.amount) : '',
       fromBook: pre?.fromBook ?? (restricted ? myBooks[0] ?? null : mainId), toBook: pre?.toBook ?? null, usd: '', syp: '',
     };
   };

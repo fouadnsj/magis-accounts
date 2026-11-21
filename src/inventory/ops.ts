@@ -476,6 +476,8 @@ export const INV_READ_ONLY = ['inv.get', 'inv.photo.get'];
 /** what the main data call carries (for those who see the inventory) */
 export async function invLite(c: OpCtx) {
   if (!has(c.profile, 'inventory.view') && !has(c.profile, 'inventory.manage')) return null;
+  // a centre may switch the section off (Admin → Sections)
+  if ((await getMeta(c.db, 'sec_inventory')) === '0') return null;
   const sources = await c.db.query<InvSource>('SELECT kind, ref FROM inv_source');
   const done = (await c.db.query<{ trx_id: string }>('SELECT trx_id FROM inv_item WHERE trx_id IS NOT NULL UNION SELECT trx_id FROM inv_skip')).map((x) => x.trx_id);
   return { sources, done };

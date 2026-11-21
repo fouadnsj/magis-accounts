@@ -71,7 +71,7 @@ describe('buildings, rooms and the section', () => {
 
   it('the section is off until switched on; it reaches the menu only then', async () => {
     const d0 = (await runOp(sup, 'data', {})) as DataPayload;
-    expect(d0.host).toEqual({ on: false, review: 0, toEnter: 0 });
+    expect(d0.host).toEqual({ on: false, review: 0, toEnter: 0, inventoryOn: true });
     await runOp(sup, 'host.section', { on: true });
     expect(((await runOp(sup, 'data', {})) as DataPayload).host?.on).toBe(true);
     expect(((await runOp(holder, 'data', {})) as DataPayload).host).toBeNull();

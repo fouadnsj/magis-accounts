@@ -65,7 +65,7 @@ export interface Data {
   /** the inventory's lines and the purchases already listed (null: this person does not see the inventory) */
   inv: InvLite | null;
   /** the hosting section: null when it is off or this person does not see it */
-  host: { on: boolean; review: number; toEnter: number } | null;
+  host: { on: boolean; review: number; toEnter: number; inventoryOn: boolean } | null;
 }
 
 interface Ctx {

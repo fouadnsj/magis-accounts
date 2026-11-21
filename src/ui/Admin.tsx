@@ -23,7 +23,7 @@ import { GuideLink } from '../guide/GuideView';
 import { Checks } from './Checks';
 import { Phones } from './Phones';
 
-type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'lists' | 'server';
+type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'access' | 'look' | 'audit' | 'lists' | 'sections' | 'server';
 
 export function Admin() {
   const { s, can, myBooks, reload } = useApp();
@@ -43,6 +43,7 @@ export function Admin() {
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
     { value: 'lists', label: t('قوائم الموازنة', 'Budget lists'), hidden: !listsHere },
+    { value: 'sections', label: t('الأقسام', 'Sections'), hidden: !can('lists.manage') },
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
   ];
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
@@ -61,8 +62,31 @@ export function Admin() {
       {tab === 'look' && can('users.manage') && <Appearance />}
       {tab === 'audit' && can('audit.view') && <Audit />}
       {tab === 'lists' && listsHere && <MainListPanel dbs={[]} onReload={reload} />}
+      {tab === 'sections' && can('lists.manage') && <Sections />}
       {tab === 'server' && s.mode === 'server' && <ServerTab />}
     </>
+  );
+}
+
+// ---------------------------------------------------------------- sections: which parts of the program this centre uses
+
+function Sections() {
+  const { s, d, reload } = useApp();
+  const [busy, setBusy] = useState(false);
+  const set = async (section: 'hosting' | 'inventory', on: boolean) => {
+    setBusy(true);
+    try { await s.api.call('host.section', { section, on }); await reload(); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+  };
+  const hostOn = !!d.host?.on;
+  const invOn = d.host ? d.host.inventoryOn : true;
+  return (
+    <div className="panel">
+      <h3 style={{ marginTop: 0 }}>{t('أقسام هذا المركز', 'Sections of this centre')}</h3>
+      <p className="small muted">{t('كل مركز يختار ما يحتاجه. إيقاف قسم يخفيه من القائمة، ولا يمحو شيئاً.', 'Each centre chooses what it needs. Switching a section off hides it from the menu; nothing is erased.')}</p>
+      <label style={{ display: 'block', margin: '8px 0' }}><input type="checkbox" disabled={busy} checked={invOn} onChange={(e) => void set('inventory', e.target.checked)} /> <b>{t('الجرد', 'Inventory')}</b> — {t('الأغراض والأماكن والعدّ', 'items, places, counts')}</label>
+      <label style={{ display: 'block', margin: '8px 0' }}><input type="checkbox" disabled={busy} checked={hostOn} onChange={(e) => void set('hosting', e.target.checked)} /> <b>{t('الإقامة والتقويم', 'Accommodation and calendar')}</b> — {t('المباني والغرف والحجوزات والأنشطة والدفعات', 'buildings, rooms, bookings, events, payments')}</label>
+      {hostOn && <p className="small muted">{t('من يرى ماذا: في «الأدوار والصلاحيات» (الإقامة والتقويم). الأسعار لمن «يمسك التقويم» فقط.', 'Who sees what: in "Roles and permissions" (Hosting and calendar). The prices are for those who "keep the calendar" only.')}</p>}
+    </div>
   );
 }
 

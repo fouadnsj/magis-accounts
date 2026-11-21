@@ -190,7 +190,7 @@ export interface DataPayload {
   grantsBookId: number | null;
   /** the inventory's lines and the purchases already listed (only for those who see the inventory) */
   inv?: InvLite | null;
-  host?: { on: boolean; review: number; toEnter: number } | null;
+  host?: { on: boolean; review: number; toEnter: number; inventoryOn: boolean } | null;
 }
 
 export interface CashCountRow {

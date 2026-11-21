@@ -293,6 +293,7 @@ export function App() {
         }}
         onDir={async () => { setIdleOut(false); await refreshServer(); }}
         onCommunities={server.ctyGate || server.dbs.some((d) => d.kind === 'community' || d.kind === 'country') ? () => setCtySide(true) : undefined}
+        showJesuits={!!server.hasCommunities || !!server.ctyGate || server.dbs.some((d) => d.kind === 'community' || d.kind === 'country')}
         jesuits={jesuitDoor}
         key={jesuitDoor ? 'jesuits' : 'houses'}
         server={remoteBase ? { address: remoteBase, onChange: () => void changeServer() } : undefined}

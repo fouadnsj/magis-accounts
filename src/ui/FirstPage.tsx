@@ -2,7 +2,7 @@
 // in, with the sentence of hope; each house shows its own sentence (on the mouse, and beside its sign-in), as in the
 // MAGIS animation of July. Then: choose your house, your name and your password; or the administrator.
 // Then the person sees only the databases where that name has that password (their house's accounts, HR).
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { CENTRES, type CentreKey } from '../brand';
 import { getLang, m, tx, type Msg } from '../i18n';
 import { serverEnter, serverSignIn, type DbInfo, type Hello } from '../net';
@@ -42,13 +42,26 @@ function Said({ msg, className }: { msg: Msg; className?: string }) {
   );
 }
 
-/** The opening: the Jesuit sun, then the three houses one after the other, then the sentence of hope. */
-function Opening() {
+/**
+ * The opening: the Jesuit sun, then the badges one after the other, then the sentence of hope. The badges ARE the doors
+ * (Fouad, 21 November 2026: no scrolling to find them): the three houses and the Jesuit communities, each coming in with
+ * its own animation; a tap on one goes to its sign-in.
+ */
+function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: boolean }) {
+  const badge = (key: string, step: Step, style: CSSProperties, img: string, name: string, sub: ReactNode, label: string, i: number) => (
+    <button key={key} type="button" className="mg-badge" style={{ ...style, animationDelay: `${0.7 + i * 0.35}s` }} onClick={() => onPick(step)} aria-label={label} title={label}>
+      <span className="mg-door-mark"><span className="mg-hh-halo" /><img src={img} alt="" /></span>
+      <b>{name}</b>
+      <span className="mg-badge-sub">{sub}</span>
+    </button>
+  );
   return (
     <div className="mg-opening">
       <div className="mg-o-sun"><span className="mg-rays" /><img src="/brand/jesuits.png" alt="" /></div>
       <div className="mg-o-houses">
-        {HOUSES.map((k, i) => <img key={k} src={CENTRES[k].mark!} alt="" style={{ animationDelay: `${0.7 + i * 0.35}s` }} />)}
+        {HOUSES.map((k, i) => badge(k, k, houseVars(k), CENTRES[k].mark!, tx(CENTRES[k].name), `${t3('دخول', 'Sign in', 'Entrer')} ›`, `${tx(CENTRES[k].name)} · ${t3('دخول', 'Sign in', 'Entrer')}`, i))}
+        {jesuits && badge('jesuits', 'jesuits', { '--centre': '#B8891B', '--centre-deep': '#5B191D' } as CSSProperties, '/brand/jesuits.png', t3('اليسوعيون', 'Jesuits', 'Jésuites'),
+          <i title="لمجد الله الأعظم">Ad Majorem Dei Gloriam</i>, `${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`, HOUSES.length)}
       </div>
       <Said msg={HOPE} className="mg-o-hope" />
     </div>
@@ -81,7 +94,7 @@ type Step = CentreKey | 'admin' | 'jesuits';
 /** the Jesuits' door has its own address: …/jesuits */
 const atJesuits = () => { try { return location.pathname.replace(/\/+$/, '') === '/jesuits'; } catch { return false; } };
 
-export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunities, jesuits, server }: {
+export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunities, showJesuits, jesuits, server }: {
   hello: Hello;
   /** signed out after a while without activity */
   notice?: boolean;
@@ -92,6 +105,8 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   onDir: () => Promise<void>;
   /** the communities' side, as before (its own password, then its people) */
   onCommunities?: () => void;
+  /** there are communities on this server: the Jesuits' badge is shown with the houses */
+  showJesuits?: boolean;
   /** open on the Jesuits' door (after a Jesuit signs out) */
   jesuits?: boolean;
   /** the desktop app: the server it is connected to, and going to another one */
@@ -215,7 +230,7 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
     <div className="brand-page mg-page mg-home">
       <div className="brand-spine" />
       <div className="mg-hero">
-        <Opening />
+        <Opening onPick={setStep} jesuits={!!showJesuits} />
         <div className="mg-eyebrow">{t3('الرهبنة اليسوعية · مراكز ماجيس في سوريا', 'Society of Jesus · MAGIS centres in Syria', 'Compagnie de Jésus · Centres MAGIS en Syrie')}</div>
         <Charter />
       </div>
@@ -223,16 +238,6 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
         <div className="mg-invite">
           <b>{t3('أهلاً وسهلاً', 'Welcome', 'Bienvenue')}</b>
           <span>{t3('اختر بيتك، ثم ادخل باسمك وكلمة سرك.', 'Choose your house, then sign in with your name and your password.', 'Choisissez votre maison, puis entrez avec votre nom et votre mot de passe.')}</span>
-        </div>
-        <div className="mg-doors">
-          {HOUSES.map((k) => (
-            <button key={k} type="button" className="mg-door" style={houseVars(k)} onClick={() => setStep(k)} aria-label={`${tx(CENTRES[k].name)} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
-              <div className="mg-door-mark"><span className="mg-hh-halo" /><img src={CENTRES[k].mark!} alt="" /></div>
-              <b>{tx(CENTRES[k].name)}</b>
-              <Said msg={SENTENCE[k as keyof typeof SENTENCE]} className="mg-door-said" />
-              <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
-            </button>
-          ))}
         </div>
         {server && (
           <p className="muted small" style={{ textAlign: 'center' }}>
@@ -242,17 +247,8 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
         )}
       </main>
       <ValuesFoot />
-      {/* under the values, two doors like the centres' (Fouad, 15 November 2026): the Jesuit communities and the administrator */}
-      <div className={`mg-doors two ${onCommunities ? "" : "one"}`}>
-        {onCommunities && (
-          <button type="button" className="mg-door" style={{ '--centre': '#B8891B', '--centre-deep': '#5B191D' } as CSSProperties} onClick={() => setStep('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
-            <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/jesuits.png" alt="" /></div>
-            <b>{t3('اليسوعيون', 'Jesuits', 'Jésuites')}</b>
-            {/* the sentence in Latin only (Fouad, 15 November 2026) */}
-            <div className="mg-said mg-door-said"><p className="tr" dir="ltr"><i>Ad Majorem Dei Gloriam</i></p></div>
-            <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
-          </button>
-        )}
+      {/* the administrator's door stays under the values: the houses and the Jesuits are the badges at the top */}
+      <div className="mg-doors two one">
         <button type="button" className="mg-door" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d' } as CSSProperties} onClick={() => setStep('admin')} aria-label={t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}>
           <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/phone-192.png" alt="" className="round" /></div>
           <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>

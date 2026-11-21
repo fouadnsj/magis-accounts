@@ -685,8 +685,19 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-o-sun { position: relative; width: 120px; height: 96px; display: grid; place-items: center; animation: mg-rise 1s ease-out both; }
 .mg-o-sun img { position: relative; width: 104px; }
 .mg-o-sun .mg-rays { inset: -46px -30px; }
-.mg-o-houses { display: flex; gap: clamp(26px, 7vw, 64px); align-items: flex-end; margin-top: 8px; }
-.mg-o-houses img { height: clamp(64px, 11vw, 96px); animation: mg-house 1s cubic-bezier(.2, .8, .2, 1.15) both; }
+.mg-o-houses { display: flex; gap: clamp(8px, 2.2vw, 30px); align-items: flex-end; margin-top: 8px; }
+.mg-o-houses { flex-wrap: wrap; justify-content: center; }
+/* the badges are the doors: each comes in by itself, and lifts and glows when touched */
+.mg-badge { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 0; padding: 6px 8px; font: inherit; cursor: pointer; border-radius: 16px;
+  animation: mg-house 1s cubic-bezier(.2, .8, .2, 1.15) both; transition: transform .35s ease; }
+.mg-badge .mg-door-mark { width: clamp(78px, 11vw, 104px); height: clamp(78px, 11vw, 104px); }
+.mg-badge .mg-door-mark img { height: clamp(64px, 9.5vw, 92px); width: auto; max-width: 100%; }
+.mg-badge b { font-family: var(--serif); font-size: 19px; font-weight: 600; color: var(--ink); }
+.mg-badge-sub { font-size: 12.5px; color: var(--centre-deep); font-weight: 600; letter-spacing: .02em; }
+.mg-badge-sub i { font-weight: 400; color: #7a6a4a; }
+.mg-badge:hover, .mg-badge:focus-visible { transform: translateY(-5px); outline: none; }
+.mg-badge:hover .mg-door-mark img, .mg-badge:focus-visible .mg-door-mark img { transform: translateY(-3px) scale(1.1); }
+.mg-badge:hover .mg-hh-halo, .mg-badge:focus-visible .mg-hh-halo { opacity: 1; transform: scale(1.15); }
 .mg-o-hope { text-align: center; margin-top: 8px; animation: mg-in 1s 1.9s ease-out both; }
 .mg-o-hope .ar { font-size: clamp(24px, 3.6vw, 32px); }
 .mg-o-hope .tr { font-size: 17px; }
@@ -736,7 +747,7 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 @keyframes mg-halo { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
 @keyframes mg-glow { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: .75; } }
 @media (prefers-reduced-motion: reduce) {
-  .mg-o-sun, .mg-o-houses img, .mg-o-hope, .mg-door, .mg-others, .mg-home .mg-eyebrow, .mg-home .mg-quote,
+  .mg-o-sun, .mg-badge, .mg-o-hope, .mg-door, .mg-others, .mg-home .mg-eyebrow, .mg-home .mg-quote,
   .mg-hh-mark img, .mg-hh-mark .mg-hh-halo, .mg-househero .mg-eyebrow, .mg-hh-said, .mg-hh-hope { animation: none; }
   .mg-hh-mark .mg-hh-halo { opacity: 1; transform: none; }
 }
@@ -754,6 +765,12 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
   .mg-door b { font-size: 17px; }
   .mg-door-said .ar { font-size: 13px; }
   .mg-door-said .tr { display: none; }
+  .mg-o-houses { gap: 10px; }
+  .mg-badge { padding: 4px; }
+  .mg-badge .mg-door-mark { width: 64px; height: 64px; }
+  .mg-badge .mg-door-mark img { height: 52px; }
+  .mg-badge b { font-size: 15px; }
+  .mg-badge-sub { font-size: 11px; }
 }
 
 /* the charter's dream in Arabic, the translation small under it; the five values the same way (Fouad, 31 October 2026) */

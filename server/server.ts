@@ -914,7 +914,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       else if (found?.[1].ring) dbs = dbs.filter((d) => found[1].ring!.some((r) => r.db === d.slug));
       else if (directory.enforced && !isLocal(req)) dbs = [];
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, ring: found?.[1].ring?.map((r) => r.db) ?? null, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: false, ctyOpen: ctyOpen() });
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, ring: found?.[1].ring?.map((r) => r.db) ?? null, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: false, ctyOpen: ctyOpen(),
+        // only that there are communities (never which): the first page shows the Jesuits' door
+        hasCommunities: [...centres.values()].some((x) => !(config.inactive ?? []).includes(x.slug) && !config.copies?.[x.slug] && ctyKinds.get(x.slug) === true) });
     }
 
     // ---- the communities' password: give it (unlock), or set / change it

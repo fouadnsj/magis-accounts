@@ -47,6 +47,8 @@ export interface Hello {
   /** the communities' side has a password; and whether it was given in this browser */
   ctyGate?: boolean;
   ctyOpen?: boolean;
+  /** there are communities on this server (their names are never sent before sign-in) */
+  hasCommunities?: boolean;
 }
 
 /** Thrown with the server's bilingual message, so screens show it like any other refusal. */

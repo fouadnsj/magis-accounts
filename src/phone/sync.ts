@@ -2,6 +2,7 @@
 // took, and keeps the fresh pack (books, balance, lists) that comes back. With no connection nothing is lost: the rows
 // stay "waiting" and go the next time.
 import { allPhotos, allRows, kvSet, putPhoto, putRow, type Entry, type Msg, type Pack } from './store';
+import { invCounts, invPhotos } from './Count';
 
 export class Unlinked extends Error { constructor(public msg: Msg) { super(msg.en); } }
 export class Offline extends Error {}
@@ -73,6 +74,24 @@ export async function sync(key: string): Promise<{ pack: Pack; result: SyncResul
       throw e;
     }
   }
+  // the inventory: the counts and the photos of items made on the phone
+  let invSent = 0;
+  const counts = await invCounts();
+  for (const c of counts) {
+    if (c.sent) continue;
+    try { await call('/api/phone/inv-count', { key: c.key, ids: c.ids, placeId: c.placeId, date: c.date }, key); c.sent = true; invSent++; }
+    catch (e) { if (e instanceof Refused) { c.sent = true; continue; } throw e; }
+  }
+  if (invSent) await kvSet('inv-counts', counts.filter((c) => !c.sent || Date.now() - Date.parse(c.date) < 7 * 86400e3));
+  const pics = await invPhotos();
+  for (const p of pics) {
+    if (p.sent) continue;
+    try { await call('/api/phone/inv-photo', { key: p.key, itemId: p.itemId, mime: p.mime, base64: p.base64 }, key); p.sent = true; p.base64 = ''; invSent++; }
+    catch (e) { if (e instanceof Refused) { p.sent = true; p.base64 = ''; continue; } throw e; }
+  }
+  if (pics.some((p) => p.sent)) await kvSet('inv-photos', pics.filter((p) => !p.sent));
+  // the pack again, so that the counts just sent show on the phone
+  if (invSent && pack.inv) { pack = await call<Pack>('/api/phone/pack', {}, key); await kvSet('pack', pack); }
   return { pack, result: res };
 }
 

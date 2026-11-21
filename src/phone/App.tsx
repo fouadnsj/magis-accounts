@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { allPhotos, allRows, delPhoto, delRow, kvDel, kvGet, kvSet, lockKey, newId, openKey, putPhoto, putRow, wipe, type Entry, type Kind, type Link, type Msg, type Pack, type Photo } from './store';
 import { api, balance, check, Offline, openFull, Refused, sync, Unlinked } from './sync';
+import { Count, invCounts, invPhotos } from './Count';
 
 type Lang = 'ar' | 'en' | 'fr';
 let lang: Lang = ((): Lang => {
@@ -250,10 +251,12 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
   const [bookId, setBookId] = useState<number>(() => pack.books[0]?.id ?? 0);
   const [tab, setTab] = useState<'waiting' | 'fix' | 'sent'>('waiting');
   const [form, setForm] = useState<{ type: Kind; row?: Entry } | null>(null);
+  const [counting, setCounting] = useState(false);
+  const [invWaiting, setInvWaiting] = useState(0);
   const [menu, setMenu] = useState(false);
   const [net, setNet] = useState<Net>({ state: 'idle' });
   const running = useRef(false);
-  const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); }, []);
+  const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); setInvWaiting((await invCounts()).filter((c) => !c.sent).length + (await invPhotos()).filter((p) => !p.sent).length); }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (!pack.books.some((b) => b.id === bookId)) setBookId(pack.books[0]?.id ?? 0); }, [pack, bookId]);
 
@@ -296,6 +299,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
   };
   const daysLeft = Math.floor((Date.parse(pack.validUntil) - Date.now()) / 86_400_000);
 
+  if (counting && pack.inv) return <Count pack={pack} tr={t} onClose={async (saved) => { setCounting(false); await load(); if (saved) void doSync(true); }} />;
   if (form) return <RowForm pack={pack} type={form.type} row={form.row} bookId={bookId} photos={photos.filter((p) => p.trxId === form.row?.id)} onClose={async (saved) => { setForm(null); await load(); if (saved) { setTab('waiting'); void doSync(true); } }} />;
   return (
     <div className="ph-page">
@@ -343,6 +347,10 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
       )}
       {(pack.kind === 'community' || pack.headings.some((h) => h.types.includes('Exchange'))) && (
         <button className="ph-big exc" disabled={!pack.books.length} onClick={() => setForm({ type: 'Exchange' })}><span>⇄ {pack.kind === 'community' ? t('صرافة', 'Exchange', 'Change') : t('تصريف: دولار ← ليرة', 'Exchange: dollars → pounds', 'Change : dollars → livres')}</span></button>
+      )}
+
+      {pack.inv && (
+        <button className="ph-big trf" onClick={() => setCounting(true)}><span>📦 {t('عدّ الجرد', 'Count the inventory', "Compter l'inventaire")}{invWaiting ? ` · ${invWaiting} ${t('ينتظر', 'waiting', 'en attente')}` : ''}</span></button>
       )}
 
       {/* the full program while connected (Fouad, 14 November 2026); with no connection the phone stays as it is */}

@@ -1,12 +1,14 @@
 // The inventory (Fouad, 21 November 2026): what the centre owns, where it is, its state — kept by the finance, linked
 // to the purchases of the register. Four tabs: the items; the purchases still to register (the control); the count;
 // and the settings (categories, places, which budget lines are inventory purchases, labels, import and export).
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../state';
 import { Field, Modal, Select, Tabs, confirmBox, errText, fmtDate, fmtUsd, promptBox, t, toast, todayIso, type Option } from './kit';
 import { GuideLink } from '../guide/GuideView';
 import { pickFile, saveFile } from '../platform';
 import { inventoryWorkbook, readTable } from '../io/invFile';
+import { labelsPdf } from '../io/invLabels';
+import { shrinkImage } from '../io/shrink';
 import {
   CONDITIONS, inUse, itemTotal, pendingEntries, tableToImport,
   type InvCondition, type InvData, type InvImportRow, type InvItem, type InvOrigin,
@@ -96,6 +98,16 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
     } catch (e) { toast(errText(e), true); }
   };
 
+  const labels = async (list: InvItem[]) => {
+    const codes = list.filter(inUse).map((i) => i.code);
+    if (!codes.length) return toast(t('لا أغراض لطباعة رموزها', 'No items to print labels for'), true);
+    try {
+      await saveFile(`labels_${todayIso()}.pdf`, ['pdf'], await labelsPdf(codes, inv.prefix), t('احفظ ملصقات الجرد', 'Save the labels'));
+      toast(`${codes.length} ${t('ملصقاً', 'labels')} ✓`);
+    } catch (e) { toast(errText(e), true); }
+  };
+  const photoOf = new Set(inv.photos.map((p) => p.item_id));
+
   return (
     <>
       <div className="row" style={{ gap: 18, marginBottom: 10 }}>
@@ -115,6 +127,7 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
         </div>
         <span style={{ flex: 1 }} />
         <button className="btn" onClick={() => void exportXlsx()}>⬇ Excel</button>
+        <button className="btn" title={t('ملصقات QR للأغراض المعروضة', 'QR labels for the items shown')} onClick={() => void labels(rows)}>🏷 {t('ملصقات', 'Labels')} ({rows.filter(inUse).length})</button>
         {manage && <button className="btn primary" onClick={() => setOpen('new')}>＋ {t('غرض (هدية، قديم…)', 'Item (gift, old…)')}</button>}
       </div>
       <div className="tbl-wrap">
@@ -127,7 +140,7 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
             {rows.map((i) => (
               <tr key={i.id} className={`click ${inUse(i) ? '' : 'off'}`} onClick={() => setOpen(i)}>
                 <td><b>{i.code}</b></td>
-                <td>{i.name}{(i.brand || i.model) && <div className="muted small">{[i.brand, i.model].filter(Boolean).join(' ')}</div>}</td>
+                <td>{i.name}{photoOf.has(i.id) ? ' 📷' : ''}{(i.brand || i.model) && <div className="muted small">{[i.brand, i.model].filter(Boolean).join(' ')}</div>}</td>
                 <td className="small">{i.category_id ? catName.get(i.category_id)?.split(' · ')[0] : ''}</td>
                 <td className="small">{i.place_id ? placeName.get(i.place_id) : ''}</td>
                 <td className="n">{i.qty}</td>
@@ -219,6 +232,7 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
         {!item?.trx_id && <Field label={t('كيف قُدّرت القيمة؟', 'How was the value estimated?')}><input className="inp" disabled={ro} value={f.value_note} onChange={(e) => set('value_note', e.target.value)} /></Field>}
         <Field label={t('ملاحظة', 'Note')} className="span2"><input className="inp" disabled={ro} value={f.note} onChange={(e) => set('note', e.target.value)} /></Field>
       </div>
+      {item && <Photos item={item} inv={inv} manage={manage && inUse(item)} refresh={refresh} />}
       {history.length > 0 && (
         <details style={{ marginTop: 10 }}>
           <summary className="small">{t('السجل', 'History')} ({history.length})</summary>
@@ -232,10 +246,58 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
         {item && manage && inUse(item) && <button className="btn danger small" onClick={() => void out('lost')}>{t('مفقود', 'Lost')}</button>}
         {item && manage && !inUse(item) && <button className="btn" onClick={() => void run(() => s.api.call('inv.item.back', { id: item.id }))}>{t('أعده إلى الجرد', 'Put back in the list')}</button>}
         {item && manage && history.every((h) => h.kind === 'added') && <button className="btn danger small" onClick={() => void del()}>{t('حذف', 'Delete')}</button>}
+        {item && <button className="btn" onClick={async () => { try { await saveFile(`label_${item.code}.pdf`, ['pdf'], await labelsPdf([item.code], inv.prefix), t('احفظ الملصق', 'Save the label')); } catch (e) { toast(errText(e), true); } }}>🏷 {t('ملصق', 'Label')}</button>}
         <button className="btn" onClick={onClose}>{t('إغلاق', 'Close')}</button>
         {!ro && <button className="btn primary" disabled={busy} onClick={() => void save()}>{t('احفظ', 'Save')}</button>}
       </div>
     </Modal>
+  );
+}
+
+/** the photos of an item: small pictures, taken here or chosen; opened one at a time */
+function Photos({ item, inv, manage, refresh }: { item: InvItem; inv: InvData; manage: boolean; refresh: () => Promise<void> }) {
+  const { s } = useApp();
+  const mine = inv.photos.filter((p) => p.item_id === item.id);
+  const [pics, setPics] = useState<Record<string, string>>({});
+  const [big, setBig] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      for (const p of mine) {
+        if (pics[p.id]) continue;
+        try { const r = await s.api.call('inv.photo.get', { id: p.id }); if (live) setPics((x) => ({ ...x, [p.id]: `data:${r.mime};base64,${r.base64}` })); } catch { /* a missing file */ }
+      }
+    })();
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mine.map((p) => p.id).join(',')]);
+  const add = async (f: File | undefined) => {
+    if (!f) return;
+    setBusy(true);
+    try { const x = await shrinkImage(f); await s.api.call('inv.photo.add', { itemId: item.id, ...x }); await refresh(); } catch (e) { toast(errText(e), true); } finally { setBusy(false); if (input.current) input.current.value = ''; }
+  };
+  if (!mine.length && !manage) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="small muted">{t('الصور', 'Photos')} ({mine.length})</div>
+      <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+        {mine.map((p) => (
+          <div key={p.id} style={{ position: 'relative' }}>
+            {pics[p.id] ? <img src={pics[p.id]} alt="" style={{ height: 72, borderRadius: 6, cursor: 'zoom-in' }} onClick={() => setBig(pics[p.id])} /> : <span className="muted">…</span>}
+            {manage && <button className="btn ghost small" style={{ position: 'absolute', top: 0, insetInlineEnd: 0, background: '#fffc' }} onClick={async () => { if (await confirmBox(t('تحذف الصورة؟', 'Remove the photo?'), true)) { try { await s.api.call('inv.photo.delete', { id: p.id }); await refresh(); } catch (e) { toast(errText(e), true); } } }}>✕</button>}
+          </div>
+        ))}
+        {manage && (
+          <>
+            <input ref={input} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => void add(e.target.files?.[0])} />
+            <button className="btn small" disabled={busy} onClick={() => input.current?.click()}>📷 {busy ? '…' : t('أضف صورة', 'Add a photo')}</button>
+          </>
+        )}
+      </div>
+      {big && <div className="overlay" onClick={() => setBig(null)} style={{ zIndex: 60 }}><img src={big} alt="" style={{ maxWidth: '92vw', maxHeight: '88vh', margin: 'auto', borderRadius: 8 }} /></div>}
+    </div>
   );
 }
 

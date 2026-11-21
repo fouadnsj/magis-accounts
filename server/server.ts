@@ -47,7 +47,8 @@ import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
-import { mayPhone, pairPhone, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
+import { mayPhone, pairPhone, phoneInvCount, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
+import { inventorySummary } from '../src/inventory/ops';
 import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
 
 export const SERVER_VERSION = '0.11.2';
@@ -1510,6 +1511,16 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // ---- What is waiting (Fouad, 2026-11-12): the first page of the Coordinator — what needs the administrator, gathered
     // from every centre, the Province account and the grants. Reads only; each group says where to go (area).
+    // ---- Inventory across the centres (Fouad, 2026-11-21): totals only, read only
+    if (url === '/api/coordinator/inventory' && method === 'GET') {
+      if (!allCentresAllowed()) throw new HttpError(403, { ar: 'للمنسّق فقط', en: 'For the Coordinator only' });
+      const list: (Awaited<ReturnType<typeof inventorySummary>> & { slug: string; organisation: string; centre: string | null })[] = [];
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || config.copies?.[x.slug] || ((await getMeta(x.handle.db, 'kind')) ?? 'centre') !== 'centre' || (await setupNeeded(x))) continue;
+        list.push({ slug: x.slug, organisation: (await getMeta(x.handle.db, 'organisation')) ?? x.slug, centre: await getMeta(x.handle.db, 'centre'), ...(await inventorySummary(x.handle.db)) });
+      }
+      return send(res, 200, { centres: list });
+    }
     if (url === '/api/coordinator/waiting' && method === 'GET') {
       if (!allCentresAllowed()) throw new HttpError(403, { ar: 'للمنسّق فقط', en: 'For the Coordinator only' });
       const now = Date.now();
@@ -2507,7 +2518,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
     if (url === '/api/phone/where' && method === 'GET') return send(res, 200, phoneWhere());
-    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session') {
+    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session' || url === '/api/phone/inv-count' || url === '/api/phone/inv-photo') {
       if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
       // the key: "database:phone:secret"
       const [slug, pid, key] = (/^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '').split(':');
@@ -2537,6 +2548,18 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         if (results.some((r) => r.ok && !r.already)) pc.version++;
         log(`phone ${pc.slug}: ${owner.name} (${phone.name}) sent ${results.length} rows, ${results.filter((r) => !r.ok).length} refused`);
         return send(res, 200, { results, pack: await phonePack(pc.handle.db, owner, phone) });
+      }
+      if (url === '/api/phone/inv-count') {
+        const body = (await readBody(req)) as { key?: string; ids?: number[]; placeId?: number | null; date?: string };
+        const r = await phoneInvCount(ctx, { key: String(body.key ?? ''), ids: Array.isArray(body.ids) ? body.ids.map(Number) : [], placeId: body.placeId ?? null, date: String(body.date ?? '') });
+        if (!r.already) { pc.version++; log(`phone ${pc.slug}: ${owner.name} (${phone.name}) counted ${r.counted} items`); }
+        return send(res, 200, r);
+      }
+      if (url === '/api/phone/inv-photo') {
+        const body = (await readBody(req, 24 * 1024 * 1024)) as { key?: string; itemId?: number; base64?: string; mime?: string };
+        const r = await phoneInvPhoto(ctx, { key: String(body.key ?? ''), itemId: Number(body.itemId), base64: String(body.base64 ?? ''), mime: String(body.mime ?? '') });
+        if (!r.already) pc.version++;
+        return send(res, 200, r);
       }
       const body = (await readBody(req, 24 * 1024 * 1024)) as { trxId?: string; key?: string; base64?: string; mime?: string };
       const r = await phonePhoto(ctx, { trxId: String(body.trxId ?? ''), key: String(body.key ?? ''), base64: String(body.base64 ?? ''), mime: String(body.mime ?? '') });

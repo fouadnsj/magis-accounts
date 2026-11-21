@@ -1890,4 +1890,23 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"inventory.view"]')
  WHERE perms LIKE '%"register.view"%' AND perms NOT LIKE '%"inventory.view"%';
 `,
   },
+  {
+    n: 56,
+    name: 'inventory: photos of the items',
+    sql: `
+-- (Fouad, 2026-11-21) A photo of an item, kept as a file in the database's attachments folder (inventory/<label>-N.jpg),
+-- like the scans of the bills: it is not in the copies of the database. Removed = marked, the file stays.
+CREATE TABLE inv_photo (
+  id         TEXT PRIMARY KEY,
+  item_id    INTEGER NOT NULL REFERENCES inv_item(id),
+  file       TEXT NOT NULL,
+  mime       TEXT NOT NULL,
+  size       INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT,
+  deleted_at TEXT
+);
+CREATE INDEX inv_photo_item ON inv_photo(item_id);
+`,
+  },
 ];

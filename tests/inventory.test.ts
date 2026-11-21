@@ -11,9 +11,13 @@ import type { Db } from '../src/db/db';
 import type { Lists } from '../src/domain/types';
 import { nextCodes, parseCsv, pendingEntries, tableToImport, type InvData } from '../src/inventory/inv';
 import { nodeDb } from './nodeDb';
+import { inventoryPack, inventorySummary } from '../src/inventory/ops';
+import { labelsPdf, qrMatrix } from '../src/io/invLabels';
+import { phoneInvCount, phoneInvPhoto, mayPhone } from '../server/phone';
 
 const WORKBOOK = decodeURIComponent(new URL('../../template/Master Sup.xlsx', import.meta.url).pathname);
-const files = {} as OpCtx['files'];
+const store = new Map<string, Uint8Array>();
+const files = { docWrite: async (r: string, b: Uint8Array) => { store.set(r, b); }, docRead: async (r: string) => store.get(r)!, docExists: async (r: string) => store.has(r) } as unknown as OpCtx['files'];
 let db: Db;
 let sup: OpCtx;
 let keeper: OpCtx;
@@ -125,5 +129,52 @@ describe('the inventory', () => {
     expect(d.places.map((x) => x.name)).toContain('Office');
     // the next label goes on after the highest of its own prefix
     expect(nextCodes(['JAR-0100', 'INV-0003'], 'JAR', 2)).toEqual(['JAR-0101', 'JAR-0102']);
+  });
+
+  it('photos are kept as files, listed, read back and removed (the file stays)', async () => {
+    const id = (await get()).items[0].id;
+    const png = btoa(String.fromCharCode(137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3));
+    const { id: pid } = (await runOp(sup, 'inv.photo.add', { itemId: id, base64: png, mime: 'image/png' })) as { id: string };
+    expect([...store.keys()].some((k) => /^inventory\/INV-0001-1\.png$/.test(k))).toBe(true);
+    expect((await get()).photos).toMatchObject([{ id: pid, item_id: id }]);
+    expect(((await runOp(sup, 'inv.photo.get', { id: pid })) as { mime: string }).mime).toBe('image/png');
+    await expect(runOp(sup, 'inv.photo.add', { itemId: id, base64: png, mime: 'application/pdf' })).rejects.toThrow(/JPEG/);
+    await expect(runOp(keeper, 'inv.photo.add', { itemId: id, base64: png, mime: 'image/png' })).rejects.toThrow();
+    await runOp(sup, 'inv.photo.delete', { id: pid });
+    expect((await get()).photos).toHaveLength(0);
+    expect(store.size).toBe(1);
+  });
+
+  it('the phone counts: one count never counts twice, a photo never comes twice, the pack holds the items', async () => {
+    const pack = await inventoryPack(db);
+    expect(pack.items.length).toBeGreaterThan(0);
+    const ids = pack.items.slice(0, 2).map((i) => i.id);
+    const a = await phoneInvCount(sup, { key: 'count-0001-abcdefgh', ids, placeId: null, date: '2026-11-21' });
+    expect(a).toMatchObject({ ok: true, counted: 2 });
+    expect(await phoneInvCount(sup, { key: 'count-0001-abcdefgh', ids, placeId: null, date: '2026-11-21' })).toMatchObject({ already: true });
+    expect((await get()).items.find((i) => i.id === ids[0])!.counted_on).toBe('2026-11-21');
+    const png = btoa('xxxx');
+    expect(await phoneInvPhoto(sup, { key: 'photo-0001-abcdefgh', itemId: ids[0], base64: png, mime: 'image/jpeg' })).toMatchObject({ ok: true });
+    expect(await phoneInvPhoto(sup, { key: 'photo-0001-abcdefgh', itemId: ids[0], base64: png, mime: 'image/jpeg' })).toMatchObject({ already: true });
+    await expect(phoneInvCount(keeper, { key: 'count-0002-abcdefgh', ids, placeId: null, date: '2026-11-21' })).rejects.toThrow();
+    expect(mayPhone(sup.profile)).toBe(true);
+  });
+
+  it('the Coordinator sees totals: items, value, purchases not registered, no serial, not counted', async () => {
+    const x = await inventorySummary(db);
+    expect(x.items).toBeGreaterThan(0);
+    expect(x.toRegister).toBe(1); // the table
+    expect(x.lines).toBe(1);
+    expect(x.noSerial).toBeGreaterThanOrEqual(0);
+    expect(x.valueUsd).toBeGreaterThan(0);
+  });
+
+  it('labels: a QR that holds the label, on a PDF of A4 pages', async () => {
+    const m1 = qrMatrix('JAR-0001');
+    expect(m1.length).toBeGreaterThanOrEqual(21);
+    expect(m1.every((r) => r.length === m1.length)).toBe(true);
+    expect(m1[0].slice(0, 7).every(Boolean)).toBe(true); // the finder pattern
+    const pdf = await labelsPdf(Array.from({ length: 30 }, (_, i) => `JAR-${String(i + 1).padStart(4, '0')}`), 'MAGIS');
+    expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe('%PDF-');
   });
 });

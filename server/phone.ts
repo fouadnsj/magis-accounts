@@ -12,6 +12,7 @@ import { type Db, one } from '../src/db/db';
 import { auditStmt, blankTrx, closedMonths, getMeta, loadLists, loadTrx, UserError } from '../src/db/repo';
 import { has, listProfiles, loadProfile, type Profile } from '../src/auth';
 import { runOp, type OpCtx } from '../src/ops';
+import { inventoryPack } from '../src/inventory/ops';
 import { holders } from '../src/domain/reports';
 import { rateOn } from '../src/domain/compute';
 import { m, type Msg } from '../src/i18n';
@@ -30,7 +31,7 @@ export interface PhoneRow { id: string; profile_id: number; name: string; key_ha
 export const validUntil = (p: Pick<PhoneRow, 'created_at' | 'last_sync'>) => new Date(Date.parse(p.last_sync ?? p.created_at) + PHONE_DAYS * DAY).toISOString();
 
 /** may this person record from a phone at all? (somebody who writes in a book) */
-export const mayPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0);
+export const mayPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0) || has(p, 'inventory.manage');
 
 /** Pairs a phone for the person signed in on it. The key is given once, here. */
 export async function pairPhone(db: Db, profile: Profile, name: string): Promise<{ id: string; key: string }> {
@@ -85,6 +86,8 @@ export interface PhonePack {
   /** a Jesuit community (Fouad, 13 November 2026): three currencies, any exchange, no heading for an exchange */
   kind?: 'community';
   curs?: { code: string; label: string }[];
+  /** the inventory, for the one who keeps it: the places and the items to count (21 November 2026) */
+  inv?: { places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
 }
 
 /** what a phone records: expenses, income and (Fouad, 2026-11-13) exchanges; transfers stay on the computer */
@@ -132,6 +135,7 @@ export async function phonePack(db: Db, profile: Profile, phone: PhoneRow): Prom
     fiscalStart: lists.settings.fiscal_start,
     rate: lists.settings.usd_rate,
     tolerance: lists.settings.exchange_tolerance,
+    ...(has(profile, 'inventory.manage') ? { inv: await inventoryPack(db) } : {}),
   };
 }
 
@@ -212,6 +216,26 @@ export async function phonePhoto(ctx: OpCtx, a: { trxId: string; key: string; ba
   const made = (await runOp(ctx, cty ? 'cty.doc.add' : 'doc.add', cty
     ? { entryId: String(a.trxId), base64: String(a.base64 ?? ''), mime: String(a.mime ?? '') }
     : { trxId: String(a.trxId), base64: String(a.base64 ?? ''), mime: String(a.mime ?? '') })) as { id: string };
+  await ctx.db.batch([{ sql: 'INSERT INTO phone_photo (key, attachment_id, at) VALUES (?,?,?)', params: [key, made.id, now()] }]);
+  return { ok: true };
+}
+
+/** A count made on the phone: these items were seen in this place on this day. `key` is its own number: it never counts twice. */
+export async function phoneInvCount(ctx: OpCtx, a: { key: string; ids: number[]; placeId: number | null; date: string }): Promise<{ ok: true; counted?: number; already?: boolean }> {
+  const key = String(a.key ?? '');
+  if (!ID.test(key)) throw new UserError(m('عدّ بلا رقم', 'A count without its number', 'Un comptage sans son numéro'));
+  if (await one(ctx.db, 'SELECT 1 AS x FROM phone_photo WHERE key = ?', [key])) return { ok: true, already: true };
+  const r = (await runOp(ctx, 'inv.count', { ids: (Array.isArray(a.ids) ? a.ids : []).slice(0, 5000), placeId: a.placeId ?? null, date: String(a.date ?? '') })) as { counted: number };
+  await ctx.db.batch([{ sql: 'INSERT INTO phone_photo (key, attachment_id, at) VALUES (?,?,?)', params: [key, 'inv-count', now()] }]);
+  return { ok: true, counted: r.counted };
+}
+
+/** A photo of an item taken on the phone. */
+export async function phoneInvPhoto(ctx: OpCtx, a: { key: string; itemId: number; base64: string; mime: string }): Promise<{ ok: true; already?: boolean }> {
+  const key = String(a.key ?? '');
+  if (!ID.test(key)) throw new UserError(m('صورة بلا رقم', 'A photo without its number', 'Une photo sans son numéro'));
+  if (await one(ctx.db, 'SELECT 1 AS x FROM phone_photo WHERE key = ?', [key])) return { ok: true, already: true };
+  const made = (await runOp(ctx, 'inv.photo.add', { itemId: Number(a.itemId), base64: String(a.base64 ?? ''), mime: String(a.mime ?? '') })) as { id: string };
   await ctx.db.batch([{ sql: 'INSERT INTO phone_photo (key, attachment_id, at) VALUES (?,?,?)', params: [key, made.id, now()] }]);
   return { ok: true };
 }

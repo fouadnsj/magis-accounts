@@ -42,6 +42,7 @@ export interface InvItem {
 }
 
 export interface InvMove { id: number; item_id: number; on_date: string; kind: string; place_id: number | null; holder: string | null; note: string | null; who: string | null; at: string }
+export interface InvPhoto { id: string; item_id: number; created_at: string }
 export interface InvSkip { trx_id: string; reason: string | null; who: string | null; at: string }
 
 /** What `inv.get` gives: everything the inventory screens need. */
@@ -52,6 +53,8 @@ export interface InvData {
   moves: InvMove[];
   sources: InvSource[];
   skips: InvSkip[];
+  /** the photos (their bytes come by `inv.photo.get`) */
+  photos: InvPhoto[];
   /** the label's beginning (JAR → JAR-0001) */
   prefix: string;
 }

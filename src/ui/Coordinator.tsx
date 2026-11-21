@@ -17,9 +17,10 @@ import { Modal, Tabs } from './kit';
 import { MainListPanel, takeMainListWish } from './MainListPanel';
 import { ProvinceBook } from './ProvinceBook';
 import { ProvinceGrants } from './ProvinceGrants';
+import { CoordinatorInventory } from './CoordinatorInventory';
 
 const t3 = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
-type Sec = 'waiting' | 'dbs' | 'grants' | 'province' | 'people' | 'lists';
+type Sec = 'waiting' | 'dbs' | 'grants' | 'province' | 'people' | 'lists' | 'inventory';
 
 export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut, onCommunities, signedIn, onBackIn }: {
   dbs: DbInfo[];
@@ -76,6 +77,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
         { value: 'grants', label: t3('المنح', 'Grants', 'Subventions') },
         { value: 'province', label: t3('حساب الإقليم', 'Province account', 'Compte de la Province') },
         { value: 'lists', label: t3('قوائم الموازنة', 'Budget lists', 'Listes du budget') },
+        { value: 'inventory', label: t3('الجرد', 'Inventory', 'Inventaire') },
         { value: 'people', label: t3('الأشخاص والصلاحيات', 'People & access', 'Personnes et accès') },
       ]} />
       {sec === 'waiting' && <div style={{ marginTop: 12 }}><CoordinatorWaiting data={waiting} onGo={(a: Area) => setSec(a)} onRefresh={() => void loadWaiting()} /></div>}
@@ -103,6 +105,7 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
       {sec === 'grants' && <div style={{ marginTop: 12 }}><ProvinceGrants /></div>}
       {sec === 'province' && <div style={{ marginTop: 12 }}><ProvinceBook /></div>}
       {sec === 'lists' && <div style={{ marginTop: 12 }}><MainListPanel dbs={centres.filter((d) => !d.kind || d.kind === 'centre')} onReload={onChanged} /></div>}
+      {sec === 'inventory' && <div style={{ marginTop: 12 }}><CoordinatorInventory /></div>}
       {sec === 'people' && <div style={{ marginTop: 12 }}><DirAdmin inline onClose={() => undefined} onChanged={onChanged} /></div>}
       {hrPick && (
         <Modal title={t3('الموارد البشرية · اختر قاعدة', 'HR · choose a database', 'RH · choisissez une base')} onClose={() => setHrPick(false)}>

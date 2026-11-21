@@ -7,7 +7,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
   CONDITIONS, nextCodes, ORIGINS, prefixFor,
-  type InvCategory, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPlace, type InvSkip, type InvSource,
+  type InvCategory, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
 } from './inv';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', "Non autorisé pour cet utilisateur"));
@@ -31,6 +31,7 @@ async function load(c: OpCtx): Promise<InvData> {
     moves: await c.db.query<InvMove>('SELECT * FROM inv_move ORDER BY id'),
     sources: await c.db.query<InvSource>('SELECT kind, ref FROM inv_source'),
     skips: await c.db.query<InvSkip>('SELECT * FROM inv_skip'),
+    photos: await c.db.query<InvPhoto>('SELECT id, item_id, created_at FROM inv_photo WHERE deleted_at IS NULL ORDER BY created_at'),
     prefix: await prefixOf(c),
   };
 }
@@ -321,6 +322,50 @@ export const INV_OPS = {
     },
   },
 
+  /** a photo of an item: a picture kept as a file beside the bills' scans (the screen makes it smaller first) */
+  'inv.photo.add': {
+    check: manage,
+    run: async (c: OpCtx, a: { itemId: number; base64: string; mime: string }) => {
+      const x = await itemOf(c, Number(a.itemId));
+      const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as Record<string, string>)[a.mime];
+      if (!ext) throw new UserError(m('الصورة: JPEG أو PNG أو WebP', 'The photo must be JPEG, PNG or WebP', 'La photo doit être JPEG, PNG ou WebP'));
+      const bin = atob(String(a.base64 ?? ''));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (!bytes.length || bytes.length > 8 * 1024 * 1024) throw new UserError(m('الصورة أكبر من 8 م.ب', 'The photo is larger than 8 MB', 'La photo dépasse 8 Mo'));
+      const base = x.code.replace(/[^\w.-]/g, '_');
+      let rel = '';
+      for (let n = 1; ; n++) { rel = `inventory/${base}-${n}.${ext}`; if (!(await c.files.docExists(rel))) break; }
+      await c.files.docWrite(rel, bytes);
+      const id = crypto.randomUUID();
+      await c.db.batch([
+        { sql: 'INSERT INTO inv_photo (id, item_id, file, mime, size, created_at, created_by) VALUES (?,?,?,?,?,?,?)', params: [id, x.id, rel, a.mime, bytes.length, nowIso(), c.who] },
+        auditStmt(c.who, 'photo', 'inv_item', String(x.id), null, { file: rel, size: bytes.length }),
+      ]);
+      return { id };
+    },
+  },
+  'inv.photo.get': {
+    check: view,
+    run: async (c: OpCtx, a: { id: string }) => {
+      const p = await one<{ file: string; mime: string }>(c.db, 'SELECT file, mime FROM inv_photo WHERE id = ? AND deleted_at IS NULL', [a.id]);
+      if (!p) throw new UserError(m('الصورة غير موجودة', 'Photo not found', 'Photo introuvable'));
+      const bytes = await c.files.docRead(p.file);
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { mime: p.mime, base64: btoa(s) };
+    },
+  },
+  'inv.photo.delete': {
+    check: manage,
+    run: async (c: OpCtx, a: { id: string }) => {
+      const p = await one<{ item_id: number; file: string }>(c.db, 'SELECT item_id, file FROM inv_photo WHERE id = ? AND deleted_at IS NULL', [a.id]);
+      if (!p) return { ok: true };
+      await c.db.batch([{ sql: 'UPDATE inv_photo SET deleted_at = ? WHERE id = ?', params: [nowIso(), a.id] }, auditStmt(c.who, 'unphoto', 'inv_item', String(p.item_id), { file: p.file }, null)]);
+      return { ok: true };
+    },
+  },
+
   /** brings in a table (a Snipe-IT export, an Excel list): new categories and places are made; a label already used is skipped */
   'inv.import': {
     check: manage,
@@ -386,7 +431,7 @@ export const INV_OPS = {
   },
 } as const;
 
-export const INV_READ_ONLY = ['inv.get'];
+export const INV_READ_ONLY = ['inv.get', 'inv.photo.get'];
 
 /** what the main data call carries (for those who see the inventory) */
 export async function invLite(c: OpCtx) {
@@ -394,4 +439,35 @@ export async function invLite(c: OpCtx) {
   const sources = await c.db.query<InvSource>('SELECT kind, ref FROM inv_source');
   const done = (await c.db.query<{ trx_id: string }>('SELECT trx_id FROM inv_item WHERE trx_id IS NOT NULL UNION SELECT trx_id FROM inv_skip')).map((x) => x.trx_id);
   return { sources, done };
+}
+
+/** What one centre's inventory comes to, for the Coordinator (reads only: never the items themselves). */
+export async function inventorySummary(db: OpCtx['db']) {
+  const q = async <T,>(sql: string) => (await one<T>(db, sql))!;
+  const live = await q<{ n: number; units: number; value: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(qty), 0) AS units, COALESCE(SUM(qty * COALESCE(value_usd, 0)), 0) AS value FROM inv_item WHERE status = 'in_use'");
+  const attention = await q<{ n: number }>("SELECT COUNT(*) AS n FROM inv_item WHERE status = 'in_use' AND condition <> 'good'");
+  const noSerial = await q<{ n: number }>("SELECT COUNT(*) AS n FROM inv_item WHERE status = 'in_use' AND (serial IS NULL OR serial = '') AND category_id IN (SELECT id FROM inv_category WHERE serial = 1)");
+  const uncounted = await q<{ n: number }>("SELECT COUNT(*) AS n FROM inv_item WHERE status = 'in_use' AND (counted_on IS NULL OR counted_on < date('now', '-1 year'))");
+  const last = await q<{ d: string | null }>('SELECT MAX(counted_on) AS d FROM inv_item');
+  const lines = await q<{ n: number }>('SELECT COUNT(*) AS n FROM inv_source');
+  // the purchases on inventory lines with no item and not "not an item" (private books are not looked into)
+  const toRegister = await q<{ n: number; usd: number }>(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(t.exp_usd), 0) AS usd FROM trx t LEFT JOIN book b ON b.id = t.book_id
+      WHERE t.type = 'Exp' AND (t.exp_syp > 0 OR t.exp_usd > 0) AND COALESCE(b.private, 0) = 0
+        AND t.id NOT IN (SELECT trx_id FROM inv_item WHERE trx_id IS NOT NULL) AND t.id NOT IN (SELECT trx_id FROM inv_skip)
+        AND (t.line_id IN (SELECT ref FROM inv_source WHERE kind = 'line') OR t.heading_id IN (SELECT ref FROM inv_source WHERE kind = 'heading')
+             OR t.line_id IN (SELECT id FROM budget_line WHERE heading_id IN (SELECT ref FROM inv_source WHERE kind = 'heading')))`);
+  return {
+    items: live.n, units: live.units, valueUsd: Math.round(live.value * 100) / 100, attention: attention.n, noSerial: noSerial.n, uncounted: uncounted.n,
+    lastCount: last.d, lines: lines.n, toRegister: toRegister.n,
+  };
+}
+
+/** What a keeper's phone takes to count with no connection: the places and the items in use. */
+export async function inventoryPack(db: OpCtx['db']) {
+  return {
+    places: await db.query<{ id: number; name: string }>('SELECT id, name FROM inv_place WHERE active = 1 ORDER BY sort, name'),
+    items: await db.query<{ id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }>(
+      "SELECT id, code, name, place_id, qty, serial, counted_on FROM inv_item WHERE status = 'in_use' ORDER BY code"),
+  };
 }

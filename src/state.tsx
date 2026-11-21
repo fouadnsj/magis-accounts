@@ -10,6 +10,7 @@ import type { Computed, Lists, Trx } from './domain/types';
 import { has, type Profile } from './auth';
 import type { Perm } from './perms';
 import type { TransferInfo } from './domain/transfers';
+import type { InvLite } from './inventory/inv';
 import type { Api, AttachmentRow, BookMonth, HolderReceipt, Install, OfficeTransfer } from './ops';
 
 export type { HolderReceipt, Install } from './ops';
@@ -61,6 +62,8 @@ export interface Data {
   officeTransfers: Record<string, OfficeTransfer[]>;
   listsVersion: string | null;
   attachments: AttachmentRow[];
+  /** the inventory's lines and the purchases already listed (null: this person does not see the inventory) */
+  inv: InvLite | null;
 }
 
 interface Ctx {
@@ -114,6 +117,7 @@ async function loadData(s: Session, background = false): Promise<Data> {
     officeTransfers: p.officeTransfers,
     listsVersion: p.listsVersion,
     attachments: p.attachments ?? [],
+    inv: p.inv ?? null,
   };
 }
 

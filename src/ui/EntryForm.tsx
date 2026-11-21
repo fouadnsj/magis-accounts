@@ -10,6 +10,7 @@ import { catIcon } from './catIcons';
 import { blankTrx } from '../db/repo';
 import { validateTrx } from '../domain/validate';
 import { rateOn } from '../domain/compute';
+import { isSourceLine } from '../inventory/inv';
 import type { Trx, TrxType } from '../domain/types';
 import { TYPE_LABEL, tx, type Msg } from '../i18n';
 import { CopyMenu } from './CopyMenu';
@@ -519,6 +520,9 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
               <Field label={t('خط الموازنة', 'Budget line')} className="span2">
                 <Select value={f.lineId} options={lineOpts} onChange={(v) => set('lineId', v)} disabled={f.headingId == null} />
               </Field>
+              {f.type === 'Exp' && d.inv && isSourceLine(d.inv.sources, L, f.lineId, f.headingId) && (
+                <div className="alert info span2 small" style={{ margin: 0 }}>{t('📦 هذا شراء للجرد: بعد الحفظ سجّله في «الجرد ← مشتريات تُسجَّل» (اسم، مكان، رقم تسلسلي).', '📦 This is an inventory purchase: after saving, register it in "Inventory → To register" (name, place, serial number).')}</div>
+              )}
             </>
           )}
 

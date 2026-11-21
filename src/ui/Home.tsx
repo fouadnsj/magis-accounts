@@ -10,6 +10,7 @@ import { holderBalance } from './Cash';
 import { needsApproval } from '../ops';
 import { PersonIcon } from './icons';
 import { rateOn } from '../domain/compute';
+import { pendingEntries } from '../inventory/inv';
 import { Envelopes } from './Envelopes';
 import { GuideLink } from '../guide/GuideView';
 
@@ -35,6 +36,7 @@ export function Home() {
   const syp = useMemo(() => holders(d.rows, d.shownBooks, 'SYP'), [d]);
   const usd = useMemo(() => holders(d.rows, d.shownBooks, 'USD'), [d]);
   const toReview = d.rows.filter((r) => r.review).length;
+  const toInventory = can('inventory.manage') ? pendingEntries(d.rows, d.lists, d.inv).length : 0;
   const noBook = syp[syp.length - 1].shouldHold !== 0 || usd[usd.length - 1].shouldHold !== 0;
   const last = d.rows.reduce<string | null>((m, r) => (r.date && (!m || r.date > m) ? r.date : m), null);
   const unsent = fileHolder ? d.rows.filter((r) => !r.sent_at).length : 0;
@@ -137,6 +139,12 @@ export function Home() {
         </div>
       )}
 
+      {toInventory > 0 && (
+        <div className="alert warn row" style={{ justifyContent: 'space-between' }}>
+          <span>{t(`${toInventory} مشتريات على بنود الأثاث أو المعدات لم تُسجَّل في الجرد`, `${toInventory} purchases on furniture or equipment lines are not in the inventory yet`)}</span>
+          <button className="btn small" onClick={() => nav.go('inventory')}>{t('الجرد', 'Inventory')}</button>
+        </div>
+      )}
       {toReview > 0 && (
         <div className="alert warn row" style={{ justifyContent: 'space-between' }}>
           <span>{t(`${toReview} سطراً بحاجة إلى مراجعة`, `${toReview} rows need review`)}</span>

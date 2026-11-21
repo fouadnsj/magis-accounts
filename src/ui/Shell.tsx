@@ -11,6 +11,8 @@ import { Cash } from './Cash';
 import { Reports } from './Reports';
 import { BudgetPage } from './Budget';
 import { Grants } from './Grants';
+import { Inventory } from './Inventory';
+import { pendingEntries } from '../inventory/inv';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
@@ -35,7 +37,7 @@ function useNarrow() {
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
 
-export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'lists' | 'files' | 'admin' | 'guide';
+export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'inventory' | 'lists' | 'files' | 'admin' | 'guide';
 
 interface Nav {
   go: (p: Page, opts?: { review?: boolean; book?: number }) => void;
@@ -74,6 +76,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
     databases: onDatabases,
   };
   const toReview = d.rows.filter((r) => r.review).length;
+  const toInventory = can('inventory.view') ? pendingEntries(d.rows, d.lists, d.inv).length : 0;
 
   const item = (p: Page, label: React.ReactNode, extra?: React.ReactNode) => (
     <button className={page === p ? 'on' : ''} onClick={() => nav.go(p)}>
@@ -125,9 +128,10 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
           {REPORT_PERMS.some(can) && item('reports', t('التقارير', 'Reports'))}
           {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
           {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
+          {can('inventory.view') && item('inventory', t('الجرد', 'Inventory'), toInventory ? <span className="badge">{toInventory}</span> : null)}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
           {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
-          {(can('lists.manage') || can('lists.donors') || can('budget.view')) && item('guide', <><GuideSun light /> {t('الدليل', 'Guide')}</>)}
+          {(can('lists.manage') || can('lists.donors') || can('budget.view') || can('inventory.view')) && item('guide', <><GuideSun light /> {t('الدليل', 'Guide')}</>)}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
           <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
@@ -144,6 +148,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
           {page === 'reports' && <Reports />}
           {page === 'budget' && can('budget.view') && <BudgetPage />}
           {page === 'grants' && can('lists.donors') && <Grants />}
+          {page === 'inventory' && can('inventory.view') && <Inventory />}
           {page === 'lists' && <ListsPage />}
           {page === 'files' && <Files />}
           {page === 'admin' && <Admin />}

@@ -50,6 +50,14 @@ export const PERM_GROUPS = [
     ],
   },
   {
+    key: 'inventory',
+    label: m('الجرد', 'Inventory'),
+    perms: [
+      { key: 'inventory.view', label: m('يرى الجرد: الأغراض وأماكنها وحالتها', 'Sees the inventory: the items, where they are, their state') },
+      { key: 'inventory.manage', label: m('يدير الجرد: يسجّل المشتريات والهدايا، ينقل، يعدّ، يخرج غرضاً', 'Keeps the inventory: lists the purchases and gifts, moves, counts, takes an item out') },
+    ],
+  },
+  {
     key: 'admin',
     label: m('الإدارة', 'Admin'),
     perms: [
@@ -147,6 +155,7 @@ export const HR_ADMIN_PERMS = ['users.manage', 'data.backup', 'data.restore', 'd
  */
 export function withImplied(perms: Perm[]): Perm[] {
   const out = new Set(perms);
+  if (perms.includes('inventory.manage')) out.add('inventory.view');
   if (perms.some((p) => p.startsWith('hr.'))) out.add('hr.view');
   if (perms.some((p) => p === 'hr.agreements' || p === 'hr.scale' || p === 'hr.pay' || p === 'hr.approve' || p === 'hr.paid' || p === 'hr.hourly' || p === 'hr.donors' || p === 'hr.reports')) out.add('hr.salary');
   return [...out];

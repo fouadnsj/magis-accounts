@@ -1799,4 +1799,95 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"data.download"]')
  WHERE (perms LIKE '%"data.backup"%' OR perms LIKE '%"data.restore"%') AND perms NOT LIKE '%"data.download"%';
 `,
   },
+  {
+    n: 55,
+    name: 'the inventory: what the centre owns (items, places, categories, history), linked to the purchases in the register',
+    sql: `
+-- (Fouad, 2026-11-21) The finance follows the assets: every purchase on a furniture/equipment line must be listed here.
+-- Value: the purchase entry's USD value when bought; an estimated value for a gift or something old. No depreciation.
+CREATE TABLE inv_category (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  serial INTEGER NOT NULL DEFAULT 0,      -- 1: a serial number is expected (IT equipment)
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO inv_category (name, serial, sort) VALUES
+  ('IT equipment · معدات معلوماتية', 1, 1),
+  ('Audio-visual · صوت وصورة', 1, 2),
+  ('Furniture · أثاث', 0, 3),
+  ('Appliances · أجهزة كهربائية', 0, 4),
+  ('Kitchen · مطبخ', 0, 5),
+  ('Books and games · كتب وألعاب', 0, 6),
+  ('Tools and maintenance · أدوات وصيانة', 0, 7),
+  ('Other · أخرى', 0, 8);
+CREATE TABLE inv_place (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+-- which headings (or single lines) of the budget are inventory purchases: an expense on them must be listed
+CREATE TABLE inv_source (
+  kind TEXT NOT NULL CHECK (kind IN ('heading','line')),
+  ref  INTEGER NOT NULL,
+  PRIMARY KEY (kind, ref)
+);
+INSERT INTO inv_source (kind, ref) SELECT 'heading', id FROM heading
+ WHERE lower(name) LIKE '%furniture%' OR lower(name) LIKE '%equipment%' OR name LIKE '%أثاث%' OR name LIKE '%معدات%' OR name LIKE '%تجهيزات%';
+CREATE TABLE inv_item (
+  id          INTEGER PRIMARY KEY,
+  code        TEXT NOT NULL UNIQUE,          -- the label on the object (JAR-0001)
+  name        TEXT NOT NULL,
+  category_id INTEGER REFERENCES inv_category(id),
+  place_id    INTEGER REFERENCES inv_place(id),
+  qty         INTEGER NOT NULL DEFAULT 1,
+  brand       TEXT,
+  model       TEXT,
+  serial      TEXT,
+  condition   TEXT NOT NULL DEFAULT 'good' CHECK (condition IN ('good','repair','broken')),
+  status      TEXT NOT NULL DEFAULT 'in_use' CHECK (status IN ('in_use','disposed','lost')),
+  holder      TEXT,                          -- the person who has it (free text), if one does
+  origin      TEXT NOT NULL DEFAULT 'bought' CHECK (origin IN ('bought','gift','old')),
+  acquired_on TEXT,
+  trx_id      TEXT,                          -- the purchase entry in the register (bought)
+  party_id    INTEGER REFERENCES party(id),  -- the supplier
+  value_usd   REAL,                          -- one unit: from the entry when bought, estimated otherwise
+  value_note  TEXT,                          -- how the value was estimated
+  counted_on  TEXT,                          -- the last count
+  note        TEXT,
+  disposed_on TEXT,
+  disposed_why TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT,
+  updated_at  TEXT
+);
+CREATE INDEX inv_item_trx ON inv_item(trx_id);
+CREATE TABLE inv_move (
+  id       INTEGER PRIMARY KEY,
+  item_id  INTEGER NOT NULL REFERENCES inv_item(id),
+  on_date  TEXT NOT NULL,
+  kind     TEXT NOT NULL,                    -- added | moved | given | returned | repaired | broken | counted | disposed | lost | edited
+  place_id INTEGER REFERENCES inv_place(id),
+  holder   TEXT,
+  note     TEXT,
+  who      TEXT,
+  at       TEXT NOT NULL
+);
+CREATE INDEX inv_move_item ON inv_move(item_id);
+-- a purchase on an inventory line that is not an item (a repair, a delivery fee...)
+CREATE TABLE inv_skip (
+  trx_id TEXT PRIMARY KEY,
+  reason TEXT,
+  who    TEXT,
+  at     TEXT NOT NULL
+);
+-- the Accountant keeps it (who sees every book and manages the lists, like the Superior); anyone else who sees every
+-- book may look; the others are given the ticks by the Superior
+UPDATE access_profile SET perms = replace(perms, ']', ',"inventory.view","inventory.manage"]')
+ WHERE perms LIKE '%"register.view"%' AND perms LIKE '%"lists.manage"%' AND perms NOT LIKE '%"inventory.view"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"inventory.view"]')
+ WHERE perms LIKE '%"register.view"%' AND perms NOT LIKE '%"inventory.view"%';
+`,
+  },
 ];

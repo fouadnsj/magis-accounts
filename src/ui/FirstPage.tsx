@@ -52,6 +52,7 @@ function Said({ msg, className }: { msg: Msg; className?: string }) {
  * its own animation; a tap on one goes to its sign-in.
  */
 function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: boolean }) {
+  const [none, setNone] = useState(false);
   const sun = (
     <>
       <span className="mg-o-sun"><span className="mg-rays" /><img src="/brand/jesuits.png" alt="" /></span>
@@ -60,14 +61,19 @@ function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: bool
   return (
     <div className="mg-opening">
       {/* the Jesuit sun at the top IS the Jesuits' badge (Fouad, 21 November 2026: no repeating): a door like the houses */}
-      {jesuits ? (
-        <button type="button" className="mg-badge mg-sunbtn" onClick={() => onPick('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
-          {sun}
-          {/* the name is already in the logo (Fouad, 21 November 2026): only the Jesuits' sentence, always shown, and the way in */}
-          <Said msg={AMDG} className="mg-amdg" />
-          <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
-        </button>
-      ) : <div className="mg-sunbtn">{sun}</div>}
+      {/* with no community database on this server the badge still answers (it used to do nothing) */}
+      <button type="button" className="mg-badge mg-sunbtn" onClick={() => (jesuits ? onPick('jesuits') : setNone((x) => !x))} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
+        {sun}
+        {/* the name is already in the logo (Fouad, 21 November 2026): only the Jesuits' sentence, always shown, and the way in */}
+        <Said msg={AMDG} className="mg-amdg" />
+        <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+      </button>
+      {!jesuits && none && (
+        <p className="mg-none" role="status">
+          {t3('لا توجد قاعدة بيانات لجماعات اليسوعيين على هذا الخادم بعد.', 'There is no Jesuit communities database on this server yet.', "Il n'y a pas encore de base des communautés jésuites sur ce serveur.")}
+          {' '}{t3('يُنشئها المشرف: قواعد البيانات ← جديدة ← جماعات.', 'The administrator makes it: Databases → New → Jesuit communities.', "L'administrateur la crée : Bases de données → Nouvelle → Communautés.")}
+        </p>
+      )}
       <div className="mg-o-houses">
         {HOUSES.map((k, i) => (
           <button key={k} type="button" className="mg-badge" style={{ ...houseVars(k), animationDelay: `${0.7 + i * 0.35}s` }} onClick={() => onPick(k)} aria-label={`${tx(CENTRES[k].name)} · ${t3('دخول', 'Sign in', 'Entrer')}`}>

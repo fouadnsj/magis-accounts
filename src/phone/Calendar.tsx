@@ -5,7 +5,7 @@
 // the dates or the rooms — and call the person who asked. The phone never has an amount.
 import { useEffect, useMemo, useState } from 'react';
 import { kvGet, kvSet, newId, type Msg, type Pack } from './store';
-import { addDays, capacity, clashing, colorOf, conflictsOf, knownNames, nameKey, takenOn, type HostAlloc, type HostBooking, type HostRoom } from '../hosting/host';
+import { addDays, addMonths, capacity, clashing, colorOf, conflictsOf, daysInMonth, knownNames, live, nameKey, occupancy, takenOn, type HostAlloc, type HostBooking, type HostRoom } from '../hosting/host';
 
 type Tr = (ar: string, en: string, fr: string) => string;
 type HostPackT = NonNullable<Pack['host']>;
@@ -46,6 +46,8 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
   const [form, setForm] = useState<{ room?: number; day?: string } | null>(null);
   const [view, setView] = useState<HostBooking | null>(null);
   const [building, setBuilding] = useState<number | null>(null);
+  // today, the week, or the month (the day view answers "is there room today?")
+  const [mode, setMode] = useState<'day' | 'week' | 'month'>('day');
   const reload = () => void hostNews().then(setNews);
   useEffect(reload, []);
   const waiting = (news ?? []).filter((x) => x.state !== 'sent');
@@ -71,37 +73,107 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
       </div>
     );
   }
+  const step = (n: number) => setFrom(mode === 'day' ? addDays(from, n) : mode === 'week' ? addDays(from, 7 * n) : addMonths(from, n));
+  const wd = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
+  const wdLong = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
+  const monthLabel = (ym: string) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const occ = useMemo(() => occupancy(data, new Set(rooms.map((r) => r.id))), [data, rooms]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stays = data.bookings.filter((b) => live(b) && b.kind === 'stay');
+  const arrivals = stays.filter((b) => b.from_day === from && data.allocs.some((a) => a.booking_id === b.id && rooms.some((r) => r.id === a.room_id)));
+  const departures = stays.filter((b) => b.to_day === from && data.allocs.some((a) => a.booking_id === b.id && rooms.some((r) => r.id === a.room_id)));
+  const usedToday = occ.days.get(from);
+  const bookingChip = (b: HostBooking, extra?: string) => <button key={b.id} type="button" className={`ph-chip2 ${b.status}`} onClick={() => setView(b)}>{b.kind === 'event' ? '▸ ' : ''}{b.group_name}{b.people ? ` · ${b.people}` : ''}{extra ? ` · ${extra}` : ''}</button>;
   return (
     <div className="ph-page">
       <header className="ph-top"><div><b>📅 {t('التقويم', 'Calendar', 'Calendrier')}</b><span>{pack.organisation}</span></div><button className="ph-icon" onClick={() => onClose(false)} aria-label="close">✕</button></header>
+      <div className="ph-seg">
+        {(['day', 'week', 'month'] as const).map((m) => <button key={m} className={mode === m ? 'on' : ''} onClick={() => { setMode(m); if (m === 'day' && mode !== 'month') setFrom(today()); }}>{m === 'day' ? t('اليوم', 'Day', 'Jour') : m === 'week' ? t('أسبوع', 'Week', 'Semaine') : t('شهر', 'Month', 'Mois')}</button>)}
+      </div>
       <div className="ph-chips">
-        <button onClick={() => setFrom(addDays(from, -7))}>‹</button>
+        <button onClick={() => step(-1)}>‹</button>
         <button onClick={() => setFrom(today())}>{t('اليوم', 'Today', "Aujourd'hui")}</button>
-        <button onClick={() => setFrom(addDays(from, 7))}>›</button>
+        <button onClick={() => step(1)}>›</button>
         {host.buildings.length > 1 && host.buildings.map((b) => <button key={b.id} className={building === b.id ? 'on' : ''} onClick={() => setBuilding(building === b.id ? null : b.id)}>{b.name}</button>)}
       </div>
-      <div className="ph-cal">
-        <table>
-          <thead><tr><th>{t('الغرفة', 'Room', 'Chambre')}</th>{days.map((d) => <th key={d} className={d === today() ? 'today' : ''}><small>{new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' })}</small><br />{d.slice(8)}</th>)}</tr></thead>
-          <tbody>
-            {rooms.map((r) => (
-              <tr key={r.id}>
-                <th style={{ borderInlineStart: `5px solid ${colorOf(host.buildings, r.building_id)}` }}>{r.name}{r.beds > 0 ? <small> · {r.beds}</small> : null}</th>
-                {days.map((d) => {
-                  const taken = takenOn(r, d, data.bookings, data.allocs);
-                  if (!taken.length) return <td key={d} className="free" onClick={() => host.book && setForm({ room: r.id, day: d })} />;
-                  const beds = taken.reduce((n, x) => n + x.beds, 0);
-                  const first = taken[0].booking;
-                  return <td key={d} className={beds > capacity(r) ? 'clash' : first.status} style={{ ['--hc' as string]: colorOf(host.buildings, r.building_id) }} onClick={() => setView(first)}>{taken.length > 1 ? taken.length : first.group_name.slice(0, 5)}</td>;
-                })}
-              </tr>
-            ))}
-            {!rooms.length && <tr><td colSpan={8} className="ph-muted">{t('لا غرف', 'No rooms', 'Aucune chambre')}</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      <p className="ph-muted">{t('كما في آخر مزامنة', 'as of the last sync', 'à la dernière synchronisation')} · {t('المخطَّط = للتأكيد', 'hatched = to confirm', 'hachuré = à confirmer')}</p>
-      {host.book && <button className="ph-btn gold" onClick={() => setForm({})}>＋ {t('حجز', 'A booking', 'Une réservation')}</button>}
+
+      {mode === 'day' && (
+        <>
+          <section className="ph-card">
+            <b>{wdLong(from)}{from === today() ? ` · ${t('اليوم', 'today', "aujourd'hui")}` : ''}</b>
+            <span className="ph-muted">{usedToday ? `${usedToday.used} / ${occ.total} ${t('سرير مشغول', 'beds taken', 'lits pris')} · ${usedToday.groups.length} ${t('حجز', 'booking(s)', 'réservation(s)')}` : `0 / ${occ.total} ${t('سرير مشغول', 'beds taken', 'lits pris')}`}</span>
+            {arrivals.length > 0 && <div><small className="ph-muted">{t('يصلون اليوم', 'Arriving', 'Arrivées')}</small><div className="ph-chip-row">{arrivals.map((b) => bookingChip(b))}</div></div>}
+            {departures.length > 0 && <div><small className="ph-muted">{t('يغادرون اليوم', 'Leaving', 'Départs')}</small><div className="ph-chip-row">{departures.map((b) => bookingChip(b))}</div></div>}
+          </section>
+          {host.buildings.filter((b) => rooms.some((r) => r.building_id === b.id)).map((b) => (
+            <section key={b.id} className="ph-card" style={{ borderInlineStart: `5px solid ${colorOf(host.buildings, b.id)}` }}>
+              <b>{b.name}</b>
+              {rooms.filter((r) => r.building_id === b.id).map((r) => {
+                const taken = takenOn(r, from, data.bookings, data.allocs);
+                const beds = taken.reduce((n, x) => n + x.beds, 0);
+                return (
+                  <div key={r.id} className="ph-room">
+                    <span className="ph-room-name">{r.name}{r.beds > 0 ? <small> · {beds}/{r.beds}</small> : null}</span>
+                    {taken.length ? <span className="ph-chip-row">{taken.map((x) => bookingChip(x.booking, r.beds > 1 ? `${x.beds}` : undefined))}</span>
+                      : <button type="button" className="ph-free" disabled={!host.book} onClick={() => setForm({ room: r.id, day: from })}>{t('حرّة', 'free', 'libre')}{host.book ? ' ＋' : ''}</button>}
+                  </div>
+                );
+              })}
+            </section>
+          ))}
+          {!rooms.length && <div className="ph-card ph-muted">{t('لا غرف', 'No rooms', 'Aucune chambre')}</div>}
+        </>
+      )}
+
+      {mode === 'week' && (
+        <div className="ph-cal">
+          <table>
+            <thead><tr><th>{t('الغرفة', 'Room', 'Chambre')}</th>{days.map((d) => <th key={d} className={d === today() ? 'today' : ''} onClick={() => { setFrom(d); setMode('day'); }}><small>{wd(d)}</small><br />{d.slice(8)}</th>)}</tr></thead>
+            <tbody>
+              {rooms.map((r) => (
+                <tr key={r.id}>
+                  <th style={{ borderInlineStart: `5px solid ${colorOf(host.buildings, r.building_id)}` }}>{r.name}{r.beds > 0 ? <small> · {r.beds}</small> : null}</th>
+                  {days.map((d) => {
+                    const taken = takenOn(r, d, data.bookings, data.allocs);
+                    if (!taken.length) return <td key={d} className="free" onClick={() => host.book && setForm({ room: r.id, day: d })} />;
+                    const beds = taken.reduce((n, x) => n + x.beds, 0);
+                    const first = taken[0].booking;
+                    return <td key={d} className={beds > capacity(r) ? 'clash' : first.status} style={{ ['--hc' as string]: colorOf(host.buildings, r.building_id) }} onClick={() => setView(first)}>{taken.length > 1 ? taken.length : first.group_name.slice(0, 5)}</td>;
+                  })}
+                </tr>
+              ))}
+              {!rooms.length && <tr><td colSpan={8} className="ph-muted">{t('لا غرف', 'No rooms', 'Aucune chambre')}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {mode === 'month' && (() => {
+        const ym = from.slice(0, 7);
+        const lead = new Date(`${ym}-01T00:00:00Z`).getUTCDay();
+        const cells: (string | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: daysInMonth(ym) }, (_, i) => `${ym}-${String(i + 1).padStart(2, '0')}`)];
+        return (
+          <section className="ph-card">
+            <b>{monthLabel(ym)}</b>
+            <div className="ph-month">
+              {Array.from({ length: 7 }, (_, i) => <div key={i} className="ph-mh">{wd(`2026-11-${String(22 + i)}`).slice(0, 2)}</div>)}
+              {cells.map((d, i) => {
+                if (!d) return <div key={`o${i}`} className="ph-md off" />;
+                const o = occ.days.get(d);
+                const pct = o && occ.total ? Math.min(100, Math.round((o.used / occ.total) * 100)) : 0;
+                return (
+                  <button key={d} type="button" className={`ph-md ${d === today() ? 'today' : ''}`} onClick={() => { setFrom(d); setMode('day'); }} style={o ? { background: `color-mix(in srgb, var(--navy) ${Math.round(14 + pct * 0.6)}%, #fff)`, color: pct > 45 ? '#fff' : undefined } : undefined}>
+                    <b>{Number(d.slice(8))}</b>
+                    <small>{o ? o.groups.length : ''}</small>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="ph-muted">{t('الرقم الصغير = عدد الحجوزات، واللون = امتلاء الأسرّة. اضغط يوماً لتراه.', 'The small number = bookings, the colour = how full the beds are. Tap a day to see it.', 'Le petit nombre = réservations, la couleur = lits pris. Touchez un jour pour le voir.')}</p>
+          </section>
+        );
+      })()}
+      <p className="ph-muted">{t('كما في آخر مزامنة', 'as of the last sync', 'à la dernière synchronisation')}{mode === 'week' ? ` · ${t('المخطَّط = للتأكيد', 'hatched = to confirm', 'hachuré = à confirmer')}` : ''}</p>
+      {host.book && <button className="ph-btn gold" onClick={() => setForm(mode === 'month' ? {} : { day: from })}>＋ {t('حجز', 'A booking', 'Une réservation')}</button>}
       {waiting.length > 0 && (
         <section className="ph-card">
           <b>{t('حجوزات في الهاتف', 'Bookings on this phone', 'Réservations sur ce téléphone')}</b>

@@ -85,6 +85,14 @@ function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: bool
           </button>
         ))}
       </div>
+      {/* the administrator: the same kind of badge, a little smaller, just under the houses (he is not a house) — the MAGIS sun, with no background */}
+      <div className="mg-o-admin">
+        <button type="button" className="mg-badge mg-adminbtn" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d', animationDelay: `${0.7 + HOUSES.length * 0.35}s` } as CSSProperties} onClick={() => onPick('admin')} aria-label={`${t3('المدير', 'Administrator', 'Administrateur')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
+            <span className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/magis-sun.png" alt="" /></span>
+            <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>
+            <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+          </button>
+      </div>
       <Said msg={HOPE} className="mg-o-hope" />
     </div>
   );
@@ -252,12 +260,6 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   return (
     <div className="brand-page mg-page mg-home">
       <div className="brand-spine" />
-      {/* the administrator's door is a badge like the others, in the corner (it is for one person, not a house) */}
-      <button type="button" className="mg-badge mg-adminbtn" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d', animationDelay: '1.9s' } as CSSProperties} onClick={() => setStep('admin')} aria-label={t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}>
-        <span className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/phone-192.png" alt="" className="round" /></span>
-        <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>
-        <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
-      </button>
       <div className="mg-hero">
         <Opening onPick={setStep} jesuits={!!showJesuits} />
         <div className="mg-eyebrow">{t3('الرهبنة اليسوعية · مراكز ماجيس في سوريا', 'Society of Jesus · MAGIS centres in Syria', 'Compagnie de Jésus · Centres MAGIS en Syrie')}</div>

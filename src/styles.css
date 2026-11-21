@@ -938,11 +938,9 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-sunbtn:hover .mg-badge-sub, .mg-sunbtn:focus-visible .mg-badge-sub { max-height: 22px; opacity: 1; transform: none; }
 @media (hover: none) { .mg-sunbtn .mg-amdg .tr, .mg-sunbtn .mg-badge-sub { max-height: none; opacity: 1; transform: none; } }
 
-/* the administrator badge: the same badge as the houses, smaller, in the corner */
-.mg-page { position: relative; }
-.mg-adminbtn { position: absolute; top: 16px; inset-inline-end: 22px; z-index: 5; padding: 4px 6px; gap: 2px; }
-.mg-adminbtn .mg-door-mark { width: 56px; height: 56px; }
-.mg-adminbtn .mg-door-mark img { height: 44px; width: 44px; border-radius: 50%; object-fit: cover; }
-.mg-adminbtn b { font-size: 14px; }
-.mg-adminbtn .mg-badge-sub { font-size: 11px; }
-@media (max-width: 600px) { .mg-adminbtn { top: 10px; inset-inline-end: 8px; } .mg-adminbtn .mg-door-mark { width: 44px; height: 44px; } .mg-adminbtn .mg-door-mark img { height: 34px; width: 34px; } .mg-adminbtn b { font-size: 12px; } }
+/* the administrator badge: just under the houses, a little smaller */
+.mg-o-admin { display: flex; justify-content: center; margin-top: 2px; }
+.mg-adminbtn .mg-door-mark { width: 72px; height: 72px; }
+.mg-adminbtn .mg-door-mark img { height: 58px; width: auto; }
+.mg-adminbtn b { font-size: 16px; }
+@media (max-width: 600px) { .mg-adminbtn .mg-door-mark { width: 56px; height: 56px; } .mg-adminbtn .mg-door-mark img { height: 46px; } }

@@ -62,6 +62,17 @@ describe('history of the counts', () => {
     expect(rows[0].n).toBeGreaterThanOrEqual(1);
   });
 
+  it('downloading a copy of the database has its own tick: the Superior and the Accountant have it, a holder does not (21 November 2026)', async () => {
+    const com = await ctxOf('Com');
+    expect(sup.profile.perms).toContain('data.download');
+    expect(com.profile.perms).toContain('data.download');
+    const keeper = await ctxOf('Keeper');
+    expect(keeper.profile.perms).not.toContain('data.download');
+    await expect(runOp(keeper, 'backup.download', {})).rejects.toThrow(/Not allowed/);
+    // (the desktop program has no server to take a copy from)
+    await expect(runOp(sup, 'backup.download', {})).rejects.toThrow(/server/i);
+  });
+
   it("a private book's history is for its keepers only", async () => {
     const com = await ctxOf('Com');
     await db.batch([{ sql: "INSERT INTO book (name, keeper_name, is_main, private, sort) VALUES ('Secret', 'Sup', 0, 1, 98)" }]);

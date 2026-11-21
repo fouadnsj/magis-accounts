@@ -7,7 +7,8 @@ import { useEffect, useState } from 'react';
 import { m, tx } from '../i18n';
 import { provinceApi, serverManageList, waitingApi, type DbInfo, type DirInfo, type ManagedDb, type Waiting } from '../net';
 import { CoordinatorWaiting, type Area } from './CoordinatorWaiting';
-import { pickFile, toBase64 } from '../platform';
+import { toBase64 } from '../platform';
+import { pickDatabaseFile } from '../io/dbFile';
 import { errText, fmtDate, toast } from './kit';
 import { BrandFrame, CreateDb, DbCard, HouseOpen } from './Landing';
 import { ManageDbs } from './ManageDbs';
@@ -123,7 +124,7 @@ function Copies({ onChanged }: { onChanged: () => Promise<void> }) {
   const load = () => serverManageList().then((x) => setCopies(x.dbs.filter((d) => d.copy))).catch(() => setCopies([]));
   useEffect(() => { void load(); }, []);
   const bring = async (slug?: string) => {
-    const f = await pickFile(['db'], t3('اختر النسخة الاحتياطية (.db)', 'Choose the backup (.db)', 'Choisissez la sauvegarde (.db)'));
+    const f = await pickDatabaseFile(t3('اختر النسخة الاحتياطية (.db)', 'Choose the backup (.db)', 'Choisissez la sauvegarde (.db)'));
     if (!f) return;
     setBusy(true);
     try {

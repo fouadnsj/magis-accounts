@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import zlib from 'node:zlib';
+import { deriveKey, fromHex, newSalt, PROTECT_ITERATIONS, protectWithKey, toHex } from '../src/io/protect';
 import { createRequire } from 'node:module';
 import selfsigned from 'selfsigned';
 import ExcelJS from 'exceljs';
@@ -76,6 +77,12 @@ export interface ServerConfig {
   /** Copies of centres from other servers (Fouad, 2026-11-07): read only, nobody signs in to them; the Coordinator's
    *  reports count them. When it was brought, from which centre, and the newest change written in it. */
   copies?: Record<string, { at: string; from: string | null; latest: string | null }>;
+  /**
+   * The copy password (Fouad, 21 November 2026): a copy that leaves the server (the downloaded one, the one sent to the
+   * mirror folder) is encrypted. Only the KEY derived from the owner's password is kept here, never the password; the
+   * copy carries its own salt, so the password opens every copy anywhere (src/io/protect.ts).
+   */
+  copyKey?: { salt: string; key: string; iter: number; at: string; by: string } | null;
 }
 
 const DEFAULT_CONFIG: ServerConfig = { httpsPort: 8443, httpPort: 8080, phonePort: 8444, httpMode: 'redirect', backupMirror: null, idleMinutes: 15 };
@@ -385,6 +392,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   /** directory sign-ins: cookie magis_dir → person id */
   const dirSessions = new Map<string, { id: number; last: number }>();
 
+  /** The bytes protected with the copy password's key; null while no copy password is set. */
+  const protectCopy = async (bytes: Uint8Array): Promise<Uint8Array | null> => {
+    const k = config.copyKey;
+    if (!k) return null;
+    return protectWithKey(bytes, fromHex(k.key), fromHex(k.salt), k.iter);
+  };
+
   // ---------------------------------------------------------------- one centre = one folder
   const makeFiles = (c: Centre): FileOps => ({
     async backupNow(reason) {
@@ -397,7 +411,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         try {
           const mirror = path.join(config.backupMirror, c.slug);
           fs.mkdirSync(mirror, { recursive: true });
-          fs.copyFileSync(dest, path.join(mirror, path.basename(dest)));
+          // what leaves the server is protected, once the copy password is set
+          const prot = await protectCopy(new Uint8Array(fs.readFileSync(dest)));
+          if (prot) fs.writeFileSync(path.join(mirror, `${path.basename(dest)}.magisbak`), prot);
+          else fs.copyFileSync(dest, path.join(mirror, path.basename(dest)));
         } catch (e) {
           log(`backup mirror failed (${config.backupMirror}): ${e}`);
         }
@@ -435,6 +452,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     },
     async docExists(rel) {
       return fs.existsSync(docPath(c, rel));
+    },
+    async protectBytes(bytes) {
+      return protectCopy(bytes);
     },
     async backupRead(name) {
       const base = path.basename(name);
@@ -2554,6 +2574,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         lastBackup: backups[0] ?? null,
         backupCount: backups.length,
         backupMirror: config.backupMirror,
+        copyProtected: !!config.copyKey,
+        copyProtectedAt: config.copyKey?.at ?? null,
+        copyProtectedBy: config.copyKey?.by ?? null,
         idleMinutes: config.idleMinutes,
         mirrorOk: config.backupMirror ? fs.existsSync(config.backupMirror) : null,
         users: [...new Set([...sessions.values()].filter((x) => x.db === c.slug && Date.now() - x.last < 15 * 60e3).map((x) => x.profile.name))],
@@ -2566,6 +2589,19 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       await c.files.backupNow('before-restore');
       await replaceDatabase(c, body.base64 ?? '');
       log(`restored ${c.slug} from uploaded file ${body.fileName ?? ''} by ${s.profile.name}`);
+      return send(res, 200, { ok: true });
+    }
+    // the copy password: decided by the owner (who manages the users); only its key is kept, never the password
+    if (url === '/api/server/copy-password' && method === 'POST') {
+      if (!has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'لمن يدير المستخدمين فقط', en: 'Only for someone who manages the users' });
+      const body = (await readBody(req)) as { password?: string };
+      const pw = String(body.password ?? '');
+      if (pw.length < 10) throw new HttpError(400, { ar: 'كلمة سر النسخ: 10 أحرف على الأقل', en: 'The copy password must have at least 10 characters' });
+      const salt = newSalt();
+      config = { ...config, copyKey: { salt: toHex(salt), key: toHex(await deriveKey(pw, salt)), iter: PROTECT_ITERATIONS, at: new Date().toISOString(), by: s.profile.name } };
+      writeConfig(dataDir, config);
+      await c.handle.db.batch([auditStmt(whoOf(s), 'copy-password', 'server', null, null, { changed: true })]);
+      log(`copy password set by ${whoOf(s)}`);
       return send(res, 200, { ok: true });
     }
     if (url === '/api/server/config' && method === 'POST') {

@@ -1789,4 +1789,14 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"register.private"]')
  WHERE perms LIKE '%"users.manage"%' AND perms LIKE '%"register.view"%' AND perms NOT LIKE '%"register.private"%';
 `,
   },
+  {
+    n: 54,
+    name: 'a tick for downloading a copy of the database ("Downloads a copy"), given to the roles that back up or restore',
+    sql: `
+-- (Fouad, 2026-11-21) The copy that leaves the server is protected by a password, and only those who need it download it.
+-- The roles that had Backups or Restore keep the download; Export to Excel no longer carries it.
+UPDATE access_profile SET perms = replace(perms, ']', ',"data.download"]')
+ WHERE (perms LIKE '%"data.backup"%' OR perms LIKE '%"data.restore"%') AND perms NOT LIKE '%"data.download"%';
+`,
+  },
 ];

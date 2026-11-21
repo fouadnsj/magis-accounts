@@ -258,13 +258,14 @@ export function ConfirmHost() {
 }
 
 /** Text prompt (window.prompt is not available in every desktop window). */
-let promptImpl: ((msg: string, value: string) => Promise<string | null>) | null = null;
-export const promptBox = (msg: string, value = '') => (promptImpl ? promptImpl(msg, value) : Promise.resolve(window.prompt(msg, value)));
+let promptImpl: ((msg: string, value: string, secret: boolean) => Promise<string | null>) | null = null;
+/** `secret`: what is typed is hidden (a password) */
+export const promptBox = (msg: string, value = '', secret = false) => (promptImpl ? promptImpl(msg, value, secret) : Promise.resolve(window.prompt(msg, value)));
 
 export function PromptHost() {
-  const [state, setState] = useState<{ msg: string; value: string; resolve: (v: string | null) => void } | null>(null);
+  const [state, setState] = useState<{ msg: string; value: string; secret: boolean; resolve: (v: string | null) => void } | null>(null);
   useEffect(() => {
-    promptImpl = (msg, value) => new Promise((resolve) => setState({ msg, value, resolve }));
+    promptImpl = (msg, value, secret) => new Promise((resolve) => setState({ msg, value, secret, resolve }));
     return () => {
       promptImpl = null;
     };
@@ -277,7 +278,7 @@ export function PromptHost() {
   return (
     <Modal title={state.msg} onClose={() => done(null)} narrow>
       <form onSubmit={(e) => { e.preventDefault(); done(state.value); }}>
-        <input className="inp" autoFocus value={state.value} onChange={(e) => setState({ ...state, value: e.target.value })} />
+        <input className="inp" autoFocus type={state.secret ? 'password' : 'text'} autoComplete="off" value={state.value} onChange={(e) => setState({ ...state, value: e.target.value })} />
         <div className="modal-foot">
           <button type="button" className="btn" onClick={() => done(null)}>{t('إلغاء', 'Cancel')}</button>
           <button className="btn primary">{t('موافق', 'OK')}</button>

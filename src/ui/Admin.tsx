@@ -6,7 +6,7 @@ import type { Profile } from '../auth';
 import type { AccessRow, AuditRow, BackupFile, UserRow } from '../ops';
 import { PERM_GROUPS, type Perm } from '../perms';
 import { tx } from '../i18n';
-import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseAmount, t, toast } from './kit';
+import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast } from './kit';
 import type { CashCountRow } from '../ops';
 import { ServerTab } from './ServerTab';
 import { MonthReport } from './MonthReport';
@@ -15,7 +15,9 @@ import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, brandStyle, type CentreKey } from '../brand';
 import { mainListApi, serverRestoreUpload } from '../net';
 import { MainListPanel } from './MainListPanel';
-import { pickFile, saveFile, toBase64 } from '../platform';
+import { saveFile, toBase64 } from '../platform';
+import { pickDatabaseFile } from '../io/dbFile';
+import { serverCopyPassword, serverStatus } from '../net';
 import { notesOf } from './Cash';
 import { GuideLink } from '../guide/GuideView';
 import { Checks } from './Checks';
@@ -352,6 +354,42 @@ function Controls() {
 
 // ---------------------------------------------------------------- backups
 
+/**
+ * The copy password (Fouad, 21 November 2026): the owner decides it, once. Every copy that leaves the server (the
+ * downloaded one, the one sent to the mirror folder) is protected with it; whoever downloads does not choose it.
+ */
+function CopyPassword() {
+  const { can } = useApp();
+  const [st, setSt] = useState<{ copyProtected: boolean; copyProtectedAt: string | null; copyProtectedBy: string | null } | null>(null);
+  const load = () => serverStatus<{ copyProtected: boolean; copyProtectedAt: string | null; copyProtectedBy: string | null }>().then(setSt).catch(() => setSt(null));
+  useEffect(() => { void load(); }, []);
+  if (!st) return null;
+  const set = async () => {
+    const a = await promptBox(t('كلمة سر النسخ (10 أحرف على الأقل). احفظها في مكان آمن: بدونها لا يفتح أحد النسخ المحمية.', 'The copy password (at least 10 characters). Keep it in a safe place: without it nobody can open the protected copies.'), '', true);
+    if (!a) return;
+    const b = await promptBox(t('اكتبها مرة ثانية', 'Write it again'), '', true);
+    if (a !== b) return toast(t('الكلمتان مختلفتان', 'The two are not the same'), true);
+    try {
+      await serverCopyPassword(a);
+      toast(t('حُفظت كلمة سر النسخ ✓', 'Copy password saved ✓'));
+      await load();
+    } catch (e) { toast(errText(e), true); }
+  };
+  return (
+    <div className="panel" style={{ background: st.copyProtected ? '#f3faf4' : '#fff8ec', margin: '8px 0 12px' }}>
+      <b>{st.copyProtected ? '🔒 ' : '⚠ '}{t('كلمة سر النسخ', 'The copy password')}</b>
+      <p className="small" style={{ margin: '4px 0' }}>
+        {st.copyProtected
+          ? t(`محدَّدة (${st.copyProtectedBy ?? ''}، ${(st.copyProtectedAt ?? '').slice(0, 10)}). كل نسخة تغادر الخادم (التي تُنزَّل، وتلك المرسلة إلى المجلد الاحتياطي) محمية بها. لا يعرفها الخادم: يحتفظ بمفتاح مشتق منها فقط.`, `Set (${st.copyProtectedBy ?? ''}, ${(st.copyProtectedAt ?? '').slice(0, 10)}). Every copy that leaves the server (the downloaded one, the one sent to the mirror folder) is protected with it. The server does not know it: it keeps only a key derived from it.`)
+          : t('لم تُحدَّد بعد. حتى تُحدَّد لا يمكن تنزيل نسخة، والنسخ المرسلة إلى المجلد الاحتياطي غير محمية.', 'Not set yet. Until it is set, no copy can be downloaded, and the copies sent to the mirror folder are not protected.')}
+      </p>
+      <p className="muted small" style={{ margin: '4px 0' }}>{t('إن ضاعت الكلمة لا يستطيع أحد فتح النسخ المحمية. غيّرها فتحمي النسخ الجديدة بها (القديمة تبقى بكلمتها القديمة).', 'If the password is lost, nobody can open the protected copies. Changing it protects the new copies with the new one (the old ones keep their old password).')}</p>
+      {can('users.manage') ? <button className="btn" onClick={set}>{st.copyProtected ? t('غيّر كلمة السر', 'Change the password') : t('حدّد كلمة سر النسخ', 'Set the copy password')}</button>
+        : <p className="muted small">{t('يحدّدها من يدير المستخدمين (الرئيس).', 'It is set by whoever manages the users (the Superior).')}</p>}
+    </div>
+  );
+}
+
 function Backups() {
   const { s, reload, can } = useApp();
   const [list, setList] = useState<BackupFile[]>([]);
@@ -364,7 +402,7 @@ function Backups() {
       const bytes = Uint8Array.from(atob(r.base64), (ch) => ch.charCodeAt(0));
       const label = (s.organisation || 'magis').replace(/[^\w\u0600-\u06FF -]/g, '').trim().replace(/\s+/g, '-');
       const name = `${label}_${r.name}`;
-      await saveFile(name, ['db'], bytes, t('احفظ النسخة', 'Save the copy'));
+      await saveFile(name, ['magisbak'], bytes, t('احفظ النسخة', 'Save the copy'));
       if (!b) await refresh();
     } catch (e) {
       toast(errText(e), true);
@@ -396,7 +434,7 @@ function Backups() {
   };
   // Server only: replace the data by a .db file from this computer (desktop app file or a backup copy).
   const fromFile = async () => {
-    const f = await pickFile(['db'], t('اختر ملف قاعدة البيانات', 'Choose the database file'));
+    const f = await pickDatabaseFile(t('اختر ملف قاعدة البيانات', 'Choose the database file'));
     if (!f) return;
     if (!(await confirmBox(
       t(`استبدال كل بيانات الخادم بالملف:\n${f.name}\n\nتُؤخذ نسخة من الحالية أولاً، ثم يخرج الجميع ويدخلون من جديد.`,
@@ -416,11 +454,12 @@ function Backups() {
         <p className="muted small" style={{ margin: 0 }}>{t('نسخة كل يوم، ونسخة قبل كل استيراد أو استرجاع. «مقارنة» تُظهر ما تغيّر منذ النسخة، وتعيد سطراً واحداً كما كان.', 'One copy every day, and one before every import or restore. "Compare" shows what changed since the copy, and puts one row back as it was.')}</p>
         <div className="row">
           {s.mode === 'server' && can('data.restore') && <button className="btn" onClick={fromFile}>{t('استرجاع من ملف…', 'Restore from a file…')}</button>}
-          {s.mode === 'server' && <button className="btn" onClick={() => void download()}>⬇ {t('نزّل آخر نسخة (لإرسالها)', 'Download the latest copy (to send)')}</button>}
+          {s.mode === 'server' && can('data.download') && <button className="btn" onClick={() => void download()}>⬇ {t('نزّل آخر نسخة (لإرسالها)', 'Download the latest copy (to send)')}</button>}
           {can('data.backup') && <button className="btn primary" onClick={now}>{t('نسخة الآن', 'Back up now')}</button>}
         </div>
       </div>
-      {s.mode === 'server' && <p className="muted small" style={{ marginTop: 0 }}>{t('«نزّل آخر نسخة» يأخذ نسخة الآن ويحفظها حيث تختار، لترسلها بالبريد. الصور والمستندات المرفقة ليست فيها.', '"Download the latest copy" takes a copy now and saves it where you choose, to send it by mail. The attached photos and documents are not in it.')}</p>}
+      {s.mode === 'server' && <p className="muted small" style={{ marginTop: 0 }}>{t('«نزّل آخر نسخة» يأخذ نسخة الآن ويحفظها حيث تختار، لترسلها بالبريد. النسخة محمية بكلمة سر النسخ، وتُسجَّل في سجل التدقيق. الصور والمستندات المرفقة ليست فيها.', '"Download the latest copy" takes a copy now and saves it where you choose, to send it by mail. The copy is protected by the copy password, and the download is written in the audit trail. The attached photos and documents are not in it.')}</p>}
+      {s.mode === 'server' && <CopyPassword />}
       <table className="t">
         <thead><tr><th>{t('الملف', 'File')}</th><th>{t('التاريخ', 'Date')}</th><th className="n">KB</th><th /></tr></thead>
         <tbody>

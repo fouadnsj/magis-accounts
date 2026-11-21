@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { serverSetup, type DbInfo } from '../net';
 import { pickFile, toBase64 } from '../platform';
+import { pickDatabaseFile } from '../io/dbFile';
 import type { ImportReport } from '../io/importWorkbook';
 import { Field, errText, t } from './kit';
 import { MigrationReport } from './Welcome';
@@ -23,7 +24,7 @@ export function ServerSetup({ db, onDone, onBack, askGate }: { db: DbInfo; onDon
 
   const uploadDb = async () => {
     setErr(null);
-    const file = await pickFile(['db'], t('اختر ملف قاعدة المكتب', 'Choose the office database file'));
+    const file = await pickDatabaseFile(t('اختر ملف قاعدة المكتب', 'Choose the office database file'));
     if (!file) return;
     setBusy(true);
     try {

@@ -59,6 +59,7 @@ export const PERM_GROUPS = [
       { key: 'users.holders', label: m('يضيف أمناء الصناديق، وكلمات سرهم ودفاترهم (لا غير)', 'Adds book holders, their passwords and books (nothing more)', 'Ajoute des teneurs de caisse, leurs mots de passe et leurs caisses (rien de plus)') },
       { key: 'users.passwords', label: m('يعيد تعيين كلمة سر أي شخص (إلا من يدير المستخدمين)', "Resets anyone's password (except those who manage users)", "Réinitialise le mot de passe de chacun (sauf de ceux qui gèrent les utilisateurs)") },
       { key: 'data.backup', label: m('النسخ الاحتياطية', 'Backups') },
+      { key: 'data.download', label: m('ينزّل نسخة من قاعدة البيانات (محمية بكلمة سر النسخ)', 'Downloads a copy of the database (protected by the copy password)') },
       { key: 'data.restore', label: m('استرجاع نسخة', 'Restore a backup') },
       { key: 'data.export', label: m('التصدير إلى Excel', 'Export to Excel') },
       { key: 'data.import', label: m('الاستيراد (ملف Excel، ملفات قديمة)', 'Import (Excel workbook, old files)') },

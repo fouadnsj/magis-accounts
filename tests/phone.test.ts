@@ -146,12 +146,33 @@ describe('the phone', () => {
     expect(me).toMatchObject({ profile: { name: 'Boss' }, phone: true });
     // a wrong key: nothing
     expect((await fetch(c.base + '/api/phone/session', { method: 'POST', headers: { Authorization: `Bearer ${key}x` } })).status).toBe(401);
-    // the latest copy, as a file to send
+    // the latest copy, as a file to send (21 November 2026: protected by the copy password; nothing before it is set)
+    expect((await c.boss('/api/op/backup.download', {})).status).toBeGreaterThanOrEqual(400);
+    expect((await c.boss('/api/server/copy-password', { password: 'short' })).status).toBe(400);
+    expect((await c.boss('/api/server/copy-password', { password: 'the owner password' })).status).toBe(200);
     const dl = await c.boss('/api/op/backup.download', {});
     expect(dl.status).toBe(200);
-    expect(dl.body.name).toMatch(/_export\.db$/);
-    expect(Buffer.from(dl.body.base64, 'base64').subarray(0, 15).toString()).toBe('SQLite format 3');
+    expect(dl.body.name).toMatch(/_export(-\d+)?\.db\.magisbak$/);
+    const file = new Uint8Array(Buffer.from(dl.body.base64, 'base64'));
+    expect(Buffer.from(file.subarray(0, 9)).toString()).toBe('MAGISBAK1');
+    expect(Buffer.from(file).includes(Buffer.from('SQLite format 3'))).toBe(false);
+    const { unprotect, WrongPassword } = await import('../src/io/protect');
+    await expect(unprotect(file, 'not the password')).rejects.toBeInstanceOf(WrongPassword);
+    expect(Buffer.from((await unprotect(file, 'the owner password')).subarray(0, 15)).toString()).toBe('SQLite format 3');
+    // the download is in the audit trail, with its name
+    const audit = (await c.boss('/api/op/audit.list', {})).body as { action: string; who: string; row_id: string | null }[];
+    expect(audit.some((a) => a.action === 'backup-download' && a.who === 'Boss')).toBe(true);
     expect((await c.boss('/api/op/backup.download', { name: '../config.json' })).status).toBe(400);
+    // the copies sent to the mirror folder are protected too, once the copy password is set
+    const mirror = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-mirror-'));
+    expect((await c.boss('/api/server/config', { backupMirror: mirror })).status).toBe(200);
+    expect((await c.boss('/api/op/backup.now', {})).status).toBe(200);
+    const sent = fs.readdirSync(mirror).flatMap((d) => fs.readdirSync(path.join(mirror, d)));
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((f) => f.endsWith('.magisbak'))).toBe(true);
+    const one = fs.readdirSync(mirror).flatMap((d) => fs.readdirSync(path.join(mirror, d)).map((f) => path.join(mirror, d, f)))[0];
+    expect(Buffer.from((await unprotect(new Uint8Array(fs.readFileSync(one)), 'the owner password')).subarray(0, 15)).toString()).toBe('SQLite format 3');
+    fs.rmSync(mirror, { recursive: true, force: true });
   });
 
   it('a wrong key, a phone cut off, 30 days without a sync, an owner switched off: the phone is out', async () => {

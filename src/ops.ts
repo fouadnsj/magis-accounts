@@ -64,6 +64,8 @@ export interface FileOps {
   docExists(rel: string): Promise<boolean>;
   /** a backup copy's bytes, to save elsewhere (the server only) */
   backupRead?(name: string): Promise<Uint8Array>;
+  /** the bytes protected with the copy password (null: no copy password is set yet) (the server only) */
+  protectBytes?(bytes: Uint8Array): Promise<Uint8Array | null>;
 }
 
 export interface AttachmentRow {
@@ -2095,18 +2097,26 @@ export const OPS = {
   // a copy to send by mail (Fouad, 14 November 2026: "the app is on several servers; the accountant sends it to be
   // checked"): a fresh copy taken now, or one from the list, as a file
   'backup.download': {
-    check: (c: OpCtx) => need(c, 'data.backup', 'data.restore', 'data.export'),
+    // (Fouad, 21 November 2026: a copy is the whole finance of a centre) its own tick, a copy password, a line in the audit
+    check: (c: OpCtx) => need(c, 'data.download'),
     run: async (c: OpCtx, a: { name?: string | null }) => {
-      if (!c.files.backupRead) throw new UserError(m('على الخادم فقط', 'On the server only', 'Sur le serveur seulement'));
+      if (!c.files.backupRead || !c.files.protectBytes) throw new UserError(m('على الخادم فقط', 'On the server only', 'Sur le serveur seulement'));
+      const noPassword = () => new UserError(m('لم تُحدَّد كلمة سر النسخ بعد: اطلب من الرئيس تحديدها (الإدارة ← النسخ الاحتياطية)', 'The copy password is not set yet: ask the Superior to set it (Admin → Backups)', "Le mot de passe des copies n'est pas encore défini : demandez au supérieur de le définir (Administration → Sauvegardes)"));
+      // (nothing is copied while the copy password is not set: no stray plain copy)
+      if (!(await c.files.protectBytes(new Uint8Array(0)))) throw noPassword();
       let name = a.name ? String(a.name) : '';
       if (!name) {
         const made = await c.files.backupNow('export');
         name = String(made ?? '').split(/[\\/]/).pop() ?? '';
       }
-      const bytes = await c.files.backupRead(name);
+      const plain = await c.files.backupRead(name);
+      const bytes = await c.files.protectBytes(plain);
+      if (!bytes) throw noPassword();
+      // who took the copy, when, which (a line in the audit trail)
+      await c.db.batch([auditStmt(c.who, 'backup-download', 'backup', name, null, { size: bytes.length, protected: true })]);
       let b = '';
       for (let i = 0; i < bytes.length; i += 0x8000) b += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      return { name, base64: btoa(b), size: bytes.length };
+      return { name: `${name}.magisbak`, base64: btoa(b), size: bytes.length };
     },
   },
   /** The register of a backup copy, as this person may see it (to compare with now). */

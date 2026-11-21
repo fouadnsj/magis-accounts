@@ -204,6 +204,7 @@ export const ctyHat = (profileId: number) => post<{ profile: Profile }>('/api/ct
 /** where the phones start (Admin → Users → Phones) */
 export const phoneWhere = () => get<{ start: string[]; app: string[]; fingerprint: string | null }>('/api/phone/where');
 export const serverConfig = (c: Record<string, unknown>) => post('/api/server/config', c);
+export const serverCopyPassword = (password: string) => post<{ ok: true }>('/api/server/copy-password', { password });
 export const serverRestoreUpload = (base64: string, fileName: string) => post('/api/server/restore-upload', { base64, fileName });
 
 // ---- the sign-in directory: one name and password, then the databases given to that person

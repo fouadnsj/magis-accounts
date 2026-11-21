@@ -5,7 +5,8 @@ import { CENTRES, brandStyle, guessCentre, logoToDataUrl, type BrandInfo, type C
 import { getLang, m, tx, type Msg } from '../i18n';
 import type { DbInfo, DirInfo } from '../net';
 import { mainListApi, serverCreateDb, serverImportDb, serverPeekDb, type DbFileInfo } from '../net';
-import { pickFile, toBase64 } from '../platform';
+import { toBase64 } from '../platform';
+import { pickDatabaseFile } from '../io/dbFile';
 import { paletteOf } from '../community/style';
 import { CtyUnlock, serverGateCheck } from '../community/ui/CtyGate';
 import { Field, Modal, biName, errText, t, toast } from './kit';
@@ -476,7 +477,7 @@ export function CreateDb({ onCancel, onCreated, community: onlyCty }: { onCancel
   const [imp, setImp] = useState<{ b64: string; fileName: string; info: DbFileInfo } | null>(null);
   const fromFile = async () => {
     setErr(null);
-    const file = await pickFile(['db'], t('اختر ملف قاعدة البيانات (‎.db)', 'Choose the database file (.db)'));
+    const file = await pickDatabaseFile(t('اختر ملف قاعدة البيانات (‎.db)', 'Choose the database file (.db)'));
     if (!file) return;
     setBusy(true);
     try {

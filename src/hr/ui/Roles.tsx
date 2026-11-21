@@ -10,7 +10,8 @@ import { getLang, tx, m } from '../../i18n';
 import { Field, Modal, confirmBox, toast } from '../../ui/kit';
 import { t3 } from '../../community/ui/text';
 import { serverRestoreUpload } from '../../net';
-import { pickFile, toBase64 } from '../../platform';
+import { toBase64 } from '../../platform';
+import { pickDatabaseFile } from '../../io/dbFile';
 import { fail } from './common';
 
 const ADMIN_LABEL: Record<string, string> = Object.fromEntries(PERM_GROUPS.find((g) => g.key === 'admin')!.perms.map((p) => [p.key, tx(p.label)]));
@@ -118,7 +119,7 @@ export function BackupsTab({ s }: { s: Session }) {
   };
   // on the server: put back a .db file from this computer (a backup copied to a USB key, or the database of another server)
   const fromFile = async () => {
-    const f = await pickFile(['db'], t3('اختر ملف قاعدة البيانات', 'Choose the database file', 'Choisissez le fichier de la base'));
+    const f = await pickDatabaseFile(t3('اختر ملف قاعدة البيانات', 'Choose the database file', 'Choisissez le fichier de la base'));
     if (!f) return;
     if (!(await confirmBox(t3(`استبدال كل بيانات الموارد البشرية بالملف:\n${f.name}\n\nتُؤخذ نسخة من الحالية أولاً، ثم يدخل الجميع من جديد.`, `Replace ALL the HR data with the file:\n${f.name}\n\nA copy of the current data is taken first; then everybody signs in again.`, `Remplacer TOUTES les données RH par le fichier :\n${f.name}\n\nUne copie est faite d'abord ; puis chacun se reconnecte.`), true))) return;
     try { await serverRestoreUpload(toBase64(f.bytes), f.name); window.location.reload(); } catch (e) { fail(e); }

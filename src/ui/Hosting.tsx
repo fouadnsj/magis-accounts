@@ -13,6 +13,8 @@ import {
 } from '../hosting/host';
 
 type Tab = 'calendar' | 'bookings' | 'payments' | 'settings';
+/** where a new booking starts: the rooms and the days picked on the calendar (the last night is `to` minus one day) */
+interface NewStart { rooms?: number[]; from?: string; to?: string }
 
 const STATUS_LABEL: Record<BookingStatus, () => string> = {
   option: () => t('للتأكيد', 'To confirm'), confirmed: () => t('مؤكَّد', 'Confirmed'), arrived: () => t('وصلوا', 'Arrived'),
@@ -33,7 +35,7 @@ export function Hosting() {
   const books = can('hosting.book') || keeps;
   const [tab, setTab] = useState<Tab>('calendar');
   const [data, setData] = useState<HostData | null>(null);
-  const [edit, setEdit] = useState<{ booking: HostBooking | null; room?: number; day?: string } | null>(null);
+  const [edit, setEdit] = useState<{ booking: HostBooking | null; start?: NewStart } | null>(null);
   const [review, setReview] = useState<boolean>((d.host?.review ?? 0) > 0);
   const load = useCallback(async () => {
     try { setData(await s.api.call('host.get')); } catch (e) { toast(errText(e), true); }
@@ -59,7 +61,7 @@ export function Hosting() {
               <b>{waiting.length}</b> {t('حجز من الهاتف ينتظر نظرة', 'booking(s) made on a phone wait for a look')} <button className="btn small" onClick={() => setReview(true)}>{t('انظر', 'Look')}</button>
             </div>
           )}
-          {tab === 'calendar' && <CalendarTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={(room, day) => setEdit({ booking: null, room, day })} />}
+          {tab === 'calendar' && <CalendarTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={(start) => setEdit({ booking: null, start })} />}
           {tab === 'bookings' && <BookingsTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={() => setEdit({ booking: null })} />}
           {tab === 'payments' && keeps && <PaymentsTab data={data} refresh={both} />}
           {tab === 'settings' && keeps && <SettingsTab data={data} refresh={both} />}
@@ -75,14 +77,34 @@ export function Hosting() {
 
 type View = 'rooms' | 'month' | 'year';
 
-function CalendarTab({ data, books, onOpen, onNew }: { data: HostData; books: boolean; onOpen: (b: HostBooking) => void; onNew: (room: number, day: string) => void }) {
+function CalendarTab({ data: everything, books, onOpen, onNew }: { data: HostData; books: boolean; onOpen: (b: HostBooking) => void; onNew: (start: NewStart) => void }) {
   const [view, setView] = useState<View>('rooms');
+  // the type of booking shown: stays, events, or both
+  const [kind, setKind] = useState<BookingKind | 'all'>('all');
+  const data = useMemo(() => (kind === 'all' ? everything : { ...everything, bookings: everything.bookings.filter((b) => b.kind === kind) }), [everything, kind]);
   const [from, setFrom] = useState(todayIso());
   const [span, setSpan] = useState(14);
   const [building, setBuilding] = useState<number | null>(null);
   const days = useMemo(() => Array.from({ length: span }, (_, i) => addDays(from, i)), [from, span]);
   const rooms = data.rooms.filter((r) => r.active && (building == null || r.building_id === building));
   const today = todayIso();
+  // dragging over free days (and rooms) starts a booking with them already chosen
+  const order = useMemo(() => data.buildings.flatMap((b) => rooms.filter((r) => r.building_id === b.id)), [data.buildings, rooms]);
+  const [drag, setDrag] = useState<{ r: number; d: number } | null>(null);
+  const [hov, setHov] = useState<{ r: number; d: number } | null>(null);
+  const sel = drag && hov ? { r0: Math.min(drag.r, hov.r), r1: Math.max(drag.r, hov.r), d0: Math.min(drag.d, hov.d), d1: Math.max(drag.d, hov.d) } : null;
+  useEffect(() => {
+    if (!drag) return;
+    const up = () => {
+      const h = hov ?? drag;
+      const r0 = Math.min(drag.r, h.r), r1 = Math.max(drag.r, h.r), d0 = Math.min(drag.d, h.d), d1 = Math.max(drag.d, h.d);
+      setDrag(null); setHov(null);
+      // the last day picked is a night: the leaving day is the next one
+      onNew({ rooms: order.slice(r0, r1 + 1).map((r) => r.id), from: days[d0], to: addDays(days[d1], 1) });
+    };
+    window.addEventListener('mouseup', up);
+    return () => window.removeEventListener('mouseup', up);
+  }, [drag, hov, order, days, onNew]);
   const step = (n: number) => setFrom(view === 'rooms' ? addDays(from, 7 * n) : view === 'month' ? addMonths(from, n) : addMonths(from, 12 * n));
   const pick = (d: string, v: View) => { setFrom(d); setView(v); };
   return (
@@ -102,17 +124,21 @@ function CalendarTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
             <option value={7}>{t('أسبوع', '1 week')}</option><option value={14}>{t('أسبوعان', '2 weeks')}</option><option value={31}>{t('شهر', '1 month')}</option>
           </select>
         )}
+        <select value={kind} onChange={(e) => setKind(e.target.value as BookingKind | 'all')} title={t('نوع الحجز', 'Type of booking')}>
+          <option value="all">{t('كل الأنواع', 'All types')}</option><option value="stay">{t('إقامة', 'Accommodation')}</option><option value="event">{t('أنشطة', 'Events')}</option>
+        </select>
         <Select value={building} options={data.buildings.filter((b) => b.active).map((b) => ({ value: b.id, label: b.name }))} onChange={setBuilding} placeholder={t('كل المباني', 'All buildings')} />
-        {books && <button className="btn primary small" onClick={() => onNew(0, view === 'rooms' ? from : today)}>＋ {t('حجز', 'Booking')}</button>}
+        {books && <button className="btn primary small" onClick={() => onNew({ from: view === 'rooms' ? from : today })}>＋ {t('حجز', 'Booking')}</button>}
       </div>
       <div className="host-key small">
         {data.buildings.filter((b) => b.active).map((b) => <span key={b.id} className="host-sw"><i style={{ background: colorOf(data.buildings, b.id) }} />{b.name}</span>)}
         <span className="host-cell option" style={{ ['--hc' as string]: '#888' }}>{t('للتأكيد', 'To confirm')}</span><span className="host-cell confirmed" style={{ ['--hc' as string]: '#555' }}>{t('مؤكَّد', 'Confirmed')}</span>
         <span className="host-cell arrived" style={{ ['--hc' as string]: '#555' }}>{t('وصلوا', 'Arrived')}</span><span className="host-cell left">{t('غادروا', 'Left')}</span><span className="host-cell clash">{t('تداخل', 'Clash')}</span>
       </div>
+      {view === 'rooms' && books && rooms.length > 0 && <p className="small muted">{t('اسحب على الأيام (وعلى عدة غرف) لبدء حجز بها.', 'Drag over the days (and over several rooms) to start a booking with them.')}</p>}
       {view === 'rooms' && (rooms.length === 0 ? <p className="muted">{t('لا غرف بعد: أضفها في «المباني والغرف».', 'No rooms yet: add them in "Buildings and rooms".')}</p> : (
         <div className="tbl-wrap host-wrap">
-          <table className="host-grid">
+          <table className={`host-grid ${drag ? 'dragging' : ''}`}>
             <thead>
               <tr>
                 <th className="host-room">{t('الغرفة', 'Room')}</th>
@@ -121,19 +147,19 @@ function CalendarTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
             </thead>
             <tbody>
               {data.buildings.filter((b) => rooms.some((r) => r.building_id === b.id)).map((b) => (
-                <BuildingRows key={b.id} data={data} building={b.id} rooms={rooms.filter((r) => r.building_id === b.id)} days={days} books={books} onOpen={onOpen} onNew={onNew} />
+                <BuildingRows key={b.id} data={data} building={b.id} rooms={rooms.filter((r) => r.building_id === b.id)} days={days} books={books} onOpen={onOpen} order={order} sel={sel} onDown={(r, d) => { setDrag({ r, d }); setHov({ r, d }); }} onEnter={(r, d) => drag && setHov({ r, d })} />
               ))}
             </tbody>
           </table>
         </div>
       ))}
-      {view === 'month' && <MonthView data={data} month={from.slice(0, 7)} rooms={rooms} onDay={(d) => pick(d, 'rooms')} onOpen={onOpen} />}
+      {view === 'month' && <MonthView data={data} month={from.slice(0, 7)} rooms={rooms} books={books} onDay={(d) => pick(d, 'rooms')} onOpen={onOpen} onNew={onNew} />}
       {view === 'year' && <YearView data={data} year={from.slice(0, 4)} rooms={rooms} onMonth={(ym) => pick(`${ym}-01`, 'month')} />}
     </>
   );
 }
 
-function BuildingRows({ data, building, rooms, days, books, onOpen, onNew }: { data: HostData; building: number; rooms: HostRoom[]; days: string[]; books: boolean; onOpen: (b: HostBooking) => void; onNew: (room: number, day: string) => void }) {
+function BuildingRows({ data, building, rooms, days, books, onOpen, order, sel, onDown, onEnter }: { data: HostData; building: number; rooms: HostRoom[]; days: string[]; books: boolean; onOpen: (b: HostBooking) => void; order: HostRoom[]; sel: { r0: number; r1: number; d0: number; d1: number } | null; onDown: (r: number, d: number) => void; onEnter: (r: number, d: number) => void }) {
   const color = colorOf(data.buildings, building);
   const name = data.buildings.find((b) => b.id === building)?.name ?? '';
   return (
@@ -142,15 +168,17 @@ function BuildingRows({ data, building, rooms, days, books, onOpen, onNew }: { d
       {rooms.map((r) => (
         <tr key={r.id}>
           <th className="host-room" style={{ borderInlineStart: `6px solid ${color}` }}>{r.name}{r.kind === 'bedroom' ? <small> · {r.beds}</small> : r.kind === 'hall' ? <small> · {t('قاعة', 'hall')}</small> : null}</th>
-          {days.map((dy) => {
+          {days.map((dy, di) => {
+            const ri = order.findIndex((x) => x.id === r.id);
+            const picked = !!sel && ri >= sel.r0 && ri <= sel.r1 && di >= sel.d0 && di <= sel.d1;
             const taken = takenOn(r, dy, data.bookings, data.allocs);
             const beds = taken.reduce((n, x) => n + x.beds, 0);
-            if (!taken.length) return <td key={dy} className="host-free" onClick={() => books && onNew(r.id, dy)} />;
+            if (!taken.length) return <td key={dy} className={`host-free ${picked ? 'sel' : ''}`} onMouseDown={(e) => { if (books && e.button === 0) { e.preventDefault(); onDown(ri, di); } }} onMouseEnter={() => onEnter(ri, di)} />;
             const first = taken[0].booking;
             const cls = beds > capacity(r) ? 'clash' : first.status;
             const label = taken.length > 1 ? `${taken.length}` : first.group_name.slice(0, 8);
             const tip = taken.map((x) => `${x.booking.group_name}${x.booking.time_from ? ` ${x.booking.time_from}–${x.booking.time_to ?? ''}` : ''} · ${STATUS_LABEL[x.booking.status]()}${r.beds > 1 ? ` · ${x.beds}/${r.beds}` : ''}`).join('\n');
-            return <td key={dy} className={`host-cell ${cls}`} style={{ ['--hc' as string]: color }} title={tip} onClick={() => onOpen(first)}>{cls === 'arrived' ? '✓ ' : ''}{label}{r.beds > 1 && taken.length === 1 ? <small> {taken[0].beds}</small> : null}</td>;
+            return <td key={dy} className={`host-cell ${cls} ${picked ? 'sel' : ''}`} style={{ ['--hc' as string]: color }} title={tip} onMouseEnter={() => onEnter(ri, di)} onClick={() => onOpen(first)}>{cls === 'arrived' ? '✓ ' : ''}{label}{r.beds > 1 && taken.length === 1 ? <small> {taken[0].beds}</small> : null}</td>;
           })}
         </tr>
       ))}
@@ -159,7 +187,16 @@ function BuildingRows({ data, building, rooms, days, books, onOpen, onNew }: { d
 }
 
 /** a month: each day with how full the rooms are and the groups present; a click opens the rooms of that week */
-function MonthView({ data, month, rooms, onDay, onOpen }: { data: HostData; month: string; rooms: HostRoom[]; onDay: (d: string) => void; onOpen: (b: HostBooking) => void }) {
+function MonthView({ data, month, rooms, books, onDay, onOpen, onNew }: { data: HostData; month: string; rooms: HostRoom[]; books: boolean; onDay: (d: string) => void; onOpen: (b: HostBooking) => void; onNew: (start: NewStart) => void }) {
+  const [a, setA] = useState<string | null>(null);
+  const [z, setZ] = useState<string | null>(null);
+  const lo = a && z ? (a < z ? a : z) : null, hi = a && z ? (a < z ? z : a) : null;
+  useEffect(() => {
+    if (!a) return;
+    const up = () => { const x = z ?? a; const f = a < x ? a : x, l = a < x ? x : a; setA(null); setZ(null); if (f === l) onDay(f); else onNew({ from: f, to: addDays(l, 1) }); };
+    window.addEventListener('mouseup', up);
+    return () => window.removeEventListener('mouseup', up);
+  }, [a, z, onDay, onNew]);
   const occ = useMemo(() => occupancy(data, new Set(rooms.map((r) => r.id))), [data, rooms]);
   const n = daysInMonth(month);
   const lead = new Date(`${month}-01T00:00:00Z`).getUTCDay();
@@ -176,10 +213,10 @@ function MonthView({ data, month, rooms, onDay, onOpen }: { data: HostData; mont
         const pct = o && occ.total ? Math.min(100, Math.round((o.used / occ.total) * 100)) : 0;
         const groups = o?.groups ?? [];
         return (
-          <div key={d} className={`host-md ${d === today ? 'today' : ''}`} onClick={() => onDay(d)}>
+          <div key={d} className={`host-md ${d === today ? 'today' : ''} ${lo && hi && d >= lo && d <= hi ? 'sel' : ''}`} onMouseDown={(e) => { if (books && e.button === 0) { e.preventDefault(); setA(d); setZ(d); } }} onMouseEnter={() => a && setZ(d)} onClick={() => { if (!books) onDay(d); }}>
             <div className="host-mn"><b>{Number(d.slice(8))}</b>{pct > 0 && <small>{pct}%</small>}</div>
             <div className="host-bar"><i style={{ width: `${pct}%` }} /></div>
-            {groups.slice(0, 3).map((g) => <span key={g.id} className={`host-chip ${g.status}`} style={{ ['--hc' as string]: firstBuilding(g) }} onClick={(e) => { e.stopPropagation(); onOpen(g); }} title={g.group_name}>{g.kind === 'event' ? '▸ ' : ''}{g.group_name}</span>)}
+            {groups.slice(0, 3).map((g) => <span key={g.id} className={`host-chip ${g.status}`} style={{ ['--hc' as string]: firstBuilding(g) }} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onOpen(g); }} title={g.group_name}>{g.kind === 'event' ? '▸ ' : ''}{g.group_name}</span>)}
             {groups.length > 3 && <small className="muted">+{groups.length - 3}</small>}
           </div>
         );
@@ -220,8 +257,9 @@ function YearView({ data, year, rooms, onMonth }: { data: HostData; year: string
 
 function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: boolean; onOpen: (b: HostBooking) => void; onNew: () => void }) {
   const [st, setSt] = useState<BookingStatus | 'all'>('all');
+  const [kind, setKind] = useState<BookingKind | 'all'>('all');
   const [q, setQ] = useState('');
-  const list = data.bookings.filter((b) => (st === 'all' ? b.status !== 'cancelled' || false : b.status === st) && (!q.trim() || `${b.group_name} ${b.contact ?? ''} ${b.code}`.toLowerCase().includes(q.trim().toLowerCase())));
+  const list = data.bookings.filter((b) => (kind === 'all' || b.kind === kind) && (st === 'all' ? b.status !== 'cancelled' || false : b.status === st) && (!q.trim() || `${b.group_name} ${b.contact ?? ''} ${b.code}`.toLowerCase().includes(q.trim().toLowerCase())));
   const sorted = [...list].sort((a, b) => b.from_day.localeCompare(a.from_day));
   const names = (id: number) => data.allocs.filter((a) => a.booking_id === id).map((a) => { const r = data.rooms.find((x) => x.id === a.room_id); return r ? roomName(data, r) : ''; }).join('، ');
   return (
@@ -230,6 +268,9 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
         <select value={st} onChange={(e) => setSt(e.target.value as BookingStatus | 'all')}>
           <option value="all">{t('الكل (من دون الملغى)', 'All (not cancelled)')}</option>
           {(['option', 'confirmed', 'arrived', 'left', 'cancelled'] as BookingStatus[]).map((x) => <option key={x} value={x}>{STATUS_LABEL[x]()}</option>)}
+        </select>
+        <select value={kind} onChange={(e) => setKind(e.target.value as BookingKind | 'all')} title={t('نوع الحجز', 'Type of booking')}>
+          <option value="all">{t('كل الأنواع', 'All types')}</option><option value="stay">{t('إقامة', 'Accommodation')}</option><option value="event">{t('أنشطة', 'Events')}</option>
         </select>
         <input className="inp" style={{ width: 200 }} placeholder={t('بحث', 'Search')} value={q} onChange={(e) => setQ(e.target.value)} />
         {books && <button className="btn primary small" onClick={onNew}>＋ {t('حجز', 'Booking')}</button>}
@@ -259,13 +300,13 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
 
 interface Line { id?: number; service_id: number | null; label: string; qty: string; amount: string; currency: Currency }
 
-function BookingEditor({ data, start, onClose, refresh }: { data: HostData; start: { booking: HostBooking | null; room?: number; day?: string }; onClose: () => void; refresh: () => Promise<void> }) {
+function BookingEditor({ data, start, onClose, refresh }: { data: HostData; start: { booking: HostBooking | null; start?: NewStart }; onClose: () => void; refresh: () => Promise<void> }) {
   const { s, can } = useApp();
   const keeps = can('hosting.keep');
   const b = start.booking;
   const [f, setF] = useState(() => ({
     kind: (b?.kind ?? 'stay') as BookingKind, group_name: b?.group_name ?? '', contact: b?.contact ?? '', phone: b?.phone ?? '', people: String(b?.people ?? ''),
-    from_day: b?.from_day ?? start.day ?? todayIso(), to_day: b?.to_day ?? addDays(start.day ?? todayIso(), 1),
+    from_day: b?.from_day ?? start.start?.from ?? todayIso(), to_day: b?.to_day ?? start.start?.to ?? addDays(start.start?.from ?? todayIso(), 1),
     price_mode: (b?.price_mode ?? 'person') as 'person' | 'group', rate: b?.rate != null ? String(b.rate) : '', currency: (b?.currency ?? 'USD') as Currency, note: b?.note ?? '', time_from: b?.time_from ?? '', time_to: b?.time_to ?? '',
   }));
   // an event may repeat every week on chosen weekdays between its first and last day (never a stay)
@@ -276,7 +317,7 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
   const [allocs, setAllocs] = useState<Map<number, number | null>>(() => {
     const m = new Map<number, number | null>();
     for (const a of data.allocs.filter((x) => x.booking_id === b?.id)) m.set(a.room_id, a.beds);
-    if (!b && start.room) m.set(start.room, null);
+    if (!b) for (const r of start.start?.rooms ?? []) m.set(r, null);
     return m;
   });
   const [lines, setLines] = useState<Line[]>(() => data.lines.filter((l) => l.booking_id === b?.id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: String(l.qty), amount: String(l.amount), currency: l.currency })));

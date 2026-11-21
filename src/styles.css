@@ -901,3 +901,9 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-yg i { aspect-ratio: 1; border-radius: 2px; background: var(--line); opacity: 0.6; }
 .host-yg i.off { background: none; }
 .host-yg i.today { outline: 2px solid var(--brand-2); opacity: 1; }
+
+/* choosing days by dragging (22 November 2026) */
+.host-grid.dragging { user-select: none; cursor: crosshair; }
+.host-grid td.sel { outline: 2px solid var(--brand-2); outline-offset: -2px; background: color-mix(in srgb, var(--brand-2) 22%, #fff); }
+.host-md.sel { outline: 2px solid var(--brand-2); outline-offset: -2px; background: color-mix(in srgb, var(--brand-2) 14%, var(--panel)); }
+.host-month { user-select: none; }

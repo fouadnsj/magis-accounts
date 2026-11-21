@@ -73,3 +73,10 @@ Build only when Fouad says "build".
   salaries, machine maintenance, fuel, alternative energy, daily labour, seasonal labour (pruning), fertilizers, pesticides.
   → put in the next build (0.11.5 or with 0.12.0).
 - 0.12.0 (his notes to come): accommodation + calendar sections on/off per centre, booking statuses, services list, suggested payments, offline phone calendar.
+
+## 0.12.0 — Fouad's decisions (21 Nov 2026)
+- **Prices of accommodation are seen only by the Superior, the Accountant and whoever holds the calendar ("keeps the calendar" tick).** The reception person sees bookings, rooms, dates, people, status — never the agreed amounts or payments. (Hide in the server answer too, not only on screen, and on the phone copy.)
+- **Phone offline:** a booking made offline is ALWAYS "to confirm" until the phone reaches the server. On sync, a window lists each offline booking with its status: no conflict → "Confirm"; room/date already taken → change dates or rooms; plus a reminder to call the person who asked.
+- Per-section on/off for the centre: Inventory, Calendar/accommodation (events too). Booking statuses: to confirm → confirmed → arrived → left → cancelled (from the website calendar).
+- Price per person per night (usual) or fixed price per group; services list editable in Settings (breaks, logistics, heating…).
+- Payments of a booking = suggestions the accountant turns into income entries (like the inventory "To register"); same idea later for salaries (needs a send from HR to the centre).

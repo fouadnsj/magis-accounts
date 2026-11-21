@@ -12,7 +12,7 @@ Build only when Fouad says "build".
 
 ### The welcome page
 - The **badges at the top are the doors** (no scrolling), each with its own animation; the three big cards are gone.
-- The **Jesuit sun at the top is the Jesuits' badge**, with *Ad Majorem Dei Gloriam* and, on touch, لمجد الله الأعظم.
+- The **Jesuit sun at the top is the Jesuits' badge**: no name (it is in the logo), **لمجد الله الأعظم** and *Ad Majorem Dei Gloriam* always shown, then *Sign in*.
 - Each house's **sentence is back** (shown when touched; always on a phone).
 - The **"Welcome" block in the middle is gone.**
 - The charter's Arabic starts with **نحلم** (without «فإنّنا»).
@@ -46,9 +46,10 @@ Build only when Fouad says "build".
 - Checklist: `TEST-2026-11-14.md`, section 17 (several databases on one phone).
 
 ## 3. Questions waiting for Fouad
-- **Money from the Province to a community:** "I received" (73100–73300), or a movement in the **account at the Province treasury**
-  (Promised → On the way → Received)? Which does he use?
-- The Arabic **لمجد الله الأعظم** under the Jesuit badge (today only on touch/hover; the Latin is always shown).
+- (Answered 21 November) Money from the Province reaches a community by **"I received"**, as a **donation** or an **opening
+  balance**: no change. The account at the Province treasury is for the regional/country level, not used yet.
+- (Answered 21 November) The Jesuit badge shows **لمجد الله الأعظم** and *Ad Majorem Dei Gloriam* **always**, and no name
+  ("Jesuits · اليسوعيون": it is already in the logo). Done.
 - The Coordinator should enter the Al-Ard database from the "MAGIS centres" door: confirm it is the right place for it.
 
 ## 4. Ideas kept for later (not done)

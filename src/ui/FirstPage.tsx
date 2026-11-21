@@ -63,9 +63,9 @@ function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: bool
       {jesuits ? (
         <button type="button" className="mg-badge mg-sunbtn" onClick={() => onPick('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
           {sun}
-          <b>{t3('اليسوعيون', 'Jesuits', 'Jésuites')}</b>
+          {/* the name is already in the logo (Fouad, 21 November 2026): only the Jesuits' sentence, always shown, and the way in */}
+          <Said msg={AMDG} className="mg-amdg" />
           <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
-          <Said msg={AMDG} className="mg-door-said" />
         </button>
       ) : <div className="mg-sunbtn">{sun}</div>}
       <div className="mg-o-houses">

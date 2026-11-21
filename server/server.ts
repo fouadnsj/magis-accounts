@@ -49,7 +49,7 @@ import type { Trx, TrxType } from '../src/domain/types';
 import { mayPhone, pairPhone, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
 import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
 
-export const SERVER_VERSION = '0.11.0';
+export const SERVER_VERSION = '0.11.1';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 

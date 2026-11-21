@@ -553,6 +553,91 @@ function ReviewBox({ data, onClose, refresh, onChange }: { data: HostData; onClo
   );
 }
 
+// ---------------------------------------------------------------- the busiest months and days (a dynamic view)
+
+/** the months as bars (choose what they show), the busiest marked; click a month: its days, the busiest days, the weekday pattern */
+function BusyView({ r, onOpen }: { r: ReturnType<typeof report>; onOpen: (b: HostBooking) => void }) {
+  const [metric, setMetric] = useState<'bed' | 'people' | 'bookings'>('bed');
+  const [sel, setSel] = useState<string | null>(null);
+  const [day, setDay] = useState<string | null>(null);
+  const value = (m: (typeof r.months)[number]) => (metric === 'bed' ? m.bedPct : metric === 'people' ? m.personNights : m.bookings);
+  const label = (v: number) => (metric === 'bed' ? `${v}%` : String(v));
+  const max = Math.max(0, ...r.months.map(value));
+  const busiest = max > 0 ? r.months.find((m) => value(m) === max) : null;
+  const ranked = [...r.months].filter((m) => value(m) > 0).sort((x, y) => value(y) - value(x)).slice(0, 3);
+  const days = sel ? r.days.filter((x) => x.day.startsWith(sel)) : r.days;
+  const heat = (x: (typeof r.days)[number]) => (x.bedPct > 0 ? `color-mix(in srgb, var(--centre) ${Math.round(20 + Math.min(100, x.bedPct) * 0.8)}%, #fff)` : x.events ? 'color-mix(in srgb, var(--brand-2) 12%, #fff)' : undefined);
+  const top = [...days].filter((x) => x.stays + x.events > 0).sort((x, y) => y.bedPct - x.bedPct || y.people - x.people || y.events - x.events).slice(0, 5);
+  const wmax = Math.max(0, ...(sel ? [0, 1, 2, 3, 4, 5, 6].map((w) => { const xs = days.filter((x) => x.weekday === w); return xs.length ? xs.reduce((n, x) => n + x.bedPct, 0) / xs.length : 0; }) : r.weekdays.map((w) => w.bedPct)));
+  const wday = [0, 1, 2, 3, 4, 5, 6].map((w) => { const xs = days.filter((x) => x.weekday === w); return { w, pct: xs.length ? Math.round((xs.reduce((n, x) => n + x.bedPct, 0) / xs.length) * 10) / 10 : 0, busy: xs.filter((x) => x.stays + x.events > 0).length }; });
+  const lead = sel ? new Date(`${sel}-01T00:00:00Z`).getUTCDay() : 0;
+  const picked = day ? r.days.find((x) => x.day === day) : null;
+  return (
+    <>
+      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0 }}>{t('الأشهر الأكثر ازدحاماً', 'Busiest months')}</h3>
+        <select value={metric} onChange={(e) => setMetric(e.target.value as typeof metric)}>
+          <option value="bed">{t('إشغال الأسرّة %', 'Bed occupancy %')}</option><option value="people">{t('شخص-ليلة', 'Person-nights')}</option><option value="bookings">{t('عدد الحجوزات', 'Number of bookings')}</option>
+        </select>
+        {sel && <button className="btn ghost small" onClick={() => { setSel(null); setDay(null); }}>✕ {monthName(sel)}</button>}
+      </div>
+      {busiest ? <p className="small">★ {t('الأكثر ازدحاماً', 'Busiest')}: <b>{monthName(busiest.month)}</b> ({label(value(busiest))}){ranked.length > 1 && <> · {ranked.slice(1).map((m) => `${monthName(m.month).replace(/\s?\d{4}/, '')} ${label(value(m))}`).join(' · ')}</>}. {t('اضغط شهراً لترى أيامه.', 'Click a month to see its days.')}</p> : <p className="muted small">{t('لا شيء في هذه الفترة', 'Nothing in this period')}</p>}
+      <div className="host-bars">
+        {r.months.map((m) => {
+          const v = value(m);
+          return (
+            <button key={m.month} type="button" className={`host-bar2 ${sel === m.month ? 'on' : ''} ${busiest?.month === m.month ? 'top' : ''}`} onClick={() => { setSel(sel === m.month ? null : m.month); setDay(null); }} title={`${monthName(m.month)}: ${label(v)}`}>
+              <small>{v ? label(v) : ''}</small>
+              <i style={{ height: `${max ? Math.max(v ? 4 : 0, (v / max) * 100) : 0}%` }} />
+              <span>{busiest?.month === m.month ? '★ ' : ''}{monthName(m.month).replace(/\s?\d{4}/, '').slice(0, 3)}</span>
+            </button>
+          );
+        })}
+      </div>
+      {sel && (
+        <div className="panel">
+          <h3 style={{ marginTop: 0 }}>{monthName(sel)}</h3>
+          <div className="host-month host-heat">
+            {Array.from({ length: 7 }, (_, i) => <div key={i} className="host-mh">{weekday(i)}</div>)}
+            {[...Array<null>(lead).fill(null), ...days].map((x, i) => x ? (
+              <div key={x.day} className={`host-md ${day === x.day ? 'sel' : ''}`} style={{ background: heat(x), minHeight: 54 }} onClick={() => setDay(day === x.day ? null : x.day)} title={x.groups.map((g) => g.group_name).join('، ')}>
+                <div className="host-mn"><b>{Number(x.day.slice(8))}</b>{x.bedPct > 0 && <small>{x.bedPct}%</small>}</div>
+                <small>{x.people ? `${x.people} ${t('شخص', 'p.')}` : ''}{x.events ? ` ▸${x.events}` : ''}</small>
+              </div>
+            ) : <div key={`o${i}`} className="host-md off" />)}
+          </div>
+          {picked && (
+            <p className="small"><b>{fmtDate(picked.day)}</b>: {picked.groups.length ? picked.groups.map((g) => <button key={g.id} type="button" className="btn ghost small" onClick={() => onOpen(g)}>{g.kind === 'event' ? '▸ ' : ''}{g.group_name} ({g.people})</button>) : t('لا أحد', 'nobody')}</p>
+          )}
+        </div>
+      )}
+      <div className="host-two">
+        <div>
+          <h4>{t('أكثر الأيام ازدحاماً', 'Busiest days')}{sel ? ` · ${monthName(sel)}` : ''}</h4>
+          <table className="t small"><tbody>
+            {top.map((x) => <tr key={x.day} style={{ cursor: 'pointer' }} onClick={() => { setSel(x.day.slice(0, 7)); setDay(x.day); }}><td>{weekday(x.weekday)} {fmtDate(x.day)}</td><td className="n">{x.bedPct ? `${x.bedPct}%` : ''}</td><td className="n">{x.people ? `${x.people} ${t('شخص', 'people')}` : ''}</td><td>{x.events ? `▸ ${x.events} ${t('نشاط', 'event(s)')}` : ''}</td><td className="muted">{x.groups.slice(0, 3).map((g) => g.group_name).join('، ')}</td></tr>)}
+            {!top.length && <tr><td className="muted">—</td></tr>}
+          </tbody></table>
+        </div>
+        <div>
+          <h4>{t('الأسبوع: متوسط الإشغال لكل يوم', 'Week: average occupancy by weekday')}{sel ? ` · ${monthName(sel)}` : ''}</h4>
+          <div className="host-wd">
+            {wday.map((w) => (
+              <div key={w.w} title={`${weekday(w.w)}: ${w.pct}% · ${w.busy} ${t('يوماً مشغولاً', 'busy days')}`}>
+                <small>{w.pct ? `${w.pct}%` : ''}</small>
+                <i style={{ height: `${wmax ? Math.max(w.pct ? 4 : 0, (w.pct / wmax) * 100) : 0}%` }} />
+                <span>{weekday(w.w)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="tbl-wrap"><table className="t small"><thead><tr><th>{t('الشهر', 'Month')}</th><th className="n">{t('حجوزات', 'Bookings')}</th><th className="n">{t('ليالٍ', 'Nights')}</th><th className="n">{t('شخص-ليلة', 'Person-nights')}</th><th className="n">{t('أيام أنشطة', 'Event days')}</th><th className="n">{t('إشغال الأسرّة', 'Bed %')}</th></tr></thead>
+        <tbody>{r.months.map((m) => <tr key={m.month} style={{ cursor: 'pointer' }} onClick={() => { setSel(m.month); setDay(null); }}><td>{busiest?.month === m.month ? '★ ' : ''}{monthName(m.month)}</td><td className="n">{m.bookings || ''}</td><td className="n">{m.nights || ''}</td><td className="n">{m.personNights || ''}</td><td className="n">{m.eventDays || ''}</td><td className="n">{m.bedPct ? `${m.bedPct}%` : ''}</td></tr>)}</tbody></table></div>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- reports
 
 /** accommodation and events over a period: totals, months, buildings, and how many bookings each group and each person made */
@@ -606,9 +691,7 @@ function ReportTab({ data, onOpen }: { data: HostData; onOpen: (b: HostBooking) 
         {data.prices && card(t('المتفق عليه', 'Agreed'), fmtTotals(sm.amounts.agreed), `${t('المقبوض في الفترة', 'received in the period')}: ${fmtTotals(sm.amounts.paid)}`)}
       </div>
 
-      <h3>{t('حسب الشهر', 'By month')}</h3>
-      <div className="tbl-wrap"><table className="t small"><thead><tr><th>{t('الشهر', 'Month')}</th><th className="n">{t('حجوزات', 'Bookings')}</th><th className="n">{t('ليالٍ', 'Nights')}</th><th className="n">{t('شخص-ليلة', 'Person-nights')}</th><th className="n">{t('أيام أنشطة', 'Event days')}</th><th className="n">{t('إشغال الأسرّة', 'Bed %')}</th></tr></thead>
-        <tbody>{r.months.map((m) => <tr key={m.month}><td>{monthName(m.month)}</td><td className="n">{m.bookings || ''}</td><td className="n">{m.nights || ''}</td><td className="n">{m.personNights || ''}</td><td className="n">{m.eventDays || ''}</td><td className="n">{m.bedPct ? `${m.bedPct}%` : ''}</td></tr>)}</tbody></table></div>
+      <BusyView r={r} onOpen={onOpen} />
 
       <h3>{t('حسب المبنى', 'By building')}</h3>
       <div className="tbl-wrap"><table className="t small"><thead><tr><th>{t('المبنى', 'Building')}</th><th className="n">{t('حجوزات', 'Bookings')}</th><th className="n">{t('سرير-ليلة', 'Bed-nights')}</th><th className="n">{t('إشغال الأسرّة', 'Bed %')}</th><th className="n">{t('أيام القاعات', 'Hall days')}</th></tr></thead>

@@ -260,6 +260,8 @@ export function knownNames(bookings: Pick<HostBooking, 'group_name' | 'contact' 
   return { groups, people };
 }
 
+/** one day of a report: the beds used, the people in the rooms, how many stays and events, and who */
+export interface DayFigure { day: string; weekday: number; bedUsed: number; bedPct: number; people: number; stays: number; events: number; groups: HostBooking[] }
 export interface ReportOpts { from: string; to: string; kind: BookingKind | 'all'; /** count the bookings still "to confirm" */ withOptions: boolean }
 export interface Amounts { agreed: Totals; paid: Totals }
 const zero = (): Totals => ({ USD: 0, SYP: 0 });
@@ -333,6 +335,15 @@ export function report(d: HostData, o: ReportOpts) {
     const pk = nameKey(b.contact);
     if (pk) { const p = personMap.get(pk) ?? { name: (b.contact ?? '').trim(), phone: null, bookings: 0, groups: new Set<string>(), last: b.from_day }; p.bookings++; p.groups.add(b.group_name.trim()); p.last = b.from_day; if (b.phone) p.phone = b.phone; personMap.set(pk, p); }
   }
+  // day by day: the beds used, the people, the groups present (for the busiest days and the weekday pattern)
+  const ocStay = occupancy({ bookings: counted.filter((b) => b.kind === 'stay'), allocs: d.allocs, rooms: d.rooms }, bedRooms);
+  const ocEvent = occupancy({ bookings: counted.filter((b) => b.kind === 'event'), allocs: d.allocs, rooms: d.rooms }, hallRooms);
+  const days: DayFigure[] = [];
+  for (let day = o.from; day <= o.to && days.length < 1100; day = addDays(day, 1)) {
+    const st = ocStay.days.get(day), ev = ocEvent.days.get(day);
+    days.push({ day, weekday: new Date(`${day}T00:00:00Z`).getUTCDay(), bedUsed: st?.used ?? 0, bedPct: ocStay.total && st ? Math.round((st.used / ocStay.total) * 1000) / 10 : 0, people: st ? st.groups.reduce((n, b) => n + b.people, 0) : 0, stays: st?.groups.length ?? 0, events: ev?.groups.length ?? 0, groups: [...(st?.groups ?? []), ...(ev?.groups ?? [])] });
+  }
+  const weekdays = [0, 1, 2, 3, 4, 5, 6].map((w) => { const xs = days.filter((x) => x.weekday === w); return { weekday: w, bedPct: xs.length ? Math.round((xs.reduce((n, x) => n + x.bedPct, 0) / xs.length) * 10) / 10 : 0, people: xs.length ? Math.round((xs.reduce((n, x) => n + x.people, 0) / xs.length) * 10) / 10 : 0, busy: xs.filter((x) => x.stays + x.events > 0).length }; });
   const groups = [...groupMap.values()].sort((x, y) => y.bookings - x.bookings || x.name.localeCompare(y.name));
   const people = [...personMap.values()].sort((x, y) => y.bookings - x.bookings || x.name.localeCompare(y.name));
   const totals = rows.reduce((a, r) => ({ agreed: plus(a.agreed, totalOf(r.b)), paid: plus(a.paid, d.prices ? paidIn(r.b.id) : zero()) }), { agreed: zero(), paid: zero() } as Amounts);
@@ -343,7 +354,7 @@ export function report(d: HostData, o: ReportOpts) {
       nights, personNights, eventDays, cancelled, spanDays,
       bed: occOf('stay', bedRooms, o.from, o.to), hall: occOf('event', hallRooms, o.from, o.to), amounts: totals,
     },
-    months, buildings, groups, people, rows,
+    months, buildings, groups, people, rows, days, weekdays,
   };
 }
 

@@ -385,8 +385,42 @@ describe('names and the report', () => {
     const all = report(data, { from: '2027-01-01', to: '2027-01-31', kind: 'all', withOptions: false });
     expect(all.people[0]).toMatchObject({ name: 'Rim', bookings: 2 });
     expect([...all.people[0].groups].sort()).toEqual(['Choir', 'Scouts']);
+    // day by day: Scouts hold all 4 beds on 1, 2 and 3 January (a Friday, Saturday, Sunday)
+    const jan = report(data, { from: '2027-01-01', to: '2027-01-31', kind: 'all', withOptions: false });
+    expect(jan.days.length).toBe(31);
+    expect(jan.days.slice(0, 4).map((x) => x.bedPct)).toEqual([100, 100, 100, 0]);
+    expect(jan.days[0]).toMatchObject({ people: 4, stays: 1, events: 0 });
+    expect(jan.days[5]).toMatchObject({ day: '2027-01-06', events: 1, stays: 0 }); // the Choir's Wednesday
+    expect([...jan.days].sort((x, y) => y.bedPct - x.bedPct)[0].bedPct).toBe(100);
+    // the weekday pattern: Fridays 1, 8, 15, 22, 29 January: only the 1st is full → 20 %
+    expect(jan.weekdays.find((w) => w.weekday === 5)?.bedPct).toBe(20);
+    expect(jan.weekdays.find((w) => w.weekday === 3)?.busy).toBe(1);
     // a person who does not keep the calendar gets no amount
     const none = report({ ...data, prices: false, lines: [], pays: [] }, { from: '2027-01-01', to: '2027-01-31', kind: 'all', withOptions: false });
     expect(none.summary.amounts.agreed).toEqual({ USD: 0, SYP: 0 });
+  });
+
+  it('the Excel file has the busiest months and days, one row per day, and no amount for those who do not see prices', async () => {
+    const { hostWorkbook } = await import('../src/io/hostFile');
+    const ExcelJS = (await import('exceljs')).default;
+    const read = async (d: HostData) => { const wb = new ExcelJS.Workbook(); await wb.xlsx.load((await hostWorkbook(d, { from: '2027-01-01', to: '2027-02-28', kind: 'all', withOptions: false }, 'Al-Ard')).buffer as ArrayBuffer); return wb; };
+    const wb = await read(data);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Summary', 'By month', 'Busiest', 'By day', 'By building', 'Groups', 'People', 'Bookings']);
+    // January is the fullest month: rank 1
+    const months = wb.getWorksheet('By month')!;
+    expect(months.getRow(2).getCell(1).value).toBe('2027-01');
+    expect(months.getRow(2).getCell(7).value).toBe(1);
+    const busiest = wb.getWorksheet('Busiest')!;
+    expect(busiest.getRow(3).getCell(2).value).toBe('2027-01');
+    // one row per day of the two months, the first three at 100 %
+    const days = wb.getWorksheet('By day')!;
+    expect(days.rowCount).toBe(1 + 31 + 28);
+    expect([2, 3, 4].map((i) => days.getRow(i).getCell(3).value)).toEqual([100, 100, 100]);
+    expect(days.getRow(2).getCell(8).value).toBe('Scouts');
+    // without prices: no Agreed / Paid columns
+    const plain = await read({ ...data, prices: false, lines: [], pays: [] } as HostData);
+    expect(plain.getWorksheet('Groups')!.getRow(1).values).not.toContain('Agreed');
+    expect(plain.getWorksheet('Bookings')!.getRow(1).values).not.toContain('Agreed');
+    expect(wb.getWorksheet('Groups')!.getRow(1).values).toContain('Agreed');
   });
 });

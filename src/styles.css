@@ -913,3 +913,18 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-card { margin: 0; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }
 .host-card b { font-size: 22px; }
 .host-sub { background: color-mix(in srgb, var(--centre) 6%, var(--panel)); cursor: pointer; }
+
+/* the busiest months and days */
+.host-bars { display: flex; gap: 6px; align-items: stretch; height: 170px; margin: 6px 0 12px; }
+.host-bar2 { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; border: 1px solid transparent; border-radius: 6px; background: none; padding: 2px 2px 0; cursor: pointer; font: inherit; color: var(--ink); }
+.host-bar2 i { display: block; width: 100%; max-width: 46px; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--centre) 55%, #fff); }
+.host-bar2.top i { background: var(--centre); }
+.host-bar2.on { border-color: var(--brand-2); background: color-mix(in srgb, var(--brand-2) 8%, transparent); }
+.host-bar2 small { font-size: 11px; height: 14px; }
+.host-bar2 span { font-size: 11px; color: var(--muted); height: 16px; }
+.host-heat .host-md { cursor: pointer; }
+.host-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 8px; }
+.host-wd { display: flex; gap: 6px; height: 130px; align-items: stretch; }
+.host-wd > div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; }
+.host-wd i { display: block; width: 100%; max-width: 40px; border-radius: 4px 4px 0 0; background: var(--centre); }
+.host-wd small { font-size: 11px; height: 14px; } .host-wd span { font-size: 11px; color: var(--muted); }

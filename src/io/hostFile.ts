@@ -4,6 +4,7 @@ import ExcelJS from 'exceljs';
 import { nightsOf, report, type HostData, type ReportOpts, type Totals } from '../hosting/host';
 
 const STATUS: Record<string, string> = { option: 'To confirm', confirmed: 'Confirmed', arrived: 'Arrived', left: 'Left', cancelled: 'Cancelled' };
+const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const tot = (x: Totals) => [x.USD ? `USD ${x.USD}` : '', x.SYP ? `SYP ${x.SYP}` : ''].filter(Boolean).join(' + ');
 
 export async function hostWorkbook(data: HostData, o: ReportOpts, organisation: string): Promise<Uint8Array> {
@@ -29,10 +30,39 @@ export async function hostWorkbook(data: HostData, o: ReportOpts, organisation: 
   sm.getColumn(1).font = { bold: true };
   widths(sm, [34, 40]);
 
+  // a colour from white to green: the fuller, the greener (bed occupancy and the like)
+  const scale = (ws: ExcelJS.Worksheet, ref: string) => ws.addConditionalFormatting({ ref, rules: [{ type: 'colorScale', priority: 1, cfvo: [{ type: 'min' }, { type: 'max' }], color: [{ argb: 'FFFFFFFF' }, { argb: 'FF63BE7B' }] }] });
+
   const mo = wb.addWorksheet('By month');
-  mo.addRow(['Month', 'Bookings', 'Nights', 'Person-nights', 'Event days', 'Bed occupancy %']);
-  for (const m of r.months) mo.addRow([m.month, m.bookings, m.nights, m.personNights, m.eventDays, m.bedPct]);
-  head(mo); widths(mo, [12, 10, 10, 14, 12, 16]);
+  mo.addRow(['Month', 'Bookings', 'Nights', 'Person-nights', 'Event days', 'Bed occupancy %', 'Busiest (rank by bed %)']);
+  const rank = [...r.months].sort((a, b) => b.bedPct - a.bedPct || b.personNights - a.personNights);
+  for (const m of r.months) mo.addRow([m.month, m.bookings, m.nights, m.personNights, m.eventDays, m.bedPct, m.bedPct > 0 || m.personNights > 0 ? rank.indexOf(m) + 1 : '']);
+  head(mo); widths(mo, [12, 10, 10, 14, 12, 16, 22]);
+  if (r.months.length) { scale(mo, `F2:F${r.months.length + 1}`); scale(mo, `D2:D${r.months.length + 1}`); }
+
+  // the busiest days of the period, and the pattern of the week
+  const bz = wb.addWorksheet('Busiest');
+  bz.addRow(['Busiest months']);
+  bz.addRow(['Rank', 'Month', 'Bed occupancy %', 'Person-nights', 'Bookings']);
+  rank.filter((m) => m.bedPct > 0 || m.personNights > 0).slice(0, 12).forEach((m, i) => bz.addRow([i + 1, m.month, m.bedPct, m.personNights, m.bookings]));
+  bz.addRow([]);
+  bz.addRow(['Busiest days (top 20)']);
+  bz.addRow(['Date', 'Weekday', 'Bed occupancy %', 'People', 'Stays', 'Events', 'Groups']);
+  [...r.days].filter((x) => x.stays + x.events > 0).sort((a, b) => b.bedPct - a.bedPct || b.people - a.people || b.events - a.events).slice(0, 20)
+    .forEach((x) => bz.addRow([x.day, WEEKDAY[x.weekday], x.bedPct, x.people, x.stays, x.events, x.groups.map((g) => g.group_name).join(', ')]));
+  bz.addRow([]);
+  bz.addRow(['The week: average by weekday']);
+  bz.addRow(['Weekday', 'Average bed occupancy %', 'Average people', 'Days with someone']);
+  for (const w of r.weekdays) bz.addRow([WEEKDAY[w.weekday], w.bedPct, w.people, w.busy]);
+  for (const rowNo of [1, 2 + Math.min(12, rank.filter((m) => m.bedPct > 0 || m.personNights > 0).length) + 2]) bz.getRow(rowNo).font = { bold: true };
+  widths(bz, [14, 14, 18, 14, 10, 10, 50]);
+
+  const dy = wb.addWorksheet('By day');
+  dy.addRow(['Date', 'Weekday', 'Bed occupancy %', 'Beds used', 'People', 'Stays', 'Events', 'Groups']);
+  for (const x of r.days) dy.addRow([x.day, WEEKDAY[x.weekday], x.bedPct, x.bedUsed, x.people, x.stays, x.events, x.groups.map((g) => g.group_name).join(', ')]);
+  head(dy); widths(dy, [12, 12, 16, 11, 9, 8, 8, 60]);
+  dy.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 8 } };
+  if (r.days.length) { scale(dy, `C2:C${r.days.length + 1}`); scale(dy, `E2:E${r.days.length + 1}`); }
 
   const bd = wb.addWorksheet('By building');
   bd.addRow(['Building', 'Bookings', 'Bed-nights used', 'Bed occupancy %', 'Hall days']);

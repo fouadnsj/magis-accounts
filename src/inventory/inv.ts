@@ -6,6 +6,7 @@
 import type { Lists, Trx } from '../domain/types';
 
 export interface InvCategory { id: number; name: string; serial: number; active: number; sort: number }
+export interface InvOriginRow { id: number; name: string; bought: number; active: number; sort: number }
 export interface InvPlace { id: number; name: string; active: number; sort: number }
 export interface InvSource { kind: 'heading' | 'line'; ref: number }
 export type InvCondition = 'good' | 'repair' | 'broken';
@@ -26,6 +27,8 @@ export interface InvItem {
   status: InvStatus;
   holder: string | null;
   origin: InvOrigin;
+  /** where it comes from, in the centre's own list */
+  origin_id: number | null;
   acquired_on: string | null;
   trx_id: string | null;
   party_id: number | null;
@@ -49,6 +52,7 @@ export interface InvSkip { trx_id: string; reason: string | null; who: string | 
 export interface InvData {
   categories: InvCategory[];
   places: InvPlace[];
+  origins: InvOriginRow[];
   items: InvItem[];
   moves: InvMove[];
   sources: InvSource[];
@@ -57,6 +61,8 @@ export interface InvData {
   photos: InvPhoto[];
   /** the label's beginning (JAR → JAR-0001) */
   prefix: string;
+  /** what a QR label holds besides the label: the fields chosen in the settings */
+  qr: string[];
 }
 
 /** What the main `data` call carries, for the badge, the entry form and the list of purchases still to register. */
@@ -65,6 +71,18 @@ export interface InvLite {
   /** the purchase entries already listed (an item, or "not an item") */
   done: string[];
 }
+
+/** What a QR label may hold (the label itself is always first, so a scan always finds the item) */
+export const QR_FIELDS = ['name', 'serial', 'category', 'place', 'date'] as const;
+export type QrField = (typeof QR_FIELDS)[number];
+
+/** The text of an item's QR: its label, then the chosen fields, separated by " | " (empty ones are left out). */
+export function qrText(i: Pick<InvItem, 'code' | 'name' | 'serial' | 'acquired_on'>, fields: string[], names: { category?: string | null; place?: string | null } = {}): string {
+  const v: Record<string, string | null | undefined> = { name: i.name, serial: i.serial, category: names.category, place: names.place, date: i.acquired_on };
+  return [i.code, ...QR_FIELDS.filter((f) => fields.includes(f)).map((f) => (v[f] ?? '').toString().trim()).filter(Boolean)].join(' | ');
+}
+/** The label inside a scanned text (the first part, whatever else the QR holds). */
+export const codeFromScan = (text: string) => text.split(/\s*\|\s*|\r?\n/)[0].trim();
 
 export const CONDITIONS: InvCondition[] = ['good', 'repair', 'broken'];
 export const ORIGINS: InvOrigin[] = ['bought', 'gift', 'old'];

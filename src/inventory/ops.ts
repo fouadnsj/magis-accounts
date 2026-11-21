@@ -6,8 +6,8 @@ import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
-  CONDITIONS, nextCodes, ORIGINS, prefixFor,
-  type InvCategory, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
+  CONDITIONS, nextCodes, prefixFor, QR_FIELDS,
+  type InvCategory, type InvOriginRow, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
 } from './inv';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', "Non autorisé pour cet utilisateur"));
@@ -19,6 +19,8 @@ const isDay = (x: unknown): x is string => typeof x === 'string' && /^\d{4}-\d{2
 const today = () => nowIso().slice(0, 10);
 const money = (x: unknown) => (x == null || x === '' ? null : Math.max(0, Math.round(Number(x) * 100) / 100));
 
+const qrOf = (raw: string | null): string[] => { try { const x = JSON.parse(raw ?? '[]'); return Array.isArray(x) ? x.filter((f) => (QR_FIELDS as readonly string[]).includes(f)) : []; } catch { return []; } };
+
 async function prefixOf(c: OpCtx): Promise<string> {
   return (await getMeta(c.db, 'inv_prefix')) || prefixFor(await getMeta(c.db, 'centre'));
 }
@@ -27,12 +29,14 @@ async function load(c: OpCtx): Promise<InvData> {
   return {
     categories: await c.db.query<InvCategory>('SELECT * FROM inv_category ORDER BY sort, name'),
     places: await c.db.query<InvPlace>('SELECT * FROM inv_place ORDER BY sort, name'),
+    origins: await c.db.query<InvOriginRow>('SELECT * FROM inv_origin ORDER BY sort, id'),
     items: await c.db.query<InvItem>('SELECT * FROM inv_item ORDER BY code'),
     moves: await c.db.query<InvMove>('SELECT * FROM inv_move ORDER BY id'),
     sources: await c.db.query<InvSource>('SELECT kind, ref FROM inv_source'),
     skips: await c.db.query<InvSkip>('SELECT * FROM inv_skip'),
     photos: await c.db.query<InvPhoto>('SELECT id, item_id, created_at FROM inv_photo WHERE deleted_at IS NULL ORDER BY created_at'),
     prefix: await prefixOf(c),
+    qr: qrOf(await getMeta(c.db, 'inv_qr')),
   };
 }
 
@@ -56,7 +60,8 @@ export interface ItemInput {
   serial?: string | null;
   condition?: string;
   holder?: string | null;
-  origin?: string;
+  /** where it comes from: one of the centre's origins (not "bought": that is made by a purchase entry) */
+  origin_id?: number | null;
   acquired_on?: string | null;
   trx_id?: string | null;
   party_id?: number | null;
@@ -84,11 +89,21 @@ function clean(a: ItemInput) {
   const qty = Math.round(Number(a.qty ?? 1));
   if (!(qty >= 1) || qty > 100000) throw new UserError(m('العدد يجب أن يكون 1 أو أكثر', 'The number must be 1 or more', 'Le nombre doit être 1 ou plus'));
   const condition = CONDITIONS.find((x) => x === a.condition) ?? 'good';
-  const origin = ORIGINS.find((x) => x === a.origin) ?? 'bought';
   const acquired = a.acquired_on && isDay(a.acquired_on) ? a.acquired_on : null;
   if (a.acquired_on && !acquired) throw new UserError(m('تاريخ غير صالح', 'Not a valid date', 'Date non valide'));
   const value = money(a.value_usd);
-  return { name, qty, condition, origin, acquired, value };
+  return { name, qty, condition, acquired, value };
+}
+
+/** the origin of an item: a purchase entry makes it "bought"; otherwise one of the centre's other origins (the first if none is chosen) */
+async function originFor(c: OpCtx, id: number | null | undefined, linked: boolean): Promise<{ id: number; cls: 'bought' | 'gift' }> {
+  if (linked) {
+    const b = await one<{ id: number }>(c.db, 'SELECT id FROM inv_origin WHERE bought = 1');
+    return { id: b?.id ?? 1, cls: 'bought' };
+  }
+  const o = id != null ? await one<{ id: number; bought: number; active: number }>(c.db, 'SELECT id, bought, active FROM inv_origin WHERE id = ?', [id]) : await one<{ id: number; bought: number; active: number }>(c.db, 'SELECT id, bought, active FROM inv_origin WHERE bought = 0 AND active = 1 ORDER BY sort, id');
+  if (!o || o.bought) throw new UserError(m('اختر مصدر الغرض (هدية، قديم…)', 'Choose where the item comes from (gift, old…)', "Choisissez d'où vient l'objet (don, ancien…)"));
+  return { id: o.id, cls: 'gift' };
 }
 
 const moveStmt = (itemId: number, kind: string, who: string, o: { date?: string; place_id?: number | null; holder?: string | null; note?: string | null } = {}): Stmt => ({
@@ -118,6 +133,7 @@ async function addItems(c: OpCtx, inputs: ItemInput[], trxId: string | null): Pr
   for (const [i, a] of inputs.entries()) {
     await checkRefs(c, a);
     const v = clean(a);
+    const og = await originFor(c, a.origin_id, !!trxId);
     const serial = txt(a.serial);
     if (serial) {
       if (serials.has(serial.toLowerCase())) throw new UserError(m(`الرقم التسلسلي ${serial} مكرّر`, `The serial number ${serial} is written twice`, `Le numéro de série ${serial} est écrit deux fois`));
@@ -130,11 +146,11 @@ async function addItems(c: OpCtx, inputs: ItemInput[], trxId: string | null): Pr
     const id = base + i + 1;
     ids.push(id);
     stmts.push(
-      { sql: `INSERT INTO inv_item (id, code, name, category_id, place_id, qty, brand, model, serial, condition, status, holder, origin, acquired_on, trx_id, party_id, value_usd, value_note, note, created_at, created_by)
-              VALUES (?,?,?,?,?,?,?,?,?,?,'in_use',?,?,?,?,?,?,?,?,?,?)`,
-        params: [id, code, v.name, a.category_id ?? null, a.place_id ?? null, v.qty, txt(a.brand), txt(a.model), serial, v.condition, txt(a.holder), trxId ? 'bought' : v.origin,
+      { sql: `INSERT INTO inv_item (id, code, name, category_id, place_id, qty, brand, model, serial, condition, status, holder, origin, origin_id, acquired_on, trx_id, party_id, value_usd, value_note, note, created_at, created_by)
+              VALUES (?,?,?,?,?,?,?,?,?,?,'in_use',?,?,?,?,?,?,?,?,?,?,?)`,
+        params: [id, code, v.name, a.category_id ?? null, a.place_id ?? null, v.qty, txt(a.brand), txt(a.model), serial, v.condition, txt(a.holder), og.cls, og.id,
           trxId ? (entry?.date ?? v.acquired) : v.acquired, trxId, a.party_id ?? entry?.party_id ?? null, v.value, txt(a.value_note), txt(a.note), nowIso(), c.who] },
-      moveStmt(id, 'added', c.who, { place_id: a.place_id, holder: txt(a.holder), note: trxId ? 'purchase' : v.origin }),
+      moveStmt(id, 'added', c.who, { place_id: a.place_id, holder: txt(a.holder), note: trxId ? 'purchase' : 'origin' }),
       auditStmt(c.who, 'add', 'inv_item', String(id), null, { code, name: v.name, qty: v.qty, trx: trxId }),
     );
   }
@@ -170,9 +186,10 @@ export const INV_OPS = {
       const v = clean(a);
       const serial = txt(a.serial);
       await checkSerial(c, serial, x.id);
+      const og = x.trx_id ? { id: x.origin_id, cls: 'bought' as const } : await originFor(c, a.origin_id ?? x.origin_id, false);
       const stmts: Stmt[] = [
-        { sql: `UPDATE inv_item SET name=?, category_id=?, qty=?, brand=?, model=?, serial=?, origin=?, acquired_on=?, party_id=?, value_usd=?, value_note=?, note=?, updated_at=? WHERE id=?`,
-          params: [v.name, a.category_id ?? null, v.qty, txt(a.brand), txt(a.model), serial, x.trx_id ? 'bought' : v.origin, v.acquired, a.party_id ?? null, v.value, txt(a.value_note), txt(a.note), nowIso(), x.id] },
+        { sql: `UPDATE inv_item SET name=?, category_id=?, qty=?, brand=?, model=?, serial=?, origin=?, origin_id=?, acquired_on=?, party_id=?, value_usd=?, value_note=?, note=?, updated_at=? WHERE id=?`,
+          params: [v.name, a.category_id ?? null, v.qty, txt(a.brand), txt(a.model), serial, og.cls, og.id, v.acquired, a.party_id ?? null, v.value, txt(a.value_note), txt(a.note), nowIso(), x.id] },
         auditStmt(c.who, 'update', 'inv_item', String(x.id), { name: x.name, qty: x.qty, serial: x.serial, value_usd: x.value_usd }, { name: v.name, qty: v.qty, serial, value_usd: v.value }),
       ];
       const place = a.place_id ?? null;
@@ -289,10 +306,10 @@ export const INV_OPS = {
   /** categories and places: add, rename, switch off (never deleted) */
   'inv.list.save': {
     check: manage,
-    run: async (c: OpCtx, a: { table: 'category' | 'place'; id?: number; name: string; serial?: boolean; active?: boolean }) => {
+    run: async (c: OpCtx, a: { table: 'category' | 'place' | 'origin'; id?: number; name: string; serial?: boolean; active?: boolean }) => {
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
-      const tbl = a.table === 'category' ? 'inv_category' : a.table === 'place' ? 'inv_place' : null;
+      const tbl = a.table === 'category' ? 'inv_category' : a.table === 'place' ? 'inv_place' : a.table === 'origin' ? 'inv_origin' : null;
       if (!tbl) throw new UserError(m('قائمة غير معروفة', 'Unknown list'));
       const dup = await one(c.db, `SELECT 1 FROM ${tbl} WHERE name = ? AND id <> ?`, [name, a.id ?? -1]);
       if (dup) throw new UserError(m('الاسم موجود', 'That name exists', 'Ce nom existe déjà'));
@@ -300,16 +317,27 @@ export const INV_OPS = {
       const active = a.active === false ? 0 : 1;
       const sort = ((await one<{ n: number }>(c.db, `SELECT COALESCE(MAX(sort), 0) AS n FROM ${tbl}`))?.n ?? 0) + 1;
       const stmts: Stmt[] = [];
+      if (a.table === 'origin' && a.id && active === 0 && (await one(c.db, 'SELECT 1 FROM inv_origin WHERE id = ? AND bought = 1', [a.id])))
+        throw new UserError(m('«مشترى» لا يُوقَف: يصنعه قيد الشراء', '"Bought" cannot be switched off: a purchase entry makes it', '« Acheté » ne se désactive pas : une écriture d’achat le fait'));
       if (a.id) stmts.push(a.table === 'category'
         ? { sql: 'UPDATE inv_category SET name = ?, serial = ?, active = ? WHERE id = ?', params: [name, serial, active, a.id] }
-        : { sql: 'UPDATE inv_place SET name = ?, active = ? WHERE id = ?', params: [name, active, a.id] });
+        : { sql: `UPDATE ${tbl} SET name = ?, active = ? WHERE id = ?`, params: [name, active, a.id] });
       else stmts.push(a.table === 'category'
         ? { sql: 'INSERT INTO inv_category (name, serial, sort) VALUES (?,?,?)', params: [name, serial, sort] }
-        : { sql: 'INSERT INTO inv_place (name, sort) VALUES (?,?)', params: [name, sort] });
+        : { sql: `INSERT INTO ${tbl} (name, sort) VALUES (?,?)`, params: [name, sort] });
       stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', tbl, a.id ? String(a.id) : null, null, { name, serial, active }));
       await c.db.batch(stmts);
       const id = a.id ?? (await one<{ id: number }>(c.db, `SELECT id FROM ${tbl} WHERE name = ?`, [name]))?.id ?? null;
       return { id };
+    },
+  },
+  /** what the QR labels hold besides the label itself */
+  'inv.qr': {
+    check: manage,
+    run: async (c: OpCtx, a: { fields: string[] }) => {
+      const fields = (Array.isArray(a.fields) ? a.fields : []).filter((f) => (QR_FIELDS as readonly string[]).includes(f));
+      await c.db.batch([setMetaStmt('inv_qr', JSON.stringify(fields)), auditStmt(c.who, 'update', 'inv_qr', null, null, { fields })]);
+      return { ok: true };
     },
   },
   'inv.prefix': {
@@ -384,6 +412,8 @@ export const INV_OPS = {
       const existing = await c.db.query<{ code: string; serial: string | null }>('SELECT code, serial FROM inv_item');
       const usedCodes = new Set(existing.map((x) => x.code.toLowerCase()));
       const usedSerials = new Set(existing.map((x) => (x.serial ?? '').toLowerCase()).filter(Boolean));
+      // an imported item is "old" (the seeded one if it is still there, else the first origin that is not "bought")
+      const oldId = (await one<{ id: number }>(c.db, 'SELECT id FROM inv_origin WHERE bought = 0 AND active = 1 ORDER BY (id = 3) DESC, sort, id'))?.id ?? null;
       const prefix = await prefixOf(c);
       const withCode = rows.filter((r) => txt(r.code)).map((r) => String(r.code));
       const fresh = nextCodes([...existing.map((x) => x.code), ...withCode], prefix, rows.length);
@@ -413,12 +443,13 @@ export const INV_OPS = {
         const sup = txt(r.supplier);
         const party = sup ? parties.get(sup.toLowerCase()) ?? null : null;
         const id = ++nextId;
-        const v = clean({ name: r.name, qty: r.qty ?? 1, condition: r.condition, origin: r.origin ?? 'old', acquired_on: r.acquired_on, value_usd: r.value_usd });
+        const v = clean({ name: r.name, qty: r.qty ?? 1, condition: r.condition, acquired_on: r.acquired_on, value_usd: r.value_usd });
+        const og = await originFor(c, oldId, false);
         const status = r.status === 'disposed' || r.status === 'lost' ? r.status : 'in_use';
         stmts.push(
-          { sql: `INSERT INTO inv_item (id, code, name, category_id, place_id, qty, brand, model, serial, condition, status, holder, origin, acquired_on, party_id, value_usd, value_note, note, disposed_on, created_at, created_by)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            params: [id, code, v.name, cat, place, v.qty, txt(r.brand), txt(r.model), serial, v.condition, status, txt(r.holder), v.origin, v.acquired, party, v.value, v.value != null ? 'imported' : null,
+          { sql: `INSERT INTO inv_item (id, code, name, category_id, place_id, qty, brand, model, serial, condition, status, holder, origin, origin_id, acquired_on, party_id, value_usd, value_note, note, disposed_on, created_at, created_by)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            params: [id, code, v.name, cat, place, v.qty, txt(r.brand), txt(r.model), serial, v.condition, status, txt(r.holder), og.cls, og.id, v.acquired, party, v.value, v.value != null ? 'imported' : null,
               [txt(r.note), sup && !party ? `Supplier: ${sup}` : null].filter(Boolean).join(' · ') || null, status === 'in_use' ? null : today(), nowIso(), c.who] },
           moveStmt(id, 'added', c.who, { place_id: place, holder: txt(r.holder), note: 'import' }),
         );

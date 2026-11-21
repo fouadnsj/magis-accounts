@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { kvGet, kvSet, newId, type Pack } from './store';
 import { shrinkImage } from '../io/shrink';
+import { codeFromScan } from '../inventory/inv';
 
 export interface InvCount { key: string; ids: number[]; placeId: number | null; date: string; sent: boolean }
 export interface InvPhoto { key: string; itemId: number; mime: string; base64: string; sent: boolean }
@@ -29,7 +30,8 @@ export function Count({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onClose: (
 
   const toggle = (id: number) => setSeen((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const mark = (code: string) => {
-    const it = byCode.get(code.trim().toLowerCase());
+    code = codeFromScan(code);
+    const it = byCode.get(code.toLowerCase());
     if (!it) return setNote(t(`الرمز ${code} غير موجود في الجرد`, `The label ${code} is not in the inventory`, `L'étiquette ${code} n'est pas dans l'inventaire`));
     setSeen((x) => new Set(x).add(it.id));
     setNote(`✓ ${it.code} · ${it.name}${it.place_id !== (place === 'all' || place === 'none' ? null : place) && place !== 'all' ? ` — ${t('مكانه المسجَّل مختلف', 'its place on record is different', 'son lieu enregistré est différent')}` : ''}`);

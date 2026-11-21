@@ -9,7 +9,7 @@ import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import { blankTrx } from '../src/db/repo';
 import type { Db } from '../src/db/db';
 import type { Lists } from '../src/domain/types';
-import { nextCodes, parseCsv, pendingEntries, tableToImport, type InvData } from '../src/inventory/inv';
+import { codeFromScan, nextCodes, parseCsv, qrText, pendingEntries, tableToImport, type InvData } from '../src/inventory/inv';
 import { nodeDb } from './nodeDb';
 import { inventoryPack, inventorySummary } from '../src/inventory/ops';
 import { labelsPdf, qrMatrix } from '../src/io/invLabels';
@@ -125,7 +125,7 @@ describe('the inventory', () => {
     expect(res.added).toBe(2);
     expect(res.skipped).toHaveLength(2);
     const d = await get();
-    expect(d.items.find((i) => i.code === 'JAR-0100')).toMatchObject({ origin: 'old', value_usd: 420.5 });
+    expect(d.items.find((i) => i.code === 'JAR-0100')).toMatchObject({ origin_id: 3, value_usd: 420.5 });
     expect(d.places.map((x) => x.name)).toContain('Office');
     // the next label goes on after the highest of its own prefix
     expect(nextCodes(['JAR-0100', 'INV-0003'], 'JAR', 2)).toEqual(['JAR-0101', 'JAR-0102']);
@@ -174,7 +174,35 @@ describe('the inventory', () => {
     expect(m1.length).toBeGreaterThanOrEqual(21);
     expect(m1.every((r) => r.length === m1.length)).toBe(true);
     expect(m1[0].slice(0, 7).every(Boolean)).toBe(true); // the finder pattern
-    const pdf = await labelsPdf(Array.from({ length: 30 }, (_, i) => `JAR-${String(i + 1).padStart(4, '0')}`), 'MAGIS');
+    const pdf = await labelsPdf(Array.from({ length: 30 }, (_, i) => { const c = `JAR-${String(i + 1).padStart(4, '0')}`; return { code: c, qr: `${c} | Laptop` }; }), 'MAGIS');
     expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe('%PDF-');
+  });
+
+  it('the origins are the centre\'s own list; "bought" comes from a purchase entry and cannot be switched off', async () => {
+    let d = await get();
+    expect(d.origins.map((o) => o.name.split(' · ')[0])).toEqual(['Bought', 'Gift', 'Old']);
+    const { id } = (await runOp(sup, 'inv.list.save', { table: 'origin', name: 'From a donor' })) as { id: number };
+    const it = ((await runOp(sup, 'inv.item.add', { name: 'Projector', origin_id: id })) as { id: number }).id;
+    d = await get();
+    expect(d.items.find((i) => i.id === it)).toMatchObject({ origin_id: id, origin: 'gift', trx_id: null });
+    await expect(runOp(sup, 'inv.item.add', { name: 'X', origin_id: 1 })).rejects.toThrow(/comes from/);
+    await expect(runOp(sup, 'inv.list.save', { table: 'origin', id: 1, name: 'Bought', active: false })).rejects.toThrow(/Bought/);
+    await runOp(sup, 'inv.list.save', { table: 'origin', id, name: 'From a donor', active: false });
+    await expect(runOp(sup, 'inv.item.add', { name: 'Y' })).resolves.toBeTruthy(); // no origin chosen: the first one that is on
+    const purchased = d.items.find((i) => i.trx_id);
+    expect(purchased).toMatchObject({ origin: 'bought', origin_id: 1 });
+  });
+
+  it('what the QR holds is chosen in the settings; a scan always finds the label', async () => {
+    expect((await get()).qr).toEqual([]);
+    await runOp(sup, 'inv.qr', { fields: ['serial', 'name', 'nonsense'] });
+    const d = await get();
+    expect(d.qr.sort()).toEqual(['name', 'serial']);
+    const i = d.items.find((x) => x.serial)!;
+    expect(qrText(i, d.qr, { category: 'IT' })).toBe(`${i.code} | ${i.name} | ${i.serial}`);
+    expect(qrText(i, [])).toBe(i.code);
+    expect(codeFromScan(`${i.code} | ${i.name} | ${i.serial}`)).toBe(i.code);
+    expect(codeFromScan('JAR-0001\nLaptop')).toBe('JAR-0001');
+    await expect(runOp(keeper, 'inv.qr', { fields: [] })).rejects.toThrow();
   });
 });

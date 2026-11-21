@@ -17,6 +17,10 @@ UninstPage uninstConfirm
 UninstPage instfiles
 
 Section "Install"
+  ; an older version wrote its Settings > Apps entry in the 32-bit registry: clear it, then write it where Windows looks
+  SetRegView 32
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server"
+  SetRegView 64
   ; an update: stop the running server first (the data in ProgramData\MAGIS is never touched)
   nsExec::ExecToLog 'schtasks /End /TN "MAGIS Server"'
   nsExec::ExecToLog 'taskkill /F /IM magis-node.exe'
@@ -47,10 +51,16 @@ Section "Install"
   WriteINIStr "$SMPROGRAMS\MAGIS\MAGIS Accounts.url" "InternetShortcut" "URL" "https://localhost:8443"
   CreateShortCut "$SMPROGRAMS\MAGIS\Server log.lnk" "notepad.exe" "$COMMONAPPDATA\MAGIS\server.log"
   CreateShortCut "$SMPROGRAMS\MAGIS\Data and backups.lnk" "$COMMONAPPDATA\MAGIS"
+  CreateShortCut "$SMPROGRAMS\MAGIS\Uninstall MAGIS Server.lnk" "$INSTDIR\uninstall.exe"
 
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "DisplayName" "${APP}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "UninstallString" '"$INSTDIR\uninstall.exe"'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "Publisher" "MAGIS"
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "NoModify" 1
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server" "NoRepair" 1
 
   ; give the server a few seconds to make its certificate, then open it
   Sleep 6000
@@ -58,6 +68,13 @@ Section "Install"
 SectionEnd
 
 Section "Uninstall"
+  SetRegView 64
+  ; the data (databases, backups, attached documents) is kept unless it is asked, twice, to delete it (never when silent)
+  IfSilent keepdata
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Keep your data?$\r$\n$\r$\nThe databases, the backups and the attached documents are in:$\r$\n$COMMONAPPDATA\MAGIS$\r$\n$\r$\nYes = keep them (recommended, so a later install finds them).$\r$\nNo = delete them too." IDYES keepdata
+  MessageBox MB_YESNO|MB_ICONSTOP|MB_DEFBUTTON2 "DELETE ALL THE DATA of the centres on this computer?$\r$\n$\r$\nThis cannot be undone. Make sure you have a copy of the backups elsewhere.$\r$\n$\r$\nYes = delete everything. No = keep the data." IDNO keepdata
+  RMDir /r "$COMMONAPPDATA\MAGIS"
+  keepdata:
   nsExec::ExecToLog 'schtasks /End /TN "MAGIS Server"'
   nsExec::ExecToLog 'schtasks /Delete /TN "MAGIS Server" /F'
   nsExec::ExecToLog 'taskkill /F /IM magis-node.exe'
@@ -66,5 +83,5 @@ Section "Uninstall"
   Delete "$DESKTOP\MAGIS Accounts.url"
   RMDir /r "$SMPROGRAMS\MAGIS"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\MAGIS Server"
-  ; ProgramData\MAGIS (the database and its backups) is deliberately KEPT.
+  ; ProgramData\MAGIS (the database and its backups) is kept unless the person asked above to delete it.
 SectionEnd

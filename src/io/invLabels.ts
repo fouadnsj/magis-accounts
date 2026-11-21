@@ -15,8 +15,8 @@ export function qrMatrix(text: string): boolean[][] {
   return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => qr.isDark(r, c)));
 }
 
-/** A PDF with one label per code (3 columns × 8 rows on an A4 page). `heading`: a short Latin text over each code (the centre). */
-export async function labelsPdf(codes: string[], heading = 'MAGIS'): Promise<Uint8Array> {
+/** A PDF with one label per item: the QR holds `qr` (the label, and what the settings add), the code is written beside it (3 columns × 8 rows on an A4 page). `heading`: a short Latin text over each code (the centre). */
+export async function labelsPdf(labels: { code: string; qr: string }[], heading = 'MAGIS'): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
   const plain = await pdf.embedFont(StandardFonts.Helvetica);
@@ -25,12 +25,12 @@ export async function labelsPdf(codes: string[], heading = 'MAGIS'): Promise<Uin
   const left = (W - cols * cw) / 2, top = H - 12 * MM;
   const per = cols * rows;
   const safe = (s: string) => s.replace(/[^\x20-\x7E]/g, '?');
-  for (let p = 0; p * per < codes.length; p++) {
+  for (let p = 0; p * per < labels.length; p++) {
     const page = pdf.addPage([W, H]);
-    codes.slice(p * per, p * per + per).forEach((code, i) => {
+    labels.slice(p * per, p * per + per).forEach(({ code, qr }, i) => {
       const x = left + (i % cols) * cw, y = top - (Math.floor(i / cols) + 1) * ch;
       page.drawRectangle({ x, y, width: cw, height: ch, borderColor: rgb(0.8, 0.8, 0.8), borderWidth: 0.4 });
-      const m = qrMatrix(code);
+      const m = qrMatrix(qr);
       const size = 26 * MM, quiet = 1, cell = size / (m.length + quiet * 2);
       const qx = x + 3 * MM, qy = y + (ch - size) / 2;
       m.forEach((row, r) => row.forEach((dark, c) => {

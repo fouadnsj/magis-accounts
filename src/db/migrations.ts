@@ -1909,4 +1909,22 @@ CREATE TABLE inv_photo (
 CREATE INDEX inv_photo_item ON inv_photo(item_id);
 `,
   },
+  {
+    n: 57,
+    name: 'inventory: the origins of an item are a list the keeper edits (bought, gift, old…)',
+    sql: `
+-- (Fouad, 2026-11-21) Where an item comes from is a list of the centre: "Bought" is the one made by a purchase entry
+-- (it cannot be switched off); the others are free (gift, old, given by a donor, made by the youth…).
+CREATE TABLE inv_origin (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  bought INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO inv_origin (id, name, bought, sort) VALUES (1, 'Bought · مشترى', 1, 1), (2, 'Gift · هدية', 0, 2), (3, 'Old · قديم', 0, 3);
+ALTER TABLE inv_item ADD COLUMN origin_id INTEGER REFERENCES inv_origin(id);
+UPDATE inv_item SET origin_id = CASE origin WHEN 'bought' THEN 1 WHEN 'gift' THEN 2 ELSE 3 END;
+`,
+  },
 ];

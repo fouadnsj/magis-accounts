@@ -10,15 +10,21 @@ import { inventoryWorkbook, readTable } from '../io/invFile';
 import { labelsPdf } from '../io/invLabels';
 import { shrinkImage } from '../io/shrink';
 import {
-  CONDITIONS, inUse, itemTotal, pendingEntries, tableToImport,
-  type InvCondition, type InvData, type InvImportRow, type InvItem, type InvOrigin,
+  CONDITIONS, inUse, itemTotal, pendingEntries, QR_FIELDS, qrText, tableToImport,
+  type InvCondition, type InvData, type InvImportRow, type InvItem,
 } from '../inventory/inv';
 import type { Trx } from '../domain/types';
 
 type Tab = 'items' | 'register' | 'count' | 'settings';
 
 const COND_LABEL: Record<InvCondition, () => string> = { good: () => t('جيد', 'Good'), repair: () => t('يحتاج إصلاحاً', 'Needs repair'), broken: () => t('معطّل', 'Broken') };
-const ORIGIN_LABEL: Record<InvOrigin, () => string> = { bought: () => t('مشترى', 'Bought'), gift: () => t('هدية', 'Gift'), old: () => t('قديم', 'Old') };
+const originName = (inv: InvData, i: Pick<InvItem, 'origin_id' | 'origin'>) => inv.origins.find((o) => o.id === i.origin_id)?.name ?? i.origin;
+/** the labels of items: the QR holds the label and what the settings add */
+const labelsOf = (inv: InvData, list: InvItem[]) => {
+  const cat = new Map(inv.categories.map((c) => [c.id, c.name.split(' · ')[0]]));
+  const place = new Map(inv.places.map((p) => [p.id, p.name]));
+  return list.filter(inUse).map((i) => ({ code: i.code, qr: qrText(i, inv.qr, { category: i.category_id ? cat.get(i.category_id) : null, place: i.place_id ? place.get(i.place_id) : null }) }));
+};
 const MOVE_LABEL: Record<string, () => string> = {
   added: () => t('أُضيف', 'Added'), moved: () => t('نُقل', 'Moved'), given: () => t('سُلّم لشخص', 'Given to'), returned: () => t('أُرجع', 'Returned'),
   repair: () => t('يحتاج إصلاحاً', 'Needs repair'), repaired: () => t('أُصلح', 'Repaired'), broken: () => t('تعطّل', 'Broken'), counted: () => t('عُدّ', 'Counted'),
@@ -93,13 +99,13 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
   const exportXlsx = async () => {
     try {
       const parties = new Map(d.lists.parties.map((p) => [p.id, p.name]));
-      const bytes = await inventoryWorkbook({ items: inv.items, categories: inv.categories, places: inv.places, parties, bill: (id) => d.comp.get(id)?.billCode ?? '', organisation: '' });
+      const bytes = await inventoryWorkbook({ items: inv.items, categories: inv.categories, places: inv.places, origins: inv.origins, parties, bill: (id) => d.comp.get(id)?.billCode ?? '', organisation: '' });
       await saveFile(`inventory_${todayIso()}.xlsx`, ['xlsx'], bytes, t('احفظ الجرد', 'Save the inventory'));
     } catch (e) { toast(errText(e), true); }
   };
 
   const labels = async (list: InvItem[]) => {
-    const codes = list.filter(inUse).map((i) => i.code);
+    const codes = labelsOf(inv, list);
     if (!codes.length) return toast(t('لا أغراض لطباعة رموزها', 'No items to print labels for'), true);
     try {
       await saveFile(`labels_${todayIso()}.pdf`, ['pdf'], await labelsPdf(codes, inv.prefix), t('احفظ ملصقات الجرد', 'Save the labels'));
@@ -148,7 +154,7 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
                 <td className="small" style={{ color: i.condition === 'good' ? undefined : 'var(--err)' }}>{inUse(i) ? COND_LABEL[i.condition]() : i.status === 'lost' ? t('مفقود', 'Lost') : t('أُخرج', 'Out')}</td>
                 <td className="small">{i.holder}</td>
                 <td className="n">{i.value_usd != null ? fmtUsd(itemTotal(i)) : ''}</td>
-                <td className="small">{ORIGIN_LABEL[i.origin]()}</td>
+                <td className="small">{originName(inv, i).split(' · ')[0]}</td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center', padding: 18 }}>{inv.items.length ? t('لا شيء بهذا الفلتر', 'Nothing with this filter') : t('لم يُسجَّل شيء بعد. ابدأ من «مشتريات تُسجَّل» أو من «الإعدادات ← استيراد».', 'Nothing yet. Start with "To register" or "Settings → Import".')}</td></tr>}
@@ -162,12 +168,12 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
 
 interface Form {
   name: string; category_id: number | null; place_id: number | null; qty: string; brand: string; model: string; serial: string; condition: InvCondition; holder: string;
-  origin: InvOrigin; acquired_on: string; value: string; value_note: string; note: string;
+  origin_id: number | null; acquired_on: string; value: string; value_note: string; note: string;
 }
-const blank = (): Form => ({ name: '', category_id: null, place_id: null, qty: '1', brand: '', model: '', serial: '', condition: 'good', holder: '', origin: 'gift', acquired_on: '', value: '', value_note: '', note: '' });
+const blank = (): Form => ({ name: '', category_id: null, place_id: null, qty: '1', brand: '', model: '', serial: '', condition: 'good', holder: '', origin_id: null, acquired_on: '', value: '', value_note: '', note: '' });
 const fromItem = (i: InvItem): Form => ({
   name: i.name, category_id: i.category_id, place_id: i.place_id, qty: String(i.qty), brand: i.brand ?? '', model: i.model ?? '', serial: i.serial ?? '', condition: i.condition,
-  holder: i.holder ?? '', origin: i.origin, acquired_on: i.acquired_on ?? '', value: i.value_usd != null ? String(i.value_usd) : '', value_note: i.value_note ?? '', note: i.note ?? '',
+  holder: i.holder ?? '', origin_id: i.origin_id, acquired_on: i.acquired_on ?? '', value: i.value_usd != null ? String(i.value_usd) : '', value_note: i.value_note ?? '', note: i.note ?? '',
 });
 const num = (s: string) => { const n = Number(s.replace(',', '.')); return s.trim() === '' || !Number.isFinite(n) ? null : n; };
 
@@ -188,7 +194,7 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
   };
   const payload = () => ({
     name: f.name, category_id: f.category_id, place_id: f.place_id, qty: Number(f.qty), brand: f.brand, model: f.model, serial: f.serial, condition: f.condition, holder: f.holder,
-    origin: f.origin, acquired_on: f.acquired_on || null, value_usd: num(f.value), value_note: f.value_note, note: f.note,
+    origin_id: f.origin_id, acquired_on: f.acquired_on || null, value_usd: num(f.value), value_note: f.value_note, note: f.note,
   });
   const save = () => run(() => (item ? s.api.call('inv.item.save', { id: item.id, ...payload() }) : s.api.call('inv.item.add', payload())), t('حُفظ', 'Saved'));
   const out = async (status: 'disposed' | 'lost') => {
@@ -222,7 +228,7 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
           <Field label={t('الأصل', 'Origin')}><div className="small">{t('مشترى', 'Bought')} · {entry ? `${fmtDate(entry.date)} · ${d.comp.get(entry.id)?.billCode ?? ''}` : t('قيد في السجل', 'entry of the register')}</div></Field>
         ) : (
           <Field label={t('الأصل', 'Origin')}>
-            <select value={f.origin} disabled={ro} onChange={(e) => set('origin', e.target.value as InvOrigin)}>{(['gift', 'old', 'bought'] as const).map((o) => <option key={o} value={o}>{ORIGIN_LABEL[o]()}</option>)}</select>
+            <Select value={f.origin_id} disabled={ro} onChange={(v) => set('origin_id', v)} options={inv.origins.filter((o) => !o.bought && (o.active || o.id === f.origin_id)).map((o) => ({ value: o.id, label: o.name, off: !o.active }))} placeholder={t('اختر…', 'Choose…')} />
           </Field>
         )}
         <Field label={t('التاريخ', 'Date')}><input className="inp" type="date" disabled={ro || !!item?.trx_id} value={f.acquired_on} onChange={(e) => set('acquired_on', e.target.value)} /></Field>
@@ -246,7 +252,7 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
         {item && manage && inUse(item) && <button className="btn danger small" onClick={() => void out('lost')}>{t('مفقود', 'Lost')}</button>}
         {item && manage && !inUse(item) && <button className="btn" onClick={() => void run(() => s.api.call('inv.item.back', { id: item.id }))}>{t('أعده إلى الجرد', 'Put back in the list')}</button>}
         {item && manage && history.every((h) => h.kind === 'added') && <button className="btn danger small" onClick={() => void del()}>{t('حذف', 'Delete')}</button>}
-        {item && <button className="btn" onClick={async () => { try { await saveFile(`label_${item.code}.pdf`, ['pdf'], await labelsPdf([item.code], inv.prefix), t('احفظ الملصق', 'Save the label')); } catch (e) { toast(errText(e), true); } }}>🏷 {t('ملصق', 'Label')}</button>}
+        {item && <button className="btn" onClick={async () => { try { await saveFile(`label_${item.code}.pdf`, ['pdf'], await labelsPdf(labelsOf(inv, [item]), inv.prefix), t('احفظ الملصق', 'Save the label')); } catch (e) { toast(errText(e), true); } }}>🏷 {t('ملصق', 'Label')}</button>}
         <button className="btn" onClick={onClose}>{t('إغلاق', 'Close')}</button>
         {!ro && <button className="btn primary" disabled={busy} onClick={() => void save()}>{t('احفظ', 'Save')}</button>}
       </div>
@@ -408,20 +414,40 @@ function RegisterModal({ inv, entry, onClose, refresh }: { inv: InvData; entry: 
 
 function CountTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<void> }) {
   const { s } = useApp();
-  const [place, setPlace] = useState<number | null>(null);
+  const places = inv.places.filter((p) => p.active);
+  const [place, setPlace] = useState<number | 'none' | 'all'>(places[0]?.id ?? 'all');
   const [seen, setSeen] = useState<Set<number>>(new Set());
-  const items = inv.items.filter((i) => inUse(i) && (place == null || i.place_id === place));
+  const live = inv.items.filter(inUse);
+  const items = live.filter((i) => place === 'all' || (place === 'none' ? i.place_id == null : i.place_id === place));
   const year = `${new Date().getFullYear() - 1}${todayIso().slice(4)}`;
   const toggle = (id: number) => setSeen((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const pick = (p: number | 'none' | 'all') => { setPlace(p); setSeen(new Set()); };
   const save = async () => {
     if (!seen.size) return;
-    try { await s.api.call('inv.count', { ids: [...seen], placeId: place }); setSeen(new Set()); await refresh(); toast(t('حُفظ العدّ ✓', 'Count saved ✓')); } catch (e) { toast(errText(e), true); }
+    try { await s.api.call('inv.count', { ids: [...seen], placeId: typeof place === 'number' ? place : null }); setSeen(new Set()); await refresh(); toast(t('حُفظ العدّ ✓', 'Count saved ✓')); } catch (e) { toast(errText(e), true); }
   };
+  const addPlace = async () => {
+    const name = await promptBox(t('اسم المكان (غرفة، قاعة، مكتب…)', 'Name of the place (room, hall, office…)'), '');
+    if (!name?.trim()) return;
+    try { const r = await s.api.call('inv.list.save', { table: 'place', name }); await refresh(); if (r.id) pick(r.id); } catch (e) { toast(errText(e), true); }
+  };
+  const n = (f: (i: InvItem) => boolean) => live.filter(f).length;
   return (
     <>
       <p className="muted small" style={{ marginTop: 0 }}>{t('اختر المكان، ضع علامة على ما تراه فعلاً، ثم احفظ. ما لا تراه يبقى غير معدود (افتحه وعلّمه مفقوداً إن لزم).', 'Choose a place, tick what you really see, then save. What you do not see stays uncounted (open it and mark it lost if needed).')}</p>
+      {!places.length && (
+        <div className="alert warn row" style={{ justifyContent: 'space-between' }}>
+          <span>{t('لا أماكن بعد: أضف الغرف والقاعات لتعدّ غرفة غرفة. (الأماكن تُدار أيضاً في «الإعدادات».)', 'No places yet: add the rooms and halls to count room by room. (Places are also managed in "Settings".)')}</span>
+          <button className="btn primary small" onClick={() => void addPlace()}>＋ {t('أضف مكاناً', 'Add a place')}</button>
+        </div>
+      )}
+      <div className="chips" style={{ marginBottom: 10 }}>
+        {places.map((p) => <button key={p.id} className={`chip ${place === p.id ? 'on' : ''}`} onClick={() => pick(p.id)}>{p.name} ({n((i) => i.place_id === p.id)})</button>)}
+        <button className={`chip ${place === 'none' ? 'on' : ''}`} onClick={() => pick('none')}>{t('بلا مكان', 'No place')} ({n((i) => i.place_id == null)})</button>
+        <button className={`chip ${place === 'all' ? 'on' : ''}`} onClick={() => pick('all')}>{t('الكل', 'All')} ({live.length})</button>
+        {places.length > 0 && <button className="chip" onClick={() => void addPlace()}>＋</button>}
+      </div>
       <div className="row" style={{ marginBottom: 10 }}>
-        <Select value={place} options={placeOptions(inv)} onChange={(v) => { setPlace(v); setSeen(new Set()); }} placeholder={t('كل الأماكن', 'All places')} />
         <button className="btn small" onClick={() => setSeen(new Set(items.map((i) => i.id)))}>{t('الكل موجود', 'All present')}</button>
         <button className="btn primary" disabled={!seen.size} onClick={() => void save()}>{t('احفظ العدّ', 'Save the count')} ({seen.size})</button>
       </div>
@@ -447,11 +473,11 @@ function SettingsTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<vo
   const [preview, setPreview] = useState<{ rows: InvImportRow[]; unknown: string[]; name: string } | null>(null);
   const act = async (fn: () => Promise<unknown>, ok?: string) => { try { await fn(); await refresh(); if (ok) toast(ok); } catch (e) { toast(errText(e), true); } };
   const isSource = (kind: 'heading' | 'line', ref: number) => inv.sources.some((x) => x.kind === kind && x.ref === ref);
-  const addName = async (table: 'category' | 'place') => {
-    const name = await promptBox(table === 'category' ? t('اسم الصنف (عربي · English)', 'Category name (Arabic · English)') : t('اسم المكان (غرفة، قاعة…)', 'Name of the place (room, hall…)'), '');
+  const addName = async (table: 'category' | 'place' | 'origin') => {
+    const name = await promptBox(table === 'category' ? t('اسم الصنف (عربي · English)', 'Category name (Arabic · English)') : table === 'origin' ? t('مصدر جديد (هدية من…، صنعه الشباب…)', 'A new origin (a gift from…, made by the youth…)') : t('اسم المكان (غرفة، قاعة…)', 'Name of the place (room, hall…)'), '');
     if (name?.trim()) await act(() => s.api.call('inv.list.save', { table, name }));
   };
-  const rename = async (table: 'category' | 'place', id: number, old: string, serial?: number, active?: number) => {
+  const rename = async (table: 'category' | 'place' | 'origin', id: number, old: string, serial?: number, active?: number) => {
     const name = await promptBox(t('الاسم', 'Name'), old);
     if (name?.trim() && name !== old) await act(() => s.api.call('inv.list.save', { table, id, name, serial: !!serial, active: active !== 0 }));
   };
@@ -482,7 +508,7 @@ function SettingsTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<vo
       </div>
       <div className="grid2">
         <div className="panel">
-          <div className="row"><b>{t('الأصناف', 'Categories')}</b><span style={{ flex: 1 }} /><button className="btn small" onClick={() => void addName('category')}>＋</button></div>
+          <div className="row"><b>{t('الأصناف', 'Categories')}</b><span style={{ flex: 1 }} /><button className="btn small" onClick={() => void addName('category')}>＋ {t('صنف', 'Category')}</button></div>
           {inv.categories.map((c) => (
             <div key={c.id} className="row small" style={{ opacity: c.active ? 1 : 0.5 }}>
               <span style={{ flex: 1 }}>{c.name}</span>
@@ -493,7 +519,7 @@ function SettingsTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<vo
           ))}
         </div>
         <div className="panel">
-          <div className="row"><b>{t('الأماكن', 'Places')}</b><span style={{ flex: 1 }} /><button className="btn small" onClick={() => void addName('place')}>＋</button></div>
+          <div className="row"><b>{t('الأماكن (غرف، قاعات…)', 'Places (rooms, halls…)')}</b><span style={{ flex: 1 }} /><button className="btn small" onClick={() => void addName('place')}>＋ {t('مكان', 'Place')}</button></div>
           {inv.places.map((p) => (
             <div key={p.id} className="row small" style={{ opacity: p.active ? 1 : 0.5 }}>
               <span style={{ flex: 1 }}>{p.name}</span>
@@ -503,6 +529,28 @@ function SettingsTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<vo
           ))}
           {!inv.places.length && <p className="muted small">{t('أضف الغرف والقاعات.', 'Add the rooms and halls.')}</p>}
         </div>
+      </div>
+      <div className="panel">
+        <div className="row"><b>{t('مصدر الأغراض', 'Origins of the items')}</b><span style={{ flex: 1 }} /><button className="btn small" onClick={() => void addName('origin')}>＋ {t('مصدر', 'Origin')}</button></div>
+        <p className="muted small" style={{ margin: '4px 0' }}>{t('«مشترى» يصنعه قيد الشراء تلقائياً. الباقي قائمتك: هدية، قديم، من مانح…', '"Bought" is made by a purchase entry, by itself. The rest is your list: gift, old, from a donor…')}</p>
+        {inv.origins.map((o) => (
+          <div key={o.id} className="row small" style={{ opacity: o.active ? 1 : 0.5 }}>
+            <span style={{ flex: 1 }}>{o.name}{o.bought ? ` · ${t('من قيد الشراء', 'from a purchase entry')}` : ''}</span>
+            <button className="btn ghost small" onClick={() => void rename('origin', o.id, o.name, undefined, o.active)}>✎</button>
+            {!o.bought && <button className="btn ghost small" onClick={() => void act(() => s.api.call('inv.list.save', { table: 'origin', id: o.id, name: o.name, active: !o.active }))}>{o.active ? '⏻' : '↺'}</button>}
+          </div>
+        ))}
+      </div>
+      <div className="panel">
+        <b>{t('ماذا يحمل الـQR', 'What the QR holds')}</b>
+        <p className="muted small" style={{ margin: '4px 0' }}>{t('يحمل الـQR دائماً رمز الغرض (ليجده المسح). أضف ما تريد: كل إضافة تجعل الرمز أكبر وأصعب قراءةً على ملصق صغير.', 'The QR always holds the item\'s label (so a scan finds it). Add what you want: each addition makes the code denser and harder to read on a small sticker.')}</p>
+        <div className="row small">
+          <label><input type="checkbox" checked disabled /> {t('الرمز', 'Label')}</label>
+          {QR_FIELDS.map((f) => (
+            <label key={f}><input type="checkbox" checked={inv.qr.includes(f)} onChange={(e) => void act(() => s.api.call('inv.qr', { fields: e.target.checked ? [...inv.qr, f] : inv.qr.filter((x) => x !== f) }))} /> {({ name: t('الاسم', 'Name'), serial: t('الرقم التسلسلي', 'Serial number'), category: t('الصنف', 'Category'), place: t('المكان', 'Place'), date: t('تاريخ الشراء', 'Date') } as Record<string, string>)[f]}</label>
+          ))}
+        </div>
+        <p className="small" style={{ margin: '6px 0 0' }}>{t('مثال', 'Example')}: <b style={{ direction: 'ltr', display: 'inline-block' }}>{qrText({ code: `${inv.prefix}-0001`, name: 'Laptop Dell', serial: 'SN12345', acquired_on: '2026-11-03' }, inv.qr, { category: 'IT equipment', place: 'Office' })}</b></p>
       </div>
       <div className="panel">
         <b>{t('الرمز على الغرض', 'The label on the object')}</b>

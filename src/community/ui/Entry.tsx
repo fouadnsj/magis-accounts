@@ -136,6 +136,21 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
     return { order, frequent };
   }, [groups, d.entries, d.books, book, kind]);
 
+  // the categories under the big sections of the chart (Ordinary income, Extraordinary income, Assistance from the Province
+  // funds…): without their titles the tiles looked like one list and "Assistance from the Province" was not found (Fouad, 21 Nov 2026)
+  const sections = useMemo(() => {
+    const byId = new Map(d.accounts.map((a) => [a.id, a]));
+    const topOf = (a: CtyAccount) => { let x = a; while (x.parent_id != null && byId.get(x.parent_id)) x = byId.get(x.parent_id)!; return x; };
+    const m = new Map<number, { top: CtyAccount; items: typeof order }>();
+    for (const g of order) {
+      const top = topOf(g.heading);
+      const e = m.get(top.id) ?? { top, items: [] };
+      e.items.push(g);
+      m.set(top.id, e);
+    }
+    return [...m.values()].sort((x, y) => x.top.code.localeCompare(y.top.code));
+  }, [order, d.accounts]);
+
   // "same as last time": the last different lines used in this book
   const recent = useMemo(() => {
     const seen = new Set<string>();
@@ -354,14 +369,19 @@ export function EntrySheet({ start, onClose, onCopy }: { start: EntryStart; onCl
                 <div className="cty-label">{t3('كل البنود', 'All categories', 'Toutes les catégories')}</div>
               </>
             )}
-            <div className="cty-tiles">
-              {order.map(({ heading: h, lines }) => (
-                <button key={h.id} className="cty-tint" style={{ background: tintOf(h.code)[0], borderColor: tintOf(h.code)[1] }} onClick={() => (lines.length ? (setHeading(h.id), setStage('line')) : chooseLine(h))}>
-                  <span className="cty-tile-icon">{iconOf(h.code)}</span>
-                  <span>{accName(h)}</span>
-                </button>
-              ))}
-            </div>
+            {sections.map(({ top, items }) => (
+              <div key={top.id}>
+                {sections.length > 1 && <div className="cty-label" style={{ marginTop: 10 }}>{accName(top)}</div>}
+                <div className="cty-tiles">
+                  {items.map(({ heading: h, lines }) => (
+                    <button key={h.id} className="cty-tint" style={{ background: tintOf(h.code)[0], borderColor: tintOf(h.code)[1] }} onClick={() => (lines.length ? (setHeading(h.id), setStage('line')) : chooseLine(h))}>
+                      <span className="cty-tile-icon">{iconOf(h.code)}</span>
+                      <span>{accName(h)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </>
         )}
 

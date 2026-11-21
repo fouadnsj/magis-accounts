@@ -87,10 +87,10 @@ function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: bool
       </div>
       {/* the administrator: the same kind of badge, a little smaller, just under the houses (he is not a house) — the MAGIS sun, with no background */}
       <div className="mg-o-admin">
-        <button type="button" className="mg-badge mg-adminbtn" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d', animationDelay: `${0.7 + HOUSES.length * 0.35}s` } as CSSProperties} onClick={() => onPick('admin')} aria-label={`${t3('المدير', 'Administrator', 'Administrateur')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
+        <button type="button" className="mg-badge mg-adminbtn" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d', animationDelay: `${0.7 + HOUSES.length * 0.35}s` } as CSSProperties} onClick={() => onPick('admin')} title={t3('المدير', 'Administrator', 'Administrateur')} aria-label={`${t3('المدير', 'Administrator', 'Administrateur')} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
             <span className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/magis-sun.png" alt="" /></span>
-            <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>
-            <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+            {/* only the mark; one word comes when it is approached (the label for a screen reader says Administrator · Sign in) */}
+            <span className="mg-admin-word">{t3('الأمانة', 'Stewardship', 'Intendance')}</span>
           </button>
       </div>
       <Said msg={HOPE} className="mg-o-hope" />

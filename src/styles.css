@@ -942,5 +942,9 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-o-admin { display: flex; justify-content: center; margin-top: 2px; }
 .mg-adminbtn .mg-door-mark { width: 72px; height: 72px; }
 .mg-adminbtn .mg-door-mark img { height: 58px; width: auto; }
-.mg-adminbtn b { font-size: 16px; }
 @media (max-width: 600px) { .mg-adminbtn .mg-door-mark { width: 56px; height: 56px; } .mg-adminbtn .mg-door-mark img { height: 46px; } }
+
+/* the administrator badge: the mark alone; one word comes on approaching (always shown on a touch screen) */
+.mg-admin-word { font-family: var(--serif); font-size: 15px; font-weight: 600; color: var(--centre-deep); letter-spacing: .02em; max-height: 0; opacity: 0; overflow: hidden; transform: translateY(-3px); transition: max-height .4s ease, opacity .4s ease .05s, transform .4s ease; }
+.mg-adminbtn:hover .mg-admin-word, .mg-adminbtn:focus-visible .mg-admin-word { max-height: 24px; opacity: 1; transform: none; }
+@media (hover: none) { .mg-admin-word { max-height: none; opacity: 1; transform: none; } }

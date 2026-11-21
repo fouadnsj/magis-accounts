@@ -6,16 +6,16 @@ import { useApp } from '../state';
 import { Field, Modal, Select, Tabs, confirmBox, errText, fmtDate, fmtUsd, promptBox, t, toast, todayIso, type Option } from './kit';
 import { GuideLink } from '../guide/GuideView';
 import { pickFile, saveFile } from '../platform';
-import { inventoryWorkbook, readTable } from '../io/invFile';
+import { inventoryTemplate, inventoryWorkbook, readTable } from '../io/invFile';
 import { labelsPdf } from '../io/invLabels';
 import { shrinkImage } from '../io/shrink';
 import {
-  CONDITIONS, inUse, itemTotal, pendingEntries, QR_FIELDS, qrText, tableToImport,
+  blankLabelCodes, COMMON_ITEMS, CONDITIONS, inUse, itemTotal, pendingEntries, QR_FIELDS, qrText, tableToImport,
   type InvCondition, type InvData, type InvImportRow, type InvItem,
 } from '../inventory/inv';
 import type { Trx } from '../domain/types';
 
-type Tab = 'items' | 'register' | 'count' | 'settings';
+type Tab = 'items' | 'register' | 'quick' | 'count' | 'settings';
 
 const COND_LABEL: Record<InvCondition, () => string> = { good: () => t('جيد', 'Good'), repair: () => t('يحتاج إصلاحاً', 'Needs repair'), broken: () => t('معطّل', 'Broken') };
 const originName = (inv: InvData, i: Pick<InvItem, 'origin_id' | 'origin'>) => inv.origins.find((o) => o.id === i.origin_id)?.name ?? i.origin;
@@ -49,6 +49,7 @@ export function Inventory() {
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'items', label: t('الأغراض', 'Items') },
         { value: 'register', label: `${t('مشتريات تُسجَّل', 'To register')}${pending.length ? ` (${pending.length})` : ''}` },
+        { value: 'quick', label: t('تسجيل سريع', 'Quick add'), hidden: !manage },
         { value: 'count', label: t('العدّ', 'Count'), hidden: !manage },
         { value: 'settings', label: t('الإعدادات', 'Settings'), hidden: !manage },
       ]} />
@@ -56,6 +57,7 @@ export function Inventory() {
         <>
           {tab === 'items' && <ItemsTab inv={inv} manage={manage} refresh={both} />}
           {tab === 'register' && <RegisterTab inv={inv} manage={manage} pending={pending} refresh={both} />}
+          {tab === 'quick' && manage && <QuickAdd inv={inv} refresh={both} />}
           {tab === 'count' && manage && <CountTab inv={inv} refresh={both} />}
           {tab === 'settings' && manage && <SettingsTab inv={inv} refresh={both} />}
         </>
@@ -74,7 +76,7 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<number | null>(null);
   const [place, setPlace] = useState<number | null>(null);
-  const [view, setView] = useState<'use' | 'attention' | 'noserial' | 'out' | 'all'>('use');
+  const [view, setView] = useState<'use' | 'attention' | 'noserial' | 'novalue' | 'noplace' | 'out' | 'all'>('use');
   const [open, setOpen] = useState<InvItem | 'new' | null>(null);
   const catName = new Map(inv.categories.map((c) => [c.id, c.name]));
   const placeName = new Map(inv.places.map((p) => [p.id, p.name]));
@@ -86,6 +88,8 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
     if (view === 'out' && inUse(i)) return false;
     if (view === 'attention' && !(inUse(i) && i.condition !== 'good')) return false;
     if (view === 'noserial' && !needSerial(i)) return false;
+    if (view === 'novalue' && !(inUse(i) && i.value_usd == null)) return false;
+    if (view === 'noplace' && !(inUse(i) && i.place_id == null)) return false;
     if (cat != null && i.category_id !== cat) return false;
     if (place != null && i.place_id !== place) return false;
     const s = q.trim().toLowerCase();
@@ -127,7 +131,7 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
         <Select value={cat} options={catOptions(inv, true)} onChange={setCat} placeholder={t('كل الأصناف', 'All categories')} />
         <Select value={place} options={placeOptions(inv)} onChange={setPlace} placeholder={t('كل الأماكن', 'All places')} />
         <div className="chips">
-          {([['use', t('في الخدمة', 'In use')], ['attention', t('تحتاج انتباهاً', 'Need attention')], ['noserial', t('بلا رقم تسلسلي', 'No serial')], ['out', t('خرجت', 'Out')], ['all', t('الكل', 'All')]] as const).map(([k, l]) => (
+          {([['use', t('في الخدمة', 'In use')], ['attention', t('تحتاج انتباهاً', 'Need attention')], ['noserial', t('بلا رقم تسلسلي', 'No serial')], ['novalue', `${t('بلا قيمة', 'No value')} (${live.filter((i) => i.value_usd == null).length})`], ['noplace', `${t('بلا مكان', 'No place')} (${live.filter((i) => i.place_id == null).length})`], ['out', t('خرجت', 'Out')], ['all', t('الكل', 'All')]] as const).map(([k, l]) => (
             <button key={k} className={`chip ${view === k ? 'on' : ''}`} onClick={() => setView(k)}>{l}</button>
           ))}
         </div>
@@ -407,6 +411,79 @@ function RegisterModal({ inv, entry, onClose, refresh }: { inv: InvData; entry: 
         <button className="btn primary" disabled={busy || lines.some((l) => !l.name.trim())} onClick={() => void save()}>{t('سجّل', 'Register')}</button>
       </div>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- quick add (a table, like Excel)
+
+interface Quick { name: string; category_id: number | null; place_id: number | null; qty: string; serial: string; value: string }
+const quickRow = (from?: Quick): Quick => ({ name: '', category_id: from?.category_id ?? null, place_id: from?.place_id ?? null, qty: '1', serial: '', value: '' });
+
+/** Many items at once, in a table: Enter in the last box makes the next row (same category and place). Labels are only for the valuable ones. */
+function QuickAdd({ inv, refresh }: { inv: InvData; refresh: () => Promise<void> }) {
+  const { s } = useApp();
+  const [rows, setRows] = useState<Quick[]>(() => Array.from({ length: 8 }, () => quickRow()));
+  const [origin, setOrigin] = useState<number | null>(inv.origins.find((o) => !o.bought && o.active && /old|قديم/i.test(o.name))?.id ?? inv.origins.find((o) => !o.bought && o.active)?.id ?? null);
+  const [busy, setBusy] = useState(false);
+  const filled = rows.filter((r) => r.name.trim());
+  const set = (i: number, p: Partial<Quick>) => setRows((xs) => xs.map((r, k) => (k === i ? { ...r, ...p } : r)));
+  const names = [...new Set([...inv.items.map((i) => i.name), ...COMMON_ITEMS.map((c) => c.en)])];
+  const serialCat = new Set(inv.categories.filter((c) => c.serial).map((c) => c.id));
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await s.api.call('inv.item.many', { origin_id: origin, items: filled.map((x) => ({ name: x.name, category_id: x.category_id, place_id: x.place_id, qty: Number(x.qty) || 1, serial: x.serial, value_usd: num(x.value) })) });
+      await refresh();
+      toast(`${r.ids.length} ${t('غرضاً سُجّل ✓', 'items recorded ✓')}`);
+      setRows(Array.from({ length: 8 }, () => quickRow(filled[filled.length - 1])));
+    } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+  };
+  const blanks = async () => {
+    const n = Number(await promptBox(t('كم ملصقاً فارغاً تطبع؟ (للأغراض الغالية)', 'How many blank labels to print? (for the valuable items)'), '48'));
+    if (!(n >= 1 && n <= 960)) return;
+    try {
+      const codes = blankLabelCodes(inv.items.map((i) => i.code), inv.prefix, n);
+      await saveFile(`blank-labels_${codes[0]}-${codes[codes.length - 1]}.pdf`, ['pdf'], await labelsPdf(codes.map((c) => ({ code: c, qr: c })), inv.prefix), t('احفظ الملصقات الفارغة', 'Save the blank labels'));
+      toast(`${codes[0]} → ${codes[codes.length - 1]}`);
+    } catch (e) { toast(errText(e), true); }
+  };
+  const template = async () => {
+    try { await saveFile('inventory-template.xlsx', ['xlsx'], await inventoryTemplate(inv.categories.filter((c) => c.active), inv.places.filter((p) => p.active)), t('احفظ القالب', 'Save the template')); } catch (e) { toast(errText(e), true); }
+  };
+  return (
+    <>
+      <p className="muted small" style={{ marginTop: 0 }}>{t('سطر لكل غرض، أو سطر لكل مجموعة (20 كرسياً = العدد 20). Enter في آخر خانة يفتح سطراً جديداً بالصنف والمكان نفسيهما. الملصق للأغراض الغالية فقط، والقيمة تُكتب لاحقاً.', 'One line per object, or one line per group (20 chairs = Qty 20). Enter in the last box opens the next row with the same category and place. Labels only for the valuable ones; the value can be written later.')}</p>
+      <div className="row" style={{ marginBottom: 8 }}>
+        <span className="small">{t('المصدر', 'Origin')}:</span>
+        <Select value={origin} options={inv.origins.filter((o) => !o.bought && o.active).map((o) => ({ value: o.id, label: o.name }))} onChange={setOrigin} />
+        <span style={{ flex: 1 }} />
+        <button className="btn small" onClick={() => void blanks()}>🏷 {t('ملصقات فارغة مرقّمة', 'Blank numbered labels')}</button>
+        <button className="btn small" onClick={() => void template()}>⬇ {t('قالب Excel', 'Excel template')}</button>
+      </div>
+      <datalist id="inv-quick-names">{names.map((n) => <option key={n} value={n} />)}</datalist>
+      <div className="tbl-wrap"><table className="t">
+        <thead><tr><th>{t('الغرض', 'Item')}</th><th>{t('الصنف', 'Category')}</th><th>{t('المكان', 'Place')}</th><th className="n">{t('العدد', 'Qty')}</th><th>{t('الرقم التسلسلي', 'Serial')}</th><th className="n">{t('القيمة $', 'Value $')}</th></tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td><input className="inp" list="inv-quick-names" value={r.name} onChange={(e) => set(i, { name: e.target.value })} /></td>
+              <td><Select value={r.category_id} options={catOptions(inv)} onChange={(v) => set(i, { category_id: v })} /></td>
+              <td><Select value={r.place_id} options={placeOptions(inv)} onChange={(v) => set(i, { place_id: v })} /></td>
+              <td><input className="inp" style={{ width: 60 }} inputMode="numeric" value={r.qty} onChange={(e) => set(i, { qty: e.target.value.replace(/\D/g, '') })} /></td>
+              <td><input className="inp" style={{ direction: 'ltr', background: r.category_id != null && serialCat.has(r.category_id) && !r.serial ? '#fff4e0' : undefined }} value={r.serial} onChange={(e) => set(i, { serial: e.target.value })} /></td>
+              <td><input className="inp" style={{ width: 90 }} inputMode="decimal" value={r.value} onChange={(e) => set(i, { value: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter' && i === rows.length - 1) { setRows((xs) => [...xs, quickRow(r)]); setTimeout(() => (e.currentTarget.closest('tbody')?.lastElementChild?.querySelector('input') as HTMLInputElement | null)?.focus(), 30); } }} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn small" onClick={() => setRows((xs) => [...xs, ...Array.from({ length: 5 }, () => quickRow(xs[xs.length - 1]))])}>＋ {t('5 أسطر', '5 rows')}</button>
+        <button className="btn small" disabled={!filled.length} onClick={() => setRows((xs) => xs.map((r, i) => (i === 0 ? r : { ...r, category_id: xs[0].category_id, place_id: xs[0].place_id })))}>{t('انسخ صنف ومكان السطر الأول للكل', 'Copy row 1\'s category and place to all')}</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn primary" disabled={busy || !filled.length} onClick={() => void save()}>{t('سجّل', 'Record')} {filled.length || ''}</button>
+      </div>
+    </>
   );
 }
 

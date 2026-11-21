@@ -76,3 +76,33 @@ export async function inventoryWorkbook(x: InvSheetInput): Promise<Uint8Array> {
   wb.title = `${x.organisation} — inventory`;
   return new Uint8Array((await wb.xlsx.writeBuffer()) as ArrayBuffer);
 }
+
+/** An Excel file to fill in and import (Settings → Import): the headers the import understands, drop-down lists for the category and the place. */
+export async function inventoryTemplate(categories: InvCategory[], places: InvPlace[]): Promise<Uint8Array> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Items');
+  const head = ['Name', 'Category', 'Place', 'Qty', 'Serial', 'Brand', 'Model', 'Value USD', 'Note'];
+  ws.addRow(head);
+  ws.getRow(1).font = { bold: true };
+  ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFD966' } };
+  ws.addRow(['Chair (example: delete this row)', categories[0]?.name.split(' · ')[0] ?? '', places[0]?.name ?? '', 20, '', '', '', '', '']);
+  ws.columns.forEach((c, k) => { c.width = [34, 26, 20, 7, 18, 14, 14, 12, 30][k]; });
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  const lists = wb.addWorksheet('Lists');
+  lists.addRow(['Categories', 'Places']);
+  lists.getRow(1).font = { bold: true };
+  const n = Math.max(categories.length, places.length);
+  for (let i = 0; i < n; i++) lists.addRow([categories[i]?.name ?? '', places[i]?.name ?? '']);
+  lists.columns.forEach((c) => { c.width = 38; });
+  // the drop-down lists: a validation on each cell of the column (ExcelJS keeps them cell by cell)
+  const catRange = `Lists!$A$2:$A$${categories.length + 1}`;
+  const placeRange = `Lists!$B$2:$B$${places.length + 1}`;
+  for (let r = 2; r <= 1000; r++) {
+    if (categories.length) ws.getCell(`B${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: [catRange] };
+    if (places.length) ws.getCell(`C${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: [placeRange] };
+  }
+  const help = wb.addWorksheet('How to');
+  for (const l of ['Fill the sheet "Items": one line per object, or one line per group (20 chairs = Qty 20).', 'Category and Place: choose from the drop-down (the lists are on the sheet "Lists").', 'Serial: for IT and audio-visual equipment. A serial number is never used twice.', 'Value USD: one unit; leave it empty and fill it later.', 'Then in the app: Inventory → Settings → Import → choose this file.']) help.addRow([l]);
+  help.getColumn(1).width = 100;
+  return new Uint8Array((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+}

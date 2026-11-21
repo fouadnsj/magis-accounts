@@ -73,6 +73,15 @@ export interface InvLite {
 }
 
 /** What a QR label may hold (the label itself is always first, so a scan always finds the item) */
+/** The numbered labels printed before recording (a walk-through): a series of their own, V for the valuable (JAR-V001), so that a number given by itself never meets a sticker */
+export function blankLabelCodes(existing: string[], prefix: string, count: number): string[] {
+  const p = (prefix.trim() || 'INV').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${p}-V(\\d+)$`, 'i');
+  let max = 0;
+  for (const c of existing) { const mm = re.exec(c); if (mm) max = Math.max(max, Number(mm[1])); }
+  return Array.from({ length: count }, (_, i) => `${prefix.trim() || 'INV'}-V${String(max + i + 1).padStart(3, '0')}`);
+}
+
 export const QR_FIELDS = ['name', 'serial', 'category', 'place', 'date'] as const;
 export type QrField = (typeof QR_FIELDS)[number];
 
@@ -83,6 +92,14 @@ export function qrText(i: Pick<InvItem, 'code' | 'name' | 'serial' | 'acquired_o
 }
 /** The label inside a scanned text (the first part, whatever else the QR holds). */
 export const codeFromScan = (text: string) => text.split(/\s*\|\s*|\r?\n/)[0].trim();
+
+/** Things a centre is full of: a tap fills the name when recording on the phone (the keeper edits it if needed) */
+export const COMMON_ITEMS: { ar: string; en: string; fr: string }[] = [
+  { ar: 'كرسي', en: 'Chair', fr: 'Chaise' }, { ar: 'طاولة', en: 'Table', fr: 'Table' }, { ar: 'مكتب', en: 'Desk', fr: 'Bureau' }, { ar: 'خزانة', en: 'Cupboard', fr: 'Armoire' },
+  { ar: 'رفّ', en: 'Shelf', fr: 'Étagère' }, { ar: 'كنبة', en: 'Sofa', fr: 'Canapé' }, { ar: 'سرير', en: 'Bed', fr: 'Lit' }, { ar: 'سبّورة', en: 'Whiteboard', fr: 'Tableau blanc' },
+  { ar: 'حاسوب', en: 'Laptop', fr: 'Ordinateur' }, { ar: 'طابعة', en: 'Printer', fr: 'Imprimante' }, { ar: 'جهاز عرض', en: 'Projector', fr: 'Projecteur' }, { ar: 'شاشة', en: 'Screen', fr: 'Écran' },
+  { ar: 'مروحة', en: 'Fan', fr: 'Ventilateur' }, { ar: 'مدفأة', en: 'Heater', fr: 'Chauffage' }, { ar: 'براد', en: 'Fridge', fr: 'Réfrigérateur' }, { ar: 'ميكروفون', en: 'Microphone', fr: 'Micro' },
+];
 
 export const CONDITIONS: InvCondition[] = ['good', 'repair', 'broken'];
 export const ORIGINS: InvOrigin[] = ['bought', 'gift', 'old'];

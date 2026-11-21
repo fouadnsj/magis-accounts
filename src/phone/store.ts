@@ -28,7 +28,7 @@ export interface Pack {
   kind?: 'community';
   curs?: { code: string; label: string }[];
   /** the inventory, for the one who keeps it (21 November 2026): the places and the items to count */
-  inv?: { places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
+  inv?: { categories: { id: number; name: string; serial: number }[]; origins: { id: number; name: string }[]; names: string[]; places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
 }
 
 /** expense, income, and exchange (dollars given for pounds received) */

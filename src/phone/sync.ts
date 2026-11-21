@@ -3,6 +3,7 @@
 // stay "waiting" and go the next time.
 import { allPhotos, allRows, kvSet, putPhoto, putRow, type Entry, type Msg, type Pack } from './store';
 import { invCounts, invPhotos } from './Count';
+import { invNews, putInvNews } from './Record';
 
 export class Unlinked extends Error { constructor(public msg: Msg) { super(msg.en); } }
 export class Offline extends Error {}
@@ -90,6 +91,18 @@ export async function sync(key: string): Promise<{ pack: Pack; result: SyncResul
     catch (e) { if (e instanceof Refused) { p.sent = true; p.base64 = ''; continue; } throw e; }
   }
   if (pics.some((p) => p.sent)) await kvSet('inv-photos', pics.filter((p) => !p.sent));
+  // the items recorded on the phone, one by one: each is made on the server, which gives it its number
+  const news = await invNews();
+  let newSent = 0;
+  for (const x of news) {
+    if (x.state !== 'waiting') continue;
+    try {
+      const r = await call<{ code?: string }>('/api/phone/inv-new', { key: x.key, item: x.item, photo: x.photo }, key);
+      x.state = 'sent'; x.code = r.code ?? null; x.photo = null; x.error = null; newSent++;
+    } catch (e) { if (e instanceof Refused) { x.state = 'fix'; x.error = e.msg; continue; } await putInvNews(news); throw e; }
+  }
+  if (news.length) await putInvNews(news.filter((x) => x.state !== 'sent' || Date.now() - Date.parse(x.made_at) < 24 * 3600e3));
+  invSent += newSent;
   // the pack again, so that the counts just sent show on the phone
   if (invSent && pack.inv) { pack = await call<Pack>('/api/phone/pack', {}, key); await kvSet('pack', pack); }
   return { pack, result: res };

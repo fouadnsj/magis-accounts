@@ -93,7 +93,7 @@ export function Count({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onClose: (
 }
 
 /** the camera, looking for QR codes (where the phone's browser can: Chrome on Android); each code found is given once */
-function Scanner({ tr: t, onCode, onClose }: { tr: Tr; onCode: (c: string) => void; onClose: () => void }) {
+export function Scanner({ tr: t, onCode, onClose, formats = ['qr_code'], once = false }: { tr: Tr; onCode: (c: string) => void; onClose: () => void; formats?: string[]; once?: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -103,7 +103,7 @@ function Scanner({ tr: t, onCode, onClose }: { tr: Tr; onCode: (c: string) => vo
     (async () => {
       try {
         const Det = (window as unknown as { BarcodeDetector: new (o: { formats: string[] }) => { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
-        const det = new Det({ formats: ['qr_code'] });
+        const det = new Det({ formats });
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         if (!video.current) return;
         video.current.srcObject = stream;
@@ -113,7 +113,7 @@ function Scanner({ tr: t, onCode, onClose }: { tr: Tr; onCode: (c: string) => vo
           try {
             const r = await det.detect(video.current);
             const v = r[0]?.rawValue;
-            if (v && (v !== last.code || Date.now() - last.at > 2500)) { last.code = v; last.at = Date.now(); onCode(v); }
+            if (v && (v !== last.code || Date.now() - last.at > 2500)) { last.code = v; last.at = Date.now(); onCode(v); if (once) { onClose(); return; } }
           } catch { /* a frame not ready */ }
           setTimeout(loop, 350);
         };

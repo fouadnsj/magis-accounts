@@ -171,6 +171,15 @@ export const INV_OPS = {
     },
   },
 
+  /** many items at once (the quick table, a walk-through): all or none; each is "old" unless an origin is chosen */
+  'inv.item.many': {
+    check: manage,
+    run: async (c: OpCtx, a: { items: ItemInput[]; origin_id?: number | null }) => {
+      const items = (Array.isArray(a.items) ? a.items : []).filter((x) => txt(x?.name)).slice(0, 1000);
+      return { ids: await addItems(c, items.map((x) => ({ ...x, origin_id: x.origin_id ?? a.origin_id ?? null })), null) };
+    },
+  },
+
   /** the items of one purchase entry (one bill may hold several things) */
   'inv.register': {
     check: manage,
@@ -497,6 +506,10 @@ export async function inventorySummary(db: OpCtx['db']) {
 /** What a keeper's phone takes to count with no connection: the places and the items in use. */
 export async function inventoryPack(db: OpCtx['db']) {
   return {
+    categories: await db.query<{ id: number; name: string; serial: number }>('SELECT id, name, serial FROM inv_category WHERE active = 1 ORDER BY sort, name'),
+    origins: await db.query<{ id: number; name: string }>('SELECT id, name FROM inv_origin WHERE active = 1 AND bought = 0 ORDER BY sort, id'),
+    /** the names already used, to write the next ones faster */
+    names: (await db.query<{ name: string }>('SELECT name FROM inv_item GROUP BY name ORDER BY COUNT(*) DESC, name LIMIT 300')).map((x) => x.name),
     places: await db.query<{ id: number; name: string }>('SELECT id, name FROM inv_place WHERE active = 1 ORDER BY sort, name'),
     items: await db.query<{ id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }>(
       "SELECT id, code, name, place_id, qty, serial, counted_on FROM inv_item WHERE status = 'in_use' ORDER BY code"),

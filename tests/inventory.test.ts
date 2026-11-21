@@ -9,11 +9,12 @@ import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import { blankTrx } from '../src/db/repo';
 import type { Db } from '../src/db/db';
 import type { Lists } from '../src/domain/types';
-import { codeFromScan, nextCodes, parseCsv, qrText, pendingEntries, tableToImport, type InvData } from '../src/inventory/inv';
+import { blankLabelCodes, codeFromScan, nextCodes, parseCsv, qrText, pendingEntries, tableToImport, type InvData } from '../src/inventory/inv';
 import { nodeDb } from './nodeDb';
 import { inventoryPack, inventorySummary } from '../src/inventory/ops';
 import { labelsPdf, qrMatrix } from '../src/io/invLabels';
-import { phoneInvCount, phoneInvPhoto, mayPhone } from '../server/phone';
+import { phoneInvCount, phoneInvNew, phoneInvPhoto, mayPhone } from '../server/phone';
+import { inventoryTemplate, readTable } from '../src/io/invFile';
 
 const WORKBOOK = decodeURIComponent(new URL('../../template/Master Sup.xlsx', import.meta.url).pathname);
 const store = new Map<string, Uint8Array>();
@@ -204,5 +205,43 @@ describe('the inventory', () => {
     expect(codeFromScan(`${i.code} | ${i.name} | ${i.serial}`)).toBe(i.code);
     expect(codeFromScan('JAR-0001\nLaptop')).toBe('JAR-0001');
     await expect(runOp(keeper, 'inv.qr', { fields: [] })).rejects.toThrow();
+  });
+
+  it('a centre full of things: many items at once, a walk-through on the phone, numbered blank labels, an Excel template', async () => {
+    const before = (await get()).items.length;
+    const r = (await runOp(sup, 'inv.item.many', { items: [
+      { name: 'Chair', qty: 40 }, { name: 'Table', qty: 6 }, { name: '', qty: 1 }, { name: 'Laptop HP', serial: 'HP-77', qty: 1 },
+    ] })) as { ids: number[] };
+    expect(r.ids).toHaveLength(3); // the empty one is left out
+    let d = await get();
+    expect(d.items).toHaveLength(before + 3);
+    expect(d.items.find((i) => i.name === 'Chair')).toMatchObject({ qty: 40, value_usd: null, origin: 'gift' });
+    // one wrong row stops the whole table: nothing is half written
+    await expect(runOp(sup, 'inv.item.many', { items: [{ name: 'Lamp' }, { name: 'Laptop HP 2', serial: 'hp-77' }] })).rejects.toThrow(/serial/i);
+    expect((await get()).items).toHaveLength(before + 3);
+
+    // the phone: a new item with its sticker and its photo; again = nothing new; a sticker already used comes back refused
+    const sticker = 'INV-V001';
+    const a = await phoneInvNew(sup, { key: 'new-0001-abcdefgh', item: { name: 'Piano', qty: 1, code: sticker, place_id: null }, photo: { base64: btoa('jpg'), mime: 'image/jpeg' } });
+    expect(a).toMatchObject({ ok: true, code: sticker });
+    expect(await phoneInvNew(sup, { key: 'new-0001-abcdefgh', item: { name: 'Piano' }, photo: null })).toMatchObject({ already: true });
+    await expect(phoneInvNew(sup, { key: 'new-0002-abcdefgh', item: { name: 'Organ', code: sticker }, photo: null })).rejects.toThrow(/already used/);
+    d = await get();
+    expect(d.photos.some((p) => p.item_id === a.id)).toBe(true);
+    // with no sticker the server gives the next plain number: it never meets a V sticker
+    const b = await phoneInvNew(sup, { key: 'new-0003-abcdefgh', item: { name: 'Cupboard', qty: 2 }, photo: null });
+    expect(b.code).toMatch(/^INV-\d{4}$/);
+    await expect(phoneInvNew(keeper, { key: 'new-0004-abcdefgh', item: { name: 'x' }, photo: null })).rejects.toThrow();
+
+    // blank labels: a series of their own, after the highest V already used
+    expect(blankLabelCodes(['INV-0001', 'INV-V003'], 'INV', 3)).toEqual(['INV-V004', 'INV-V005', 'INV-V006']);
+    expect(blankLabelCodes([], 'JAR', 1)).toEqual(['JAR-V001']);
+
+    // the template can be read back by the import
+    const bytes = await inventoryTemplate(d.categories, d.places);
+    const table = await readTable(bytes, 'inventory-template.xlsx');
+    expect(table[0].slice(0, 4)).toEqual(['Name', 'Category', 'Place', 'Qty']);
+    const parsed = tableToImport(table);
+    expect(parsed.rows[0]).toMatchObject({ qty: 20 });
   });
 });

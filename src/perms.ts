@@ -16,6 +16,7 @@ export const PERM_GROUPS = [
     label: m('السجل', 'Register'),
     perms: [
       { key: 'register.view', label: m('يرى كل الدفاتر والسجل كله', 'Sees every book and the whole register') },
+      { key: 'register.private', label: m('يرى الدفاتر الخاصة أيضاً: رصيدها وقيودها (للرئيس)', 'Sees the private books too: their status and records (for the Superior)') },
       { key: 'register.main', label: m('يكتب ويصحّح في الدفتر الرئيسي فقط، ويؤكد ما يصله', 'Writes and corrects in the Main book only, confirms what Main receives') },
       { key: 'register.edit', label: m('يكتب ويصحّح في كل الدفاتر (والرئيسي)، ويسجّل أي تحويل', 'Writes and corrects in every book (and Main), records any transfer') },
     ],

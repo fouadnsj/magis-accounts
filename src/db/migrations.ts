@@ -1779,4 +1779,14 @@ CREATE TABLE phone_photo (
 ALTER TABLE cty_entry ADD COLUMN for_house INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    n: 53,
+    name: 'the Superior sees the private books: a new tick "Sees the private books" (status and records)',
+    sql: `
+-- (Fouad, 2026-11-21) A private book is hidden from the Accountant and the others, not from the Superior.
+-- The roles that manage the users AND see every book (the Superior's) get the tick; the Accountant's does not.
+UPDATE access_profile SET perms = replace(perms, ']', ',"register.private"]')
+ WHERE perms LIKE '%"users.manage"%' AND perms LIKE '%"register.view"%' AND perms NOT LIKE '%"register.private"%';
+`,
+  },
 ];

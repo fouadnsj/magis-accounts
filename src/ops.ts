@@ -267,13 +267,16 @@ async function putBackRow(c: OpCtx, a: { path: string; id: string; reason: strin
     await c.db.batch([{ sql: 'UPDATE trx SET n = ? WHERE id = ?', params: [then.n, a.id] }]);
 }
 
-/** Rows as this person may see them: a private book's rows only for its keepers (others: its transfers, without explanation). */
+/** The Superior (and whoever has the tick "Sees the private books") sees every private book: status and records. */
+const seesPrivate = (c: OpCtx) => can(c, 'register.private');
+
+/** Rows as this person may see them: a private book's rows only for its keepers and the Superior (others: its transfers, without explanation). */
 function privateView(c: OpCtx, lists: Lists, rows: Trx[]): Trx[] {
   const priv = new Set(lists.books.filter((b) => b.private).map((b) => b.id));
   const all = can(c, 'register.view');
   return rows.flatMap((r): Trx[] => {
     if (!all && !keeps(c, r.book_id)) return [];
-    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id)) return [r];
+    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id) || seesPrivate(c)) return [r];
     return r.type === 'Transfer' ? [{ ...r, explanation: null, receipt: null, party_id: null, private_book: true }] : [];
   });
 }
@@ -316,13 +319,13 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   // transfers (marked), so the receiver can confirm and Main's balance stays right.
   const priv = new Set(lists.books.filter((b) => b.private).map((b) => b.id));
   const shown = allRows.flatMap((r): Trx[] => {
-    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id)) return [r];
+    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id) || seesPrivate(c)) return [r];
     return r.type === 'Transfer' ? [{ ...r, explanation: null, receipt: null, party_id: null, private_book: true }] : [];
   });
   // ...and its expenses as one total a month (no detail)
   const totals = new Map<string, Trx>();
   for (const r of allRows) {
-    if (r.type !== 'Exp' || r.book_id == null || !r.date || !priv.has(r.book_id) || keeps(c, r.book_id)) continue;
+    if (r.type !== 'Exp' || r.book_id == null || !r.date || !priv.has(r.book_id) || keeps(c, r.book_id) || seesPrivate(c)) continue;
     const key = `private-total:${r.book_id}:${r.date.slice(0, 7)}`;
     const book = lists.books.find((b) => b.id === r.book_id);
     const tot = totals.get(key) ?? {
@@ -340,7 +343,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   const rows = all ? shown : shown.filter((r) => keeps(c, r.book_id));
   // a private book's transfer: the other side sees the amount, not its explanation
   const allTransfers = buildTransfers(allRows, lists.books).map((t) =>
-    [t.from, t.to].some((id) => id != null && priv.has(id) && !keeps(c, id)) ? { ...t, explanation: null } : t);
+    [t.from, t.to].some((id) => id != null && priv.has(id) && !keeps(c, id) && !seesPrivate(c)) ? { ...t, explanation: null } : t);
   const transfers = all ? allTransfers : allTransfers.filter((t) => keeps(c, t.from) || keeps(c, t.to));
   const donors = can(c, 'lists.donors');
   if (!donors) lists.donors = [];
@@ -1386,7 +1389,7 @@ export const OPS = {
       const rows = await c.db.query<CashCountRow>('SELECT * FROM cash_count');
       const priv = new Set((await c.db.query<{ id: number }>('SELECT id FROM book WHERE private = 1')).map((x) => x.id));
       const mayAll = can(c, 'reports.cash') || can(c, 'register.edit');
-      return rows.filter((r) => keeps(c, r.book_id) || (mayAll && !priv.has(r.book_id)));
+      return rows.filter((r) => keeps(c, r.book_id) || (mayAll && (!priv.has(r.book_id) || seesPrivate(c))));
     },
   },
   'audit.list': { check: (c: OpCtx) => need(c, 'audit.view'), run: (c: OpCtx) => c.db.query<AuditRow>('SELECT * FROM audit_log ORDER BY id DESC LIMIT 500') },
@@ -1578,7 +1581,7 @@ export const OPS = {
     run: async (c: OpCtx, a: { bookId: number }) => {
       const book = await one<{ private: number }>(c.db, 'SELECT private FROM book WHERE id = ?', [a.bookId]);
       if (!book) throw new UserError(m('الدفتر غير موجود', 'Book not found'));
-      if (!keeps(c, a.bookId) && (book.private || !(can(c, 'reports.cash') || can(c, 'register.view')))) throw refuse();
+      if (!keeps(c, a.bookId) && ((book.private && !seesPrivate(c)) || !(can(c, 'reports.cash') || can(c, 'register.view')))) throw refuse();
       return c.db.query<CashCountLog>('SELECT * FROM cash_count_log WHERE book_id = ? ORDER BY at DESC, id DESC', [a.bookId]);
     },
   },

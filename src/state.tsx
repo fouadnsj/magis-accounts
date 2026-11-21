@@ -106,7 +106,8 @@ async function loadData(s: Session, background = false): Promise<Data> {
     grants: p.grants,
     grantParts: p.grantParts ?? [],
     grantShares: p.grantShares ?? [],
-    shownBooks: p.lists.books.filter((b) => !b.private || s.profile.books.includes(b.id)),
+    // a private book: its keepers and the Superior (the tick "Sees the private books")
+    shownBooks: p.lists.books.filter((b) => !b.private || s.profile.books.includes(b.id) || s.profile.perms.includes('register.private')),
     grantsBookId: p.grantsBookId ?? null,
     centreRows: p.rows.filter((r) => r.book_id == null || r.book_id !== p.grantsBookId),
     receipts: p.receipts,

@@ -68,4 +68,28 @@ describe('history of the counts', () => {
     const secret = (await db.query<{ id: number }>("SELECT id FROM book WHERE name = 'Secret'"))[0].id;
     await expect(runOp(com, 'cash.history', { bookId: secret })).rejects.toThrow();
   });
+
+  it('the Superior sees every private book, status and records; the Accountant sees one monthly total (Fouad, 21 November 2026)', async () => {
+    // the Superior role carries the tick "Sees the private books"; the Accountant's does not
+    expect(sup.profile.perms).toContain('register.private');
+    const com = await ctxOf('Com');
+    expect(com.profile.perms).not.toContain('register.private');
+    // a private book kept by somebody else, with an income and an expense
+    await db.batch([{ sql: "INSERT INTO book (name, keeper_name, is_main, private, sort) VALUES ('Canzali', 'Roula', 0, 1, 97)" }]);
+    const canz = (await db.query<{ id: number }>("SELECT id FROM book WHERE name = 'Canzali'"))[0].id;
+    const exp = L.lines.find((l) => l.name === 'Salary') ?? L.lines[0];
+    await db.batch([
+      { sql: 'INSERT INTO trx (id, n, date, type, book_id, city_id, heading_id, line_id, inc_usd, explanation, created_at) VALUES (?, 9001, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: ['cz-in', '2026-12-05', 'Income', canz, L.cities[0].id, exp.heading_id, exp.id, 700, 'secret income', new Date().toISOString()] },
+      { sql: 'INSERT INTO trx (id, n, date, type, book_id, city_id, heading_id, line_id, exp_usd, explanation, created_at) VALUES (?, 9002, ?, ?, ?, ?, ?, ?, ?, ?, ?)', params: ['cz-out', '2026-12-06', 'Exp', canz, L.cities[0].id, exp.heading_id, exp.id, 200, 'secret expense', new Date().toISOString()] },
+    ]);
+    const seenBySup = ((await runOp(sup, 'data', {})) as DataPayload).rows.filter((r) => r.book_id === canz);
+    expect(seenBySup.map((r) => r.id).sort()).toEqual(['cz-in', 'cz-out']);
+    expect(seenBySup.some((r) => r.private_book)).toBe(false);
+    const seenByCom = ((await runOp(com, 'data', {})) as DataPayload).rows.filter((r) => r.book_id === canz);
+    expect(seenByCom.map((r) => r.id)).not.toContain('cz-in');
+    expect(JSON.stringify(seenByCom)).not.toContain('secret');
+    // and its history of counts
+    await expect(runOp(sup, 'cash.history', { bookId: canz })).resolves.toBeDefined();
+    await expect(runOp(com, 'cash.history', { bookId: canz })).rejects.toThrow();
+  });
 });

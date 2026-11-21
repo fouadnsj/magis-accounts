@@ -424,3 +424,61 @@ describe('names and the report', () => {
     expect(wb.getWorksheet('Groups')!.getRow(1).values).toContain('Agreed');
   });
 });
+
+describe('who sees the prices, and people with no books', () => {
+  const role = async (name: string, perms: string[]) => {
+    // saved as the Superior saves a role (the ticks that go together come with it)
+    await runOp(sup, 'access.save', { name, perms });
+    const access = (await db.query<{ id: number }>('SELECT id FROM access_profile WHERE name = ?', [name]))[0].id;
+    // no book at all: a person who only works with the calendar
+    await runOp(sup, 'user.save', { name, access_id: access, books: [], pin: 'role-pass-1' });
+    return ctxOf(name);
+  };
+
+  it('a reception person with no book sees the calendar and books, with no price; the Superior decides about the prices', async () => {
+    const desk = await role('Desk A', ['hosting.book']);
+    expect(desk.profile.books).toEqual([]);
+    expect(desk.profile.perms).toEqual(expect.arrayContaining(['hosting.book', 'hosting.view']));
+    expect(desk.profile.perms).not.toContain('hosting.prices');
+    const d = await host(desk);
+    expect(d.prices).toBe(false);
+    expect(d.rooms.length).toBeGreaterThan(0);
+    const made = (await runOp(desk, 'host.booking.save', { group_name: 'Desk booking', people: 2, from_day: day(400), to_day: day(402), allocs: [{ room_id: r2 }] })) as { id: number };
+    expect(made.id).toBeGreaterThan(0);
+    // and the whole program opens for them: no book, no error
+    const payload = (await runOp(desk, 'data', {})) as DataPayload;
+    expect(payload.host?.on).toBe(true);
+    expect(payload.rows).toEqual([]);
+    await expect(runOp(desk, 'host.pay.add', { booking_id: made.id, amount: 5 })).rejects.toThrow();
+    await expect(runOp(desk, 'host.building.save', { name: 'No' })).rejects.toThrow();
+  });
+
+  it('the prices are their own tick: with it a person sees and sets them (and can book), but still cannot change the buildings', async () => {
+    const acc = await role('Desk B', ['hosting.prices']);
+    expect(acc.profile.perms).toEqual(expect.arrayContaining(['hosting.prices', 'hosting.book', 'hosting.view']));
+    expect(acc.profile.perms).not.toContain('hosting.keep');
+    expect((await host(acc)).prices).toBe(true);
+    const made = (await runOp(acc, 'host.booking.save', { group_name: 'Priced', people: 2, from_day: day(410), to_day: day(412), allocs: [{ room_id: r2 }], price_mode: 'person', rate: 7, currency: 'USD' })) as { id: number };
+    expect((await host(acc)).bookings.find((b) => b.id === made.id)?.rate).toBe(7);
+    await runOp(acc, 'host.pay.add', { booking_id: made.id, amount: 10 });
+    expect(((await runOp(acc, 'data', {})) as DataPayload).host?.toEnter).toBeGreaterThan(0);
+    await expect(runOp(acc, 'host.building.save', { name: 'No' })).rejects.toThrow();
+    await expect(runOp(acc, 'host.room.save', { building_id: 1, name: 'x', beds: 1 })).rejects.toThrow();
+    // reception with no prices tick still sees none of it
+    const desk = await ctxOf('Desk A');
+    expect(JSON.stringify(await host(desk))).not.toMatch(/"rate":7/);
+    // keeping the calendar brings the prices, and the buildings
+    const keeper = await role('Desk C', ['hosting.keep']);
+    expect(keeper.profile.perms).toEqual(expect.arrayContaining(['hosting.keep', 'hosting.prices', 'hosting.book', 'hosting.view']));
+    await runOp(keeper, 'host.building.save', { name: 'Kept house' });
+  });
+
+  it('the phone is open to a person with the calendar and no book', async () => {
+    const { mayPhone, hostPack } = await import('../server/phone');
+    const desk = await ctxOf('Desk A');
+    expect(mayPhone(desk.profile)).toBe(true);
+    const pack = (await hostPack(db, desk.profile))!;
+    expect(pack.book).toBe(true);
+    expect(JSON.stringify(pack)).not.toMatch(/"rate"|"amount"/);
+  });
+});

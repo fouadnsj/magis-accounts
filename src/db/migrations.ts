@@ -2032,4 +2032,13 @@ ALTER TABLE host_line ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';
 UPDATE host_line SET currency = COALESCE((SELECT b.currency FROM host_booking b WHERE b.id = host_line.booking_id), 'USD');
 `,
   },
+  {
+    n: 60,
+    name: 'hosting: seeing the prices is its own tick (those who keep the calendar keep it)',
+    sql: `
+-- (Fouad, 2026-11-22) The Superior decides, role by role, who sees the prices: reception may book without them.
+UPDATE access_profile SET perms = replace(perms, ']', ',"hosting.prices"]')
+ WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"hosting.prices"%';
+`,
+  },
 ];

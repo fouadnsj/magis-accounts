@@ -54,6 +54,8 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
   const data = useMemo(() => merged(host, waiting), [host, news]); // eslint-disable-line react-hooks/exhaustive-deps
   const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
   const rooms = data.rooms.filter((r) => building == null || r.building_id === building);
+  // (every hook stays above the early returns below: opening a booking must not change their number)
+  const occ = useMemo(() => occupancy(data, new Set(rooms.map((r) => r.id))), [data, rooms]); // eslint-disable-line react-hooks/exhaustive-deps
   const bName = (id: number) => host.buildings.find((b) => b.id === id)?.name ?? '';
   const roomsOf = (id: number) => data.allocs.filter((a) => a.booking_id === id).map((a) => { const r = data.rooms.find((x) => x.id === a.room_id); return r ? `${bName(r.building_id)} · ${r.name}` : ''; }).join('، ');
   const STATUS: Record<string, string> = { option: t('للتأكيد', 'To confirm', 'À confirmer'), confirmed: t('مؤكَّد', 'Confirmed', 'Confirmée'), arrived: t('وصلوا', 'Arrived', 'Arrivés'), left: t('غادروا', 'Left', 'Partis'), cancelled: t('ملغى', 'Cancelled', 'Annulée') };
@@ -77,7 +79,6 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
   const wd = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
   const wdLong = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' });
   const monthLabel = (ym: string) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
-  const occ = useMemo(() => occupancy(data, new Set(rooms.map((r) => r.id))), [data, rooms]); // eslint-disable-line react-hooks/exhaustive-deps
   const stays = data.bookings.filter((b) => live(b) && b.kind === 'stay');
   const arrivals = stays.filter((b) => b.from_day === from && data.allocs.some((a) => a.booking_id === b.id && rooms.some((r) => r.id === a.room_id)));
   const departures = stays.filter((b) => b.to_day === from && data.allocs.some((a) => a.booking_id === b.id && rooms.some((r) => r.id === a.room_id)));

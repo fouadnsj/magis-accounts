@@ -10,7 +10,7 @@ import { inventoryTemplate, inventoryWorkbook, readTable } from '../io/invFile';
 import { labelsPdf } from '../io/invLabels';
 import { shrinkImage } from '../io/shrink';
 import {
-  blankLabelCodes, COMMON_ITEMS, CONDITIONS, inUse, itemTotal, pendingEntries, QR_FIELDS, qrText, tableToImport,
+  blankLabelCodes, COMMON_ITEMS, CONDITIONS, inUse, invEntries, itemTotal, pendingEntries, QR_FIELDS, qrText, tableToImport,
   type InvCondition, type InvData, type InvImportRow, type InvItem,
 } from '../inventory/inv';
 import type { Trx } from '../domain/types';
@@ -31,6 +31,12 @@ const MOVE_LABEL: Record<string, () => string> = {
   disposed: () => t('أُخرج', 'Taken out'), lost: () => t('فُقد', 'Lost'),
 };
 
+/** the purchases the inventory works with (a keeper who does not see every book gets those on inventory lines from the server) */
+function useEntries() {
+  const { d } = useApp();
+  return useMemo(() => invEntries(d), [d.rows, d.comp, d.inv]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 export function Inventory() {
   const { s, can, d, reload } = useApp();
   const manage = can('inventory.manage');
@@ -41,7 +47,8 @@ export function Inventory() {
   }, [s]);
   useEffect(() => { void load(); }, [load, d.inv]);
   const both = async () => { await reload(); await load(); };
-  const pending = useMemo(() => pendingEntries(d.rows, d.lists, d.inv), [d.rows, d.lists, d.inv]);
+  const er = useEntries();
+  const pending = useMemo(() => pendingEntries(er.rows, d.lists, d.inv), [er, d.lists, d.inv]);
 
   return (
     <>
@@ -73,6 +80,7 @@ const placeOptions = (inv: InvData): Option[] => inv.places.filter((p) => p.acti
 
 function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; refresh: () => Promise<void> }) {
   const { d } = useApp();
+  const er = useEntries();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState<number | null>(null);
   const [place, setPlace] = useState<number | null>(null);
@@ -103,7 +111,7 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
   const exportXlsx = async () => {
     try {
       const parties = new Map(d.lists.parties.map((p) => [p.id, p.name]));
-      const bytes = await inventoryWorkbook({ items: inv.items, categories: inv.categories, places: inv.places, origins: inv.origins, parties, bill: (id) => d.comp.get(id)?.billCode ?? '', organisation: '' });
+      const bytes = await inventoryWorkbook({ items: inv.items, categories: inv.categories, places: inv.places, origins: inv.origins, parties, bill: (id) => er.bill(id), organisation: '' });
       await saveFile(`inventory_${todayIso()}.xlsx`, ['xlsx'], bytes, t('احفظ الجرد', 'Save the inventory'));
     } catch (e) { toast(errText(e), true); }
   };
@@ -182,7 +190,8 @@ const fromItem = (i: InvItem): Form => ({
 const num = (s: string) => { const n = Number(s.replace(',', '.')); return s.trim() === '' || !Number.isFinite(n) ? null : n; };
 
 function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item: InvItem | null; manage: boolean; onClose: () => void; refresh: () => Promise<void> }) {
-  const { s, d } = useApp();
+  const { s } = useApp();
+  const er = useEntries();
   const [f, setF] = useState<Form>(item ? fromItem(item) : blank());
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -190,7 +199,7 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
   const serialExpected = f.category_id != null && inv.categories.find((c) => c.id === f.category_id)?.serial === 1;
   const history = item ? inv.moves.filter((x) => x.item_id === item.id).sort((a, b) => b.id - a.id) : [];
   const placeName = new Map(inv.places.map((p) => [p.id, p.name]));
-  const entry: Trx | undefined = item?.trx_id ? d.rows.find((r) => r.id === item.trx_id) : undefined;
+  const entry: Trx | undefined = item?.trx_id ? er.rows.find((r) => r.id === item.trx_id) : undefined;
 
   const run = async (fn: () => Promise<unknown>, done?: string) => {
     setBusy(true);
@@ -229,7 +238,7 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
           <select value={f.condition} disabled={ro} onChange={(e) => set('condition', e.target.value as InvCondition)}>{CONDITIONS.map((c) => <option key={c} value={c}>{COND_LABEL[c]()}</option>)}</select>
         </Field>
         {item?.trx_id ? (
-          <Field label={t('الأصل', 'Origin')}><div className="small">{t('مشترى', 'Bought')} · {entry ? `${fmtDate(entry.date)} · ${d.comp.get(entry.id)?.billCode ?? ''}` : t('قيد في السجل', 'entry of the register')}</div></Field>
+          <Field label={t('الأصل', 'Origin')}><div className="small">{t('مشترى', 'Bought')} · {entry ? `${fmtDate(entry.date)} · ${er.bill(entry.id)}` : t('قيد في السجل', 'entry of the register')}</div></Field>
         ) : (
           <Field label={t('الأصل', 'Origin')}>
             <Select value={f.origin_id} disabled={ro} onChange={(v) => set('origin_id', v)} options={inv.origins.filter((o) => !o.bought && (o.active || o.id === f.origin_id)).map((o) => ({ value: o.id, label: o.name, off: !o.active }))} placeholder={t('اختر…', 'Choose…')} />
@@ -315,10 +324,11 @@ function Photos({ item, inv, manage, refresh }: { item: InvItem; inv: InvData; m
 
 function RegisterTab({ inv, manage, pending, refresh }: { inv: InvData; manage: boolean; pending: Trx[]; refresh: () => Promise<void> }) {
   const { s, d } = useApp();
+  const er = useEntries();
   const [entry, setEntry] = useState<Trx | null>(null);
   const party = new Map(d.lists.parties.map((p) => [p.id, p.name]));
   const line = new Map(d.lists.lines.map((l) => [l.id, l]));
-  const skipped = inv.skips.map((x) => ({ skip: x, row: d.rows.find((r) => r.id === x.trx_id) })).filter((x) => x.row);
+  const skipped = inv.skips.map((x) => ({ skip: x, row: er.rows.find((r) => r.id === x.trx_id) })).filter((x) => x.row);
   const skip = async (r: Trx) => {
     const reason = await promptBox(t('لماذا ليس غرضاً؟ (إصلاح، توصيل، …)', 'Why is it not an item? (a repair, a delivery…)'), '');
     if (reason == null) return;
@@ -336,7 +346,7 @@ function RegisterTab({ inv, manage, pending, refresh }: { inv: InvData; manage: 
               <tr key={r.id}>
                 <td>{fmtDate(r.date)}</td><td>{r.explanation}</td><td className="small">{r.party_id ? party.get(r.party_id) : ''}</td>
                 <td className="small">{r.line_id ? line.get(r.line_id)?.name : ''}</td>
-                <td className="n">{fmtUsd(d.comp.get(r.id)?.expUsdTot ?? 0)}</td><td className="small">{d.comp.get(r.id)?.billCode}</td>
+                <td className="n">{fmtUsd(er.usd(r.id))}</td><td className="small">{er.bill(r.id)}</td>
                 <td className="n">{manage && <><button className="btn primary small" onClick={() => setEntry(r)}>{t('سجّل', 'Register')}</button> <button className="btn small" onClick={() => void skip(r)}>{t('ليس غرضاً', 'Not an item')}</button></>}</td>
               </tr>
             ))}
@@ -349,7 +359,7 @@ function RegisterTab({ inv, manage, pending, refresh }: { inv: InvData; manage: 
           <summary className="small">{t('عُلّمت «ليست غرضاً»', 'Marked "not an item"')} ({skipped.length})</summary>
           <table className="t small"><tbody>
             {skipped.map(({ skip: k, row }) => (
-              <tr key={k.trx_id}><td>{fmtDate(row!.date)}</td><td>{row!.explanation}</td><td className="n">{fmtUsd(d.comp.get(row!.id)?.expUsdTot ?? 0)}</td><td className="muted">{k.reason}</td>
+              <tr key={k.trx_id}><td>{fmtDate(row!.date)}</td><td>{row!.explanation}</td><td className="n">{fmtUsd(er.usd(row!.id))}</td><td className="muted">{k.reason}</td>
                 <td>{manage && <button className="btn small" onClick={async () => { try { await s.api.call('inv.unskip', { trx_id: k.trx_id }); await refresh(); } catch (e) { toast(errText(e), true); } }}>{t('تراجع', 'Undo')}</button>}</td></tr>
             ))}
           </tbody></table>
@@ -363,8 +373,9 @@ function RegisterTab({ inv, manage, pending, refresh }: { inv: InvData; manage: 
 interface Line { name: string; category_id: number | null; place_id: number | null; qty: string; serial: string; brand: string; model: string; value: string; edited: boolean }
 
 function RegisterModal({ inv, entry, onClose, refresh }: { inv: InvData; entry: Trx; onClose: () => void; refresh: () => Promise<void> }) {
-  const { s, d } = useApp();
-  const total = d.comp.get(entry.id)?.expUsdTot ?? 0;
+  const { s } = useApp();
+  const er = useEntries();
+  const total = er.usd(entry.id);
   const mk = (name = ''): Line => ({ name, category_id: null, place_id: null, qty: '1', serial: '', brand: '', model: '', value: '', edited: false });
   const [lines, setLines] = useState<Line[]>([mk(entry.explanation ?? '')]);
   const [busy, setBusy] = useState(false);
@@ -387,7 +398,7 @@ function RegisterModal({ inv, entry, onClose, refresh }: { inv: InvData; entry: 
   };
   return (
     <Modal title={t('سجّل مشتريات في الجرد', 'Register a purchase in the inventory')} onClose={onClose}>
-      <p className="small" style={{ marginTop: 0 }}><b>{fmtDate(entry.date)}</b> · {entry.explanation} · <b>{fmtUsd(total)}</b> · {d.comp.get(entry.id)?.billCode}</p>
+      <p className="small" style={{ marginTop: 0 }}><b>{fmtDate(entry.date)}</b> · {entry.explanation} · <b>{fmtUsd(total)}</b> · {er.bill(entry.id)}</p>
       {lines.map((l, i) => (
         <div key={i} className="panel" style={{ padding: 10, marginBottom: 8 }}>
           <div className="grid2">

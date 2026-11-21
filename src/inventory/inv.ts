@@ -66,10 +66,30 @@ export interface InvData {
 }
 
 /** What the main `data` call carries, for the badge, the entry form and the list of purchases still to register. */
+/** a purchase on an inventory line, as plain figures (for a keeper who does not see the whole register) */
+export interface InvEntry { id: string; date: string | null; explanation: string | null; party_id: number | null; line_id: number | null; heading_id: number | null; book_id: number | null; exp_usd: number; exp_syp: number; /** its value in dollars */ usd: number; /** its bill code */ bill: string }
+
 export interface InvLite {
   sources: InvSource[];
   /** the purchase entries already listed (an item, or "not an item") */
   done: string[];
+  /** someone who keeps the inventory but does not see every book gets the purchases on inventory lines here (never the rest) */
+  entries?: InvEntry[];
+}
+
+/**
+ * The purchases the inventory screens work with: the register's own rows, and — for a keeper who does not see every book —
+ * the purchases on inventory lines the server sent. `usd` and `bill` read the figures from either.
+ */
+export function invEntries(d: { rows: Trx[]; comp: Map<string, { expUsdTot: number; billCode: string }>; inv: InvLite | null | undefined }) {
+  const have = new Set(d.rows.map((r) => r.id));
+  const extra = (d.inv?.entries ?? []).filter((e) => !have.has(e.id));
+  const by = new Map(extra.map((e) => [e.id, e]));
+  const rows = [...d.rows, ...extra.map((e) => ({
+    id: e.id, n: null, city_id: null, account_id: null, book_id: e.book_id, date: e.date, type: 'Exp', heading_id: e.heading_id, line_id: e.line_id, explanation: e.explanation, party_id: e.party_id, receipt: null,
+    inc_syp: 0, exp_syp: e.exp_syp, inc_usd: 0, exp_usd: e.exp_usd, trf_syp: 0, trf_usd: 0, transfer_group: null, review: null, sent_at: null, created_at: e.date ?? '', created_by: null, updated_at: null, source_file: null,
+  }) as Trx)];
+  return { rows, usd: (id: string) => d.comp.get(id)?.expUsdTot ?? by.get(id)?.usd ?? 0, bill: (id: string) => d.comp.get(id)?.billCode ?? by.get(id)?.bill ?? '' };
 }
 
 /** What a QR label may hold (the label itself is always first, so a scan always finds the item) */

@@ -12,7 +12,7 @@ import { Reports } from './Reports';
 import { BudgetPage } from './Budget';
 import { Grants } from './Grants';
 import { Inventory } from './Inventory';
-import { pendingEntries } from '../inventory/inv';
+import { invEntries, pendingEntries } from '../inventory/inv';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
@@ -77,7 +77,9 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
     databases: onDatabases,
   };
   const toReview = d.rows.filter((r) => r.review).length;
-  const toInventory = can('inventory.view') ? pendingEntries(d.rows, d.lists, d.inv).length : 0;
+  const toInventory = can('inventory.manage') ? pendingEntries(invEntries(d).rows, d.lists, d.inv).length : 0;
+  // the register is for those who write in a book or look at the books (not for the reception or a stock keeper with no book)
+  const finances = myBooks.length > 0 || can('register.view') || can('register.main') || can('register.edit');
 
   const item = (p: Page, label: React.ReactNode, extra?: React.ReactNode) => (
     <button className={page === p ? 'on' : ''} onClick={() => nav.go(p)}>
@@ -124,7 +126,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
             <button className="menu-toggle" onClick={() => setMenuOpen((x) => !x)} aria-label="menu">☰ {t('القائمة', 'Menu')}</button>
           </div>
           {item('home', t('الرئيسية', 'Home'))}
-          {item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
+          {finances && item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
           {(myBooks.length > 0 || can('reports.cash')) && item('cash', t('النقد', 'Cash'))}
           {REPORT_PERMS.some(can) && item('reports', t('التقارير', 'Reports'))}
           {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}

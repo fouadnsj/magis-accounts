@@ -33,7 +33,7 @@ export interface PhoneRow { id: string; profile_id: number; name: string; key_ha
 export const validUntil = (p: Pick<PhoneRow, 'created_at' | 'last_sync'>) => new Date(Date.parse(p.last_sync ?? p.created_at) + PHONE_DAYS * DAY).toISOString();
 
 /** may this person record from a phone at all? (somebody who writes in a book) */
-export const mayPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0) || has(p, 'inventory.manage') || has(p, 'hosting.view') || has(p, 'hosting.book') || has(p, 'hosting.keep');
+export const mayPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0) || has(p, 'inventory.manage') || has(p, 'hosting.view') || has(p, 'hosting.book') || has(p, 'hosting.prices') || has(p, 'hosting.keep');
 
 /** Pairs a phone for the person signed in on it. The key is given once, here. */
 export async function pairPhone(db: Db, profile: Profile, name: string): Promise<{ id: string; key: string }> {
@@ -105,11 +105,11 @@ export interface HostPack {
 
 /** the rooms and the bookings of the days ahead (a few days back too), without any amount */
 export async function hostPack(db: Db, profile: Profile): Promise<HostPack | undefined> {
-  if (!(has(profile, 'hosting.view') || has(profile, 'hosting.book') || has(profile, 'hosting.keep')) || !(await sectionOn(db))) return undefined;
+  if (!(has(profile, 'hosting.view') || has(profile, 'hosting.book') || has(profile, 'hosting.prices') || has(profile, 'hosting.keep')) || !(await sectionOn(db))) return undefined;
   const bookings = await db.query<HostPack['bookings'][number]>("SELECT id, code, kind, status, group_name, contact, phone, people, from_day, to_day, repeat_days, time_from, time_to, review FROM host_booking WHERE status <> 'cancelled' AND to_day >= date('now', '-7 day') ORDER BY from_day, id");
   const ids = new Set(bookings.map((b) => b.id));
   return {
-    book: has(profile, 'hosting.book') || has(profile, 'hosting.keep'),
+    book: has(profile, 'hosting.book') || has(profile, 'hosting.prices') || has(profile, 'hosting.keep'),
     buildings: await db.query<HostPack['buildings'][number]>('SELECT id, name, color FROM host_building WHERE active = 1 ORDER BY sort, name'),
     rooms: await db.query<HostPack['rooms'][number]>('SELECT id, building_id, name, beds, kind FROM host_room WHERE active = 1 ORDER BY building_id, sort, name'),
     bookings,

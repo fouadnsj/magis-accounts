@@ -2,7 +2,8 @@
 // sold with them, and payments the accountant turns into entries. See host.ts for the rules.
 //  - hosting.view: sees the calendar and the bookings, never an amount;
 //  - hosting.book: makes, changes and confirms bookings (still no amount);
-//  - hosting.keep: keeps the buildings, rooms, services, sees and sets the amounts and the payments.
+//  - hosting.prices: sees and sets the amounts and the payments (its own tick: reception may or may not have it);
+//  - hosting.keep: keeps the buildings, rooms and services (and has the prices).
 import { nowIso, one, type Stmt } from '../db/db';
 import { addHeading, addLine, auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { FARM_LIST } from './farm';
@@ -15,11 +16,13 @@ import {
 } from './host';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non autorisé pour cet utilisateur'));
-const view = (c: OpCtx) => { if (!has(c.profile, 'hosting.view') && !has(c.profile, 'hosting.book') && !has(c.profile, 'hosting.keep')) throw refuse(); };
-const book = (c: OpCtx) => { if (!has(c.profile, 'hosting.book') && !has(c.profile, 'hosting.keep')) throw refuse(); };
+const view = (c: OpCtx) => { if (!has(c.profile, 'hosting.view') && !has(c.profile, 'hosting.book') && !has(c.profile, 'hosting.prices') && !has(c.profile, 'hosting.keep')) throw refuse(); };
+const book = (c: OpCtx) => { if (!has(c.profile, 'hosting.book') && !has(c.profile, 'hosting.prices') && !has(c.profile, 'hosting.keep')) throw refuse(); };
 const keep = (c: OpCtx) => { if (!has(c.profile, 'hosting.keep')) throw refuse(); };
-const keeps = (c: OpCtx) => has(c.profile, 'hosting.keep');
-const looksAtAll = (c: OpCtx) => has(c.profile, 'hosting.keep') || has(c.profile, 'hosting.book');
+/** seeing and setting the prices and the payments is its own tick (the one who keeps the calendar has it too) */
+const priced = (c: OpCtx) => has(c.profile, 'hosting.prices') || has(c.profile, 'hosting.keep');
+const pricedOnly = (c: OpCtx) => { if (!priced(c)) throw refuse(); };
+const looksAtAll = (c: OpCtx) => has(c.profile, 'hosting.keep') || has(c.profile, 'hosting.book') || has(c.profile, 'hosting.prices');
 
 const txt = (x: unknown) => (x == null || String(x).trim() === '' ? null : String(x).trim());
 const money = (x: unknown) => (x == null || x === '' ? null : Math.max(0, Math.round(Number(x) * 100) / 100));
@@ -44,7 +47,7 @@ export async function loadHosting(c: OpCtx): Promise<HostData> {
     entered: (await c.db.query<{ receipt: string }>("SELECT DISTINCT receipt FROM trx WHERE type = 'Income' AND receipt IN (SELECT receipt_no FROM host_pay)")).map((x) => x.receipt),
     prices: true,
   };
-  return keeps(c) ? d : withoutPrices(d);
+  return priced(c) ? d : withoutPrices(d);
 }
 
 async function roomsOf(c: OpCtx) { return c.db.query<HostRoom>('SELECT * FROM host_room'); }
@@ -153,10 +156,10 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
   const any = conflictsOf(probe, asked, snap, 'any');
 
   // the amounts are written only by someone who keeps the calendar; the others leave them as they are
-  const priced = keeps(c);
-  const mode = priced ? (a.price_mode === 'group' ? 'group' : a.price_mode === 'person' ? 'person' : null) : old?.price_mode ?? null;
-  const rate = priced ? money(a.rate) : old?.rate ?? null;
-  const currency = priced ? cur(a.currency) : old?.currency ?? 'USD';
+  const withPrice = priced(c);
+  const mode = withPrice ? (a.price_mode === 'group' ? 'group' : a.price_mode === 'person' ? 'person' : null) : old?.price_mode ?? null;
+  const rate = withPrice ? money(a.rate) : old?.rate ?? null;
+  const currency = withPrice ? cur(a.currency) : old?.currency ?? 'USD';
 
   const stmts: Stmt[] = [];
   const stamp = nowIso();
@@ -186,8 +189,8 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
     const sv = l.service_id != null ? services.get(Number(l.service_id)) : null;
     const label = txt(l.label) ?? sv?.name;
     if (!label) continue;
-    const amount = priced ? money(l.amount) ?? 0 : (l.id != null ? had.get(l.id)?.amount : 0) ?? 0;
-    const lineCur = priced ? cur(l.currency ?? currency) : (l.id != null ? had.get(l.id)?.currency : null) ?? currency;
+    const amount = withPrice ? money(l.amount) ?? 0 : (l.id != null ? had.get(l.id)?.amount : 0) ?? 0;
+    const lineCur = withPrice ? cur(l.currency ?? currency) : (l.id != null ? had.get(l.id)?.currency : null) ?? currency;
     stmts.push({ sql: 'INSERT INTO host_line (id, booking_id, service_id, label, qty, amount, currency) VALUES (?,?,?,?,?,?,?)', params: [++next, id, sv?.id ?? null, label, Math.max(0, Number(l.qty) || 1), amount, lineCur] });
   }
   stmts.push(auditStmt(c.who, old ? 'update' : 'add', 'host_booking', String(id), null, { group: g.group_name.trim(), from: g.from_day, to: g.to_day, status, rooms: asked.length }));
@@ -312,7 +315,7 @@ export const HOST_OPS = {
 
   /** a payment received for a booking: a SUGGESTION of an entry, which the accountant makes (or refuses) */
   'host.pay.add': {
-    check: keep,
+    check: pricedOnly,
     run: async (c: OpCtx, a: { booking_id: number; amount: number; currency?: Currency; paid_on?: string; method?: string; note?: string | null }) => {
       const b = await bookingOf(c, a.booking_id);
       const amount = money(a.amount);
@@ -330,7 +333,7 @@ export const HOST_OPS = {
 
   /** the accountant decides this payment will not be an entry (wrong, or kept elsewhere) */
   'host.pay.refuse': {
-    check: keep,
+    check: pricedOnly,
     run: async (c: OpCtx, a: { id: number; on?: boolean }) => {
       const p = await one<HostPay>(c.db, 'SELECT * FROM host_pay WHERE id = ?', [a.id]);
       if (!p) throw new UserError(m('الدفعة غير موجودة', 'Payment not found', 'Paiement introuvable'));
@@ -376,12 +379,12 @@ export const HOST_READ_ONLY = ['host.get'];
 
 /** what the main data call carries: null when the section is off or the person does not see it */
 export async function hostLite(c: OpCtx) {
-  const can = has(c.profile, 'hosting.view') || has(c.profile, 'hosting.book') || has(c.profile, 'hosting.keep');
+  const can = has(c.profile, 'hosting.view') || has(c.profile, 'hosting.book') || has(c.profile, 'hosting.prices') || has(c.profile, 'hosting.keep');
   const on = await sectionOn(c.db);
   if (!on) return can || has(c.profile, 'lists.manage') ? { on: false, review: 0, toEnter: 0, inventoryOn: await inventoryOn(c.db) } : null;
   if (!can) return null;
   const review = looksAtAll(c) ? ((await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM host_booking WHERE review = 1 AND status <> ?', ['cancelled']))?.n ?? 0) : 0;
-  const toEnter = keeps(c)
+  const toEnter = priced(c)
     ? ((await one<{ n: number }>(c.db, "SELECT COUNT(*) AS n FROM host_pay WHERE status = 'suggested' AND receipt_no NOT IN (SELECT receipt FROM trx WHERE receipt IS NOT NULL AND type = 'Income')"))?.n ?? 0)
     : 0;
   return { on: true, review, toEnter, inventoryOn: await inventoryOn(c.db) };

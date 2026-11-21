@@ -3,11 +3,13 @@
 import { nowIso, one, type Stmt } from '../db/db';
 import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { has } from '../auth';
+import { computeAll } from '../domain/compute';
+import type { Lists, Trx } from '../domain/types';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
   CONDITIONS, nextCodes, prefixFor, QR_FIELDS,
-  type InvCategory, type InvOriginRow, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
+  isSourceLine, type InvEntry, type InvCategory, type InvOriginRow, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
 } from './inv';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', "Non autorisé pour cet utilisateur"));
@@ -474,13 +476,22 @@ export const INV_OPS = {
 export const INV_READ_ONLY = ['inv.get', 'inv.photo.get'];
 
 /** what the main data call carries (for those who see the inventory) */
-export async function invLite(c: OpCtx) {
+export async function invLite(c: OpCtx, shared?: { rows: Trx[]; lists: Lists }) {
   if (!has(c.profile, 'inventory.view') && !has(c.profile, 'inventory.manage')) return null;
   // a centre may switch the section off (Admin → Sections)
   if ((await getMeta(c.db, 'sec_inventory')) === '0') return null;
   const sources = await c.db.query<InvSource>('SELECT kind, ref FROM inv_source');
   const done = (await c.db.query<{ trx_id: string }>('SELECT trx_id FROM inv_item WHERE trx_id IS NOT NULL UNION SELECT trx_id FROM inv_skip')).map((x) => x.trx_id);
-  return { sources, done };
+  // someone who keeps the inventory without seeing every book still has to register the purchases: the ones on inventory
+  // lines (never a private book's), as plain figures
+  let entries: InvEntry[] | undefined;
+  if (shared && !has(c.profile, 'register.view') && sources.length) {
+    const priv = new Set(shared.lists.books.filter((b) => b.private).map((b) => b.id));
+    const mine = shared.rows.filter((r) => r.type === 'Exp' && (r.exp_syp > 0 || r.exp_usd > 0) && !(r.book_id != null && priv.has(r.book_id)) && isSourceLine(sources, shared.lists, r.line_id, r.heading_id));
+    const comp = computeAll(shared.rows, shared.lists);
+    entries = mine.map((r) => ({ id: r.id, date: r.date, explanation: r.explanation, party_id: r.party_id, line_id: r.line_id, heading_id: r.heading_id, book_id: r.book_id, exp_usd: r.exp_usd, exp_syp: r.exp_syp, usd: comp.get(r.id)?.expUsdTot ?? 0, bill: comp.get(r.id)?.billCode ?? '' }));
+  }
+  return { sources, done, ...(entries ? { entries } : {}) };
 }
 
 /** What one centre's inventory comes to, for the Coordinator (reads only: never the items themselves). */

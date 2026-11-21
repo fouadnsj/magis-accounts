@@ -92,7 +92,7 @@ function Sections() {
         setBusy(true);
         try { const r = await s.api.call('host.farm.seed'); await reload(); toast(`${r.headings} ${t('بنداً', 'headings')} · ${r.lines} ${t('خطاً', 'lines')}`); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
       }}>{t('أضف قائمة المزرعة', "Add the farm's list")}</button>
-      {hostOn && <p className="small muted">{t('من يرى ماذا: في «الأدوار والصلاحيات» (الإقامة والتقويم). الأسعار لمن «يمسك التقويم» فقط.', 'Who sees what: in "Roles and permissions" (Hosting and calendar). The prices are for those who "keep the calendar" only.')}</p>}
+      {hostOn && <p className="small muted">{t('من يرى ماذا: في «الأدوار والصلاحيات» (الإقامة والتقويم). الأسعار لمن أُعطي «يرى الأسعار والدفعات» (أو «يمسك التقويم») فقط.', 'Who sees what: in "Roles and permissions" (Hosting and calendar). Only roles given "Sees and sets the prices and the payments" (or "Keeps the calendar") see the prices.')}</p>}
     </div>
   );
 }

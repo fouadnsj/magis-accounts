@@ -389,7 +389,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     closedYears: (await c.db.query<{ year: number }>('SELECT year FROM closed_year')).map((x) => x.year),
     grants, grantParts, grantShares, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
     grantsBookId: Number(await getMeta(db, 'grants_book_id')) || null,
-    inv: await invLite(c),
+    inv: await invLite(c, { rows: allRows, lists }),
     host: await hostLite(c),
   };
 }

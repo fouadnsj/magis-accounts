@@ -34,7 +34,9 @@ const phoneLink = (p: string | null) => (p ? <a href={`tel:${p.replace(/\s/g, ''
 export function Hosting() {
   const { s, can, d, reload } = useApp();
   const keeps = can('hosting.keep');
-  const books = can('hosting.book') || keeps;
+  // the prices and the payments are their own tick (keeping the calendar has them too)
+  const priced = can('hosting.prices') || keeps;
+  const books = can('hosting.book') || priced;
   const [tab, setTab] = useState<Tab>('calendar');
   const [data, setData] = useState<HostData | null>(null);
   const [edit, setEdit] = useState<{ booking: HostBooking | null; start?: NewStart } | null>(null);
@@ -54,7 +56,7 @@ export function Hosting() {
         { value: 'calendar', label: t('التقويم', 'Calendar') },
         { value: 'bookings', label: t('الحجوزات', 'Bookings') },
         { value: 'report', label: t('تقارير', 'Reports') },
-        { value: 'payments', label: `${t('الدفعات', 'Payments')}${toEnter ? ` (${toEnter})` : ''}`, hidden: !keeps },
+        { value: 'payments', label: `${t('الدفعات', 'Payments')}${toEnter ? ` (${toEnter})` : ''}`, hidden: !priced },
         { value: 'settings', label: t('المباني والغرف', 'Buildings and rooms'), hidden: !keeps },
       ]} />
       {!data ? <p className="muted">…</p> : (
@@ -67,7 +69,7 @@ export function Hosting() {
           {tab === 'calendar' && <CalendarTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={(start) => setEdit({ booking: null, start })} />}
           {tab === 'bookings' && <BookingsTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={() => setEdit({ booking: null })} />}
           {tab === 'report' && <ReportTab data={data} onOpen={(b) => setEdit({ booking: b })} />}
-          {tab === 'payments' && keeps && <PaymentsTab data={data} refresh={both} />}
+          {tab === 'payments' && priced && <PaymentsTab data={data} refresh={both} />}
           {tab === 'settings' && keeps && <SettingsTab data={data} refresh={both} />}
           {edit && <BookingEditor data={data} start={edit} onClose={() => setEdit(null)} refresh={both} />}
           {review && waiting.length > 0 && <ReviewBox data={data} onClose={() => setReview(false)} refresh={both} onChange={(b) => { setReview(false); setEdit({ booking: b }); }} />}
@@ -307,6 +309,7 @@ interface Line { id?: number; service_id: number | null; label: string; qty: str
 function BookingEditor({ data, start, onClose, refresh }: { data: HostData; start: { booking: HostBooking | null; start?: NewStart }; onClose: () => void; refresh: () => Promise<void> }) {
   const { s, can } = useApp();
   const keeps = can('hosting.keep');
+  const canPrice = can('hosting.prices') || keeps;
   const b = start.booking;
   const [f, setF] = useState(() => ({
     kind: (b?.kind ?? 'stay') as BookingKind, group_name: b?.group_name ?? '', contact: b?.contact ?? '', phone: b?.phone ?? '', people: String(b?.people ?? ''),
@@ -338,7 +341,7 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
   });
   const [lines, setLines] = useState<Line[]>(() => data.lines.filter((l) => l.booking_id === b?.id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: String(l.qty), amount: String(l.amount), currency: l.currency })));
   const [busy, setBusy] = useState(false);
-  const readOnly = !(can('hosting.book') || keeps);
+  const readOnly = !(can('hosting.book') || canPrice);
   const people = Number(f.people) || 0;
   const repeatDays = f.kind === 'event' && again && rep.size ? [...rep].sort().join(',') : null;
   const hours = f.kind === 'event' ? { time_from: f.time_from || null, time_to: f.time_to || null } : { time_from: null, time_to: null };
@@ -451,8 +454,8 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
           <Select value={l.service_id} options={data.services.filter((x) => x.active || x.id === l.service_id).map((x) => ({ value: x.id, label: x.name }))} placeholder={t('خدمة…', 'Service…')} disabled={readOnly}
             onChange={(v) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, service_id: v, label: data.services.find((s2) => s2.id === v)?.name ?? x.label } : x)))} />
           <input className="inp" type="number" min={0} style={{ width: 70 }} title={t('الكمية', 'Quantity')} disabled={readOnly} value={l.qty} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, qty: e.target.value } : x)))} />
-          {data.prices && <input className="inp" inputMode="decimal" style={{ width: 90 }} title={t('المبلغ المتفق عليه', 'Agreed amount')} disabled={!keeps} value={l.amount} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))} />}
-          {data.prices && <select style={{ width: 80 }} title={t('العملة', 'Currency')} disabled={!keeps} value={l.currency} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, currency: e.target.value as Currency } : x)))}><option value="USD">USD</option><option value="SYP">SYP</option></select>}
+          {data.prices && <input className="inp" inputMode="decimal" style={{ width: 90 }} title={t('المبلغ المتفق عليه', 'Agreed amount')} disabled={!canPrice} value={l.amount} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))} />}
+          {data.prices && <select style={{ width: 80 }} title={t('العملة', 'Currency')} disabled={!canPrice} value={l.currency} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, currency: e.target.value as Currency } : x)))}><option value="USD">USD</option><option value="SYP">SYP</option></select>}
           {!readOnly && <button className="btn ghost small" onClick={() => setLines((xs) => xs.filter((_, k) => k !== i))}>✕</button>}
         </div>
       ))}
@@ -463,14 +466,14 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
           <h3 style={{ margin: '12px 0 4px' }}>{t('المبلغ المتفق عليه', 'Agreed amount')}</h3>
           <div className="grid2">
             <Field label={t('الحساب', 'Priced')}>
-              <select value={f.price_mode} disabled={!keeps} onChange={(e) => set('price_mode', e.target.value as 'person' | 'group')}>
+              <select value={f.price_mode} disabled={!canPrice} onChange={(e) => set('price_mode', e.target.value as 'person' | 'group')}>
                 <option value="person">{t('للشخص في الليلة', 'Per person per night')}</option><option value="group">{t('سعر ثابت للمجموعة', 'A fixed price for the group')}</option>
               </select>
             </Field>
             <Field label={f.price_mode === 'person' ? t('السعر للشخص/ليلة', 'Rate per person/night') : t('سعر المجموعة', 'Price of the group')}>
               <div className="row" style={{ gap: 6 }}>
-                <input className="inp" inputMode="decimal" disabled={!keeps} value={f.rate} onChange={(e) => set('rate', e.target.value)} />
-                <select value={f.currency} disabled={!keeps} onChange={(e) => set('currency', e.target.value as Currency)}><option value="USD">USD</option><option value="SYP">SYP</option></select>
+                <input className="inp" inputMode="decimal" disabled={!canPrice} value={f.rate} onChange={(e) => set('rate', e.target.value)} />
+                <select value={f.currency} disabled={!canPrice} onChange={(e) => set('currency', e.target.value as Currency)}><option value="USD">USD</option><option value="SYP">SYP</option></select>
               </div>
             </Field>
           </div>
@@ -483,7 +486,7 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
               ))}
             </tbody></table>
           )}
-          {b && keeps && <button className="btn small" onClick={() => addPay()}>＋ {t('دفعة مقبوضة', 'A payment received')}</button>}
+          {b && canPrice && <button className="btn small" onClick={() => addPay()}>＋ {t('دفعة مقبوضة', 'A payment received')}</button>}
         </>
       )}
 
@@ -727,7 +730,9 @@ function ReportTab({ data, onOpen }: { data: HostData; onOpen: (b: HostBooking) 
 // ---------------------------------------------------------------- payments: suggestions of entries
 
 function PaymentsTab({ data, refresh }: { data: HostData; refresh: () => Promise<void> }) {
-  const { s } = useApp();
+  const { s, can } = useApp();
+  // only someone who writes entries can make one; the others see where each payment stands
+  const writes = can('register.edit') || can('register.main') || can('book.own');
   const nav = useNav();
   const [show, setShow] = useState<'todo' | 'all'>('todo');
   const rows = data.pays.map((p) => ({ p, b: data.bookings.find((x) => x.id === p.booking_id), state: p.status === 'refused' ? 'refused' : data.entered.includes(p.receipt_no) ? 'entered' : 'todo' as const }))
@@ -753,7 +758,7 @@ function PaymentsTab({ data, refresh }: { data: HostData; refresh: () => Promise
               <td>{p.receipt_no}</td><td>{fmtDate(p.paid_on)}</td><td>{b?.group_name} <small className="muted">{b?.code}</small></td><td className="n">{money(p.amount, p.currency)}</td>
               <td>{state === 'entered' ? `✓ ${t('قيد في السجل', 'entered')}` : state === 'refused' ? t('مرفوضة', 'refused') : t('تنتظر', 'waiting')}</td>
               <td>
-                {state === 'todo' && <><button className="btn primary small" onClick={() => makeEntry(p, b)}>{t('اجعلها قيداً', 'Make the entry')}</button> <button className="btn ghost small" onClick={() => void refuse(p.id, true)}>{t('ارفض', 'Refuse')}</button></>}
+                {state === 'todo' && <>{writes && <button className="btn primary small" onClick={() => makeEntry(p, b)}>{t('اجعلها قيداً', 'Make the entry')}</button>} <button className="btn ghost small" onClick={() => void refuse(p.id, true)}>{t('ارفض', 'Refuse')}</button></>}
                 {state === 'refused' && <button className="btn ghost small" onClick={() => void refuse(p.id, false)}>{t('أعدها', 'Restore')}</button>}
               </td>
             </tr>

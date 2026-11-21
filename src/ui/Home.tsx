@@ -10,7 +10,7 @@ import { holderBalance } from './Cash';
 import { needsApproval } from '../ops';
 import { PersonIcon } from './icons';
 import { rateOn } from '../domain/compute';
-import { pendingEntries } from '../inventory/inv';
+import { invEntries, pendingEntries } from '../inventory/inv';
 import { Envelopes } from './Envelopes';
 import { GuideLink } from '../guide/GuideView';
 
@@ -23,6 +23,8 @@ export function Home() {
   const names = useNames();
   const mainId = d.lists.books.find((b) => b.is_main)?.id ?? null;
   const writes = can('register.edit') || can('register.main') || (can('book.own') && myBooks.length > 0);
+  // someone with no book and no part in the finances (the reception, a stock keeper): the home is what they work with
+  const financeless = limited && myBooks.length === 0 && !writes;
   // four equal buttons, as on the communities' home (Fouad, 19 October 2026)
   const types: TrxType[] = writes ? ['Exp', 'Income', 'Transfer', 'Exchange'] : [];
   if (fileHolder) types.splice(types.indexOf('Transfer'), 1);
@@ -36,7 +38,7 @@ export function Home() {
   const syp = useMemo(() => holders(d.rows, d.shownBooks, 'SYP'), [d]);
   const usd = useMemo(() => holders(d.rows, d.shownBooks, 'USD'), [d]);
   const toReview = d.rows.filter((r) => r.review).length;
-  const toInventory = can('inventory.manage') ? pendingEntries(d.rows, d.lists, d.inv).length : 0;
+  const toInventory = can('inventory.manage') ? pendingEntries(invEntries(d).rows, d.lists, d.inv).length : 0;
   const noBook = syp[syp.length - 1].shouldHold !== 0 || usd[usd.length - 1].shouldHold !== 0;
   const last = d.rows.reduce<string | null>((m, r) => (r.date && (!m || r.date > m) ? r.date : m), null);
   const unsent = fileHolder ? d.rows.filter((r) => !r.sent_at).length : 0;
@@ -88,10 +90,20 @@ export function Home() {
     <>
       <div className="page-head">
         <h1>{t('الرئيسية', 'Home')}<GuideLink id="start" /></h1>
-        <span className="muted small">
-          {d.rows.length} {t('سطر', 'rows')} · {t('آخر تاريخ', 'last date')} {fmtDate(last)}
-        </span>
+        {!financeless && (
+          <span className="muted small">
+            {d.rows.length} {t('سطر', 'rows')} · {t('آخر تاريخ', 'last date')} {fmtDate(last)}
+          </span>
+        )}
       </div>
+
+      {financeless && (
+        <div className="big-actions" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
+          {d.host?.on && <button className="Transfer" onClick={() => nav.go('hosting')}><span className="big-icon" aria-hidden="true">📅</span>{t('التقويم والحجوزات', 'Calendar and bookings')}<small>{d.host.review ? `${d.host.review} ${t('حجز ينتظر نظرة', 'booking(s) to look at')}` : t('الغرف حسب اليوم', 'rooms by day')}</small></button>}
+          {d.inv && <button className="Income" onClick={() => nav.go('inventory')}><span className="big-icon" aria-hidden="true">📦</span>{t('الجرد', 'Inventory')}<small>{toInventory ? `${toInventory} ${t('مشتريات تُسجَّل', 'purchases to register')}` : t('الأغراض والأماكن', 'items and places')}</small></button>}
+          {!d.host?.on && !d.inv && <p className="muted">{t('لا شيء بعد لتعمل به هنا.', 'Nothing to work with here yet.')}</p>}
+        </div>
+      )}
 
       {types.length > 0 && (
         <div className="big-actions" style={types.length === 3 ? { gridTemplateColumns: 'repeat(3, minmax(0,1fr))' } : undefined}>

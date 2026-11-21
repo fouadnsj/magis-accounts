@@ -245,3 +245,41 @@ describe('the inventory', () => {
     expect(parsed.rows[0]).toMatchObject({ qty: 20 });
   });
 });
+
+describe('someone else keeps the inventory (22 November 2026)', () => {
+  it('a keeper with no book and no view of the register still gets the purchases to register, and can register them', async () => {
+    await runOp(sup, 'access.save', { name: 'Stock keeper', perms: ['inventory.manage'] });
+    const access = (await db.query<{ id: number }>("SELECT id FROM access_profile WHERE name = 'Stock keeper'"))[0].id;
+    await runOp(sup, 'user.save', { name: 'Stock', access_id: access, books: [], pin: 'stock-pass-1' });
+    const stock = await ctxOf('Stock');
+    expect(stock.profile.perms).toEqual(expect.arrayContaining(['inventory.manage', 'inventory.view']));
+    expect(stock.profile.perms).not.toContain('register.view');
+
+    // a purchase on an inventory line, in somebody else's book
+    const row = { ...blankTrx(), city_id: L.cities[0].id, account_id: L.accounts[0].id, book_id: book, date: '2026-11-20', type: 'Exp' as const, heading_id: 900, line_id: 900, exp_usd: 450, explanation: 'Two wardrobes' };
+    await runOp(sup, 'trx.save', { rows: [row] });
+
+    const p = await data(stock);
+    // he sees no part of the register...
+    expect(p.rows).toEqual([]);
+    // ...only the purchases on inventory lines, as plain figures
+    const mine = p.inv!.entries!.find((e) => e.explanation === 'Two wardrobes')!;
+    expect(mine).toMatchObject({ exp_usd: 450, usd: 450 });
+    expect(mine.bill).not.toBe('');
+    expect(p.inv!.entries!.every((e) => e.exp_usd > 0 || e.exp_syp > 0)).toBe(true);
+    // the Accountant, who sees every book, gets no such list
+    expect((await data(sup)).inv!.entries).toBeUndefined();
+
+    // the screens' own rule finds it "to register", and he can list it
+    const { invEntries, pendingEntries } = await import('../src/inventory/inv');
+    const er = invEntries({ rows: p.rows, comp: new Map(), inv: p.inv });
+    const pend = pendingEntries(er.rows, p.lists, p.inv);
+    expect(pend.map((r) => r.explanation)).toContain('Two wardrobes');
+    expect(er.usd(mine.id)).toBe(450);
+    await runOp(stock, 'inv.register', { trx_id: mine.id, items: [{ name: 'Wardrobe', qty: 2, category_id: null, place_id: null }] });
+    const after = await data(stock);
+    expect(pendingEntries(invEntries({ rows: after.rows, comp: new Map(), inv: after.inv }).rows, after.lists, after.inv).map((r) => r.explanation)).not.toContain('Two wardrobes');
+    // he may not touch the register itself
+    await expect(runOp(stock, 'trx.save', { rows: [row] })).rejects.toThrow();
+  });
+});

@@ -64,3 +64,12 @@ Build only when Fouad says "build".
   its `INSTALL-README.md` and `desinstaller-mac.command`.
 - The upgrade of the **real server (0.7.4)** to the new version: rehearse on a **copy** first; the upgrade makes a
   `…_before-update-…` copy by itself.
+
+---
+## Built 21 November 2026 (v0.11.4) — and what is NOT in it
+- Built and tagged `v0.11.4`; Mac dmg and Windows exes are in `installers-0.11.4`.
+- **Not in it:** Al-Ard's farm list of headings and lines (Fouad confirmed it on 21 Nov, after the tag; he can change it later
+  in the database). Income: farm sales (table olives, olive oil, quince, grapes, apricots, almonds) and camps. Expenses: fixed
+  salaries, machine maintenance, fuel, alternative energy, daily labour, seasonal labour (pruning), fertilizers, pesticides.
+  → put in the next build (0.11.5 or with 0.12.0).
+- 0.12.0 (his notes to come): accommodation + calendar sections on/off per centre, booking statuses, services list, suggested payments, offline phone calendar.

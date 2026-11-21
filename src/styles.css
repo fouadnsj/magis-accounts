@@ -930,3 +930,19 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-wd small { font-size: 11px; height: 14px; } .host-wd span { font-size: 11px; color: var(--muted); }
 
 .mg-none { max-width: 420px; margin: 8px auto 0; text-align: center; font-size: 13px; color: var(--muted); }
+
+/* the Jesuit badge: only the Arabic sentence is always shown; the Latin one and the way in come when it is approached
+   (always shown on a touch screen, which cannot hover) — 22 November 2026 */
+.mg-sunbtn .mg-amdg .tr, .mg-sunbtn .mg-badge-sub { max-height: 0; opacity: 0; overflow: hidden; transform: translateY(-3px); transition: max-height .45s ease, opacity .4s ease .05s, transform .45s ease; }
+.mg-sunbtn:hover .mg-amdg .tr, .mg-sunbtn:focus-visible .mg-amdg .tr { max-height: 28px; opacity: 1; transform: none; }
+.mg-sunbtn:hover .mg-badge-sub, .mg-sunbtn:focus-visible .mg-badge-sub { max-height: 22px; opacity: 1; transform: none; }
+@media (hover: none) { .mg-sunbtn .mg-amdg .tr, .mg-sunbtn .mg-badge-sub { max-height: none; opacity: 1; transform: none; } }
+
+/* the administrator badge: the same badge as the houses, smaller, in the corner */
+.mg-page { position: relative; }
+.mg-adminbtn { position: absolute; top: 16px; inset-inline-end: 22px; z-index: 5; padding: 4px 6px; gap: 2px; }
+.mg-adminbtn .mg-door-mark { width: 56px; height: 56px; }
+.mg-adminbtn .mg-door-mark img { height: 44px; width: 44px; border-radius: 50%; object-fit: cover; }
+.mg-adminbtn b { font-size: 14px; }
+.mg-adminbtn .mg-badge-sub { font-size: 11px; }
+@media (max-width: 600px) { .mg-adminbtn { top: 10px; inset-inline-end: 8px; } .mg-adminbtn .mg-door-mark { width: 44px; height: 44px; } .mg-adminbtn .mg-door-mark img { height: 34px; width: 34px; } .mg-adminbtn b { font-size: 12px; } }

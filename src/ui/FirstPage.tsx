@@ -252,6 +252,12 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
   return (
     <div className="brand-page mg-page mg-home">
       <div className="brand-spine" />
+      {/* the administrator's door is a badge like the others, in the corner (it is for one person, not a house) */}
+      <button type="button" className="mg-badge mg-adminbtn" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d', animationDelay: '1.9s' } as CSSProperties} onClick={() => setStep('admin')} aria-label={t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}>
+        <span className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/phone-192.png" alt="" className="round" /></span>
+        <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>
+        <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+      </button>
       <div className="mg-hero">
         <Opening onPick={setStep} jesuits={!!showJesuits} />
         <div className="mg-eyebrow">{t3('الرهبنة اليسوعية · مراكز ماجيس في سوريا', 'Society of Jesus · MAGIS centres in Syria', 'Compagnie de Jésus · Centres MAGIS en Syrie')}</div>
@@ -266,15 +272,6 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
         )}
       </main>
       <ValuesFoot />
-      {/* the administrator's door stays under the values: the houses and the Jesuits are the badges at the top */}
-      <div className="mg-doors two one">
-        <button type="button" className="mg-door" style={{ '--centre': '#870d0d', '--centre-deep': '#870d0d' } as CSSProperties} onClick={() => setStep('admin')} aria-label={t3('الدخول كمدير', 'Sign in as administrator', 'Entrer comme administrateur')}>
-          <div className="mg-door-mark"><span className="mg-hh-halo" /><img src="/brand/phone-192.png" alt="" className="round" /></div>
-          <b>{t3('المدير', 'Administrator', 'Administrateur')}</b>
-          <div className="mg-said mg-door-said"><p className="tr" dir="ltr">AMDG</p></div>
-          <span className="mg-door-go">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
-        </button>
-      </div>
     </div>
   );
 }

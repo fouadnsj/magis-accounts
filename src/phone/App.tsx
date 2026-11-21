@@ -2,7 +2,7 @@
 // income with the photo of its receipt, and what is waiting / sent / to fix. Everything works with no connection except
 // the first link; the phone sends by itself when it finds the server again.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { allPhotos, allRows, delPhoto, delRow, kvDel, kvGet, kvSet, lockKey, newId, openKey, putPhoto, putRow, wipe, type Entry, type Kind, type Link, type Msg, type Pack, type Photo } from './store';
+import { allPhotos, allRows, delPhoto, delRow, gDel, gGet, gSet, kvGet, kvSet, lockKey, migrateLegacy, newId, openKey, putPhoto, putRow, setNs, waitingOf, wipe, wipeNs, type Entry, type Kind, type Link, type Msg, type Pack, type Photo } from './store';
 import { api, balance, check, Offline, openFull, Refused, sync, Unlinked } from './sync';
 import { Count, invCounts, invPhotos } from './Count';
 import { Record as RecordItems, invNews } from './Record';
@@ -54,27 +54,90 @@ const HOUSES: [string, () => string][] = [
   ['jesuits', () => t('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')],
 ];
 
+/** a database linked to this phone (21 November 2026: a phone may hold several): ns = its name here ('' = the older first link, until it is opened once) */
+export interface LinkEntry { ns: string; org: string; user: string; link: Link }
+
 export function App() {
   const [, redraw] = useState(0);
-  const [link, setLink] = useState<Link | null | undefined>(undefined); // undefined: still reading the phone's storage
-  const [key, setKey] = useState<string | null>(null); // the server's key, open while the phone is unlocked
+  const [links, setLinks] = useState<LinkEntry[] | undefined>(undefined); // undefined: still reading the phone's storage
+  const [cur, setCur] = useState(''); // the active link
+  const [keys, setKeys] = useState<Record<string, string> | null>(null); // the servers' keys, open while the phone is unlocked
   const [pack, setPack] = useState<Pack | null>(null);
-  useEffect(() => { void (async () => { setPack((await kvGet<Pack>('pack')) ?? null); setLink((await kvGet<Link>('link')) ?? null); })(); }, []);
+  const [adding, setAdding] = useState(false);
+  const [oldPack, setOldPack] = useState<Pack | null>(null);
+  useEffect(() => {
+    void (async () => {
+      let ls = await gGet<LinkEntry[]>('links');
+      if (!ls) {
+        // a phone linked before several links existed: its one link, under the empty name
+        const legacy = await gGet<Link>('link');
+        setNs('');
+        const p = await kvGet<Pack>('pack');
+        ls = legacy ? [{ ns: '', org: p?.organisation ?? '', user: p?.user ?? '', link: legacy }] : [];
+      }
+      const want = (await gGet<string>('cur')) ?? ls[0]?.ns ?? '';
+      const c = ls.find((x) => x.ns === want)?.ns ?? ls[0]?.ns ?? '';
+      setNs(c);
+      setPack((await kvGet<Pack>('pack')) ?? null);
+      setCur(c);
+      setLinks(ls);
+    })();
+  }, []);
+  /** the active link changes: everything the phone shows is now that database's */
+  const activate = async (ns: string) => { setNs(ns); await gSet('cur', ns); setPack((await kvGet<Pack>('pack')) ?? null); setCur(ns); };
+  /** opened with the code: the older single link takes its database's name */
+  const opened = async (k: Record<string, string>) => {
+    const old = (links ?? []).find((x) => x.ns === '');
+    if (old && k['']) {
+      const slug = k[''].split(':')[0];
+      await migrateLegacy(slug);
+      const ls = (links ?? []).map((x) => (x.ns === '' ? { ...x, ns: slug } : x));
+      await gSet('links', ls);
+      await gDel('link'); // (the older single-link key is no longer used)
+      const nk = { ...k, [slug]: k[''] };
+      delete nk[''];
+      setLinks(ls);
+      setKeys(nk);
+      await activate(cur === '' ? slug : cur);
+      return;
+    }
+    setKeys(k);
+    // the active link did not open (it should not happen: every link has the same code): take the first that did
+    if (!k[cur]) { const first = (links ?? []).find((x) => k[x.ns]); if (first) await activate(first.ns); }
+  };
+  /** a database was linked (the first, or another one): it becomes the active one */
+  const linked = async (e: LinkEntry, key: string, p: Pack) => {
+    const ls = [...(links ?? []).filter((x) => x.ns !== e.ns), e];
+    await gSet('links', ls);
+    await gSet('cur', e.ns);
+    setNs(e.ns);
+    setLinks(ls); setCur(e.ns); setKeys((k) => ({ ...(k ?? {}), [e.ns]: key })); setPack(p); setAdding(false); setOldPack(null);
+  };
+  /** this database leaves the phone: everything of it (all = true), or only its link (the server cut it: its rows wait for a new link) */
+  const unlinkCur = async (all: boolean) => {
+    const rest = (links ?? []).filter((x) => x.ns !== cur);
+    if (all) await wipeNs(cur); else setOldPack(pack);
+    await gSet('links', rest);
+    setLinks(rest);
+    if (rest.length) { await activate(rest[0].ns); } else { await gDel('cur'); setPack(null); setCur(''); setNs(''); setKeys(null); }
+  };
   useEffect(() => { document.documentElement.lang = lang; document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'; });
   const setLang = (l: Lang) => { lang = l; try { localStorage.setItem('phone-lang', l); } catch { /* */ } redraw((n) => n + 1); };
   // the phone locks again after five minutes out of sight
   useEffect(() => {
     let hidden = 0;
-    const f = () => { if (document.hidden) hidden = Date.now(); else if (hidden && Date.now() - hidden > 5 * 60e3) setKey(null); };
+    const f = () => { if (document.hidden) hidden = Date.now(); else if (hidden && Date.now() - hidden > 5 * 60e3) setKeys(null); };
     document.addEventListener('visibilitychange', f);
     return () => document.removeEventListener('visibilitychange', f);
   }, []);
 
-  if (link === undefined) return <div className="ph-center">…</div>;
-  if (!link) return <Setup lang={lang} setLang={setLang} oldPack={pack} onDone={(l, k, p) => { setLink(l); setKey(k); setPack(p); }} />;
-  if (!key || !pack) return <Lock link={link} pack={pack} onOpen={setKey} onForget={async () => { await wipe(); setPack(null); setLink(null); }} />;
-  return <Home pack={pack} setPack={setPack} keyOf={key} lang={lang} setLang={setLang} onLock={() => setKey(null)}
-    onUnlink={async (all) => { if (all) { await wipe(); setPack(null); } else await kvDel('link'); setKey(null); setLink(null); }} />;
+  if (links === undefined) return <div className="ph-center">…</div>;
+  if (!links.length) return <Setup lang={lang} setLang={setLang} oldPack={oldPack ?? pack} existing={[]} onDone={linked} />;
+  if (!keys || !pack || !keys[cur]) return <Lock links={links} cur={cur} pack={pack} onOpen={opened} onForget={async () => { await wipe(); await gDel('links'); await gDel('cur'); setPack(null); setLinks([]); setKeys(null); setCur(''); setNs(''); }} />;
+  if (adding) return <Setup lang={lang} setLang={setLang} oldPack={null} existing={links} onDone={linked} onCancel={() => setAdding(false)} />;
+  return <Home key={cur} pack={pack} setPack={setPack} keyOf={keys[cur]} lang={lang} setLang={setLang} onLock={() => setKeys(null)}
+    links={links} cur={cur} onSwitch={activate} onAdd={() => setAdding(true)}
+    onUnlink={async (all) => { await unlinkCur(all); }} />;
 }
 
 // ---- the icon on the home screen (Fouad, 16 November 2026: "I can't find the icon to add the app on Android").
@@ -106,7 +169,8 @@ function LangPick({ lang: l, setLang }: { lang: Lang; setLang: (l: Lang) => void
 }
 
 // ---------------------------------------------------------------- linking this phone (once, at the centre)
-function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l: Lang) => void; oldPack: Pack | null; onDone: (l: Link, key: string, p: Pack) => void }) {
+function Setup({ lang: l, setLang, oldPack, existing, onDone, onCancel }: { lang: Lang; setLang: (l: Lang) => void; oldPack: Pack | null; /** the links already on this phone: linking another database asks this phone's code, it does not make a new one */ existing: LinkEntry[]; onDone: (e: LinkEntry, key: string, p: Pack) => void; onCancel?: () => void }) {
+  const add = existing.length > 0;
   const [house, setHouse] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
@@ -126,7 +190,7 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
     const r = await api.pair(`${device.trim() || 'Phone'}`);
     await api.logout();
     // a phone that still holds somebody's rows is linked again by that person only
-    const waiting = (await allRows()).some((x) => x.state !== 'sent');
+    const waiting = !add && (await allRows()).some((x) => x.state !== 'sent');
     if (oldPack && waiting && (oldPack.user !== r.pack.user || oldPack.organisation !== r.pack.organisation))
       throw new Refused({ ar: `في هذا الهاتف سطور لـ ${oldPack.user} (${oldPack.organisation}) لم تُرسل`, en: `This phone holds rows of ${oldPack.user} (${oldPack.organisation}) not sent yet`, fr: `Ce téléphone garde des lignes de ${oldPack.user} (${oldPack.organisation}) pas encore envoyées` });
     setGot({ key: r.key, pack: r.pack });
@@ -150,11 +214,15 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
   };
   const finish = async () => {
     if (!/^\d{4,8}$/.test(code)) return setErr(t('الرمز: من 4 إلى 8 أرقام', 'The code: 4 to 8 digits', 'Le code : 4 à 8 chiffres'));
-    if (code !== code2) return setErr(t('الرمزان مختلفان', 'The two codes are not the same', 'Les deux codes sont différents'));
+    if (!add && code !== code2) return setErr(t('الرمزان مختلفان', 'The two codes are not the same', 'Les deux codes sont différents'));
     setBusy(true);
+    // another database: the code of this phone, the one already chosen
+    if (add && !(await openKey(existing[0].link, code))) { setBusy(false); return setErr(t('رمز هذا الهاتف غير صحيح', "This phone's code is not right", "Le code de ce téléphone n'est pas juste")); }
     const l = await lockKey(got!.key, code);
-    await kvSet('link', l); await kvSet('pack', got!.pack);
-    onDone(l, got!.key, got!.pack);
+    const ns = got!.key.split(':')[0];
+    setNs(ns);
+    await kvSet('pack', got!.pack);
+    onDone({ ns, org: got!.pack.organisation, user: got!.pack.user, link: l }, got!.key, got!.pack);
   };
 
   return (
@@ -162,13 +230,14 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
       <div className="ph-brand"><img src="/brand/magis-sun.png" alt="" /><h1>MAGIS</h1><p>{t('تسجيل الحركات بعيداً عن المركز', 'Recording away from the centre', 'Enregistrer loin du centre')}</p></div>
       <LangPick lang={l} setLang={setLang} />
       <InstallHint />
+      {onCancel && <button className="ph-linkbtn" onClick={onCancel}>‹ {t('رجوع إلى دفاتري', 'Back to my books', 'Retour à mes livres')}</button>}
       {err && <div className="ph-alert">{err}</div>}
       {got ? (
         <div className="ph-card">
           <b>{got.pack.organisation} · {got.pack.user}</b>
-          <p className="ph-muted">{t('اختر رمزاً لهذا الهاتف. تفتح به التطبيق كل مرة؛ لا يعرفه الخادم.', 'Choose a code for this phone. You open the app with it each time; the server does not know it.', "Choisissez un code pour ce téléphone. Vous ouvrez l'application avec lui ; le serveur ne le connaît pas.")}</p>
+          <p className="ph-muted">{add ? t('اكتب رمز هذا الهاتف (نفسه الذي تفتح به التطبيق).', 'Write the code of this phone (the one you open the app with).', "Écrivez le code de ce téléphone (celui qui ouvre l'application).") : t('اختر رمزاً لهذا الهاتف. تفتح به التطبيق كل مرة؛ لا يعرفه الخادم.', 'Choose a code for this phone. You open the app with it each time; the server does not know it.', "Choisissez un code pour ce téléphone. Vous ouvrez l'application avec lui ; le serveur ne le connaît pas.")}</p>
           <label>{t('الرمز (4 إلى 8 أرقام)', 'Code (4 to 8 digits)', 'Code (4 à 8 chiffres)')}<input type="password" inputMode="numeric" autoComplete="off" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
-          <label>{t('الرمز مرة ثانية', 'The code again', 'Le code encore')}<input type="password" inputMode="numeric" autoComplete="off" value={code2} onChange={(e) => setCode2(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
+          {!add && <label>{t('الرمز مرة ثانية', 'The code again', 'Le code encore')}<input type="password" inputMode="numeric" autoComplete="off" value={code2} onChange={(e) => setCode2(e.target.value.replace(/\D/g, '').slice(0, 8))} /></label>}
           <button className="ph-btn gold" disabled={busy} onClick={finish}>{t('ابدأ', 'Start', 'Commencer')}</button>
           {/* not the right account? start again without wiping the phone (Fouad, 16 November 2026) */}
           <button className="ph-linkbtn" disabled={busy} onClick={() => { setGot(null); setChoose(null); setCode(''); setCode2(''); setPassword(''); setErr(null); }}>‹ {t('رجوع: غيّر البيت أو الاسم', 'Back: change the house or the name', 'Retour : changer de maison ou de nom')}</button>
@@ -205,7 +274,7 @@ function Setup({ lang: l, setLang, oldPack, onDone }: { lang: Lang; setLang: (l:
 }
 
 // ---------------------------------------------------------------- the code
-function Lock({ link, pack, onOpen, onForget }: { link: Link; pack: Pack | null; onOpen: (key: string) => void; onForget: () => Promise<void> }) {
+function Lock({ links, cur, pack, onOpen, onForget }: { links: LinkEntry[]; cur: string; pack: Pack | null; onOpen: (keys: Record<string, string>) => void; onForget: () => Promise<void> }) {
   const [code, setCode] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -214,9 +283,11 @@ function Lock({ link, pack, onOpen, onForget }: { link: Link; pack: Pack | null;
   useEffect(() => { if (wait <= 0) return; const h = setTimeout(() => setWait((w) => w - 1), 1000); return () => clearTimeout(h); }, [wait]);
   const open = async () => {
     setBusy(true); setErr(null);
-    const k = await openKey(link, code);
+    // every link of this phone is locked by the same code: all open together
+    const keys: Record<string, string> = {};
+    for (const x of links) { const k = await openKey(x.link, code); if (k) keys[x.ns] = k; }
     setBusy(false);
-    if (k) return onOpen(k);
+    if (keys[cur] ?? Object.values(keys)[0]) return onOpen(keys);
     setCode('');
     tries.current++;
     if (tries.current >= 5) { tries.current = 0; setWait(30); }
@@ -246,7 +317,8 @@ function Lock({ link, pack, onOpen, onForget }: { link: Link; pack: Pack | null;
 // ---------------------------------------------------------------- my book
 type Net = { state: 'idle' | 'busy' | 'ok' | 'offline' | 'out'; text?: string };
 
-function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pack: Pack; setPack: (p: Pack) => void; keyOf: string; lang: Lang; setLang: (l: Lang) => void; onLock: () => void; onUnlink: (all: boolean) => Promise<void> }) {
+function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links, cur, onSwitch, onAdd }: { pack: Pack; setPack: (p: Pack) => void; keyOf: string; lang: Lang; setLang: (l: Lang) => void; onLock: () => void; onUnlink: (all: boolean) => Promise<void>; /** the databases linked to this phone, the active one, and how to change or add one */ links: LinkEntry[]; cur: string; onSwitch: (ns: string) => Promise<void>; onAdd: () => void }) {
+  const [waitBy, setWaitBy] = useState<Record<string, number>>({});
   const [rows, setRows] = useState<Entry[]>([]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [bookId, setBookId] = useState<number>(() => pack.books[0]?.id ?? 0);
@@ -260,6 +332,8 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
   const running = useRef(false);
   const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); setInvWaiting((await invCounts()).filter((c) => !c.sent).length + (await invPhotos()).filter((p) => !p.sent).length + (await invNews()).filter((x) => x.state !== 'sent').length); }, []);
   useEffect(() => { void load(); }, [load]);
+  // what waits in each database of this phone (shown on the switch, so nothing is forgotten in the other one)
+  useEffect(() => { void (async () => { const w: Record<string, number> = {}; for (const x of links) w[x.ns] = await waitingOf(x.ns); setWaitBy(w); })(); }, [links, rows, menu]);
   useEffect(() => { if (!pack.books.some((b) => b.id === bookId)) setBookId(pack.books[0]?.id ?? 0); }, [pack, bookId]);
 
   const doSync = useCallback(async (quiet = false) => {
@@ -313,13 +387,16 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
       {menu && (
         <div className="ph-card">
           <LangPick lang={l} setLang={setLang} />
+          <b>{t('قواعد البيانات في هذا الهاتف', 'Databases on this phone', 'Bases sur ce téléphone')}</b>
+          {links.map((x) => <button key={x.ns} className={`ph-btn ${x.ns === cur ? 'gold' : ''}`} disabled={net.state === 'busy' || x.ns === cur} onClick={() => { setMenu(false); void onSwitch(x.ns); }}>{x.org}{x.user ? ` · ${x.user}` : ''}{x.ns === cur ? ' ✓' : ''}{waitBy[x.ns] ? ` · ${waitBy[x.ns]} ${t('ينتظر', 'waiting', 'en attente')}` : ''}</button>)}
+          <button className="ph-btn" onClick={onAdd}>＋ {t('اربط قاعدة أخرى', 'Link another database', 'Relier une autre base')}</button>
           <p className="ph-muted">{t('هذا الهاتف', 'This phone', 'Ce téléphone')}: <b>{pack.phone.name}</b> · {t('يجب أن يتصل بالمركز قبل', 'must reach the centre before', 'doit joindre le centre avant le')} <b className="ltr">{pack.validUntil.slice(0, 10)}</b></p>
           <button className="ph-btn" onClick={onLock}>🔒 {t('اقفل', 'Lock', 'Verrouiller')}</button>
           <button className="ph-btn danger" onClick={async () => {
-            const n = rows.filter((r) => r.state !== 'sent').length;
-            if (n) return window.alert(t(`في الهاتف ${n} سطراً لم يُرسل. أرسلها أو احذفها أولاً.`, `${n} rows on this phone are not sent. Send or delete them first.`, `${n} lignes de ce téléphone ne sont pas envoyées. Envoyez-les ou supprimez-les d'abord.`));
-            if (window.confirm(t('افصل هذا الهاتف وانسَ ما فيه؟', 'Unlink this phone and forget what is on it?', 'Délier ce téléphone et oublier ce qu’il contient ?'))) await onUnlink(true);
-          }}>{t('افصل هذا الهاتف', 'Unlink this phone', 'Délier ce téléphone')}</button>
+            const n = await waitingOf(cur);
+            if (n) return window.alert(t(`في هذه القاعدة ${n} شيئاً لم يُرسل. أرسله أو احذفه أولاً.`, `${n} things of this database are not sent. Send or delete them first.`, `${n} éléments de cette base ne sont pas envoyés. Envoyez-les ou supprimez-les d'abord.`));
+            if (window.confirm(links.length > 1 ? t('افصل هذه القاعدة عن الهاتف وانسَ ما فيها؟ (الأخرى تبقى)', 'Unlink this database from the phone and forget what is on it? (the others stay)', 'Délier cette base du téléphone et oublier ce qu’elle contient ? (les autres restent)') : t('افصل هذا الهاتف وانسَ ما فيه؟', 'Unlink this phone and forget what is on it?', 'Délier ce téléphone et oublier ce qu’il contient ?'))) await onUnlink(true);
+          }}>{links.length > 1 ? t('افصل هذه القاعدة', 'Unlink this database', 'Délier cette base') : t('افصل هذا الهاتف', 'Unlink this phone', 'Délier ce téléphone')}</button>
         </div>
       )}
 
@@ -332,6 +409,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink }: { pa
       )}
       {net.state !== 'out' && daysLeft <= 7 && <div className="ph-alert">{daysLeft < 0 ? t('مرّ أكثر من 30 يوماً: اتصل بشبكة المركز.', "More than 30 days: connect to the centre's network.", 'Plus de 30 jours : connectez-vous au réseau du centre.') : t(`بقي ${daysLeft} يوماً قبل وجوب الاتصال بالمركز.`, `${daysLeft} days left before the phone must reach the centre.`, `Il reste ${daysLeft} jours avant que le téléphone doive joindre le centre.`)}</div>}
 
+      {links.length > 1 && <div className="ph-chips">{links.map((x) => <button key={x.ns} className={x.ns === cur ? 'on' : ''} disabled={net.state === 'busy'} onClick={() => x.ns !== cur && void onSwitch(x.ns)}>{x.org}{waitBy[x.ns] && x.ns !== cur ? <i>{waitBy[x.ns]}</i> : null}</button>)}</div>}
       {pack.books.length > 1 && <div className="ph-chips">{pack.books.map((b) => <button key={b.id} className={b.id === bookId ? 'on' : ''} onClick={() => setBookId(b.id)}>{bkName(b)}{unsent(b.id) ? <i>{unsent(b.id)}</i> : null}</button>)}</div>}
       {!pack.books.length ? <div className="ph-alert">{t('لا دفتر لك للكتابة فيه.', 'You have no book to write in.', "Vous n'avez pas de livre où écrire.")}</div> : (
         <section className="ph-balance">

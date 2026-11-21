@@ -59,9 +59,11 @@ export interface Entry {
   error?: Msg | null;
   made_at: string;
   sent_at?: string | null;
+  /** the database link it belongs to ('' = the first, older one) */
+  ns?: string;
 }
 
-export interface Photo { key: string; trxId: string; mime: string; base64: string; sent: boolean }
+export interface Photo { key: string; trxId: string; mime: string; base64: string; sent: boolean; /** the database link it belongs to ('' = the first, older one) */ ns?: string }
 
 /** the link with the server: the key is kept locked by the code (AES-GCM, the key made from the code) */
 export interface Link { salt: string; iv: string; locked: string }
@@ -91,17 +93,63 @@ const run = async <T,>(store: string, mode: IDBTransactionMode, f: (s: IDBObject
   });
 };
 
-export const kvGet = <T,>(k: string) => run<T | undefined>('kv', 'readonly', (s) => s.get(k) as IDBRequest<T | undefined>);
-export const kvSet = (k: string, v: unknown) => run('kv', 'readwrite', (s) => s.put(v, k));
-export const kvDel = (k: string) => run('kv', 'readwrite', (s) => s.delete(k));
+// Several databases on one phone (Fouad, 21 November 2026): each link has its own place ("ns", the database's name here),
+// with its pack, its rows, its photos, its counts. One is the active one: everything below works on it. The first, older
+// link has the empty ns and keeps its old keys until it is opened once (then it takes its database's name).
+let NS = '';
+export const setNs = (ns: string) => { NS = ns; };
+export const getNs = () => NS;
+const nsKey = (ns: string, k: string) => (ns ? `${ns}|${k}` : k);
+/** what a link keeps under its own keys */
+const PER_LINK = ['pack', 'inv-counts', 'inv-photos', 'inv-new'];
 
-export const allRows = () => run<Entry[]>('rows', 'readonly', (s) => s.getAll() as IDBRequest<Entry[]>);
-export const putRow = (r: Entry) => run('rows', 'readwrite', (s) => s.put(r));
+/** keys of the whole phone (the list of links, the active one, the older single link) */
+export const gGet = <T,>(k: string) => run<T | undefined>('kv', 'readonly', (s) => s.get(k) as IDBRequest<T | undefined>);
+export const gSet = (k: string, v: unknown) => run('kv', 'readwrite', (s) => s.put(v, k));
+export const gDel = (k: string) => run('kv', 'readwrite', (s) => s.delete(k));
+
+export const kvGet = <T,>(k: string) => gGet<T>(nsKey(NS, k));
+export const kvSet = (k: string, v: unknown) => gSet(nsKey(NS, k), v);
+export const kvDel = (k: string) => gDel(nsKey(NS, k));
+export const kvGetOf = <T,>(ns: string, k: string) => gGet<T>(nsKey(ns, k));
+
+const rowsAll = () => run<Entry[]>('rows', 'readonly', (s) => s.getAll() as IDBRequest<Entry[]>);
+const photosAll = () => run<Photo[]>('photos', 'readonly', (s) => s.getAll() as IDBRequest<Photo[]>);
+export const allRows = async () => (await rowsAll()).filter((r) => (r.ns ?? '') === NS);
+export const putRow = (r: Entry) => run('rows', 'readwrite', (s) => s.put(NS ? { ...r, ns: NS } : r));
 export const delRow = (id: string) => run('rows', 'readwrite', (s) => s.delete(id));
 
-export const allPhotos = () => run<Photo[]>('photos', 'readonly', (s) => s.getAll() as IDBRequest<Photo[]>);
-export const putPhoto = (p: Photo) => run('photos', 'readwrite', (s) => s.put(p));
+export const allPhotos = async () => (await photosAll()).filter((p) => (p.ns ?? '') === NS);
+export const putPhoto = (p: Photo) => run('photos', 'readwrite', (s) => s.put(NS ? { ...p, ns: NS } : p));
 export const delPhoto = (key: string) => run('photos', 'readwrite', (s) => s.delete(key));
+
+/** how much of a link is still to be sent (rows, photos, counts, recorded items) */
+export async function waitingOf(ns: string): Promise<number> {
+  const rows = (await rowsAll()).filter((r) => (r.ns ?? '') === ns && r.state !== 'sent').length;
+  const counts = ((await kvGetOf<{ sent: boolean }[]>(ns, 'inv-counts')) ?? []).filter((x) => !x.sent).length;
+  const pics = ((await kvGetOf<{ sent: boolean }[]>(ns, 'inv-photos')) ?? []).filter((x) => !x.sent).length;
+  const news = ((await kvGetOf<{ state: string }[]>(ns, 'inv-new')) ?? []).filter((x) => x.state !== 'sent').length;
+  return rows + counts + pics + news;
+}
+
+/** the older single link takes its database's name (the first time it is opened): its keys, rows and photos move there */
+export async function migrateLegacy(slug: string) {
+  for (const k of PER_LINK) {
+    const v = await gGet(k);
+    if (v !== undefined) { await gSet(nsKey(slug, k), v); await gDel(k); }
+  }
+  for (const store of ['rows', 'photos'] as const) {
+    const all = store === 'rows' ? await rowsAll() : await photosAll();
+    for (const r of all) if (!r.ns) await run(store, 'readwrite', (s) => s.put({ ...r, ns: slug }));
+  }
+}
+
+/** forgets one link and what it holds */
+export async function wipeNs(ns: string) {
+  for (const k of PER_LINK) await gDel(nsKey(ns, k));
+  for (const r of await rowsAll()) if ((r.ns ?? '') === ns) await run('rows', 'readwrite', (s) => s.delete(r.id));
+  for (const p of await photosAll()) if ((p.ns ?? '') === ns) await run('photos', 'readwrite', (s) => s.delete(p.key));
+}
 
 /** forgets everything on this phone (unlinking it) */
 export async function wipe() {

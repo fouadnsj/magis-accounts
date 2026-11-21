@@ -105,9 +105,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 /* the calendar of rooms (22 November 2026) */
 .ph-cal { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .ph-cal table { border-collapse: collapse; width: 100%; font-size: 13px; }
-.ph-cal th, .ph-cal td { border: 1px solid var(--line); text-align: center; padding: 0 2px; height: 40px; min-width: 40px; white-space: nowrap; }
+.ph-cal th, .ph-cal td { border: 1px solid var(--line); text-align: center; padding: 0 1px; height: 40px; min-width: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .ph-cal th { background: #faf7f1; font-weight: 600; line-height: 1.1; }
-.ph-cal th:first-child { text-align: start; min-width: 88px; padding: 0 6px; position: sticky; inset-inline-start: 0; z-index: 1; }
+.ph-cal th:first-child { text-align: start; min-width: 74px; max-width: 92px; padding: 0 5px; position: sticky; inset-inline-start: 0; z-index: 1; }
 .ph-cal th.today { background: var(--navy); color: #fff; }
 .ph-cal td.free { background: #fff; }
 .ph-cal td { --hc: var(--navy); }

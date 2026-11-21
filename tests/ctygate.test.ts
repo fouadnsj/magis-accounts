@@ -253,3 +253,30 @@ describe('server: the communities have no password of their own any more (a name
     expect(by('cty-phone-0013')).toBe('Marc');
   });
 });
+
+describe('server: the Coordinator who is also a Jesuit of a community', () => {
+  it('enters the community as himself (his own book, his hats), not as the Administrator account', async () => {
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-gate-dir-'));
+    fs.mkdirSync(path.join(d2, 'web'));
+    fs.writeFileSync(path.join(d2, 'web', 'index.html'), '<html>ok</html>');
+    const s2 = await startServer({ dataDir: d2, webRoot: path.join(d2, 'web'), config: { httpMode: 'serve', httpPort: 0 }, log: () => undefined });
+    const b2 = `http://127.0.0.1:${s2.httpPort}`;
+    const c2 = async (url: string, body?: unknown, cookie?: string) => {
+      const r = await fetch(b2 + url, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+      return { status: r.status, body: await r.json().catch(() => null), cookie: r.headers.get('set-cookie')?.split(';')[0] };
+    };
+    try {
+      const made = await c2('/api/dbs/create', { organisation: 'Demo community', centre: 'other', kind: 'community' });
+      expect((await c2('/api/setup/community', { db: made.body.slug, ...setup })).status).toBe(200);
+      // the Coordinator is Marc (who holds the econome and the minister hats there); the first account that manages users is Paul's
+      const dir = await c2('/api/dir/setup', { name: 'Marc', password: 'coord-pass-1' });
+      expect(dir.status).toBe(200);
+      const entered = await c2('/api/dir/enter', { db: made.body.slug }, dir.cookie);
+      expect(entered.status).toBe(200);
+      expect(entered.body.profile).toMatchObject({ name: 'Marc', office: null });
+      const hats = (await c2('/api/cty/hats', undefined, `${dir.cookie}; ${entered.cookie}`)).body as { person: { name: string } | null; hats: { office: string }[] };
+      expect(hats.person?.name).toBe('Marc');
+      expect(hats.hats.map((h) => h.office)).toEqual(['econome', 'minister']);
+    } finally { await s2.close(); fs.rmSync(d2, { recursive: true, force: true }); }
+  });
+});

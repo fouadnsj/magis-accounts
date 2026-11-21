@@ -1058,6 +1058,15 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const linked = p.grants[c.slug];
       if (typeof linked === 'number') return loadProfile(c.handle.db, linked);
       if (!p.admin && !Object.prototype.hasOwnProperty.call(p.grants, c.slug)) return null;
+      // a Jesuit community (Fouad, 21 November 2026): the Coordinator who is also a member comes in as himself, with his own
+      // book and the offices he holds as hats (econome, minister...), not as the book-less Administrator account
+      if (ctyKinds.get(c.slug)) {
+        const me = p.name.trim().toLowerCase();
+        const all = await listProfiles(c.handle.db);
+        const mine = all.find((q) => !q.office && q.name.trim().toLowerCase() === me) ?? all.find((q) => !q.office && me.length > 2 && (q.name.trim().toLowerCase().startsWith(`${me} `) || me.startsWith(`${q.name.trim().toLowerCase()} `)));
+        const pr = mine ? await loadProfile(c.handle.db, mine.id) : null;
+        if (pr) return pr;
+      }
       for (const q of await listProfiles(c.handle.db)) {
         const pr = await loadProfile(c.handle.db, q.id);
         if (pr && has(pr, 'users.manage')) return pr;
@@ -1132,7 +1141,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!profile) throw new HttpError(403, { ar: 'لا حساب لك في هذه القاعدة. اطلب من المدير ربطه.', en: 'You have no account in this database. Ask the administrator to link one.' });
       if (found) sessions.delete(found[0]);
       const sid = randomBytes(32).toString('base64url');
-      sessions.set(sid, { db: c.slug, profile, mustChange: false, last: Date.now(), ip });
+      sessions.set(sid, { db: c.slug, profile, mustChange: false, last: Date.now(), ip, person: personOf(profile) });
       log(`directory entry ${c.slug}: ${dirPerson.name} as ${profile.name} from ${ip}`);
       return send(res, 200, { profile, mustChange: false, install: 'office' }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
     }

@@ -15,7 +15,7 @@ export type BookingKind = 'stay' | 'event';
 export type RoomKind = 'bedroom' | 'hall' | 'other';
 export type Currency = 'USD' | 'SYP';
 
-export interface HostBuilding { id: number; name: string; active: number; sort: number }
+export interface HostBuilding { id: number; name: string; active: number; sort: number; /** its colour on the calendar (#rrggbb); null: one from the palette */ color: string | null }
 export interface HostRoom { id: number; building_id: number; name: string; beds: number; kind: RoomKind; active: number; sort: number; place_id: number | null }
 export interface HostService { id: number; name: string; active: number; sort: number }
 export interface HostBooking {
@@ -30,6 +30,11 @@ export interface HostBooking {
   /** a stay: the arrival day, and the day of leaving (the nights are in between). An event: its first and last day. */
   from_day: string;
   to_day: string;
+  /** an event that repeats every week: the weekdays, 0 = Sunday … 6 = Saturday, as "1,3" (from_day to to_day, both included) */
+  repeat_days: string | null;
+  /** an event's hours (HH:MM); two events in one hall on one day only clash if their hours cross */
+  time_from: string | null;
+  time_to: string | null;
   /** the amounts: only for those who keep the calendar */
   price_mode: 'person' | 'group' | null;
   rate: number | null;
@@ -46,7 +51,7 @@ export interface HostBooking {
   updated_at: string | null;
 }
 export interface HostAlloc { booking_id: number; room_id: number; /** the beds used in the room; null: the whole room */ beds: number | null }
-export interface HostLine { id: number; booking_id: number; service_id: number | null; label: string; qty: number; amount: number }
+export interface HostLine { id: number; booking_id: number; service_id: number | null; label: string; qty: number; amount: number; currency: Currency }
 export interface HostPay {
   id: number; booking_id: number; amount: number; currency: Currency; paid_on: string; method: string; receipt_no: string;
   status: 'suggested' | 'refused'; note: string | null; who: string | null; at: string;
@@ -75,31 +80,59 @@ const toMs = (d: string) => Date.parse(`${d}T00:00:00Z`);
 export const addDays = (d: string, n: number) => new Date(toMs(d) + n * MS).toISOString().slice(0, 10);
 export const diffDays = (a: string, b: string) => Math.round((toMs(b) - toMs(a)) / MS);
 
-/** the days a booking holds its rooms: a stay holds its nights (not the day of leaving); an event holds every day, both ends included */
-export function heldDays(b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day'>): string[] {
+export const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+const repeatSet = (x: string | null | undefined) => (x ? new Set(x.split(',').map(Number).filter((n) => n >= 0 && n <= 6)) : null);
+
+/**
+ * the days a booking holds its rooms: a stay holds its nights (not the day of leaving); an event holds every day, both ends
+ * included, or — when it repeats every week (like the website's calendar) — only the chosen weekdays between its two dates
+ */
+export function heldDays(b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day'> & { repeat_days?: string | null }): string[] {
   const out: string[] = [];
   const last = b.kind === 'event' ? b.to_day : addDays(b.to_day, -1);
-  for (let d = b.from_day; d <= last && out.length < 400; d = addDays(d, 1)) out.push(d);
+  const rep = b.kind === 'event' ? repeatSet(b.repeat_days) : null;
+  let n = 0;
+  for (let d = b.from_day; d <= last && n++ < 1100; d = addDays(d, 1)) {
+    if (!rep || rep.has(new Date(`${d}T00:00:00Z`).getUTCDay())) out.push(d);
+  }
   return out;
 }
-export const nightsOf = (b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day'>) => heldDays(b).length;
+export const nightsOf = (b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day'> & { repeat_days?: string | null }) => heldDays(b).length;
 
 /** a room holds its beds; a hall or a room with no beds counts as one place, taken whole */
 export const capacity = (r: Pick<HostRoom, 'beds'>) => Math.max(1, r.beds || 0);
 
 /** Why a booking cannot be saved as it is (null: fine). */
-export function checkBooking(b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day' | 'group_name' | 'people'>): string | null {
+export function checkBooking(b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day' | 'group_name' | 'people'> & { repeat_days?: string | null; time_from?: string | null; time_to?: string | null }): string | null {
   if (!b.group_name.trim()) return 'name';
   if (!isDay(b.from_day) || !isDay(b.to_day)) return 'dates';
   if (b.kind === 'stay' ? b.to_day <= b.from_day : b.to_day < b.from_day) return 'order';
-  if (diffDays(b.from_day, b.to_day) > 370) return 'long';
+  if (diffDays(b.from_day, b.to_day) > (b.kind === 'event' && b.repeat_days ? 1100 : 370)) return 'long';
+  if (b.kind === 'event' && b.repeat_days && heldDays(b).length === 0) return 'repeat';
+  for (const h of [b.time_from, b.time_to]) if (h && !/^([01]\d|2[0-3]):[0-5]\d$/.test(h)) return 'time';
   if (!(b.people >= 0)) return 'people';
   return null;
+}
+
+// ------------------------------------------------------------------ colours
+
+/** the colours a building or area gets when nobody chose one (like the floors of the website's calendar) */
+export const PALETTE = ['#2e7d6b', '#b5541d', '#3b5ba9', '#8a4f9e', '#a8821c', '#c2476b', '#4a7c2f', '#546e7a'] as const;
+/** a building's colour on the calendar: the one chosen, or one from the palette by its place in the list */
+export function colorOf(buildings: Pick<HostBuilding, 'id' | 'color'>[], id: number): string {
+  const i = buildings.findIndex((b) => b.id === id);
+  return buildings[i]?.color || PALETTE[(i < 0 ? 0 : i) % PALETTE.length];
 }
 
 // ------------------------------------------------------------------ conflicts
 
 const HOLDING: BookingStatus[] = ['confirmed', 'arrived'];
+type Hours = { kind: BookingKind; time_from?: string | null; time_to?: string | null };
+/** two events in the same hall on the same day, each with its hours, that do not cross: no clash */
+function apart(a: Hours, b: Hours): boolean {
+  if (a.kind !== 'event' || b.kind !== 'event' || !a.time_from || !a.time_to || !b.time_from || !b.time_to) return false;
+  return a.time_to <= b.time_from || b.time_to <= a.time_from;
+}
 /** a booking that keeps its rooms taken for sure */
 export const holds = (b: Pick<HostBooking, 'status'>) => HOLDING.includes(b.status);
 /** a booking that still takes a place on the calendar */
@@ -112,12 +145,12 @@ export interface Conflict { room_id: number; day: string; with: number[] }
  * arrived: a clash that forbids confirming) or 'any' (an option too: a warning).
  */
 export function conflictsOf(
-  b: Pick<HostBooking, 'id' | 'kind' | 'from_day' | 'to_day'>, mine: HostAlloc[], all: { bookings: HostBooking[]; allocs: HostAlloc[]; rooms: HostRoom[] },
+  b: Pick<HostBooking, 'id' | 'kind' | 'from_day' | 'to_day'> & { repeat_days?: string | null; time_from?: string | null; time_to?: string | null }, mine: HostAlloc[], all: { bookings: HostBooking[]; allocs: HostAlloc[]; rooms: HostRoom[] },
   against: 'sure' | 'any' = 'sure',
 ): Conflict[] {
   const room = new Map(all.rooms.map((r) => [r.id, r]));
   const days = new Set(heldDays(b));
-  const others = all.bookings.filter((o) => o.id !== b.id && (against === 'sure' ? holds(o) : live(o)));
+  const others = all.bookings.filter((o) => o.id !== b.id && (against === 'sure' ? holds(o) : live(o)) && !apart(b, o));
   const byId = new Map(others.map((o) => [o.id, o]));
   const out: Conflict[] = [];
   for (const a of mine) {
@@ -159,20 +192,53 @@ export function takenOn(room: HostRoom, day: string, bookings: HostBooking[], al
   return out;
 }
 
+// ------------------------------------------------------------------ views by month and by year
+
+/** how full the rooms are, day by day (for the month and year views): beds used, and the bookings present */
+export function occupancy(d: Pick<HostData, 'bookings' | 'allocs' | 'rooms'>, roomIds?: Set<number>) {
+  const rooms = d.rooms.filter((r) => r.active && (!roomIds || roomIds.has(r.id)));
+  const cap = new Map(rooms.map((r) => [r.id, capacity(r)]));
+  const total = [...cap.values()].reduce((n, c) => n + c, 0);
+  const per = new Map<string, { used: Map<number, number>; groups: HostBooking[] }>();
+  for (const b of d.bookings) {
+    if (!live(b)) continue;
+    const mine = d.allocs.filter((a) => a.booking_id === b.id && cap.has(a.room_id));
+    if (!mine.length) continue;
+    for (const day of heldDays(b)) {
+      const e = per.get(day) ?? { used: new Map<number, number>(), groups: [] };
+      for (const a of mine) e.used.set(a.room_id, (e.used.get(a.room_id) ?? 0) + Math.min(cap.get(a.room_id)!, a.beds ?? cap.get(a.room_id)!));
+      e.groups.push(b);
+      per.set(day, e);
+    }
+  }
+  const out = new Map<string, { used: number; groups: HostBooking[] }>();
+  for (const [day, e] of per) out.set(day, { used: [...e.used].reduce((n, [id, u]) => n + Math.min(cap.get(id)!, u), 0), groups: e.groups });
+  return { total, days: out };
+}
+export const addMonths = (d: string, n: number) => { const x = new Date(`${d.slice(0, 7)}-01T00:00:00Z`); x.setUTCMonth(x.getUTCMonth() + n); return x.toISOString().slice(0, 10); };
+export const daysInMonth = (ym: string) => new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0)).getUTCDate();
+
 // ------------------------------------------------------------------ amounts
 
-/** the stay itself: people × nights × the rate, or the group's fixed price; the services come on top */
-export function stayAmount(b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day' | 'people' | 'price_mode' | 'rate'>): number {
+/** the stay itself: people × nights × the rate, or the group's fixed price (in the booking's currency) */
+export function stayAmount(b: Pick<HostBooking, 'kind' | 'from_day' | 'to_day' | 'people' | 'price_mode' | 'rate'> & { repeat_days?: string | null }): number {
   if (b.rate == null || !b.price_mode) return 0;
   return Math.round((b.price_mode === 'group' ? b.rate : b.rate * b.people * nightsOf(b)) * 100) / 100;
 }
-export const bookingTotal = (b: Parameters<typeof stayAmount>[0], lines: Pick<HostLine, 'amount'>[]) =>
-  Math.round((stayAmount(b) + lines.reduce((s, l) => s + (l.amount || 0), 0)) * 100) / 100;
-
-/** what is still due in the booking's currency (payments in the other currency are not counted) */
-export function dueOf(total: number, currency: Currency, pays: Pick<HostPay, 'amount' | 'currency' | 'status'>[]): number {
-  const paid = pays.filter((p) => p.status !== 'refused' && p.currency === currency).reduce((s, p) => s + p.amount, 0);
-  return Math.round((total - paid) * 100) / 100;
+export type Totals = Record<Currency, number>;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+/** what a booking comes to, in each currency: the stay in the booking's currency, each service line in its own */
+export function bookingTotals(b: Parameters<typeof stayAmount>[0] & { currency: Currency }, lines: Pick<HostLine, 'amount' | 'currency'>[]): Totals {
+  const t: Totals = { USD: 0, SYP: 0 };
+  t[b.currency] += stayAmount(b);
+  for (const l of lines) t[l.currency === 'SYP' ? 'SYP' : 'USD'] += l.amount || 0;
+  return { USD: r2(t.USD), SYP: r2(t.SYP) };
+}
+/** what is still due, in each currency (a payment counts in its own currency) */
+export function dueOf(total: Totals, pays: Pick<HostPay, 'amount' | 'currency' | 'status'>[]): Totals {
+  const paid: Totals = { USD: 0, SYP: 0 };
+  for (const p of pays) if (p.status !== 'refused') paid[p.currency] += p.amount;
+  return { USD: r2(total.USD - paid.USD), SYP: r2(total.SYP - paid.SYP) };
 }
 
 // ------------------------------------------------------------------ numbers

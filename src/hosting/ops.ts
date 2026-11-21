@@ -67,13 +67,17 @@ export interface BookingInput {
   people?: number;
   from_day: string;
   to_day: string;
+  /** an event only: the weekdays it repeats on (0 = Sunday), and its hours */
+  repeat_days?: number[] | string | null;
+  time_from?: string | null;
+  time_to?: string | null;
   status?: BookingStatus;
   price_mode?: 'person' | 'group' | null;
   rate?: number | null;
   currency?: Currency;
   note?: string | null;
   allocs?: { room_id: number; beds?: number | null }[];
-  lines?: { id?: number; service_id?: number | null; label?: string; qty?: number; amount?: number }[];
+  lines?: { id?: number; service_id?: number | null; label?: string; qty?: number; amount?: number; currency?: Currency }[];
   /** a booking made with no connection: the phone's own number for it, and where it was made */
   client_ref?: string | null;
   source?: 'desk' | 'phone';
@@ -85,6 +89,8 @@ function why(code: string): UserError {
     case 'name': return new UserError(m('اكتب اسم المجموعة', 'Write the name of the group', 'Écrivez le nom du groupe'));
     case 'dates': return dayMsg();
     case 'order': return new UserError(m('يجب أن يكون الخروج بعد الوصول', 'The leaving day must come after the arrival', 'Le départ doit suivre l’arrivée'));
+    case 'repeat': return new UserError(m('لا يوجد أي يوم من أيام الأسبوع المختارة بين التاريخين', 'None of the chosen weekdays falls between the two dates', 'Aucun des jours choisis ne tombe entre les deux dates'));
+    case 'time': return new UserError(m('الساعة غير صحيحة (مثال 16:00)', 'The hour is not valid (e.g. 16:00)', 'L’heure n’est pas valide (ex. 16:00)'));
     case 'long': return new UserError(m('المدة طويلة جداً (أكثر من سنة)', 'Too long (more than a year)', 'Trop long (plus d’un an)'));
     default: return new UserError(m('عدد الأشخاص غير صحيح', 'The number of people is not valid', 'Nombre de personnes invalide'));
   }
@@ -123,7 +129,12 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
   const dup = a.client_ref ? await one<{ id: number }>(c.db, 'SELECT id FROM host_booking WHERE client_ref = ?', [a.client_ref]) : null;
   // a phone that sent the same booking twice (no answer, sent again): the first one stays
   if (dup && !old) return { id: dup.id, conflicts: 0, again: true };
-  const g = { kind, group_name: String(a.group_name ?? ''), people: whole(a.people), from_day: String(a.from_day ?? ''), to_day: String(a.to_day ?? '') };
+  // the repeat and the hours are for events only (never a stay)
+  const rep = kind === 'event' ? (Array.isArray(a.repeat_days) ? a.repeat_days : typeof a.repeat_days === 'string' && a.repeat_days ? a.repeat_days.split(',') : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6) : [];
+  const repeat = rep.length ? [...new Set(rep)].sort((x, y) => x - y).join(',') : null;
+  const tFrom = kind === 'event' ? txt(a.time_from) : null;
+  const tTo = kind === 'event' ? txt(a.time_to) : null;
+  const g = { kind, group_name: String(a.group_name ?? ''), people: whole(a.people), from_day: String(a.from_day ?? ''), to_day: String(a.to_day ?? ''), repeat_days: repeat, time_from: tFrom, time_to: tTo };
   const bad = checkBooking(g);
   if (bad) throw why(bad);
   const asked = await checkAllocs(c, Array.isArray(a.allocs) ? a.allocs : []);
@@ -135,7 +146,7 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
   if (old && old.status === 'cancelled' && status !== 'cancelled') status = old.status;
   const id = old?.id ?? ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(id), 0) AS n FROM host_booking'))?.n ?? 0) + 1;
   const snap = await snapshot(c);
-  const probe = { id, kind, from_day: g.from_day, to_day: g.to_day };
+  const probe = { id, kind, from_day: g.from_day, to_day: g.to_day, repeat_days: repeat, time_from: tFrom, time_to: tTo };
   const sure = conflictsOf(probe, asked, snap, 'sure');
   const byId = new Map(snap.bookings.map((x) => [x.id, x]));
   if (holds({ status }) && sure.length) throw clashText(clashing(sure).map((i) => byId.get(i)?.group_name ?? String(i)));
@@ -151,16 +162,16 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
   const stamp = nowIso();
   if (old) {
     stmts.push({
-      sql: `UPDATE host_booking SET kind=?, group_name=?, contact=?, phone=?, people=?, from_day=?, to_day=?, status=?, price_mode=?, rate=?, currency=?, note=?, updated_at=? WHERE id=?`,
-      params: [kind, g.group_name.trim(), txt(a.contact), txt(a.phone), g.people, g.from_day, g.to_day, status, mode, rate, currency, txt(a.note), stamp, id],
+      sql: `UPDATE host_booking SET kind=?, group_name=?, contact=?, phone=?, people=?, from_day=?, to_day=?, repeat_days=?, time_from=?, time_to=?, status=?, price_mode=?, rate=?, currency=?, note=?, updated_at=? WHERE id=?`,
+      params: [kind, g.group_name.trim(), txt(a.contact), txt(a.phone), g.people, g.from_day, g.to_day, repeat, tFrom, tTo, status, mode, rate, currency, txt(a.note), stamp, id],
     });
     stmts.push({ sql: 'DELETE FROM host_alloc WHERE booking_id = ?', params: [id] });
   } else {
     const code = nextCode((await c.db.query<{ code: string }>('SELECT code FROM host_booking')).map((x) => x.code), Number(g.from_day.slice(0, 4)));
     stmts.push({
-      sql: `INSERT INTO host_booking (id, code, kind, status, group_name, contact, phone, people, from_day, to_day, price_mode, rate, currency, note, source, review, client_ref, created_by, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      params: [id, code, kind, status, g.group_name.trim(), txt(a.contact), txt(a.phone), g.people, g.from_day, g.to_day, mode, rate, currency, txt(a.note),
+      sql: `INSERT INTO host_booking (id, code, kind, status, group_name, contact, phone, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency, note, source, review, client_ref, created_by, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      params: [id, code, kind, status, g.group_name.trim(), txt(a.contact), txt(a.phone), g.people, g.from_day, g.to_day, repeat, tFrom, tTo, mode, rate, currency, txt(a.note),
         a.source === 'phone' ? 'phone' : 'desk', a.source === 'phone' ? 1 : 0, txt(a.client_ref), c.who, stamp],
     });
   }
@@ -176,7 +187,8 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
     const label = txt(l.label) ?? sv?.name;
     if (!label) continue;
     const amount = priced ? money(l.amount) ?? 0 : (l.id != null ? had.get(l.id)?.amount : 0) ?? 0;
-    stmts.push({ sql: 'INSERT INTO host_line (id, booking_id, service_id, label, qty, amount) VALUES (?,?,?,?,?,?)', params: [++next, id, sv?.id ?? null, label, Math.max(0, Number(l.qty) || 1), amount] });
+    const lineCur = priced ? cur(l.currency ?? currency) : (l.id != null ? had.get(l.id)?.currency : null) ?? currency;
+    stmts.push({ sql: 'INSERT INTO host_line (id, booking_id, service_id, label, qty, amount, currency) VALUES (?,?,?,?,?,?,?)', params: [++next, id, sv?.id ?? null, label, Math.max(0, Number(l.qty) || 1), amount, lineCur] });
   }
   stmts.push(auditStmt(c.who, old ? 'update' : 'add', 'host_booking', String(id), null, { group: g.group_name.trim(), from: g.from_day, to: g.to_day, status, rooms: asked.length }));
   await c.db.batch(stmts);
@@ -232,15 +244,16 @@ export const HOST_OPS = {
 
   'host.building.save': {
     check: keep,
-    run: async (c: OpCtx, a: { id?: number; name: string; active?: boolean }) => {
+    run: async (c: OpCtx, a: { id?: number; name: string; active?: boolean; color?: string | null }) => {
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
+      const color = a.color == null || a.color === '' ? null : /^#[0-9a-fA-F]{6}$/.test(String(a.color)) ? String(a.color).toLowerCase() : (() => { throw new UserError(m('لون غير صحيح', 'The colour is not valid', 'Couleur invalide')); })();
       if (await one(c.db, 'SELECT 1 FROM host_building WHERE name = ? AND id <> ?', [name, a.id ?? -1])) throw new UserError(m('الاسم موجود', 'That name exists', 'Ce nom existe déjà'));
       const active = a.active === false ? 0 : 1;
       const sort = ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(sort), 0) AS n FROM host_building'))?.n ?? 0) + 1;
       await c.db.batch([
-        a.id ? { sql: 'UPDATE host_building SET name = ?, active = ? WHERE id = ?', params: [name, active, a.id] } : { sql: 'INSERT INTO host_building (name, sort) VALUES (?,?)', params: [name, sort] },
-        auditStmt(c.who, a.id ? 'update' : 'add', 'host_building', a.id ? String(a.id) : null, null, { name, active }),
+        a.id ? { sql: 'UPDATE host_building SET name = ?, active = ?, color = COALESCE(?, color) WHERE id = ?', params: [name, active, a.color === undefined ? null : color, a.id] } : { sql: 'INSERT INTO host_building (name, sort, color) VALUES (?,?,?)', params: [name, sort, color] },
+        auditStmt(c.who, a.id ? 'update' : 'add', 'host_building', a.id ? String(a.id) : null, null, { name, active, color }),
       ]);
       return { id: a.id ?? (await one<{ id: number }>(c.db, 'SELECT id FROM host_building WHERE name = ?', [name]))?.id ?? null };
     },

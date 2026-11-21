@@ -2018,4 +2018,18 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"hosting.view"]')
  WHERE perms LIKE '%"register.view"%' AND perms NOT LIKE '%"hosting.view"%';
 `,
   },
+  {
+    n: 59,
+    name: 'hosting: a colour per building, events that repeat every week with their hours, a currency per service line',
+    sql: `
+-- (Fouad, 2026-11-22) Like the website's calendar: a colour per building/area; an event may repeat every week on chosen
+-- weekdays between two dates (events only, never a stay) and has hours; each service line has its own currency.
+ALTER TABLE host_building ADD COLUMN color TEXT;
+ALTER TABLE host_booking ADD COLUMN repeat_days TEXT;
+ALTER TABLE host_booking ADD COLUMN time_from TEXT;
+ALTER TABLE host_booking ADD COLUMN time_to TEXT;
+ALTER TABLE host_line ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD';
+UPDATE host_line SET currency = COALESCE((SELECT b.currency FROM host_booking b WHERE b.id = host_line.booking_id), 'USD');
+`,
+  },
 ];

@@ -860,10 +860,10 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-building td { background: var(--line); font-weight: 700; text-align: start; padding: 2px 8px; }
 .host-free { cursor: pointer; }
 .host-free:hover { background: color-mix(in srgb, var(--centre) 12%, transparent); }
-.host-cell { cursor: pointer; overflow: hidden; text-overflow: ellipsis; max-width: 70px; color: #fff; font-size: 11px; }
-.host-cell.option { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--centre) 35%, #fff), color-mix(in srgb, var(--centre) 35%, #fff) 5px, color-mix(in srgb, var(--centre) 15%, #fff) 5px, color-mix(in srgb, var(--centre) 15%, #fff) 10px); color: var(--ink); }
-.host-cell.confirmed { background: var(--centre); }
-.host-cell.arrived { background: #2e7d32; }
+.host-cell { cursor: pointer; overflow: hidden; text-overflow: ellipsis; max-width: 70px; color: #fff; font-size: 11px; --hc: var(--centre); }
+.host-cell.option { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--hc) 40%, #fff), color-mix(in srgb, var(--hc) 40%, #fff) 5px, color-mix(in srgb, var(--hc) 14%, #fff) 5px, color-mix(in srgb, var(--hc) 14%, #fff) 10px); color: var(--ink); }
+.host-cell.confirmed { background: var(--hc); }
+.host-cell.arrived { background: var(--hc); box-shadow: inset 0 0 0 2px #fff; font-weight: 700; }
 .host-cell.left { background: #8a8a8a; }
 .host-cell.clash { background: #c62828; }
 .host-key { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -872,3 +872,32 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-badge.option { background: #b8860b; } .host-badge.confirmed { background: var(--centre); } .host-badge.arrived { background: #2e7d32; } .host-badge.cancelled { background: #c62828; }
 .host-pick { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
 .host-pick-row { display: flex; gap: 10px; align-items: center; padding: 2px 0; }
+
+/* colours per building, and the month and year views (22 November 2026) */
+.host-sw { display: inline-flex; align-items: center; gap: 4px; margin-inline-end: 8px; }
+.host-sw i, .host-sw-big { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.host-sw-big { width: 16px; height: 16px; vertical-align: middle; margin-inline-end: 6px; }
+.host-color { width: 30px; height: 24px; padding: 0; border: 1px solid var(--line); background: none; vertical-align: middle; margin-inline: 6px 2px; }
+.host-pal { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); padding: 0; margin-inline-end: 3px; cursor: pointer; vertical-align: middle; }
+.host-days { display: inline-flex; gap: 4px; margin-inline-start: 10px; flex-wrap: wrap; }
+.host-days button { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 2px 9px; cursor: pointer; font-size: 12px; }
+.host-days button.on { background: var(--brand-2); color: #fff; border-color: var(--brand-2); }
+.host-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.host-mh { text-align: center; font-weight: 600; font-size: 12px; color: var(--muted); padding: 2px; }
+.host-md { min-height: 92px; border: 1px solid var(--line); border-radius: 6px; padding: 3px 4px; background: var(--panel); cursor: pointer; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
+.host-md.off { border: 0; background: none; cursor: default; }
+.host-md.today { outline: 2px solid var(--brand-2); }
+.host-md:hover:not(.off) { background: color-mix(in srgb, var(--centre) 8%, var(--panel)); }
+.host-mn { display: flex; justify-content: space-between; font-size: 12px; }
+.host-bar { height: 4px; background: var(--line); border-radius: 2px; }
+.host-bar i { display: block; height: 4px; border-radius: 2px; background: var(--centre); }
+.host-chip { display: block; font-size: 10.5px; padding: 0 4px; border-radius: 3px; background: var(--hc, #888); color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.host-chip.option { background: color-mix(in srgb, var(--hc) 25%, #fff); color: var(--ink); }
+.host-chip.left { background: #8a8a8a; }
+.host-year { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.host-ym { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--panel); cursor: pointer; }
+.host-ym:hover { border-color: var(--brand-2); }
+.host-yg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 4px; }
+.host-yg i { aspect-ratio: 1; border-radius: 2px; background: var(--line); opacity: 0.6; }
+.host-yg i.off { background: none; }
+.host-yg i.today { outline: 2px solid var(--brand-2); opacity: 1; }

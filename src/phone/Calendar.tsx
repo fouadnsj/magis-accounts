@@ -5,7 +5,7 @@
 // the dates or the rooms — and call the person who asked. The phone never has an amount.
 import { useEffect, useMemo, useState } from 'react';
 import { kvGet, kvSet, newId, type Msg, type Pack } from './store';
-import { addDays, capacity, clashing, conflictsOf, takenOn, type HostAlloc, type HostBooking, type HostRoom } from '../hosting/host';
+import { addDays, capacity, clashing, colorOf, conflictsOf, takenOn, type HostAlloc, type HostBooking, type HostRoom } from '../hosting/host';
 
 type Tr = (ar: string, en: string, fr: string) => string;
 type HostPackT = NonNullable<Pack['host']>;
@@ -26,12 +26,12 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 
 /** the bookings of the pack, and the ones made here and not yet sent (they hold their rooms on the screen, as "to confirm") */
 function merged(pack: HostPackT, waiting: HostNew[]) {
-  const bookings: HostBooking[] = pack.bookings.map((b) => ({ ...b, price_mode: null, rate: null, currency: 'USD', note: null, cancel_reason: null, source: 'desk', client_ref: null, created_by: null, created_at: '', updated_at: null }) as HostBooking);
+  const bookings: HostBooking[] = pack.bookings.map((b) => ({ ...b, repeat_days: b.repeat_days ?? null, time_from: b.time_from ?? null, time_to: b.time_to ?? null, price_mode: null, rate: null, currency: 'USD', note: null, cancel_reason: null, source: 'desk', client_ref: null, created_by: null, created_at: '', updated_at: null }) as HostBooking);
   const allocs: HostAlloc[] = [...pack.allocs];
   let n = 0;
   for (const w of waiting) {
     const id = -(++n);
-    bookings.push({ id, code: '📱', kind: w.booking.kind, status: 'option', group_name: w.booking.group_name, contact: w.booking.contact, phone: w.booking.phone, people: w.booking.people, from_day: w.booking.from_day, to_day: w.booking.to_day, price_mode: null, rate: null, currency: 'USD', note: w.booking.note, cancel_reason: null, source: 'phone', review: 1, client_ref: w.key, created_by: null, created_at: w.made_at, updated_at: null });
+    bookings.push({ id, code: '📱', kind: w.booking.kind, status: 'option', group_name: w.booking.group_name, contact: w.booking.contact, phone: w.booking.phone, people: w.booking.people, from_day: w.booking.from_day, to_day: w.booking.to_day, repeat_days: null, time_from: null, time_to: null, price_mode: null, rate: null, currency: 'USD', note: w.booking.note, cancel_reason: null, source: 'phone', review: 1, client_ref: w.key, created_by: null, created_at: w.made_at, updated_at: null });
     for (const a of w.booking.allocs) allocs.push({ booking_id: id, room_id: a.room_id, beds: a.beds });
   }
   return { bookings, allocs, rooms: pack.rooms.map((r) => ({ ...r, active: 1, sort: 0, place_id: null }) as HostRoom) };
@@ -86,13 +86,13 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
           <tbody>
             {rooms.map((r) => (
               <tr key={r.id}>
-                <th>{r.name}{r.beds > 0 ? <small> · {r.beds}</small> : null}</th>
+                <th style={{ borderInlineStart: `5px solid ${colorOf(host.buildings, r.building_id)}` }}>{r.name}{r.beds > 0 ? <small> · {r.beds}</small> : null}</th>
                 {days.map((d) => {
                   const taken = takenOn(r, d, data.bookings, data.allocs);
                   if (!taken.length) return <td key={d} className="free" onClick={() => host.book && setForm({ room: r.id, day: d })} />;
                   const beds = taken.reduce((n, x) => n + x.beds, 0);
                   const first = taken[0].booking;
-                  return <td key={d} className={beds > capacity(r) ? 'clash' : first.status} onClick={() => setView(first)}>{taken.length > 1 ? taken.length : first.group_name.slice(0, 5)}</td>;
+                  return <td key={d} className={beds > capacity(r) ? 'clash' : first.status} style={{ ['--hc' as string]: colorOf(host.buildings, r.building_id) }} onClick={() => setView(first)}>{taken.length > 1 ? taken.length : first.group_name.slice(0, 5)}</td>;
                 })}
               </tr>
             ))}

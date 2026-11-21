@@ -91,3 +91,4 @@ Build only when Fouad says "build".
 - **Al-Ard farm list:** Admin → Sections → *Add the farm's list* (3 headings, 15 lines; not in the migration, so each centre decides).
 - Tests: `tests/hosting.test.ts` (17). Checklist: `TEST-2026-11-14.md`, section 18. Guide page "Accommodation and calendar".
 - **Not done (kept for later):** salaries as suggestions (needs a send from the HR database to the centre); a public request page; the calendar for the Coordinator; Excel export of bookings.
+- **Added 22 Nov (migration 59):** weekly repeating EVENTS (weekdays between two dates, with hours; never for a stay; two events in a hall only clash if their hours cross), month and year views, a colour per building (palette or chosen; also on the phone), a currency per service line and a payment window with currency. Tests: 23 in `tests/hosting.test.ts`.

@@ -8,8 +8,8 @@ import { Field, Modal, Select, Tabs, confirmBox, errText, fmtDate, fmtUsd, promp
 import { GuideLink } from '../guide/GuideView';
 import { useNav } from './Shell';
 import {
-  addDays, bookingTotal, capacity, clashing, conflictsOf, dueOf, heldDays, nightsOf, stayAmount, takenOn, toReview,
-  type BookingKind, type BookingStatus, type Currency, type HostBooking, type HostData, type HostRoom,
+  addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, heldDays, nightsOf, occupancy, PALETTE, stayAmount, takenOn, toReview,
+  type BookingKind, type BookingStatus, type Currency, type HostBooking, type HostData, type HostRoom, type Totals,
 } from '../hosting/host';
 
 type Tab = 'calendar' | 'bookings' | 'payments' | 'settings';
@@ -19,6 +19,10 @@ const STATUS_LABEL: Record<BookingStatus, () => string> = {
   left: () => t('غادروا', 'Left'), cancelled: () => t('ملغى', 'Cancelled'),
 };
 const money = (n: number, c: Currency) => (c === 'SYP' ? `${Math.round(n).toLocaleString('en')} ل.س` : fmtUsd(n));
+/** what an amount comes to, in each currency that has something: "$60.00 · 50,000 ل.س" */
+const fmtTotals = (x: Totals) => [x.USD ? money(x.USD, 'USD') : '', x.SYP ? money(x.SYP, 'SYP') : ''].filter(Boolean).join(' · ') || '—';
+const weekday = (i: number) => new Date(Date.UTC(2026, 10, 22 + i)).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
+const monthName = (ym: string) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
 const dayShort = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
 const roomName = (d: HostData, r: HostRoom) => `${d.buildings.find((b) => b.id === r.building_id)?.name ?? ''} · ${r.name}`;
 const phoneLink = (p: string | null) => (p ? <a href={`tel:${p.replace(/\s/g, '')}`} dir="ltr">{p}</a> : null);
@@ -67,33 +71,46 @@ export function Hosting() {
   );
 }
 
-// ---------------------------------------------------------------- the calendar: rooms by day
+// ---------------------------------------------------------------- the calendar: rooms by day, by month, by year
+
+type View = 'rooms' | 'month' | 'year';
 
 function CalendarTab({ data, books, onOpen, onNew }: { data: HostData; books: boolean; onOpen: (b: HostBooking) => void; onNew: (room: number, day: string) => void }) {
+  const [view, setView] = useState<View>('rooms');
   const [from, setFrom] = useState(todayIso());
   const [span, setSpan] = useState(14);
   const [building, setBuilding] = useState<number | null>(null);
   const days = useMemo(() => Array.from({ length: span }, (_, i) => addDays(from, i)), [from, span]);
   const rooms = data.rooms.filter((r) => r.active && (building == null || r.building_id === building));
   const today = todayIso();
+  const step = (n: number) => setFrom(view === 'rooms' ? addDays(from, 7 * n) : view === 'month' ? addMonths(from, n) : addMonths(from, 12 * n));
+  const pick = (d: string, v: View) => { setFrom(d); setView(v); };
   return (
     <>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
-        <button className="btn small" onClick={() => setFrom(addDays(from, -7))}>‹</button>
+        <div className="tabs" style={{ margin: 0 }}>
+          {(['rooms', 'month', 'year'] as View[]).map((v) => <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'rooms' ? t('الغرف حسب اليوم', 'Rooms by day') : v === 'month' ? t('شهري', 'Month') : t('سنوي', 'Year')}</button>)}
+        </div>
+        <button className="btn small" onClick={() => step(-1)}>‹</button>
         <button className="btn small" onClick={() => setFrom(today)}>{t('اليوم', 'Today')}</button>
-        <button className="btn small" onClick={() => setFrom(addDays(from, 7))}>›</button>
-        <input className="inp" type="date" style={{ width: 150 }} value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} />
-        <select value={span} onChange={(e) => setSpan(Number(e.target.value))}>
-          <option value={7}>{t('أسبوع', '1 week')}</option><option value={14}>{t('أسبوعان', '2 weeks')}</option><option value={31}>{t('شهر', '1 month')}</option>
-        </select>
+        <button className="btn small" onClick={() => step(1)}>›</button>
+        {view === 'rooms' && <input className="inp" type="date" style={{ width: 150 }} value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} />}
+        {view === 'month' && <b>{monthName(from.slice(0, 7))}</b>}
+        {view === 'year' && <b>{from.slice(0, 4)}</b>}
+        {view === 'rooms' && (
+          <select value={span} onChange={(e) => setSpan(Number(e.target.value))}>
+            <option value={7}>{t('أسبوع', '1 week')}</option><option value={14}>{t('أسبوعان', '2 weeks')}</option><option value={31}>{t('شهر', '1 month')}</option>
+          </select>
+        )}
         <Select value={building} options={data.buildings.filter((b) => b.active).map((b) => ({ value: b.id, label: b.name }))} onChange={setBuilding} placeholder={t('كل المباني', 'All buildings')} />
-        {books && <button className="btn primary small" onClick={() => onNew(0, from)}>＋ {t('حجز', 'Booking')}</button>}
+        {books && <button className="btn primary small" onClick={() => onNew(0, view === 'rooms' ? from : today)}>＋ {t('حجز', 'Booking')}</button>}
       </div>
       <div className="host-key small">
-        <span className="host-cell option">{t('للتأكيد', 'To confirm')}</span><span className="host-cell confirmed">{t('مؤكَّد', 'Confirmed')}</span>
-        <span className="host-cell arrived">{t('وصلوا', 'Arrived')}</span><span className="host-cell left">{t('غادروا', 'Left')}</span><span className="host-cell clash">{t('تداخل', 'Clash')}</span>
+        {data.buildings.filter((b) => b.active).map((b) => <span key={b.id} className="host-sw"><i style={{ background: colorOf(data.buildings, b.id) }} />{b.name}</span>)}
+        <span className="host-cell option" style={{ ['--hc' as string]: '#888' }}>{t('للتأكيد', 'To confirm')}</span><span className="host-cell confirmed" style={{ ['--hc' as string]: '#555' }}>{t('مؤكَّد', 'Confirmed')}</span>
+        <span className="host-cell arrived" style={{ ['--hc' as string]: '#555' }}>{t('وصلوا', 'Arrived')}</span><span className="host-cell left">{t('غادروا', 'Left')}</span><span className="host-cell clash">{t('تداخل', 'Clash')}</span>
       </div>
-      {rooms.length === 0 ? <p className="muted">{t('لا غرف بعد: أضفها في «المباني والغرف».', 'No rooms yet: add them in "Buildings and rooms".')}</p> : (
+      {view === 'rooms' && (rooms.length === 0 ? <p className="muted">{t('لا غرف بعد: أضفها في «المباني والغرف».', 'No rooms yet: add them in "Buildings and rooms".')}</p> : (
         <div className="tbl-wrap host-wrap">
           <table className="host-grid">
             <thead>
@@ -104,23 +121,27 @@ function CalendarTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
             </thead>
             <tbody>
               {data.buildings.filter((b) => rooms.some((r) => r.building_id === b.id)).map((b) => (
-                <BuildingRows key={b.id} name={b.name} rooms={rooms.filter((r) => r.building_id === b.id)} days={days} data={data} books={books} onOpen={onOpen} onNew={onNew} />
+                <BuildingRows key={b.id} data={data} building={b.id} rooms={rooms.filter((r) => r.building_id === b.id)} days={days} books={books} onOpen={onOpen} onNew={onNew} />
               ))}
             </tbody>
           </table>
         </div>
-      )}
+      ))}
+      {view === 'month' && <MonthView data={data} month={from.slice(0, 7)} rooms={rooms} onDay={(d) => pick(d, 'rooms')} onOpen={onOpen} />}
+      {view === 'year' && <YearView data={data} year={from.slice(0, 4)} rooms={rooms} onMonth={(ym) => pick(`${ym}-01`, 'month')} />}
     </>
   );
 }
 
-function BuildingRows({ name, rooms, days, data, books, onOpen, onNew }: { name: string; rooms: HostRoom[]; days: string[]; data: HostData; books: boolean; onOpen: (b: HostBooking) => void; onNew: (room: number, day: string) => void }) {
+function BuildingRows({ data, building, rooms, days, books, onOpen, onNew }: { data: HostData; building: number; rooms: HostRoom[]; days: string[]; books: boolean; onOpen: (b: HostBooking) => void; onNew: (room: number, day: string) => void }) {
+  const color = colorOf(data.buildings, building);
+  const name = data.buildings.find((b) => b.id === building)?.name ?? '';
   return (
     <>
-      <tr className="host-building"><td colSpan={days.length + 1}>{name}</td></tr>
+      <tr className="host-building"><td colSpan={days.length + 1} style={{ borderInlineStart: `6px solid ${color}` }}>{name}</td></tr>
       {rooms.map((r) => (
         <tr key={r.id}>
-          <th className="host-room">{r.name}{r.kind === 'bedroom' ? <small> · {r.beds}</small> : r.kind === 'hall' ? <small> · {t('قاعة', 'hall')}</small> : null}</th>
+          <th className="host-room" style={{ borderInlineStart: `6px solid ${color}` }}>{r.name}{r.kind === 'bedroom' ? <small> · {r.beds}</small> : r.kind === 'hall' ? <small> · {t('قاعة', 'hall')}</small> : null}</th>
           {days.map((dy) => {
             const taken = takenOn(r, dy, data.bookings, data.allocs);
             const beds = taken.reduce((n, x) => n + x.beds, 0);
@@ -128,12 +149,70 @@ function BuildingRows({ name, rooms, days, data, books, onOpen, onNew }: { name:
             const first = taken[0].booking;
             const cls = beds > capacity(r) ? 'clash' : first.status;
             const label = taken.length > 1 ? `${taken.length}` : first.group_name.slice(0, 8);
-            const tip = taken.map((x) => `${x.booking.group_name} · ${STATUS_LABEL[x.booking.status]()}${r.beds > 1 ? ` · ${x.beds}/${r.beds}` : ''}`).join('\n');
-            return <td key={dy} className={`host-cell ${cls}`} title={tip} onClick={() => onOpen(first)}>{label}{r.beds > 1 && taken.length === 1 ? <small> {taken[0].beds}</small> : null}</td>;
+            const tip = taken.map((x) => `${x.booking.group_name}${x.booking.time_from ? ` ${x.booking.time_from}–${x.booking.time_to ?? ''}` : ''} · ${STATUS_LABEL[x.booking.status]()}${r.beds > 1 ? ` · ${x.beds}/${r.beds}` : ''}`).join('\n');
+            return <td key={dy} className={`host-cell ${cls}`} style={{ ['--hc' as string]: color }} title={tip} onClick={() => onOpen(first)}>{cls === 'arrived' ? '✓ ' : ''}{label}{r.beds > 1 && taken.length === 1 ? <small> {taken[0].beds}</small> : null}</td>;
           })}
         </tr>
       ))}
     </>
+  );
+}
+
+/** a month: each day with how full the rooms are and the groups present; a click opens the rooms of that week */
+function MonthView({ data, month, rooms, onDay, onOpen }: { data: HostData; month: string; rooms: HostRoom[]; onDay: (d: string) => void; onOpen: (b: HostBooking) => void }) {
+  const occ = useMemo(() => occupancy(data, new Set(rooms.map((r) => r.id))), [data, rooms]);
+  const n = daysInMonth(month);
+  const lead = new Date(`${month}-01T00:00:00Z`).getUTCDay();
+  const today = todayIso();
+  const cells: (string | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: n }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`)];
+  while (cells.length % 7) cells.push(null);
+  const firstBuilding = (b: HostBooking) => { const a = data.allocs.find((x) => x.booking_id === b.id); const r = data.rooms.find((x) => x.id === a?.room_id); return r ? colorOf(data.buildings, r.building_id) : '#888'; };
+  return (
+    <div className="host-month">
+      {Array.from({ length: 7 }, (_, i) => <div key={i} className="host-mh">{weekday(i)}</div>)}
+      {cells.map((d, i) => {
+        if (!d) return <div key={i} className="host-md off" />;
+        const o = occ.days.get(d);
+        const pct = o && occ.total ? Math.min(100, Math.round((o.used / occ.total) * 100)) : 0;
+        const groups = o?.groups ?? [];
+        return (
+          <div key={d} className={`host-md ${d === today ? 'today' : ''}`} onClick={() => onDay(d)}>
+            <div className="host-mn"><b>{Number(d.slice(8))}</b>{pct > 0 && <small>{pct}%</small>}</div>
+            <div className="host-bar"><i style={{ width: `${pct}%` }} /></div>
+            {groups.slice(0, 3).map((g) => <span key={g.id} className={`host-chip ${g.status}`} style={{ ['--hc' as string]: firstBuilding(g) }} onClick={(e) => { e.stopPropagation(); onOpen(g); }} title={g.group_name}>{g.kind === 'event' ? '▸ ' : ''}{g.group_name}</span>)}
+            {groups.length > 3 && <small className="muted">+{groups.length - 3}</small>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** a year: twelve small months, each day shaded by how full the rooms are; a click opens the month */
+function YearView({ data, year, rooms, onMonth }: { data: HostData; year: string; rooms: HostRoom[]; onMonth: (ym: string) => void }) {
+  const occ = useMemo(() => occupancy(data, new Set(rooms.map((r) => r.id))), [data, rooms]);
+  const today = todayIso();
+  return (
+    <div className="host-year">
+      {Array.from({ length: 12 }, (_, mi) => {
+        const ym = `${year}-${String(mi + 1).padStart(2, '0')}`;
+        const lead = new Date(`${ym}-01T00:00:00Z`).getUTCDay();
+        const cells: (string | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: daysInMonth(ym) }, (_, i) => `${ym}-${String(i + 1).padStart(2, '0')}`)];
+        return (
+          <div key={ym} className="host-ym" onClick={() => onMonth(ym)}>
+            <b>{monthName(ym).replace(/\s?\d{4}/, '')}</b>
+            <div className="host-yg">
+              {cells.map((d, i) => {
+                if (!d) return <i key={i} className="off" />;
+                const o = occ.days.get(d);
+                const pct = o && occ.total ? Math.min(1, o.used / occ.total) : 0;
+                return <i key={d} className={d === today ? 'today' : ''} title={o ? `${d} · ${o.groups.map((g) => g.group_name).join('، ')}` : d} style={pct > 0 ? { background: `color-mix(in srgb, var(--centre) ${Math.round(25 + pct * 75)}%, #fff)` } : undefined} />;
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -159,13 +238,13 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
         <thead><tr><th>{t('الرمز', 'Code')}</th><th>{t('المجموعة', 'Group')}</th><th>{t('من', 'From')}</th><th>{t('إلى', 'To')}</th><th className="n">{t('أشخاص', 'People')}</th><th>{t('الغرف', 'Rooms')}</th><th>{t('الحالة', 'Status')}</th>{data.prices && <><th className="n">{t('المبلغ', 'Total')}</th><th className="n">{t('المتبقي', 'Due')}</th></>}</tr></thead>
         <tbody>
           {sorted.map((b) => {
-            const total = bookingTotal(b, data.lines.filter((l) => l.booking_id === b.id));
+            const total = bookingTotals(b, data.lines.filter((l) => l.booking_id === b.id));
             return (
               <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(b)}>
                 <td>{b.code}{b.review ? ' 📱' : ''}</td><td><b>{b.group_name}</b>{b.kind === 'event' ? <small> · {t('نشاط', 'event')}</small> : null}</td>
                 <td>{fmtDate(b.from_day)}</td><td>{fmtDate(b.to_day)}</td><td className="n">{b.people}</td><td>{names(b.id)}</td>
                 <td><span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span></td>
-                {data.prices && <><td className="n">{total ? money(total, b.currency) : ''}</td><td className="n">{total ? money(dueOf(total, b.currency, data.pays.filter((p) => p.booking_id === b.id)), b.currency) : ''}</td></>}
+                {data.prices && <><td className="n">{total.USD || total.SYP ? fmtTotals(total) : ''}</td><td className="n">{total.USD || total.SYP ? fmtTotals(dueOf(total, data.pays.filter((p) => p.booking_id === b.id))) : ''}</td></>}
               </tr>
             );
           })}
@@ -178,7 +257,7 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
 
 // ---------------------------------------------------------------- one booking
 
-interface Line { id?: number; service_id: number | null; label: string; qty: string; amount: string }
+interface Line { id?: number; service_id: number | null; label: string; qty: string; amount: string; currency: Currency }
 
 function BookingEditor({ data, start, onClose, refresh }: { data: HostData; start: { booking: HostBooking | null; room?: number; day?: string }; onClose: () => void; refresh: () => Promise<void> }) {
   const { s, can } = useApp();
@@ -187,8 +266,12 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
   const [f, setF] = useState(() => ({
     kind: (b?.kind ?? 'stay') as BookingKind, group_name: b?.group_name ?? '', contact: b?.contact ?? '', phone: b?.phone ?? '', people: String(b?.people ?? ''),
     from_day: b?.from_day ?? start.day ?? todayIso(), to_day: b?.to_day ?? addDays(start.day ?? todayIso(), 1),
-    price_mode: (b?.price_mode ?? 'person') as 'person' | 'group', rate: b?.rate != null ? String(b.rate) : '', currency: (b?.currency ?? 'USD') as Currency, note: b?.note ?? '',
+    price_mode: (b?.price_mode ?? 'person') as 'person' | 'group', rate: b?.rate != null ? String(b.rate) : '', currency: (b?.currency ?? 'USD') as Currency, note: b?.note ?? '', time_from: b?.time_from ?? '', time_to: b?.time_to ?? '',
   }));
+  // an event may repeat every week on chosen weekdays between its first and last day (never a stay)
+  const [rep, setRep] = useState<Set<number>>(() => new Set((b?.repeat_days ?? '').split(',').filter(Boolean).map(Number)));
+  const [again, setAgain] = useState(!!b?.repeat_days);
+  const [payForm, setPayForm] = useState<{ amount: string; currency: Currency; paid_on: string; method: string } | null>(null);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const [allocs, setAllocs] = useState<Map<number, number | null>>(() => {
     const m = new Map<number, number | null>();
@@ -196,26 +279,28 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
     if (!b && start.room) m.set(start.room, null);
     return m;
   });
-  const [lines, setLines] = useState<Line[]>(() => data.lines.filter((l) => l.booking_id === b?.id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: String(l.qty), amount: String(l.amount) })));
+  const [lines, setLines] = useState<Line[]>(() => data.lines.filter((l) => l.booking_id === b?.id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: String(l.qty), amount: String(l.amount), currency: l.currency })));
   const [busy, setBusy] = useState(false);
   const readOnly = !(can('hosting.book') || keeps);
   const people = Number(f.people) || 0;
-  const probe = { id: b?.id ?? -1, kind: f.kind, from_day: f.from_day, to_day: f.to_day };
+  const repeatDays = f.kind === 'event' && again && rep.size ? [...rep].sort().join(',') : null;
+  const hours = f.kind === 'event' ? { time_from: f.time_from || null, time_to: f.time_to || null } : { time_from: null, time_to: null };
+  const probe = { id: b?.id ?? -1, kind: f.kind, from_day: f.from_day, to_day: f.to_day, repeat_days: repeatDays, ...hours };
   const asked = [...allocs].map(([room_id, beds]) => ({ booking_id: b?.id ?? -1, room_id, beds }));
   const dates = /^\d{4}-\d{2}-\d{2}$/.test(f.from_day) && /^\d{4}-\d{2}-\d{2}$/.test(f.to_day) && (f.kind === 'stay' ? f.to_day > f.from_day : f.to_day >= f.from_day);
   const clashes = dates ? conflictsOf(probe, asked, data, 'any') : [];
   const sure = dates ? conflictsOf(probe, asked, data, 'sure') : [];
   const by = (id: number) => data.bookings.find((x) => x.id === id)?.group_name ?? '';
-  const priced = { kind: f.kind, from_day: f.from_day, to_day: f.to_day, people, price_mode: f.price_mode, rate: f.rate === '' ? null : Number(f.rate) };
-  const total = dates && data.prices ? bookingTotal(priced, lines.map((l) => ({ amount: Number(l.amount) || 0 }))) : 0;
+  const priced = { kind: f.kind, from_day: f.from_day, to_day: f.to_day, repeat_days: repeatDays, people, price_mode: f.price_mode, rate: f.rate === '' ? null : Number(f.rate) };
+  const total: Totals = dates && data.prices ? bookingTotals({ ...priced, currency: f.currency }, lines.map((l) => ({ amount: Number(l.amount) || 0, currency: l.currency }))) : { USD: 0, SYP: 0 };
   const pays = data.pays.filter((p) => p.booking_id === b?.id);
-  const due = dueOf(total, f.currency, pays);
+  const due = dueOf(total, pays);
 
   const body = () => ({
-    id: b?.id, kind: f.kind, group_name: f.group_name, contact: f.contact, phone: f.phone, people, from_day: f.from_day, to_day: f.to_day, note: f.note,
+    id: b?.id, kind: f.kind, group_name: f.group_name, contact: f.contact, phone: f.phone, people, from_day: f.from_day, to_day: f.to_day, note: f.note, repeat_days: repeatDays ? repeatDays.split(',').map(Number) : null, ...hours,
     price_mode: f.rate === '' ? null : f.price_mode, rate: f.rate === '' ? null : Number(f.rate), currency: f.currency,
     allocs: [...allocs].map(([room_id, beds]) => ({ room_id, beds })),
-    lines: lines.filter((l) => l.label.trim() || l.service_id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: Number(l.qty) || 1, amount: Number(l.amount) || 0 })),
+    lines: lines.filter((l) => l.label.trim() || l.service_id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: Number(l.qty) || 1, amount: Number(l.amount) || 0, currency: l.currency })),
   });
   const save = async (status?: BookingStatus, reason?: string | null) => {
     setBusy(true);
@@ -232,10 +317,10 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
     if (why == null) return;
     await save('cancelled', why);
   };
-  const addPay = async () => {
-    const v = await promptBox(t(`المبلغ المقبوض (${f.currency})`, `Amount received (${f.currency})`), due > 0 ? String(due) : '');
-    if (v == null) return;
-    try { await s.api.call('host.pay.add', { booking_id: b!.id, amount: Number(v), currency: f.currency }); toast(t('سُجّلت الدفعة: تنتظر المحاسب ليجعلها قيداً', 'Payment recorded: it waits for the accountant to make the entry')); await refresh(); } catch (e) { toast(errText(e), true); }
+  const addPay = () => setPayForm({ amount: due[f.currency] > 0 ? String(due[f.currency]) : due.USD > 0 ? String(due.USD) : due.SYP > 0 ? String(due.SYP) : '', currency: due[f.currency] > 0 ? f.currency : due.USD > 0 ? 'USD' : due.SYP > 0 ? 'SYP' : f.currency, paid_on: todayIso(), method: 'cash' });
+  const savePay = async () => {
+    if (!payForm) return;
+    try { await s.api.call('host.pay.add', { booking_id: b!.id, amount: Number(payForm.amount), currency: payForm.currency, paid_on: payForm.paid_on, method: payForm.method }); toast(t('سُجّلت الدفعة: تنتظر المحاسب ليجعلها قيداً', 'Payment recorded: it waits for the accountant to make the entry')); setPayForm(null); await refresh(); } catch (e) { toast(errText(e), true); }
   };
   const remove = async () => {
     if (!b || !(await confirmBox(t('حذف هذا الحجز؟', 'Delete this booking?'), true))) return;
@@ -257,10 +342,22 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
         <Field label={t('الهاتف', 'Phone')}><input className="inp" style={{ direction: 'ltr' }} disabled={readOnly} value={f.phone} onChange={(e) => set('phone', e.target.value)} /></Field>
         <Field label={f.kind === 'stay' ? t('الوصول', 'Arrival') : t('اليوم الأول', 'First day')}><input className="inp" type="date" disabled={readOnly} value={f.from_day} onChange={(e) => set('from_day', e.target.value)} /></Field>
         <Field label={f.kind === 'stay' ? t('المغادرة', 'Leaving') : t('اليوم الأخير', 'Last day')}><input className="inp" type="date" disabled={readOnly} value={f.to_day} onChange={(e) => set('to_day', e.target.value)} /></Field>
+        {f.kind === 'event' && <Field label={t('من الساعة', 'From (hour)')}><input className="inp" type="time" disabled={readOnly} value={f.time_from} onChange={(e) => set('time_from', e.target.value)} /></Field>}
+        {f.kind === 'event' && <Field label={t('إلى الساعة', 'To (hour)')}><input className="inp" type="time" disabled={readOnly} value={f.time_to} onChange={(e) => set('time_to', e.target.value)} /></Field>}
         <Field label={t('عدد الأشخاص', 'Number of people')}><input className="inp" type="number" min={0} disabled={readOnly} value={f.people} onChange={(e) => set('people', e.target.value)} /></Field>
         <Field label={t('ملاحظة', 'Note')}><input className="inp" disabled={readOnly} value={f.note} onChange={(e) => set('note', e.target.value)} /></Field>
       </div>
-      {dates && <p className="small muted">{f.kind === 'stay' ? `${nightsOf(probe)} ${t('ليلة', 'night(s)')}` : `${heldDays(probe).length} ${t('يوم', 'day(s)')}`}</p>}
+      {f.kind === 'event' && (
+        <div className="small" style={{ margin: '6px 0' }}>
+          <label><input type="checkbox" disabled={readOnly} checked={again} onChange={(e) => setAgain(e.target.checked)} /> {t('يتكرر كل أسبوع بين التاريخين', 'Repeats every week between the two dates')}</label>
+          {again && (
+            <span className="host-days">
+              {[0, 1, 2, 3, 4, 5, 6].map((i) => <button key={i} type="button" disabled={readOnly} className={rep.has(i) ? 'on' : ''} onClick={() => setRep((x) => { const n = new Set(x); if (n.has(i)) n.delete(i); else n.add(i); return n; })}>{weekday(i)}</button>)}
+            </span>
+          )}
+        </div>
+      )}
+      {dates && <p className="small muted">{f.kind === 'stay' ? `${nightsOf(probe)} ${t('ليلة', 'night(s)')}` : `${heldDays(probe).length} ${again && rep.size ? t('جلسة', 'session(s)') : t('يوم', 'day(s)')}`}</p>}
 
       <h3 style={{ margin: '10px 0 4px' }}>{t('الغرف', 'Rooms')}</h3>
       <div className="host-pick">
@@ -296,10 +393,11 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
             onChange={(v) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, service_id: v, label: data.services.find((s2) => s2.id === v)?.name ?? x.label } : x)))} />
           <input className="inp" type="number" min={0} style={{ width: 70 }} title={t('الكمية', 'Quantity')} disabled={readOnly} value={l.qty} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, qty: e.target.value } : x)))} />
           {data.prices && <input className="inp" inputMode="decimal" style={{ width: 90 }} title={t('المبلغ المتفق عليه', 'Agreed amount')} disabled={!keeps} value={l.amount} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))} />}
+          {data.prices && <select style={{ width: 80 }} title={t('العملة', 'Currency')} disabled={!keeps} value={l.currency} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, currency: e.target.value as Currency } : x)))}><option value="USD">USD</option><option value="SYP">SYP</option></select>}
           {!readOnly && <button className="btn ghost small" onClick={() => setLines((xs) => xs.filter((_, k) => k !== i))}>✕</button>}
         </div>
       ))}
-      {!readOnly && <button className="btn small" onClick={() => setLines((xs) => [...xs, { service_id: null, label: '', qty: '1', amount: '0' }])}>＋ {t('خدمة', 'Service')}</button>}
+      {!readOnly && <button className="btn small" onClick={() => setLines((xs) => [...xs, { service_id: null, label: '', qty: '1', amount: '0', currency: f.currency }])}>＋ {t('خدمة', 'Service')}</button>}
 
       {data.prices && (
         <>
@@ -317,7 +415,7 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
               </div>
             </Field>
           </div>
-          {dates && <p className="small">{t('الإقامة', 'Stay')}: <b>{money(stayAmount(priced), f.currency)}</b> · {t('المجموع', 'Total')}: <b>{money(total, f.currency)}</b>{b && <> · {t('المتبقي', 'Due')}: <b>{money(due, f.currency)}</b></>}</p>}
+          {dates && <p className="small">{f.kind === 'stay' ? t('الإقامة', 'Stay') : t('النشاط', 'Event')}: <b>{money(stayAmount(priced), f.currency)}</b> · {t('المجموع', 'Total')}: <b>{fmtTotals(total)}</b>{b && <> · {t('المتبقي', 'Due')}: <b>{fmtTotals(due)}</b></>}</p>}
           {b && pays.length > 0 && (
             <table className="t small"><tbody>
               {pays.map((p) => (
@@ -326,7 +424,7 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
               ))}
             </tbody></table>
           )}
-          {b && keeps && <button className="btn small" onClick={() => void addPay()}>＋ {t('دفعة مقبوضة', 'A payment received')}</button>}
+          {b && keeps && <button className="btn small" onClick={() => addPay()}>＋ {t('دفعة مقبوضة', 'A payment received')}</button>}
         </>
       )}
 
@@ -340,6 +438,18 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
         {!readOnly && b?.status === 'arrived' && <button className="btn primary" disabled={busy} onClick={() => void save('left')}>{t('غادروا', 'They left')}</button>}
         {!readOnly && b?.status === 'cancelled' && <button className="btn" disabled={busy} onClick={() => void save('option')}>{t('أعده للتأكيد', 'Back to "to confirm"')}</button>}
       </div>
+      {payForm && (
+        <Modal title={t('دفعة مقبوضة', 'A payment received')} onClose={() => setPayForm(null)} narrow>
+          <div className="grid2">
+            <Field label={t('المبلغ', 'Amount')}><input className="inp" inputMode="decimal" autoFocus value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} /></Field>
+            <Field label={t('العملة', 'Currency')}><select value={payForm.currency} onChange={(e) => setPayForm({ ...payForm, currency: e.target.value as Currency })}><option value="USD">USD</option><option value="SYP">SYP</option></select></Field>
+            <Field label={t('التاريخ', 'Date')}><input className="inp" type="date" value={payForm.paid_on} onChange={(e) => setPayForm({ ...payForm, paid_on: e.target.value })} /></Field>
+            <Field label={t('الطريقة', 'Method')}><select value={payForm.method} onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}><option value="cash">{t('نقداً', 'Cash')}</option><option value="transfer">{t('حوالة', 'Transfer')}</option><option value="other">{t('أخرى', 'Other')}</option></select></Field>
+          </div>
+          <p className="small muted">{t('المتبقي', 'Still due')}: {fmtTotals(due)}</p>
+          <div className="modal-foot"><button className="btn" onClick={() => setPayForm(null)}>{t('إلغاء', 'Cancel')}</button><button className="btn primary" disabled={!(Number(payForm.amount) > 0)} onClick={() => void savePay()}>{t('سجّل', 'Record')}</button></div>
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -449,7 +559,11 @@ function SettingsTab({ data, refresh }: { data: HostData; refresh: () => Promise
         <p className="small muted">{t('كل غرفة هي أيضاً «مكان» في الجرد، فتُسجَّل فيها الأغراض.', 'Each room is also a "place" of the inventory, so the things in it are listed there.')}</p>
         {data.buildings.map((b) => (
           <div key={b.id} style={{ marginBottom: 10 }}>
-            <b>{b.name}{b.active ? '' : ' ✕'}</b> <button className="btn ghost small" onClick={() => void rename(b.id, b.name, b.active === 1)}>{t('اسم', 'Rename')}</button>
+            <i className="host-sw-big" style={{ background: colorOf(data.buildings, b.id) }} />
+            <b>{b.name}{b.active ? '' : ' ✕'}</b>
+            <input type="color" className="host-color" title={t('لون المبنى في التقويم', 'Colour of the building on the calendar')} value={colorOf(data.buildings, b.id)} onChange={(e) => void act(() => s.api.call('host.building.save', { id: b.id, name: b.name, active: !!b.active, color: e.target.value }))} />
+            {PALETTE.map((c) => <button key={c} type="button" className="host-pal" style={{ background: c }} aria-label={c} onClick={() => void act(() => s.api.call('host.building.save', { id: b.id, name: b.name, active: !!b.active, color: c }))} />)}
+            <button className="btn ghost small" onClick={() => void rename(b.id, b.name, b.active === 1)}>{t('اسم', 'Rename')}</button>
             <button className="btn ghost small" onClick={() => void act(() => s.api.call('host.building.save', { id: b.id, name: b.name, active: !b.active }))}>{b.active ? t('أوقف', 'Switch off') : t('أعد', 'Switch on')}</button>
             <button className="btn small" onClick={() => setRoom({ building_id: b.id, name: '', beds: '2', kind: 'bedroom', active: true })}>＋ {t('غرفة', 'Room')}</button>
             <table className="t small"><tbody>

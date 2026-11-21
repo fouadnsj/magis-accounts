@@ -5,7 +5,7 @@ import { runOp, type DataPayload, type OpCtx } from '../src/ops';
 import { loadProfile } from '../src/auth';
 import { createOffice } from '../src/setup';
 import type { Db } from '../src/db/db';
-import { bookingTotal, conflictsOf, dueOf, heldDays, nextCode, nextReceipt, nightsOf, stayAmount, type HostData } from '../src/hosting/host';
+import { bookingTotals, colorOf, conflictsOf, dueOf, heldDays, nextCode, nextReceipt, nightsOf, occupancy, PALETTE, stayAmount, type HostData } from '../src/hosting/host';
 import { nodeDb } from './nodeDb';
 
 const store = new Map<string, Uint8Array>();
@@ -49,8 +49,10 @@ describe('the days and the money', () => {
     expect(stayAmount({ ...b, price_mode: 'person', rate: 8 })).toBe(240);
     expect(stayAmount({ ...b, price_mode: 'group', rate: 500 })).toBe(500);
     expect(stayAmount({ ...b, price_mode: null, rate: null })).toBe(0);
-    expect(bookingTotal({ ...b, price_mode: 'person', rate: 8 }, [{ amount: 60 }, { amount: 40 }])).toBe(340);
-    expect(dueOf(340, 'USD', [{ amount: 100, currency: 'USD', status: 'suggested' }, { amount: 50, currency: 'USD', status: 'refused' }, { amount: 9999, currency: 'SYP', status: 'suggested' }])).toBe(240);
+    // each service line has its own currency; the total and what is due are kept per currency
+    const t = bookingTotals({ ...b, price_mode: 'person', rate: 8, currency: 'USD' }, [{ amount: 60, currency: 'USD' }, { amount: 500000, currency: 'SYP' }]);
+    expect(t).toEqual({ USD: 300, SYP: 500000 });
+    expect(dueOf(t, [{ amount: 100, currency: 'USD', status: 'suggested' }, { amount: 50, currency: 'USD', status: 'refused' }, { amount: 200000, currency: 'SYP', status: 'suggested' }])).toEqual({ USD: 200, SYP: 300000 });
   });
   it('numbers continue in the year', () => {
     expect(nextCode([], 2027)).toBe('HB-2027-0001');
@@ -256,5 +258,74 @@ describe("Al-Ard's farm list", () => {
     expect(names).toContain('زيت زيتون · Olive oil');
     expect(names).toContain('مخيمات · Camps');
     expect(names).toContain('عمالة موسمية (تقليم…) · Seasonal labour (pruning…)');
+  });
+});
+
+describe('events that repeat, hours, colours, currencies', () => {
+  it('a weekly event holds only its weekdays between the two dates; a stay never repeats', () => {
+    // 2027-03-01 is a Monday
+    const ev = { kind: 'event' as const, from_day: '2027-03-01', to_day: '2027-03-14', repeat_days: '1,3' };
+    expect(heldDays(ev)).toEqual(['2027-03-01', '2027-03-03', '2027-03-08', '2027-03-10']);
+    expect(heldDays({ ...ev, kind: 'stay' as const, to_day: '2027-03-04' })).toEqual(['2027-03-01', '2027-03-02', '2027-03-03']);
+  });
+
+  it('saves a repeating event, refuses weekdays that never fall in the dates, and clears the repeat on a stay', async () => {
+    const ok = (await runOp(sup, 'host.booking.save', { kind: 'event', group_name: 'Choir practice', people: 20, from_day: day(100), to_day: day(128), repeat_days: [1, 3], time_from: '16:00', time_to: '18:00', allocs: [{ room_id: hall }], status: 'confirmed' })) as { id: number };
+    const row = (await db.query<{ repeat_days: string; time_from: string }>('SELECT repeat_days, time_from FROM host_booking WHERE id = ?', [ok.id]))[0];
+    expect(row).toEqual({ repeat_days: '1,3', time_from: '16:00' });
+    // a one-day span that holds no chosen weekday
+    await expect(runOp(sup, 'host.booking.save', { kind: 'event', group_name: 'Nothing', from_day: day(101), to_day: day(101), repeat_days: [1], allocs: [{ room_id: hall }] })).rejects.toThrow();
+    // a stay with a repeat: the repeat is ignored and cleared
+    const st = (await runOp(sup, 'host.booking.save', { kind: 'stay', group_name: 'Plain stay', people: 1, from_day: day(200), to_day: day(202), repeat_days: [1, 3], time_from: '10:00', allocs: [{ room_id: r2 }] })) as { id: number };
+    expect((await db.query<{ repeat_days: string | null; time_from: string | null }>('SELECT repeat_days, time_from FROM host_booking WHERE id = ?', [st.id]))[0]).toEqual({ repeat_days: null, time_from: null });
+  });
+
+  it('two events in one hall on one day clash only if their hours cross', async () => {
+    const d = day(110); // a day the choir practice may hold: make the days match the weekday rule
+    const first = (await runOp(sup, 'host.booking.save', { kind: 'event', group_name: 'Morning class', people: 10, from_day: d, to_day: d, time_from: '09:00', time_to: '11:00', allocs: [{ room_id: hall }], status: 'confirmed' })) as { id: number };
+    const apart = (await runOp(sup, 'host.booking.save', { kind: 'event', group_name: 'Evening class', people: 10, from_day: d, to_day: d, time_from: '17:00', time_to: '19:00', allocs: [{ room_id: hall }], status: 'confirmed' })) as { id: number };
+    expect(apart.id).not.toBe(first.id);
+    await expect(runOp(sup, 'host.booking.save', { kind: 'event', group_name: 'Crossing', people: 5, from_day: d, to_day: d, time_from: '10:00', time_to: '12:00', allocs: [{ room_id: hall }], status: 'confirmed' })).rejects.toThrow();
+    // no hours: the whole day, so it clashes with both
+    await expect(runOp(sup, 'host.booking.save', { kind: 'event', group_name: 'All day', people: 5, from_day: d, to_day: d, allocs: [{ room_id: hall }], status: 'confirmed' })).rejects.toThrow();
+  });
+
+  it('a building has a colour (chosen, or from the palette); a bad one is refused; only a keeper changes it', async () => {
+    const d = await host();
+    const b = d.buildings[0];
+    expect(colorOf(d.buildings, b.id)).toBe(PALETTE[0]);
+    await runOp(sup, 'host.building.save', { id: b.id, name: b.name, color: '#112233' });
+    expect(colorOf((await host()).buildings, b.id)).toBe('#112233');
+    await expect(runOp(sup, 'host.building.save', { id: b.id, name: b.name, color: 'red' })).rejects.toThrow();
+    await expect(runOp(reception, 'host.building.save', { id: b.id, name: b.name, color: '#000000' })).rejects.toThrow();
+    // saving the name alone keeps the colour
+    await runOp(sup, 'host.building.save', { id: b.id, name: b.name });
+    expect(colorOf((await host()).buildings, b.id)).toBe('#112233');
+  });
+
+  it('a service line has its own currency; reception keeps it unchanged', async () => {
+    const id = (await runOp(sup, 'host.booking.save', { group_name: 'Two currencies', people: 2, from_day: day(300), to_day: day(302), allocs: [{ room_id: r2 }], price_mode: 'person', rate: 10, currency: 'USD', lines: [{ label: 'Lunch', qty: 2, amount: 40, currency: 'USD' }, { label: 'Heating', qty: 1, amount: 300000, currency: 'SYP' }] })) as { id: number };
+    const forSup = await host(sup);
+    expect(forSup.lines.filter((l) => l.booking_id === id.id).map((l) => l.currency)).toEqual(['USD', 'SYP']);
+    const lines = await db.query<{ id: number; label: string }>('SELECT id, label FROM host_line WHERE booking_id = ? ORDER BY id', [id.id]);
+    await runOp(reception, 'host.booking.save', { id: id.id, group_name: 'Two currencies', people: 2, from_day: day(300), to_day: day(302), allocs: [{ room_id: r2 }], lines: [{ id: lines[0].id, label: 'Lunch', qty: 2, amount: 1, currency: 'SYP' }, { id: lines[1].id, label: 'Heating', qty: 1, amount: 1, currency: 'USD' }] });
+    const kept = await db.query<{ amount: number; currency: string }>('SELECT amount, currency FROM host_line WHERE booking_id = ? ORDER BY id', [id.id]);
+    expect(kept).toEqual([{ amount: 40, currency: 'USD' }, { amount: 300000, currency: 'SYP' }]);
+    // a payment in the other currency
+    const p = (await runOp(sup, 'host.pay.add', { booking_id: id.id, amount: 100000, currency: 'SYP' })) as { receipt_no: string };
+    expect((await host()).pays.find((x) => x.receipt_no === p.receipt_no)?.currency).toBe('SYP');
+  });
+
+  it('the month and year views count the beds used each day', async () => {
+    const d = await host();
+    const occ = occupancy(d);
+    expect(occ.total).toBeGreaterThan(0);
+    const some = [...occ.days.values()].find((x) => x.used > 0);
+    expect(some).toBeTruthy();
+    // the Scouts: Room 1 (4 beds) all 3 nights
+    expect(occ.days.get(day(1))?.groups.some((g) => g.group_name === 'Scouts')).toBe(true);
+    // a room set aside: only its own beds count
+    const only = occupancy(d, new Set([hall]));
+    expect(only.total).toBe(1);
   });
 });

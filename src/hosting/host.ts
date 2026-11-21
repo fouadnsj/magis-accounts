@@ -241,6 +241,112 @@ export function dueOf(total: Totals, pays: Pick<HostPay, 'amount' | 'currency' |
   return { USD: r2(total.USD - paid.USD), SYP: r2(total.SYP - paid.SYP) };
 }
 
+// ------------------------------------------------------------------ groups, people and the report
+
+/** the same group or person written with another case or extra spaces is the same */
+export const nameKey = (x: string | null | undefined) => (x ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/** the groups and the people already known from the bookings, to complete a name while typing and to fill the contact */
+export function knownNames(bookings: Pick<HostBooking, 'group_name' | 'contact' | 'phone' | 'from_day' | 'status'>[]) {
+  const groups = new Map<string, { name: string; contact: string | null; phone: string | null; count: number; last: string }>();
+  const people = new Map<string, { name: string; phone: string | null; count: number; last: string }>();
+  for (const b of [...bookings].sort((x, y) => x.from_day.localeCompare(y.from_day))) {
+    if (b.status === 'cancelled') continue;
+    const gk = nameKey(b.group_name);
+    if (gk) { const g = groups.get(gk); groups.set(gk, { name: b.group_name.trim(), contact: b.contact || g?.contact || null, phone: b.phone || g?.phone || null, count: (g?.count ?? 0) + 1, last: b.from_day }); }
+    const pk = nameKey(b.contact);
+    if (pk) { const p = people.get(pk); people.set(pk, { name: (b.contact ?? '').trim(), phone: b.phone || p?.phone || null, count: (p?.count ?? 0) + 1, last: b.from_day }); }
+  }
+  return { groups, people };
+}
+
+export interface ReportOpts { from: string; to: string; kind: BookingKind | 'all'; /** count the bookings still "to confirm" */ withOptions: boolean }
+export interface Amounts { agreed: Totals; paid: Totals }
+const zero = (): Totals => ({ USD: 0, SYP: 0 });
+const plus = (a: Totals, b: Totals): Totals => ({ USD: r2(a.USD + b.USD), SYP: r2(a.SYP + b.SYP) });
+
+/**
+ * A report of accommodation and events over a period. Counted: confirmed, arrived and left bookings (and "to confirm" if
+ * asked). Nights and days are those that fall inside the period. The amounts (only if `prices`) are the agreed totals of
+ * the bookings that fall in the period, and the payments received in it.
+ */
+export function report(d: HostData, o: ReportOpts) {
+  const inP = (day: string) => day >= o.from && day <= o.to;
+  const counted = d.bookings.filter((b) => (o.kind === 'all' || b.kind === o.kind) && (b.status === 'confirmed' || b.status === 'arrived' || b.status === 'left' || (o.withOptions && b.status === 'option')));
+  const rows = counted.map((b) => ({ b, days: heldDays(b).filter(inP) })).filter((r) => r.days.length);
+  const stays = rows.filter((r) => r.b.kind === 'stay'), events = rows.filter((r) => r.b.kind === 'event');
+  const nights = stays.reduce((n, r) => n + r.days.length, 0);
+  const personNights = stays.reduce((n, r) => n + r.days.length * r.b.people, 0);
+  const eventDays = events.reduce((n, r) => n + r.days.length, 0);
+  const linesOf = (id: number) => d.lines.filter((l) => l.booking_id === id);
+  const totalOf = (b: HostBooking) => (d.prices ? bookingTotals(b, linesOf(b.id)) : zero());
+  const paidIn = (id: number): Totals => { const t = zero(); for (const p of d.pays) if (p.booking_id === id && p.status !== 'refused' && inP(p.paid_on)) t[p.currency] += p.amount; return t; };
+
+  // beds used: only stays and the bedrooms; halls: only events
+  const bedRooms = new Set(d.rooms.filter((r) => r.kind === 'bedroom' && r.beds > 0).map((r) => r.id));
+  // a hall is a room that is not a bedroom, or any room an event has used
+  const hallRooms = new Set(d.rooms.filter((r) => r.kind !== 'bedroom' || r.beds === 0).map((r) => r.id));
+  for (const r of rows) if (r.b.kind === 'event') for (const al of d.allocs) if (al.booking_id === r.b.id) hallRooms.add(al.room_id);
+  const spanDays = Math.max(1, diffDays(o.from, o.to) + 1);
+  const occOf = (kindOf: BookingKind, roomIds: Set<number>, from: string, to: string) => {
+    const oc = occupancy({ bookings: counted.filter((b) => b.kind === kindOf), allocs: d.allocs, rooms: d.rooms }, roomIds);
+    let used = 0;
+    for (const [day, e] of oc.days) if (day >= from && day <= to) used += e.used;
+    const avail = oc.total * Math.max(1, diffDays(from, to) + 1);
+    return { used, avail, pct: avail ? Math.round((used / avail) * 1000) / 10 : 0 };
+  };
+
+  const months: { month: string; bookings: number; nights: number; personNights: number; eventDays: number; bedPct: number }[] = [];
+  for (let m = o.from.slice(0, 7); m <= o.to.slice(0, 7) && months.length < 60; m = addMonths(m + '-01', 1).slice(0, 7)) {
+    const mf = m === o.from.slice(0, 7) ? o.from : `${m}-01`;
+    const ml = m === o.to.slice(0, 7) ? o.to : `${m}-${String(daysInMonth(m)).padStart(2, '0')}`;
+    const inM = (day: string) => day >= mf && day <= ml;
+    const mine = rows.map((r) => ({ ...r, days: r.days.filter(inM) })).filter((r) => r.days.length);
+    months.push({
+      month: m, bookings: mine.length,
+      nights: mine.filter((r) => r.b.kind === 'stay').reduce((n, r) => n + r.days.length, 0),
+      personNights: mine.filter((r) => r.b.kind === 'stay').reduce((n, r) => n + r.days.length * r.b.people, 0),
+      eventDays: mine.filter((r) => r.b.kind === 'event').reduce((n, r) => n + r.days.length, 0),
+      bedPct: occOf('stay', bedRooms, mf, ml).pct,
+    });
+  }
+  const buildings = d.buildings.map((bd) => {
+    const ids = new Set(d.rooms.filter((r) => r.building_id === bd.id).map((r) => r.id));
+    const beds = new Set([...ids].filter((i) => bedRooms.has(i)));
+    const halls = new Set([...ids].filter((i) => hallRooms.has(i)));
+    const mine = rows.filter((r) => d.allocs.some((a) => a.booking_id === r.b.id && ids.has(a.room_id)));
+    return { id: bd.id, name: bd.name, bookings: mine.length, bedPct: occOf('stay', beds, o.from, o.to).pct, bedNights: occOf('stay', beds, o.from, o.to).used, hallDays: occOf('event', halls, o.from, o.to).used };
+  });
+
+  const groupMap = new Map<string, { name: string; bookings: number; stays: number; events: number; nights: number; personNights: number; eventDays: number; people: number; first: string; last: string; contacts: Set<string>; phone: string | null; amounts: Amounts; ids: number[] }>();
+  const personMap = new Map<string, { name: string; phone: string | null; bookings: number; groups: Set<string>; last: string }>();
+  for (const r of rows.sort((x, y) => x.b.from_day.localeCompare(y.b.from_day))) {
+    const b = r.b;
+    const gk = nameKey(b.group_name);
+    const g = groupMap.get(gk) ?? { name: b.group_name.trim(), bookings: 0, stays: 0, events: 0, nights: 0, personNights: 0, eventDays: 0, people: 0, first: b.from_day, last: b.from_day, contacts: new Set<string>(), phone: null, amounts: { agreed: zero(), paid: zero() }, ids: [] };
+    g.name = b.group_name.trim(); g.bookings++; g.people += b.people; g.last = b.from_day; g.ids.push(b.id);
+    if (b.kind === 'stay') { g.stays++; g.nights += r.days.length; g.personNights += r.days.length * b.people; } else { g.events++; g.eventDays += r.days.length; }
+    if (b.contact) g.contacts.add(b.contact.trim());
+    if (b.phone) g.phone = b.phone;
+    g.amounts = { agreed: plus(g.amounts.agreed, totalOf(b)), paid: plus(g.amounts.paid, d.prices ? paidIn(b.id) : zero()) };
+    groupMap.set(gk, g);
+    const pk = nameKey(b.contact);
+    if (pk) { const p = personMap.get(pk) ?? { name: (b.contact ?? '').trim(), phone: null, bookings: 0, groups: new Set<string>(), last: b.from_day }; p.bookings++; p.groups.add(b.group_name.trim()); p.last = b.from_day; if (b.phone) p.phone = b.phone; personMap.set(pk, p); }
+  }
+  const groups = [...groupMap.values()].sort((x, y) => y.bookings - x.bookings || x.name.localeCompare(y.name));
+  const people = [...personMap.values()].sort((x, y) => y.bookings - x.bookings || x.name.localeCompare(y.name));
+  const totals = rows.reduce((a, r) => ({ agreed: plus(a.agreed, totalOf(r.b)), paid: plus(a.paid, d.prices ? paidIn(r.b.id) : zero()) }), { agreed: zero(), paid: zero() } as Amounts);
+  const cancelled = d.bookings.filter((b) => b.status === 'cancelled' && (o.kind === 'all' || b.kind === o.kind) && inP(b.from_day)).length;
+  return {
+    summary: {
+      bookings: rows.length, stays: stays.length, events: events.length, groups: groups.length, people: stays.reduce((n, r) => n + r.b.people, 0), eventPeople: events.reduce((n, r) => n + r.b.people, 0),
+      nights, personNights, eventDays, cancelled, spanDays,
+      bed: occOf('stay', bedRooms, o.from, o.to), hall: occOf('event', hallRooms, o.from, o.to), amounts: totals,
+    },
+    months, buildings, groups, people, rows,
+  };
+}
+
 // ------------------------------------------------------------------ numbers
 
 /** HB-2026-0007: the next booking number of a year */

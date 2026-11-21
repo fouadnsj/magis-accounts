@@ -5,7 +5,7 @@
 // the dates or the rooms — and call the person who asked. The phone never has an amount.
 import { useEffect, useMemo, useState } from 'react';
 import { kvGet, kvSet, newId, type Msg, type Pack } from './store';
-import { addDays, capacity, clashing, colorOf, conflictsOf, takenOn, type HostAlloc, type HostBooking, type HostRoom } from '../hosting/host';
+import { addDays, capacity, clashing, colorOf, conflictsOf, knownNames, nameKey, takenOn, type HostAlloc, type HostBooking, type HostRoom } from '../hosting/host';
 
 type Tr = (ar: string, en: string, fr: string) => string;
 type HostPackT = NonNullable<Pack['host']>;
@@ -136,6 +136,9 @@ export function BookingForm({ pack, tr: t, start, waiting, editing, onSave, onCl
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const data = useMemo(() => merged(host, waiting), [host, waiting]);
+  // the groups and people already known: complete the name, and fill the contact of a known group
+  const known = useMemo(() => knownNames(data.bookings), [host]);
+  const typeGroup = (v: string) => { const g = known.groups.get(nameKey(v)); setF((x) => ({ ...x, group_name: v, ...(!editing && g && !x.contact.trim() && !x.phone.trim() ? { contact: g.contact ?? '', phone: g.phone ?? '' } : {}) })); };
   const ok = /^\d{4}-\d{2}-\d{2}$/.test(f.from_day) && /^\d{4}-\d{2}-\d{2}$/.test(f.to_day) && (f.kind === 'stay' ? f.to_day > f.from_day : f.to_day >= f.from_day);
   const probe = { id: editing?.id ?? -999, kind: f.kind, from_day: f.from_day, to_day: f.to_day };
   const asked = [...rooms].map(([room_id, beds]) => ({ booking_id: probe.id, room_id, beds }));
@@ -157,8 +160,9 @@ export function BookingForm({ pack, tr: t, start, waiting, editing, onSave, onCl
     <div className="ph-page">
       <header className="ph-top"><div><b>{editing ? t('غيّر الحجز', 'Change the booking', 'Modifier la réservation') : t('حجز جديد', 'New booking', 'Nouvelle réservation')}</b><span>{pack.organisation}</span></div><button className="ph-icon" onClick={() => onClose(false)} aria-label="close">✕</button></header>
       <section className="ph-card">
-        <label>{t('المجموعة', 'Group', 'Groupe')}<input value={f.group_name} onChange={(e) => setF({ ...f, group_name: e.target.value })} autoFocus /></label>
-        <label>{t('الشخص للاتصال', 'Contact person', 'Personne à contacter')}<input value={f.contact} onChange={(e) => setF({ ...f, contact: e.target.value })} /></label>
+        <label>{t('المجموعة', 'Group', 'Groupe')}<input list="ph-groups" value={f.group_name} onChange={(e) => typeGroup(e.target.value)} autoFocus /></label>
+        <datalist id="ph-groups">{[...known.groups.values()].map((g) => <option key={g.name} value={g.name} />)}</datalist><datalist id="ph-people">{[...known.people.values()].map((p) => <option key={p.name} value={p.name} />)}</datalist>
+        <label>{t('الشخص المسؤول', 'Person in charge', 'Responsable')}<input list="ph-people" value={f.contact} onChange={(e) => setF({ ...f, contact: e.target.value })} /></label>
         <label>{t('الهاتف', 'Phone', 'Téléphone')}<input type="tel" className="ltr" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></label>
         <label>{t('النوع', 'Kind', 'Type')}<select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as 'stay' | 'event' })}><option value="stay">{t('إقامة', 'Stay (nights)', 'Séjour (nuits)')}</option><option value="event">{t('نشاط في قاعة', 'Event in a hall (days)', 'Activité dans une salle (jours)')}</option></select></label>
         <label>{f.kind === 'stay' ? t('الوصول', 'Arrival', 'Arrivée') : t('اليوم الأول', 'First day', 'Premier jour')}<input type="date" value={f.from_day} onChange={(e) => setF({ ...f, from_day: e.target.value })} /></label>

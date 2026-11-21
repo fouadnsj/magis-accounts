@@ -907,3 +907,9 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-grid td.sel { outline: 2px solid var(--brand-2); outline-offset: -2px; background: color-mix(in srgb, var(--brand-2) 22%, #fff); }
 .host-md.sel { outline: 2px solid var(--brand-2); outline-offset: -2px; background: color-mix(in srgb, var(--brand-2) 14%, var(--panel)); }
 .host-month { user-select: none; }
+
+/* hosting report */
+.host-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.host-card { margin: 0; display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; }
+.host-card b { font-size: 22px; }
+.host-sub { background: color-mix(in srgb, var(--centre) 6%, var(--panel)); cursor: pointer; }

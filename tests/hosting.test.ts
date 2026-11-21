@@ -5,7 +5,7 @@ import { runOp, type DataPayload, type OpCtx } from '../src/ops';
 import { loadProfile } from '../src/auth';
 import { createOffice } from '../src/setup';
 import type { Db } from '../src/db/db';
-import { bookingTotals, colorOf, conflictsOf, dueOf, heldDays, nextCode, nextReceipt, nightsOf, occupancy, PALETTE, stayAmount, type HostData } from '../src/hosting/host';
+import { bookingTotals, colorOf, knownNames, nameKey, report, conflictsOf, dueOf, heldDays, nextCode, nextReceipt, nightsOf, occupancy, PALETTE, stayAmount, type HostData } from '../src/hosting/host';
 import { nodeDb } from './nodeDb';
 
 const store = new Map<string, Uint8Array>();
@@ -327,5 +327,66 @@ describe('events that repeat, hours, colours, currencies', () => {
     // a room set aside: only its own beds count
     const only = occupancy(d, new Set([hall]));
     expect(only.total).toBe(1);
+  });
+});
+
+describe('names and the report', () => {
+  const room = (id: number, building_id: number, beds: number, kind: 'bedroom' | 'hall' = 'bedroom') => ({ id, building_id, name: `R${id}`, beds, kind, active: 1, sort: id, place_id: null });
+  const bk = (id: number, o: Record<string, unknown>) => ({ id, code: `B${id}`, kind: 'stay', status: 'confirmed', group_name: 'G', contact: null, phone: null, people: 2, from_day: '2027-01-01', to_day: '2027-01-03', repeat_days: null, time_from: null, time_to: null, price_mode: 'person', rate: 10, currency: 'USD', note: null, cancel_reason: null, source: 'desk', review: 0, client_ref: null, created_by: null, created_at: '', updated_at: null, ...o });
+  const data = {
+    buildings: [{ id: 1, name: 'Guest house', active: 1, sort: 1, color: null }, { id: 2, name: 'Main house', active: 1, sort: 2, color: null }],
+    rooms: [room(1, 1, 4), room(2, 2, 0, 'hall')],
+    services: [],
+    bookings: [
+      bk(1, { group_name: 'Scouts', contact: 'Rim', phone: '0999', from_day: '2027-01-01', to_day: '2027-01-04', people: 4 }),
+      bk(2, { group_name: ' scouts ', contact: 'rim', from_day: '2027-02-10', to_day: '2027-02-12', people: 2 }),
+      bk(3, { group_name: 'Choir', contact: 'Rim', kind: 'event', from_day: '2027-01-05', to_day: '2027-01-12', repeat_days: '3', status: 'arrived' }),
+      bk(4, { group_name: 'Late', status: 'cancelled', from_day: '2027-01-20', to_day: '2027-01-22' }),
+      bk(5, { group_name: 'Maybe', status: 'option', from_day: '2027-01-20', to_day: '2027-01-22' }),
+    ],
+    allocs: [{ booking_id: 1, room_id: 1, beds: null }, { booking_id: 2, room_id: 1, beds: 2 }, { booking_id: 3, room_id: 2, beds: null }, { booking_id: 4, room_id: 1, beds: null }, { booking_id: 5, room_id: 1, beds: null }],
+    lines: [{ id: 1, booking_id: 1, service_id: null, label: 'Lunch', qty: 4, amount: 50, currency: 'USD' as const }],
+    pays: [{ id: 1, booking_id: 1, amount: 100, currency: 'USD' as const, paid_on: '2027-01-02', method: 'cash', receipt_no: 'H2027-0001', status: 'suggested' as const, note: null, who: null, at: '' }],
+    entered: [], prices: true,
+  } as unknown as HostData;
+
+  it('a name written with another case or spaces is the same group; the contact comes with it', () => {
+    expect(nameKey('  Scouts ')).toBe(nameKey('scouts'));
+    const k = knownNames(data.bookings);
+    expect(k.groups.get('scouts')).toMatchObject({ count: 2, contact: 'rim', phone: '0999' });
+    expect(k.groups.has('late')).toBe(false); // a cancelled booking is not a visit
+    expect(k.people.get('rim')?.count).toBe(3);
+  });
+
+  it('counts the bookings, nights, person-nights, event sessions and the occupancy of the period', () => {
+    const r = report(data, { from: '2027-01-01', to: '2027-01-31', kind: 'all', withOptions: false });
+    expect(r.summary.bookings).toBe(2); // Scouts (Jan) and the Choir; February is outside, the cancelled and the option are not counted
+    expect(r.summary.stays).toBe(1);
+    expect(r.summary.events).toBe(1);
+    expect(r.summary.nights).toBe(3);
+    expect(r.summary.personNights).toBe(12);
+    expect(r.summary.eventDays).toBe(1); // the Choir repeats on Wednesdays between 5 and 12 January: only the 6th
+    expect(r.summary.cancelled).toBe(1);
+    expect(r.summary.bed.used).toBe(12); // 4 beds × 3 nights
+    // Scouts: 4 people × 3 nights × 10 + lunch 50 = 170; the Choir: 2 people × 1 session × 10 = 20
+    expect(r.summary.amounts.agreed.USD).toBe(190);
+    expect(r.summary.amounts.paid.USD).toBe(100);
+  });
+
+  it('can count the bookings to confirm, filter by type, and give per group, person, month and building figures', () => {
+    const withOpt = report(data, { from: '2027-01-01', to: '2027-01-31', kind: 'all', withOptions: true });
+    expect(withOpt.summary.bookings).toBe(3);
+    const stays = report(data, { from: '2027-01-01', to: '2027-02-28', kind: 'stay', withOptions: false });
+    expect(stays.summary.events).toBe(0);
+    expect(stays.groups.map((g) => [g.name, g.bookings])).toEqual([['scouts', 2]]); // Jan + Feb, written two ways, one group
+    expect(stays.people[0]).toMatchObject({ bookings: 2 });
+    expect(stays.months.map((m) => [m.month, m.bookings])).toEqual([['2027-01', 1], ['2027-02', 1]]);
+    expect(stays.buildings.find((b) => b.id === 1)?.bedNights).toBe(12 + 4); // Jan: 4 beds × 3; Feb: 2 beds × 2
+    const all = report(data, { from: '2027-01-01', to: '2027-01-31', kind: 'all', withOptions: false });
+    expect(all.people[0]).toMatchObject({ name: 'Rim', bookings: 2 });
+    expect([...all.people[0].groups].sort()).toEqual(['Choir', 'Scouts']);
+    // a person who does not keep the calendar gets no amount
+    const none = report({ ...data, prices: false, lines: [], pays: [] }, { from: '2027-01-01', to: '2027-01-31', kind: 'all', withOptions: false });
+    expect(none.summary.amounts.agreed).toEqual({ USD: 0, SYP: 0 });
   });
 });

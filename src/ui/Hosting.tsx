@@ -2,17 +2,19 @@
 // the days across, a coloured cell for each booking. Four tabs: the calendar; the bookings; the payments (suggestions of
 // entries, for whoever keeps the calendar); and the buildings, rooms and services. A booking made on a phone with no
 // connection waits for a look in a window that shows what it runs into.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
 import { Field, Modal, Select, Tabs, confirmBox, errText, fmtDate, fmtUsd, promptBox, t, toast, todayIso } from './kit';
+import { saveFile } from '../platform';
+import { hostWorkbook } from '../io/hostFile';
 import { GuideLink } from '../guide/GuideView';
 import { useNav } from './Shell';
 import {
-  addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, heldDays, nightsOf, occupancy, PALETTE, stayAmount, takenOn, toReview,
+  addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, heldDays, knownNames, nameKey, nightsOf, occupancy, PALETTE, report, stayAmount, takenOn, toReview,
   type BookingKind, type BookingStatus, type Currency, type HostBooking, type HostData, type HostRoom, type Totals,
 } from '../hosting/host';
 
-type Tab = 'calendar' | 'bookings' | 'payments' | 'settings';
+type Tab = 'calendar' | 'bookings' | 'report' | 'payments' | 'settings';
 /** where a new booking starts: the rooms and the days picked on the calendar (the last night is `to` minus one day) */
 interface NewStart { rooms?: number[]; from?: string; to?: string }
 
@@ -51,6 +53,7 @@ export function Hosting() {
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'calendar', label: t('التقويم', 'Calendar') },
         { value: 'bookings', label: t('الحجوزات', 'Bookings') },
+        { value: 'report', label: t('تقارير', 'Reports') },
         { value: 'payments', label: `${t('الدفعات', 'Payments')}${toEnter ? ` (${toEnter})` : ''}`, hidden: !keeps },
         { value: 'settings', label: t('المباني والغرف', 'Buildings and rooms'), hidden: !keeps },
       ]} />
@@ -63,6 +66,7 @@ export function Hosting() {
           )}
           {tab === 'calendar' && <CalendarTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={(start) => setEdit({ booking: null, start })} />}
           {tab === 'bookings' && <BookingsTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={() => setEdit({ booking: null })} />}
+          {tab === 'report' && <ReportTab data={data} onOpen={(b) => setEdit({ booking: b })} />}
           {tab === 'payments' && keeps && <PaymentsTab data={data} refresh={both} />}
           {tab === 'settings' && keeps && <SettingsTab data={data} refresh={both} />}
           {edit && <BookingEditor data={data} start={edit} onClose={() => setEdit(null)} refresh={both} />}
@@ -314,6 +318,18 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
   const [again, setAgain] = useState(!!b?.repeat_days);
   const [payForm, setPayForm] = useState<{ amount: string; currency: Currency; paid_on: string; method: string } | null>(null);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  // the groups and the people already known: complete the name, and fill the contact of a known group
+  const known = useMemo(() => knownNames(data.bookings), [data.bookings]);
+  const gk = known.groups.get(nameKey(f.group_name));
+  const pk = known.people.get(nameKey(f.contact));
+  const typeGroup = (v: string) => setF((x) => {
+    const g = known.groups.get(nameKey(v));
+    return { ...x, group_name: v, ...(!b && g && !x.contact.trim() && !x.phone.trim() ? { contact: g.contact ?? '', phone: g.phone ?? '' } : {}) };
+  });
+  const typeContact = (v: string) => setF((x) => {
+    const p = known.people.get(nameKey(v));
+    return { ...x, contact: v, ...(!b && p && !x.phone.trim() ? { phone: p.phone ?? '' } : {}) };
+  });
   const [allocs, setAllocs] = useState<Map<number, number | null>>(() => {
     const m = new Map<number, number | null>();
     for (const a of data.allocs.filter((x) => x.booking_id === b?.id)) m.set(a.room_id, a.beds);
@@ -372,14 +388,16 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
   return (
     <Modal title={b ? `${b.code} · ${b.group_name}` : t('حجز جديد', 'New booking')} onClose={onClose}>
       {b && <p className="small"><span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span>{b.source === 'phone' ? ` · 📱 ${t('من الهاتف', 'from a phone')}` : ''}{b.cancel_reason ? ` · ${b.cancel_reason}` : ''}</p>}
+      <datalist id="host-groups">{[...known.groups.values()].map((g) => <option key={g.name} value={g.name} />)}</datalist>
+      <datalist id="host-people">{[...known.people.values()].map((p) => <option key={p.name} value={p.name} />)}</datalist>
       <div className="grid2">
         <Field label={t('النوع', 'Kind')}>
           <select value={f.kind} disabled={readOnly} onChange={(e) => set('kind', e.target.value as BookingKind)}>
             <option value="stay">{t('إقامة', 'Stay (nights)')}</option><option value="event">{t('نشاط في قاعة', 'Event in a hall (days)')}</option>
           </select>
         </Field>
-        <Field label={t('المجموعة', 'Group')}><input className="inp" disabled={readOnly} value={f.group_name} onChange={(e) => set('group_name', e.target.value)} autoFocus={!b} /></Field>
-        <Field label={t('الشخص للاتصال', 'Contact person')}><input className="inp" disabled={readOnly} value={f.contact} onChange={(e) => set('contact', e.target.value)} /></Field>
+        <Field label={t('المجموعة', 'Group')}><input className="inp" list="host-groups" disabled={readOnly} value={f.group_name} onChange={(e) => typeGroup(e.target.value)} autoFocus={!b} />{gk && <small className="muted">{gk.count} {t('حجزاً سابقاً', 'earlier booking(s)')} · {t('آخرها', 'last')} {fmtDate(gk.last)}</small>}</Field>
+        <Field label={t('الشخص المسؤول', 'Person in charge')}><input className="inp" list="host-people" disabled={readOnly} value={f.contact} onChange={(e) => typeContact(e.target.value)} />{pk && <small className="muted">{pk.count} {t('حجزاً سابقاً', 'earlier booking(s)')} · {t('آخرها', 'last')} {fmtDate(pk.last)}</small>}</Field>
         <Field label={t('الهاتف', 'Phone')}><input className="inp" style={{ direction: 'ltr' }} disabled={readOnly} value={f.phone} onChange={(e) => set('phone', e.target.value)} /></Field>
         <Field label={f.kind === 'stay' ? t('الوصول', 'Arrival') : t('اليوم الأول', 'First day')}><input className="inp" type="date" disabled={readOnly} value={f.from_day} onChange={(e) => set('from_day', e.target.value)} /></Field>
         <Field label={f.kind === 'stay' ? t('المغادرة', 'Leaving') : t('اليوم الأخير', 'Last day')}><input className="inp" type="date" disabled={readOnly} value={f.to_day} onChange={(e) => set('to_day', e.target.value)} /></Field>
@@ -469,12 +487,13 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
         </>
       )}
 
+      {!readOnly && (!b || b.status === 'option') && <p className="small muted">{t('«للتأكيد»: يحجز الأيام (مخطَّط في التقويم) لكنه ليس نهائياً. «أكّد الحجز»: يصير مؤكَّداً.', '"To confirm" holds the days (hatched on the calendar) but is not final. "Confirm the booking" makes it confirmed.')}</p>}
       <div className="modal-foot" style={{ flexWrap: 'wrap' }}>
         {b && keeps && !pays.length && <button className="btn ghost" onClick={() => void remove()}>{t('حذف', 'Delete')}</button>}
         {b && b.status !== 'cancelled' && !readOnly && <button className="btn" onClick={() => void cancel()}>{t('إلغاء الحجز', 'Cancel the booking')}</button>}
         <button className="btn" onClick={onClose}>{t('إغلاق', 'Close')}</button>
-        {!readOnly && <button className="btn" disabled={busy || !f.group_name.trim() || !dates} onClick={() => void save()}>{t('احفظ', 'Save')}</button>}
-        {!readOnly && (!b || b.status === 'option') && <button className="btn primary" disabled={busy || !f.group_name.trim() || !dates || !allocs.size || sure.length > 0} onClick={() => void save('confirmed')}>{t('احفظ وأكّد', 'Save and confirm')}</button>}
+        {!readOnly && <button className="btn" disabled={busy || !f.group_name.trim() || !dates} onClick={() => void save()}>{!b || b.status === 'option' ? t('احفظ «للتأكيد»', 'Save as "to confirm"') : t('احفظ التغييرات', 'Save the changes')}</button>}
+        {!readOnly && (!b || b.status === 'option') && <button className="btn primary" disabled={busy || !f.group_name.trim() || !dates || !allocs.size || sure.length > 0} onClick={() => void save('confirmed')}>{t('أكّد الحجز', 'Confirm the booking')}</button>}
         {!readOnly && b?.status === 'confirmed' && <button className="btn primary" disabled={busy} onClick={() => void save('arrived')}>{t('وصلوا', 'They arrived')}</button>}
         {!readOnly && b?.status === 'arrived' && <button className="btn primary" disabled={busy} onClick={() => void save('left')}>{t('غادروا', 'They left')}</button>}
         {!readOnly && b?.status === 'cancelled' && <button className="btn" disabled={busy} onClick={() => void save('option')}>{t('أعده للتأكيد', 'Back to "to confirm"')}</button>}
@@ -531,6 +550,94 @@ function ReviewBox({ data, onClose, refresh, onChange }: { data: HostData; onClo
       ))}
       <div className="modal-foot"><button className="btn" onClick={onClose}>{t('إغلاق', 'Close')}</button></div>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- reports
+
+/** accommodation and events over a period: totals, months, buildings, and how many bookings each group and each person made */
+function ReportTab({ data, onOpen }: { data: HostData; onOpen: (b: HostBooking) => void }) {
+  const { s } = useApp();
+  const year = todayIso().slice(0, 4);
+  const [preset, setPreset] = useState<'year' | 'last' | 'all' | 'custom'>('year');
+  const [custom, setCustom] = useState({ from: `${year}-01-01`, to: `${year}-12-31` });
+  const [kind, setKind] = useState<BookingKind | 'all'>('all');
+  const [withOptions, setWithOptions] = useState(false);
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  const span = useMemo(() => {
+    if (preset === 'year') return { from: `${year}-01-01`, to: `${year}-12-31` };
+    if (preset === 'last') return { from: `${Number(year) - 1}-01-01`, to: `${Number(year) - 1}-12-31` };
+    if (preset === 'all') {
+      const live = data.bookings.filter((b) => b.status !== 'cancelled');
+      return { from: live.map((b) => b.from_day).sort()[0] ?? `${year}-01-01`, to: live.map((b) => b.to_day).sort().reverse()[0] ?? `${year}-12-31` };
+    }
+    return custom;
+  }, [preset, custom, data.bookings, year]);
+  const opts = { ...span, kind, withOptions };
+  const r = useMemo(() => report(data, opts), [data, span.from, span.to, kind, withOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sm = r.summary;
+  const groups = r.groups.filter((g) => !q.trim() || `${g.name} ${[...g.contacts].join(' ')}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const people = r.people.filter((p) => !q.trim() || `${p.name} ${[...p.groups].join(' ')}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const exportXlsx = async () => {
+    try { await saveFile(`hosting_${span.from}_${span.to}.xlsx`, ['xlsx'], await hostWorkbook(data, opts, s.organisation ?? ''), t('احفظ التقرير', 'Save the report')); } catch (e) { toast(errText(e), true); }
+  };
+  const card = (label: string, v: React.ReactNode, sub?: React.ReactNode) => <div className="panel host-card"><small className="muted">{label}</small><b>{v}</b>{sub && <small>{sub}</small>}</div>;
+  const bookingsOf = (ids: number[]) => data.bookings.filter((b) => ids.includes(b.id));
+  return (
+    <>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <select value={preset} onChange={(e) => setPreset(e.target.value as typeof preset)}>
+          <option value="year">{t('هذه السنة', 'This year')}</option><option value="last">{t('السنة الماضية', 'Last year')}</option><option value="all">{t('كل المدة', 'All time')}</option><option value="custom">{t('فترة محددة', 'Choose the dates')}</option>
+        </select>
+        {preset === 'custom' && <><input className="inp" type="date" style={{ width: 150 }} value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /><input className="inp" type="date" style={{ width: 150 }} value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} /></>}
+        <select value={kind} onChange={(e) => setKind(e.target.value as BookingKind | 'all')}><option value="all">{t('إقامة وأنشطة', 'Accommodation and events')}</option><option value="stay">{t('إقامة', 'Accommodation')}</option><option value="event">{t('أنشطة', 'Events')}</option></select>
+        <label className="small"><input type="checkbox" checked={withOptions} onChange={(e) => setWithOptions(e.target.checked)} /> {t('مع «للتأكيد»', 'Include "to confirm"')}</label>
+        <input className="inp" style={{ width: 180 }} placeholder={t('بحث في المجموعات والأشخاص', 'Search groups and people')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn small" onClick={() => void exportXlsx()}>Excel</button>
+      </div>
+      <p className="small muted">{fmtDate(span.from)} → {fmtDate(span.to)} · {withOptions ? t('المؤكَّد والوصول والمغادرة و«للتأكيد»', 'confirmed, arrived, left and to confirm') : t('المؤكَّد والوصول والمغادرة', 'confirmed, arrived and left')}</p>
+      <div className="host-cards">
+        {card(t('الحجوزات', 'Bookings'), sm.bookings, `${sm.stays} ${t('إقامة', 'stays')} · ${sm.events} ${t('أنشطة', 'events')}`)}
+        {card(t('المجموعات', 'Groups'), sm.groups, sm.cancelled ? `${sm.cancelled} ${t('ملغاة', 'cancelled')}` : undefined)}
+        {kind !== 'event' && card(t('الليالي', 'Nights'), sm.nights, `${sm.personNights} ${t('شخص-ليلة', 'person-nights')} · ${sm.people} ${t('شخصاً', 'people')}`)}
+        {kind !== 'event' && card(t('إشغال الأسرّة', 'Bed occupancy'), `${sm.bed.pct}%`, `${sm.bed.used} / ${sm.bed.avail} ${t('سرير-ليلة', 'bed-nights')}`)}
+        {kind !== 'stay' && card(t('أيام الأنشطة', 'Event days'), sm.eventDays, `${t('استعمال القاعات', 'hall use')} ${sm.hall.pct}%`)}
+        {data.prices && card(t('المتفق عليه', 'Agreed'), fmtTotals(sm.amounts.agreed), `${t('المقبوض في الفترة', 'received in the period')}: ${fmtTotals(sm.amounts.paid)}`)}
+      </div>
+
+      <h3>{t('حسب الشهر', 'By month')}</h3>
+      <div className="tbl-wrap"><table className="t small"><thead><tr><th>{t('الشهر', 'Month')}</th><th className="n">{t('حجوزات', 'Bookings')}</th><th className="n">{t('ليالٍ', 'Nights')}</th><th className="n">{t('شخص-ليلة', 'Person-nights')}</th><th className="n">{t('أيام أنشطة', 'Event days')}</th><th className="n">{t('إشغال الأسرّة', 'Bed %')}</th></tr></thead>
+        <tbody>{r.months.map((m) => <tr key={m.month}><td>{monthName(m.month)}</td><td className="n">{m.bookings || ''}</td><td className="n">{m.nights || ''}</td><td className="n">{m.personNights || ''}</td><td className="n">{m.eventDays || ''}</td><td className="n">{m.bedPct ? `${m.bedPct}%` : ''}</td></tr>)}</tbody></table></div>
+
+      <h3>{t('حسب المبنى', 'By building')}</h3>
+      <div className="tbl-wrap"><table className="t small"><thead><tr><th>{t('المبنى', 'Building')}</th><th className="n">{t('حجوزات', 'Bookings')}</th><th className="n">{t('سرير-ليلة', 'Bed-nights')}</th><th className="n">{t('إشغال الأسرّة', 'Bed %')}</th><th className="n">{t('أيام القاعات', 'Hall days')}</th></tr></thead>
+        <tbody>{r.buildings.map((b) => <tr key={b.id}><td><i className="host-sw-big" style={{ background: colorOf(data.buildings, b.id) }} />{b.name}</td><td className="n">{b.bookings || ''}</td><td className="n">{b.bedNights || ''}</td><td className="n">{b.bedPct ? `${b.bedPct}%` : ''}</td><td className="n">{b.hallDays || ''}</td></tr>)}</tbody></table></div>
+
+      <h3>{t('المجموعات', 'Groups')} <small className="muted">({groups.length})</small></h3>
+      <div className="tbl-wrap"><table className="t small"><thead><tr><th>{t('المجموعة', 'Group')}</th><th className="n">{t('حجوزات', 'Bookings')}</th><th className="n">{t('إقامة', 'Stays')}</th><th className="n">{t('أنشطة', 'Events')}</th><th className="n">{t('شخص-ليلة', 'Person-nights')}</th><th>{t('الأشخاص المسؤولون', 'People in charge')}</th><th>{t('آخر زيارة', 'Last')}</th>{data.prices && <th className="n">{t('المتفق عليه', 'Agreed')}</th>}</tr></thead>
+        <tbody>
+          {groups.map((g) => {
+            const key = `g:${nameKey(g.name)}`;
+            return (
+              <Fragment key={key}>
+                <tr style={{ cursor: 'pointer' }} onClick={() => setOpen(open === key ? null : key)}>
+                  <td><b>{open === key ? '▾' : '▸'} {g.name}</b></td><td className="n">{g.bookings}</td><td className="n">{g.stays || ''}</td><td className="n">{g.events || ''}</td><td className="n">{g.personNights || ''}</td><td>{[...g.contacts].join('، ')} {g.phone ? <small dir="ltr" className="muted">{g.phone}</small> : null}</td><td>{fmtDate(g.last)}</td>{data.prices && <td className="n">{fmtTotals(g.amounts.agreed)}</td>}
+                </tr>
+                {open === key && bookingsOf(g.ids).map((b) => <tr key={`${key}-${b.id}`} className="host-sub" onClick={() => onOpen(b)}><td colSpan={data.prices ? 8 : 7}>{b.code} · {b.kind === 'event' ? t('نشاط', 'event') : t('إقامة', 'stay')} · {fmtDate(b.from_day)} → {fmtDate(b.to_day)} · {b.people} {t('شخص', 'people')} · <span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span></td></tr>)}
+              </Fragment>
+            );
+          })}
+          {!groups.length && <tr><td colSpan={8} className="muted">{t('لا شيء في هذه الفترة', 'Nothing in this period')}</td></tr>}
+        </tbody></table></div>
+
+      <h3>{t('الأشخاص المسؤولون', 'People in charge')} <small className="muted">({people.length})</small></h3>
+      <div className="tbl-wrap"><table className="t small"><thead><tr><th>{t('الشخص', 'Person')}</th><th>{t('الهاتف', 'Phone')}</th><th className="n">{t('حجوزات', 'Bookings')}</th><th>{t('المجموعات', 'Groups')}</th><th>{t('آخر حجز', 'Last')}</th></tr></thead>
+        <tbody>
+          {people.map((p) => <tr key={p.name}><td><b>{p.name}</b></td><td dir="ltr">{p.phone}</td><td className="n">{p.bookings}</td><td>{[...p.groups].join('، ')}</td><td>{fmtDate(p.last)}</td></tr>)}
+          {!people.length && <tr><td colSpan={5} className="muted">{t('لا شيء في هذه الفترة', 'Nothing in this period')}</td></tr>}
+        </tbody></table></div>
+    </>
   );
 }
 

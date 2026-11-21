@@ -310,10 +310,31 @@ async function fundsFromLines(c: OpCtx, lists: Lists, rows: Trx[]): Promise<Trx[
   });
 }
 
-async function loadData(c: OpCtx): Promise<DataPayload> {
+/**
+ * What the register's data holds that does not depend on the person (the lists, every row with its fund, the closed
+ * months): computed once and kept until the next write (the server counts its writes: db.gen). With many people
+ * connected, each reload no longer re-reads and re-computes everything (Fouad, 21 November 2026).
+ */
+const dataKept = new WeakMap<Db, { gen: number; v: { lists: Lists; allRows: Trx[]; closed: Set<string>; bm: BookMonth[]; kept: number[] } }>();
+async function sharedData(c: OpCtx) {
   const { db } = c;
+  const gen = db.gen?.();
+  const hit = gen == null ? undefined : dataKept.get(db);
+  if (hit && hit.gen === gen) return hit.v;
   const [lists, rawRows, closed, bm, kept] = await Promise.all([loadLists(db), loadTrx(db), closedMonths(db), bookMonths(db), keptBooks(db)]);
   const allRows = await fundsFromLines(c, lists, rawRows);
+  const v = { lists, allRows, closed, bm, kept };
+  // (kept only if nothing was written while it was being computed)
+  if (gen != null && db.gen!() === gen) dataKept.set(db, { gen, v });
+  return v;
+}
+
+async function loadData(c: OpCtx): Promise<DataPayload> {
+  const { db } = c;
+  const shared = await sharedData(c);
+  // (a copy: the rest of this function changes it for this person only)
+  const lists: Lists = { ...shared.lists };
+  const { allRows, closed, bm, kept } = shared;
   const all = can(c, 'register.view');
   // A private book (the Superior's) is seen only by its keepers; others see only its
   // transfers (marked), so the receiver can confirm and Main's balance stays right.

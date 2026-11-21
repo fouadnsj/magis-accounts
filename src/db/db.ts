@@ -17,6 +17,11 @@ export interface Db {
   query<T = Row>(sql: string, params?: SqlValue[]): Promise<T[]>;
   /** Runs every statement in ONE transaction: all succeed or nothing is written. */
   batch(stmts: Stmt[]): Promise<void>;
+  /**
+   * The server's database counts its writes: what was computed from the data (not from the person) is kept until the
+   * count changes. Other databases (the desktop app's own) have no count and keep nothing.
+   */
+  gen?: () => number;
 }
 
 export async function one<T = Row>(db: Db, sql: string, params?: SqlValue[]): Promise<T | undefined> {

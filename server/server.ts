@@ -176,11 +176,15 @@ function openDb(file: string): { db: Db; close: () => void } {
   const sq = new DatabaseSync(file);
   // DELETE journal: the database stays ONE file, easy to back up and to copy.
   sq.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA busy_timeout = 5000;');
+  // every write through this handle moves the count (a statement that is not a read counts as a write)
+  let writes = 0;
   const db: Db = {
     async query<T = Row>(sql: string, params: SqlValue[] = []) {
+      if (!/^\s*(select|with|pragma)\b/i.test(sql)) writes++;
       return sq.prepare(sql).all(...params) as T[];
     },
     async batch(stmts: Stmt[]) {
+      writes++;
       sq.exec('BEGIN IMMEDIATE');
       try {
         for (const s of stmts) sq.prepare(s.sql).run(...(s.params ?? []));
@@ -188,8 +192,11 @@ function openDb(file: string): { db: Db; close: () => void } {
       } catch (e) {
         sq.exec('ROLLBACK');
         throw e;
+      } finally {
+        writes++;
       }
     },
+    gen: () => writes,
   };
   return { db, close: () => sq.close() };
 }
@@ -675,8 +682,20 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!dirPersonOf(req)?.admin;
 
   const send = (res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
-    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
-    res.end(JSON.stringify(body === undefined ? null : body));
+    const text = JSON.stringify(body === undefined ? null : body);
+    const head = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers };
+    // a big answer (the register's data is hundreds of KB) is compressed, off the main thread: ten times less to send
+    // over the Wi-Fi to each of the people connected (Fouad, 21 November 2026: latency with many users)
+    if (text.length > 16 * 1024 && /\bgzip\b/.test(String(res.req?.headers['accept-encoding'] ?? ''))) {
+      zlib.gzip(text, { level: 3 }, (err, z) => {
+        if (err) { res.writeHead(status, head); res.end(text); return; }
+        res.writeHead(status, { ...head, 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding', 'Content-Length': String(z.length) });
+        res.end(z);
+      });
+      return;
+    }
+    res.writeHead(status, head);
+    res.end(text);
   };
 
   const SEC_HEADERS: Record<string, string> = {
@@ -2573,7 +2592,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
       const args = await readBody(req);
       const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files };
+      const t0 = performance.now();
       const result = await runOp(ctx, op, args);
+      // a slow operation is written in the log with its name, so that what is slow can be seen (Fouad, 21 November 2026)
+      const took = performance.now() - t0;
+      if (took > 400) log(`slow: ${c.slug} ${op} ${Math.round(took)} ms (${s.profile.name})`);
       if (op === 'profile.setPin' && (args as { id?: number }).id === s.profile.id) s.mustChange = false;
       if (!READ_ONLY.has(op)) c.version++;
       // A restored database may hold other users: everybody of that database logs in again.

@@ -2,7 +2,7 @@
 // in, with the sentence of hope; each house shows its own sentence (on the mouse, and beside its sign-in), as in the
 // MAGIS animation of July. Then: choose your house, your name and your password; or the administrator.
 // Then the person sees only the databases where that name has that password (their house's accounts, HR).
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { CENTRES, type CentreKey } from '../brand';
 import { getLang, m, tx, type Msg } from '../i18n';
 import { serverEnter, serverSignIn, type DbInfo, type Hello } from '../net';
@@ -48,20 +48,31 @@ function Said({ msg, className }: { msg: Msg; className?: string }) {
  * its own animation; a tap on one goes to its sign-in.
  */
 function Opening({ onPick, jesuits }: { onPick: (s: Step) => void; jesuits: boolean }) {
-  const badge = (key: string, step: Step, style: CSSProperties, img: string, name: string, sub: ReactNode, label: string, i: number) => (
-    <button key={key} type="button" className="mg-badge" style={{ ...style, animationDelay: `${0.7 + i * 0.35}s` }} onClick={() => onPick(step)} aria-label={label} title={label}>
-      <span className="mg-door-mark"><span className="mg-hh-halo" /><img src={img} alt="" /></span>
-      <b>{name}</b>
-      <span className="mg-badge-sub">{sub}</span>
-    </button>
+  const sun = (
+    <>
+      <span className="mg-o-sun"><span className="mg-rays" /><img src="/brand/jesuits.png" alt="" /></span>
+    </>
   );
   return (
     <div className="mg-opening">
-      <div className="mg-o-sun"><span className="mg-rays" /><img src="/brand/jesuits.png" alt="" /></div>
+      {/* the Jesuit sun at the top IS the Jesuits' badge (Fouad, 21 November 2026: no repeating): a door like the houses */}
+      {jesuits ? (
+        <button type="button" className="mg-badge mg-sunbtn" onClick={() => onPick('jesuits')} aria-label={`${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`} title="لمجد الله الأعظم">
+          {sun}
+          <b>{t3('اليسوعيون', 'Jesuits', 'Jésuites')}</b>
+          <span className="mg-badge-sub"><i>Ad Majorem Dei Gloriam</i> · {t3('دخول', 'Sign in', 'Entrer')} ›</span>
+        </button>
+      ) : <div className="mg-sunbtn">{sun}</div>}
       <div className="mg-o-houses">
-        {HOUSES.map((k, i) => badge(k, k, houseVars(k), CENTRES[k].mark!, tx(CENTRES[k].name), `${t3('دخول', 'Sign in', 'Entrer')} ›`, `${tx(CENTRES[k].name)} · ${t3('دخول', 'Sign in', 'Entrer')}`, i))}
-        {jesuits && badge('jesuits', 'jesuits', { '--centre': '#B8891B', '--centre-deep': '#5B191D' } as CSSProperties, '/brand/jesuits.png', t3('اليسوعيون', 'Jesuits', 'Jésuites'),
-          <i title="لمجد الله الأعظم">Ad Majorem Dei Gloriam</i>, `${t3('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')} · ${t3('دخول', 'Sign in', 'Entrer')}`, HOUSES.length)}
+        {HOUSES.map((k, i) => (
+          <button key={k} type="button" className="mg-badge" style={{ ...houseVars(k), animationDelay: `${0.7 + i * 0.35}s` }} onClick={() => onPick(k)} aria-label={`${tx(CENTRES[k].name)} · ${t3('دخول', 'Sign in', 'Entrer')}`}>
+            <span className="mg-door-mark"><span className="mg-hh-halo" /><img src={CENTRES[k].mark!} alt="" /></span>
+            <b>{tx(CENTRES[k].name)}</b>
+            <span className="mg-badge-sub">{t3('دخول', 'Sign in', 'Entrer')} ›</span>
+            {/* each house's own sentence (shown when the mark is touched; always on a touch screen) */}
+            <Said msg={SENTENCE[k as keyof typeof SENTENCE]} className="mg-door-said" />
+          </button>
+        ))}
       </div>
       <Said msg={HOPE} className="mg-o-hope" />
     </div>
@@ -235,10 +246,6 @@ export function FirstPage({ hello, notice, refresh, onEnter, onDir, onCommunitie
         <Charter />
       </div>
       <main className="brand-main wide">
-        <div className="mg-invite">
-          <b>{t3('أهلاً وسهلاً', 'Welcome', 'Bienvenue')}</b>
-          <span>{t3('اختر بيتك، ثم ادخل باسمك وكلمة سرك.', 'Choose your house, then sign in with your name and your password.', 'Choisissez votre maison, puis entrez avec votre nom et votre mot de passe.')}</span>
-        </div>
         {server && (
           <p className="muted small" style={{ textAlign: 'center' }}>
             {t3('متصل بالخادم', 'Connected to the server', 'Connecté au serveur')} <span className="ltr">{server.address.replace(/^https:\/\//, '')}</span> ·{' '}

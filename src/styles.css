@@ -685,7 +685,7 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-o-sun { position: relative; width: 120px; height: 96px; display: grid; place-items: center; animation: mg-rise 1s ease-out both; }
 .mg-o-sun img { position: relative; width: 104px; }
 .mg-o-sun .mg-rays { inset: -46px -30px; }
-.mg-o-houses { display: flex; gap: clamp(8px, 2.2vw, 30px); align-items: flex-end; margin-top: 8px; }
+.mg-o-houses { display: flex; gap: clamp(8px, 2.2vw, 30px); align-items: flex-start; margin-top: 8px; }
 .mg-o-houses { flex-wrap: wrap; justify-content: center; }
 /* the badges are the doors: each comes in by itself, and lifts and glows when touched */
 .mg-badge { display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 0; padding: 6px 8px; font: inherit; cursor: pointer; border-radius: 16px;
@@ -696,6 +696,13 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-badge-sub { font-size: 12.5px; color: var(--centre-deep); font-weight: 600; letter-spacing: .02em; }
 .mg-badge-sub i { font-weight: 400; color: #7a6a4a; }
 .mg-badge:hover, .mg-badge:focus-visible { transform: translateY(-5px); outline: none; }
+.mg-badge:hover .mg-door-said, .mg-badge:focus-visible .mg-door-said { max-height: 110px; opacity: 1; transform: none; }
+.mg-badge .mg-door-said { max-width: 150px; }
+/* the Jesuit sun at the top is the Jesuits' badge */
+.mg-sunbtn { display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: 0; padding: 0; font: inherit; }
+.mg-sunbtn.mg-badge { animation: mg-rise 1s ease-out both; padding: 4px 10px; }
+.mg-sunbtn.mg-badge:hover .mg-o-sun img { transform: scale(1.06); }
+.mg-sunbtn .mg-o-sun img { transition: transform .4s ease; }
 .mg-badge:hover .mg-door-mark img, .mg-badge:focus-visible .mg-door-mark img { transform: translateY(-3px) scale(1.1); }
 .mg-badge:hover .mg-hh-halo, .mg-badge:focus-visible .mg-hh-halo { opacity: 1; transform: scale(1.15); }
 .mg-o-hope { text-align: center; margin-top: 8px; animation: mg-in 1s 1.9s ease-out both; }

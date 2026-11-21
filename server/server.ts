@@ -47,7 +47,7 @@ import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
-import { mayPhone, pairPhone, phoneInvCount, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
+import { mayPhone, pairPhone, phoneInvCount, phoneInvNew, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
 import { inventorySummary } from '../src/inventory/ops';
 import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
 
@@ -377,6 +377,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const dbsDir = path.join(dataDir, 'dbs');
   fs.mkdirSync(dbsDir, { recursive: true });
   let config = { ...readConfig(dataDir), ...opts.config };
+  // the communities' password is gone (Fouad, 21 November 2026): one left in the file by an older version is dropped
+  if (config.ctyGate) { config = { ...config, ctyGate: null }; try { writeConfig(dataDir, config); } catch { /* read-only */ } log("the communities' password was removed (a name and a password are enough)"); }
   if (!fs.existsSync(path.join(dataDir, 'config.json'))) writeConfig(dataDir, config);
   if (!config.serverId) { config = { ...config, serverId: newUid() }; writeConfig(dataDir, config); }
   // a main list can be changed here: it was started here (or does not exist yet)
@@ -651,15 +653,6 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
   const cookie = (req: http.IncomingMessage) => /(?:^|;\s*)magis_sid=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1] ?? null;
 
-  // ---- the communities' side: one password before anyone sees a community (cookie magis_cty, 12 hours)
-  const ctyPasses = new Map<string, number>();
-  const ctyCookie = (req: http.IncomingMessage) => /(?:^|;\s*)magis_cty=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1] ?? null;
-  const ctyPassCookie = (viaHttps: boolean) => {
-    const t = randomBytes(32).toString('base64url');
-    ctyPasses.set(t, Date.now() + 12 * 3600e3);
-    return `magis_cty=${t}; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200${viaHttps ? '; Secure' : ''}`;
-  };
-
   const dirCookie = (req: http.IncomingMessage) => /(?:^|;\s*)magis_dir=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1] ?? null;
   const dirPersonOf = (req: http.IncomingMessage): DirPerson | null => {
     const t = dirCookie(req);
@@ -892,14 +885,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const dirSees = (p: DirPerson, slug: string) => p.admin || Object.prototype.hasOwnProperty.call(p.grants, slug);
     const dirInfo = () => ({ on: directory.people.length > 0, enforced: directory.enforced, person: dirPerson ? { name: dirPerson.name, admin: dirPerson.admin, mustChange: dirPerson.mustChange } : null });
     const isCtyKind = (k: string | null | undefined) => k === 'community' || k === 'country';
-    // the communities' side is open: no password set yet, or given in this browser, or signed in to a community
+    // The communities' side shows only to someone signed in who is allowed there (Fouad, 21 November 2026: the extra
+    // communities' password is gone; a name and a password are enough, and a person sees only the databases allowed to him):
+    // the Coordinator (the directory's administrator), a person the directory gave a community, or someone signed in to one.
     const ctyOpen = (): boolean => {
-      if (!config.ctyGate) return true;
-      const t = ctyCookie(req);
-      const until = t ? ctyPasses.get(t) : undefined;
-      if (until && until > Date.now()) return true;
-      if (dirPerson && (dirPerson.admin || Object.keys(dirPerson.grants).some((x) => ctyKinds.get(x)))) return true; // given to this person in the directory
-      return !!found && ctyKinds.get(found[2].slug) === true;
+      if (dirPerson && (dirPerson.admin || Object.keys(dirPerson.grants).some((x) => ctyKinds.get(x)))) return true;
+      return !!found && (ctyKinds.get(found[2].slug) === true || !!found[1].ring?.some((r) => ctyKinds.get(r.db) === true));
     };
     const ctyKinds = new Map<string, boolean>();
     for (const c of centres.values()) ctyKinds.set(c.slug, isCtyKind(await getMeta(c.handle.db, 'kind')));
@@ -909,16 +900,11 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     };
     // Once the communities' password is given in this browser, a community (or a country) may also be made from
     // another computer, not only on the server computer: the password is what protects that side (Fouad, 28 Oct 2026).
-    const mayCreateCty = () => mayCreate(req, found) || (!!config.ctyGate && ctyOpen());
+    const mayCreateCty = () => mayCreate(req, found);
     // Managing the databases (Fouad, 29 October 2026): the window is for the server computer or someone who manages
     // users; every change also needs the PASSWORD of that database's Superior (a user who manages users there).
     // (the Coordinator — the directory's administrator — manages every database, Fouad 2026-11-07)
     const mayManage = () => isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!dirPerson?.admin;
-    const checkGate = async (password: string) => {
-      const g = config.ctyGate;
-      if (!g) return true;
-      return (await hashSecret(g.salt, password)) === g.hash;
-    };
 
     if (url === '/api/hello' && method === 'GET') {
       // the communities are not even named until their password is given
@@ -928,38 +914,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       else if (found?.[1].ring) dbs = dbs.filter((d) => found[1].ring!.some((r) => r.db === d.slug));
       else if (directory.enforced && !isLocal(req)) dbs = [];
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, ring: found?.[1].ring?.map((r) => r.db) ?? null, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: !!config.ctyGate, ctyOpen: ctyOpen() });
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, ring: found?.[1].ring?.map((r) => r.db) ?? null, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: false, ctyOpen: ctyOpen() });
     }
 
     // ---- the communities' password: give it (unlock), or set / change it
-    if (url === '/api/cty/unlock' && method === 'POST') {
-      const f = failures.get(ip);
-      if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
-      const body = (await readBody(req)) as { password?: string };
-      if (!(await checkGate(String(body.password ?? '')))) {
-        const n = f && f.until > 0 && f.until <= Date.now() ? 1 : (f?.n ?? 0) + 1;
-        failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
-        log(`wrong communities' password from ${ip}`);
-        throw new HttpError(403, { ar: 'كلمة السر غير صحيحة', en: 'Wrong password' });
-      }
-      failures.delete(ip);
-      return send(res, 200, { ok: true }, { 'Set-Cookie': ctyPassCookie(viaHttps) });
-    }
-    if (url === '/api/cty/gate' && method === 'POST') {
-      // set: on the server computer itself, or by someone who manages users; change: by the
-      // administrator of a community (or the country econome), or here once the side is open
-      const inCty = !!found && ctyKinds.get(found[2].slug) === true && has(found[1].profile, 'users.manage');
-      const allowed = config.ctyGate ? inCty || (isLocal(req) && ctyOpen()) : inCty || mayCreate(req, found);
-      if (!allowed) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
-      const body = (await readBody(req)) as { password?: string };
-      const pw = String(body.password ?? '');
-      checkSecretShape(pw);
-      const salt = randomBytes(16).toString('base64url');
-      config = { ...config, ctyGate: { salt, hash: await hashSecret(salt, pw) } };
-      writeConfig(dataDir, config);
-      log(`communities' password ${found ? `set by ${found[1].profile.name}` : 'set on the server'}`);
-      return send(res, 200, { ok: true }, { 'Set-Cookie': ctyPassCookie(viaHttps) });
-    }
+    if (url === '/api/cty/unlock' && method === 'POST') return send(res, 200, { ok: true }); // (an old screen may still ask: nothing to give)
+    if (url === '/api/cty/gate' && method === 'POST')
+      throw new HttpError(400, { ar: 'لم تعد هناك كلمة سر للجماعات', en: "There is no communities' password any more", fr: "Il n'y a plus de mot de passe des communautés" });
 
     // ---- managing the databases: list, switch off / on, delete (kept in the "deleted" folder), restore
     const folderSize = (dir: string): number => {
@@ -2210,7 +2171,6 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (url === '/api/dbs/create' && method === 'POST') {
       const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null; mainList?: string | null };
       if (!(isCtyKind(body.kind) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
-      if (isCtyKind(body.kind) && !ctyOpen()) throw new HttpError(403, { ar: 'اكتب أولاً كلمة سر الجماعات', en: "First give the communities' password" });
       const organisation = (body.organisation ?? '').trim();
       if (!organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات', en: 'Write the name of the database' });
       const centre = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? (body.centre as CentreKey) : guessCentre(organisation);
@@ -2237,7 +2197,6 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const body = (await readBody(req, url === '/api/setup/upload-db' ? UPLOAD_BODY : MAX_BODY)) as Record<string, string>;
       const c = centreOf(body.db);
       if (!(ctyKinds.get(c.slug) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'الإعداد من حاسوب الخادم نفسه', en: 'Setup only from the server computer itself' });
-      needCtyOpen(c.slug);
       if (!(await setupNeeded(c))) throw new HttpError(409, { ar: 'قاعدة البيانات مُعدّة مسبقاً', en: 'This database is already set up' });
       if (url === '/api/setup/new') {
         const organisation = body.organisation || ((await getMeta(c.handle.db, 'organisation')) ?? '');
@@ -2256,15 +2215,6 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         log(`setup: ${c.slug} (${organisation})`);
         return send(res, 200, { ok: true, report });
       }
-      // the first community (or country) on this server sets the communities' password
-      const firstGate = async () => {
-        if (config.ctyGate) return null;
-        const pw = String((body as { gate?: string }).gate ?? '');
-        if (!pw) throw new HttpError(400, { ar: 'اختر كلمة سر لجانب الجماعات', en: "Choose a password for the communities' side" });
-        checkSecretShape(pw);
-        const salt = randomBytes(16).toString('base64url');
-        return { salt, hash: await hashSecret(salt, pw) };
-      };
       if (url === '/api/setup/hr') {
         const s = body as unknown as { organisation?: string; people?: { name: string; password: string }[]; mustChange?: boolean };
         await createHr(c.handle.db, { organisation: s.organisation || ((await getMeta(c.handle.db, 'organisation')) ?? ''), people: Array.isArray(s.people) ? s.people : [], mustChange: s.mustChange });
@@ -2273,22 +2223,18 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         return send(res, 200, { ok: true });
       }
       if (url === '/api/setup/community') {
-        const gate = await firstGate();
         const s = body as unknown as CommunitySetup;
         await createCommunity(c.handle.db, { community: s.community || ((await getMeta(c.handle.db, 'organisation')) ?? ''), country: s.country ?? '', localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [], offices: s.offices, hasBank: s.hasBank, mustChange: s.mustChange, style: s.style });
         c.version++;
         log(`setup: ${c.slug} (community)`);
-        if (gate) { config = { ...config, ctyGate: gate }; writeConfig(dataDir, config); }
-        return send(res, 200, { ok: true }, gate ? { 'Set-Cookie': ctyPassCookie(viaHttps) } : {});
+        return send(res, 200, { ok: true });
       }
       if (url === '/api/setup/country') {
-        const gate = await firstGate();
         const s = body as unknown as CountrySetup;
         await createCountry(c.handle.db, { country: s.country || ((await getMeta(c.handle.db, 'organisation')) ?? ''), localCurrency: s.localCurrency ?? 'SYP', people: Array.isArray(s.people) ? s.people : [], style: s.style });
         c.version++;
         log(`setup: ${c.slug} (country)`);
-        if (gate) { config = { ...config, ctyGate: gate }; writeConfig(dataDir, config); }
-        return send(res, 200, { ok: true }, gate ? { 'Set-Cookie': ctyPassCookie(viaHttps) } : {});
+        return send(res, 200, { ok: true });
       }
       if (url === '/api/setup/upload-db') {
         await replaceDatabase(c, body.base64 ?? '');
@@ -2518,7 +2464,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
     if (url === '/api/phone/where' && method === 'GET') return send(res, 200, phoneWhere());
-    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session' || url === '/api/phone/inv-count' || url === '/api/phone/inv-photo') {
+    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session' || url === '/api/phone/inv-count' || url === '/api/phone/inv-photo' || url === '/api/phone/inv-new') {
       if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
       // the key: "database:phone:secret"
       const [slug, pid, key] = (/^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '').split(':');
@@ -2553,6 +2499,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const body = (await readBody(req)) as { key?: string; ids?: number[]; placeId?: number | null; date?: string };
         const r = await phoneInvCount(ctx, { key: String(body.key ?? ''), ids: Array.isArray(body.ids) ? body.ids.map(Number) : [], placeId: body.placeId ?? null, date: String(body.date ?? '') });
         if (!r.already) { pc.version++; log(`phone ${pc.slug}: ${owner.name} (${phone.name}) counted ${r.counted} items`); }
+        return send(res, 200, r);
+      }
+      if (url === '/api/phone/inv-new') {
+        const body = (await readBody(req, 24 * 1024 * 1024)) as { key?: string; item?: Record<string, unknown>; photo?: { base64: string; mime: string } | null };
+        const r = await phoneInvNew(ctx, { key: String(body.key ?? ''), item: body.item ?? {}, photo: body.photo ?? null });
+        if (!r.already) pc.version++;
         return send(res, 200, r);
       }
       if (url === '/api/phone/inv-photo') {

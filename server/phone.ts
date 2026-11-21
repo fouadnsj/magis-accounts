@@ -87,7 +87,7 @@ export interface PhonePack {
   kind?: 'community';
   curs?: { code: string; label: string }[];
   /** the inventory, for the one who keeps it: the places and the items to count (21 November 2026) */
-  inv?: { places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
+  inv?: { categories: { id: number; name: string; serial: number }[]; origins: { id: number; name: string }[]; names: string[]; places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
 }
 
 /** what a phone records: expenses, income and (Fouad, 2026-11-13) exchanges; transfers stay on the computer */
@@ -228,6 +228,24 @@ export async function phoneInvCount(ctx: OpCtx, a: { key: string; ids: number[];
   const r = (await runOp(ctx, 'inv.count', { ids: (Array.isArray(a.ids) ? a.ids : []).slice(0, 5000), placeId: a.placeId ?? null, date: String(a.date ?? '') })) as { counted: number };
   await ctx.db.batch([{ sql: 'INSERT INTO phone_photo (key, attachment_id, at) VALUES (?,?,?)', params: [key, 'inv-count', now()] }]);
   return { ok: true, counted: r.counted };
+}
+
+/** An item recorded on the phone (a walk-through): created like on the computer; its photo, if any, comes with it. */
+export async function phoneInvNew(ctx: OpCtx, a: { key: string; item: Record<string, unknown>; photo?: { base64: string; mime: string } | null }): Promise<{ ok: true; id?: number; code?: string; already?: boolean }> {
+  const key = String(a.key ?? '');
+  if (!ID.test(key)) throw new UserError(m('بلا رقم', 'Without its number', 'Sans son numéro'));
+  if (await one(ctx.db, 'SELECT 1 AS x FROM phone_photo WHERE key = ?', [key])) return { ok: true, already: true };
+  const it = a.item ?? {};
+  const made = (await runOp(ctx, 'inv.item.many', { items: [{
+    name: String(it.name ?? ''), category_id: it.category_id == null ? null : Number(it.category_id), place_id: it.place_id == null ? null : Number(it.place_id),
+    qty: Number(it.qty ?? 1), serial: it.serial == null ? null : String(it.serial), code: it.code == null || String(it.code).trim() === '' ? null : String(it.code).trim(),
+    origin_id: it.origin_id == null ? null : Number(it.origin_id), note: it.note == null ? null : String(it.note),
+  }] })) as { ids: number[] };
+  const id = made.ids[0];
+  if (a.photo?.base64) { try { await runOp(ctx, 'inv.photo.add', { itemId: id, base64: String(a.photo.base64), mime: String(a.photo.mime ?? 'image/jpeg') }); } catch { /* the item is made; its photo can be added on the computer */ } }
+  await ctx.db.batch([{ sql: 'INSERT INTO phone_photo (key, attachment_id, at) VALUES (?,?,?)', params: [key, 'inv-new', now()] }]);
+  const code = (await one<{ code: string }>(ctx.db, 'SELECT code FROM inv_item WHERE id = ?', [id]))?.code;
+  return { ok: true, id, code };
 }
 
 /** A photo of an item taken on the phone. */

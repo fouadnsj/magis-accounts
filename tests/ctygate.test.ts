@@ -1,6 +1,6 @@
-// The password of the Jesuit communities' side (Fouad, 19 October 2026: "to keep the privacy"):
-// the first community sets it; until it is given, the server neither names the communities nor
-// lists their accounts nor lets anyone sign in to them. The centres are not touched.
+// The Jesuit communities' side (Fouad, 19 October 2026: "to keep the privacy"; 21 November 2026: the extra password is gone):
+// a name and a password are enough, and the server names the communities, lists their accounts and lets people in only
+// for someone signed in who is allowed there. The centres are not touched.
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -38,48 +38,58 @@ const setup = {
   offices: { superior: { heldBy: 'Paul', password: 'test-office-1' }, econome: { heldBy: 'Marc', password: 'test-office-2' }, minister: { heldBy: 'Marc', password: 'test-office-3' }, admin: { heldBy: 'Paul', password: 'test-office-4' } },
 };
 
-describe("server: the communities' password", () => {
-  it('the first community sets it; afterwards the communities are hidden until it is given', async () => {
+let commSlug = '';
+
+describe('server: the communities have no password of their own any more (a name and a password are enough)', () => {
+  it('a community is set up with its people only; it shows (and opens) only to someone signed in who is allowed', async () => {
     await call('/api/dbs/create', { organisation: 'A centre', centre: 'homs' });
     const c = await call('/api/dbs/create', { organisation: 'Demo community', centre: 'other', kind: 'community' });
-    const slug = c.body.slug as string;
-    // no password chosen: refused
-    expect((await call('/api/setup/community', { db: slug, ...setup })).status).toBe(400);
-    const made = await call('/api/setup/community', { db: slug, ...setup, gate: 'side-pass-1' });
+    expect(c.status).toBe(200);
+    commSlug = c.body.slug as string;
+    // no communities' password to choose: the people are enough
+    const made = await call('/api/setup/community', { db: commSlug, ...setup });
     expect(made.status).toBe(200);
-    expect(made.cookie).toMatch(/^magis_cty=/);
+    expect(made.cookie).toBeUndefined();
 
-    // a new browser: only the centre is named; the community's accounts and sign-in are refused
+    // a browser nobody has signed in on: only the centre is named; the community's accounts and sign-in are refused
     const h = (await call('/api/hello')).body;
-    expect(h.ctyGate).toBe(true);
+    expect(h.ctyGate).toBe(false);
     expect(h.ctyOpen).toBe(false);
     expect(h.dbs.map((d: { kind: string }) => d.kind)).toEqual(['centre']);
-    expect((await call(`/api/profiles?db=${slug}`)).status).toBe(403);
-    expect((await call('/api/login', { db: slug, profileId: 1, password: 'test-office-1' })).status).toBe(403);
-    expect((await call('/api/dbs/create', { organisation: 'Another', kind: 'community' })).status).toBe(403);
+    expect((await call(`/api/profiles?db=${commSlug}`)).status).toBe(403);
+    expect((await call('/api/login', { db: commSlug, profileId: 1, password: 'test-office-1' })).status).toBe(403);
+    // the old password screens have nothing left to ask
+    expect((await call('/api/cty/unlock', { password: 'anything' })).status).toBe(200);
+    expect((await call('/api/cty/gate', { password: 'a-new-password' })).status).toBe(400);
 
-    // a wrong password, then the right one: the community appears
-    expect((await call('/api/cty/unlock', { password: 'wrong-pass' })).status).toBe(403);
-    const open = await call('/api/cty/unlock', { password: 'side-pass-1' });
-    expect(open.status).toBe(200);
-    const h2 = (await call('/api/hello', undefined, open.cookie)).body;
+    // his own name and password: the community is his (and only his)
+    expect((await call('/api/signin', { centre: 'jesuits', name: 'Marc', password: 'wrong-pass' })).status).toBe(403);
+    const r = await call('/api/signin', { centre: 'jesuits', name: 'Marc', password: 'test-pass-2' });
+    expect(r.status).toBe(200);
+    const h2 = (await call('/api/hello', undefined, r.cookie)).body;
     expect(h2.ctyOpen).toBe(true);
-    expect(h2.dbs.some((d: { slug: string }) => d.slug === slug)).toBe(true);
-    expect((await call(`/api/profiles?db=${slug}`, undefined, open.cookie)).status).toBe(200);
+    expect(h2.dbs.map((d: { slug: string }) => d.slug)).toEqual([commSlug]);
+    expect((await call(`/api/profiles?db=${commSlug}`, undefined, r.cookie)).status).toBe(200);
+    // a centre's accountant (signed in elsewhere) does not see the communities
+    const centre = (await call('/api/hello')).body.dbs[0].slug as string;
+    expect(centre).not.toBe(commSlug);
+  });
 
-    // the administrator of the community changes it
-    const ps = (await call(`/api/profiles?db=${slug}`, undefined, open.cookie)).body as { id: number; office: string | null }[];
-    const admin = ps.find((p) => p.office === 'admin')!;
-    const login = await call('/api/login', { db: slug, profileId: admin.id, password: 'test-office-4' }, open.cookie);
-    expect(login.status).toBe(200);
-    const both = `${open.cookie}; ${login.cookie}`;
-    expect((await call('/api/cty/gate', { password: 'side-pass-2' }, both)).status).toBe(200);
-    expect((await call('/api/cty/unlock', { password: 'side-pass-1' })).status).toBe(403);
-    expect((await call('/api/cty/unlock', { password: 'side-pass-2' })).status).toBe(200);
+  it('a communities\' password left by an older version is dropped when the server starts', async () => {
+    const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-gate-old-'));
+    fs.mkdirSync(path.join(d2, 'web'));
+    fs.writeFileSync(path.join(d2, 'web', 'index.html'), '<html>ok</html>');
+    fs.writeFileSync(path.join(d2, 'config.json'), JSON.stringify({ ctyGate: { salt: 'x', hash: 'y' }, serverId: 'abc' }));
+    const s2 = await startServer({ dataDir: d2, webRoot: path.join(d2, 'web'), config: { httpMode: 'serve', httpPort: 0 }, log: () => undefined });
+    try {
+      const h = (await (await fetch(`http://127.0.0.1:${s2.httpPort}/api/hello`)).json()) as { ctyGate: boolean };
+      expect(h.ctyGate).toBe(false);
+      expect(JSON.parse(fs.readFileSync(path.join(d2, 'config.json'), 'utf8')).ctyGate ?? null).toBeNull();
+    } finally { await s2.close(); fs.rmSync(d2, { recursive: true, force: true }); }
   });
 
   it("the Jesuits' door (13 November 2026): a name and a password, then the offices he holds as hats, no other password", async () => {
-    const slug = ((await call('/api/hello', undefined, (await call('/api/cty/unlock', { password: 'side-pass-2' })).cookie)).body.dbs as { slug: string; kind: string }[]).find((d) => d.kind === 'community')!.slug;
+    const slug = commSlug;
     // no communities' password needed: his own name and password are enough
     expect((await call('/api/signin', { centre: 'jesuits', name: 'Marc', password: 'wrong-pass' })).status).toBe(403);
     const r = await call('/api/signin', { centre: 'jesuits', name: ' marc ', password: 'test-pass-2' });
@@ -118,7 +128,7 @@ describe("server: the communities' password", () => {
   });
 
   it('on the same server, the month goes straight to the country econome and his answers come back (the file stays)', async () => {
-    const pass = (await call('/api/cty/unlock', { password: 'side-pass-2' })).cookie!;
+    const pass = undefined as string | undefined; // (no communities' password: the server computer creates it)
     const marc = await call('/api/signin', { centre: 'jesuits', name: 'Marc', password: 'marc-own-pass-1' });
     expect(marc.status).toBe(200);
     // no country econome yet on this server: the file only

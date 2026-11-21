@@ -319,7 +319,7 @@ export function Landing({ dbs, canCreate: canCreateAll, canCreateCty, canManage,
           {howTo && !canCreate && (
             <div className="alert info" style={{ marginTop: 14 }}>
               {area === 'cty'
-                ? tx(m('أول جماعة تُنشأ على حاسوب الخادم نفسه: https://localhost:8443 (وهي تضع كلمة سر الجماعات). بعدها يستطيع من يعرف كلمة السر إنشاء جماعة من أي حاسوب.', "The first community is made on the server computer itself (https://localhost:8443): it sets the communities' password. After that, anyone who knows that password can make a community from any computer.", "La première communauté se crée sur l'ordinateur du serveur (https://localhost:8443) : elle fixe le mot de passe des communautés. Ensuite, toute personne qui le connaît peut en créer une depuis n'importe quel ordinateur."))
+                ? tx(m('تُنشأ الجماعة على حاسوب الخادم نفسه (https://localhost:8443) أو من المنسّق.', 'A community is made on the server computer itself (https://localhost:8443) or by the Coordinator.', "Une communauté se crée sur l'ordinateur du serveur (https://localhost:8443) ou par le Coordinateur."))
                 : dbs.length
                 ? t('لإنشاء قاعدة بيانات: ادخل أولاً إلى قاعدة موجودة باسم من يدير المستخدمين (الرئيس)، ثم من القائمة اختر «قواعد البيانات · جديدة». أو افتح الصفحة على حاسوب الخادم نفسه.',
                   'To create a database: first sign in to an existing one as someone who manages users (the Superior), then in the menu choose "Databases · new". Or open this page on the server computer itself.')

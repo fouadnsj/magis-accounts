@@ -369,7 +369,7 @@ export function App() {
   else if (server && session && settingUp && serverDb)
     body = (
       <ServerSetup
-        askGate={!server?.ctyGate}
+        askGate={false}
         db={serverDb}
         onDone={async () => {
           // the new database is ready: sign in there
@@ -388,7 +388,7 @@ export function App() {
   else if (server && !session && serverDb && (settingUp || serverDb.setupNeeded))
     body = server.canCreate || (serverDb.kind === 'community' || serverDb.kind === 'country') && server.canCreateCty ? (
       <ServerSetup
-        askGate={!server?.ctyGate}
+        askGate={false}
         db={serverDb}
         onDone={async () => {
           setSettingUp(false);

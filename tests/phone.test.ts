@@ -163,6 +163,20 @@ describe('the phone', () => {
     const audit = (await c.boss('/api/op/audit.list', {})).body as { action: string; who: string; row_id: string | null }[];
     expect(audit.some((a) => a.action === 'backup-download' && a.who === 'Boss')).toBe(true);
     expect((await c.boss('/api/op/backup.download', { name: '../config.json' })).status).toBe(400);
+    // changing the copy password needs the old one (a signed-in session alone is not enough)
+    expect((await c.boss('/api/server/copy-password', { password: 'a brand new password' })).status).toBe(403);
+    expect((await c.boss('/api/server/copy-password', { password: 'a brand new password', oldPassword: 'not the old one' })).status).toBe(403);
+    expect((await c.boss('/api/server/copy-password', { password: 'a brand new password', oldPassword: 'the owner password' })).status).toBe(200);
+    const dl2 = await c.boss('/api/op/backup.download', {});
+    const f2 = new Uint8Array(Buffer.from(dl2.body.base64, 'base64'));
+    await expect(unprotect(f2, 'the owner password')).rejects.toBeInstanceOf(WrongPassword);
+    expect(Buffer.from((await unprotect(f2, 'a brand new password')).subarray(0, 15)).toString()).toBe('SQLite format 3');
+    // the first copy keeps its own (old) password
+    expect(Buffer.from((await unprotect(file, 'the owner password')).subarray(0, 15)).toString()).toBe('SQLite format 3');
+    // forgotten: replaced from the server computer itself (the tests run there), and written in the audit trail as such
+    expect((await c.boss('/api/server/copy-password', { password: 'the owner password', forgot: true })).status).toBe(200);
+    const audit2 = (await c.boss('/api/op/audit.list', {})).body as { action: string }[];
+    expect(audit2.some((x) => x.action === 'copy-password-reset')).toBe(true);
     // the copies sent to the mirror folder are protected too, once the copy password is set
     const mirror = fs.mkdtempSync(path.join(os.tmpdir(), 'magis-mirror-'));
     expect((await c.boss('/api/server/config', { backupMirror: mirror })).status).toBe(200);

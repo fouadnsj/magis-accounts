@@ -360,17 +360,26 @@ function Controls() {
  */
 function CopyPassword() {
   const { can } = useApp();
-  const [st, setSt] = useState<{ copyProtected: boolean; copyProtectedAt: string | null; copyProtectedBy: string | null } | null>(null);
-  const load = () => serverStatus<{ copyProtected: boolean; copyProtectedAt: string | null; copyProtectedBy: string | null }>().then(setSt).catch(() => setSt(null));
+  type St = { copyProtected: boolean; copyProtectedAt: string | null; copyProtectedBy: string | null; local: boolean };
+  const [st, setSt] = useState<St | null>(null);
+  const load = () => serverStatus<St>().then(setSt).catch(() => setSt(null));
   useEffect(() => { void load(); }, []);
   if (!st) return null;
-  const set = async () => {
+  const set = async (forgot = false) => {
+    // changing it asks the old one (a signed-in session alone is not enough)
+    let oldPassword: string | undefined;
+    if (st.copyProtected && !forgot) {
+      const o = await promptBox(t('كلمة سر النسخ الحالية (القديمة)', 'The current (old) copy password'), '', true);
+      if (!o) return;
+      oldPassword = o;
+    }
+    if (forgot && !(await confirmBox(t('نسيت الكلمة؟ تُستبدل الآن بأخرى، لكن النسخ المحمية القديمة لا تُفتح إلا بكلمتها القديمة: إن ضاعت فلا سبيل إلى فتحها. أتابع؟', 'Forgotten? It is replaced now, but the old protected copies open only with their old password: if it is lost there is no way to open them. Continue?'), true))) return;
     const a = await promptBox(t('كلمة سر النسخ (10 أحرف على الأقل). احفظها في مكان آمن: بدونها لا يفتح أحد النسخ المحمية.', 'The copy password (at least 10 characters). Keep it in a safe place: without it nobody can open the protected copies.'), '', true);
     if (!a) return;
     const b = await promptBox(t('اكتبها مرة ثانية', 'Write it again'), '', true);
     if (a !== b) return toast(t('الكلمتان مختلفتان', 'The two are not the same'), true);
     try {
-      await serverCopyPassword(a);
+      await serverCopyPassword(a, { oldPassword, forgot });
       toast(t('حُفظت كلمة سر النسخ ✓', 'Copy password saved ✓'));
       await load();
     } catch (e) { toast(errText(e), true); }
@@ -384,8 +393,13 @@ function CopyPassword() {
           : t('لم تُحدَّد بعد. حتى تُحدَّد لا يمكن تنزيل نسخة، والنسخ المرسلة إلى المجلد الاحتياطي غير محمية.', 'Not set yet. Until it is set, no copy can be downloaded, and the copies sent to the mirror folder are not protected.')}
       </p>
       <p className="muted small" style={{ margin: '4px 0' }}>{t('إن ضاعت الكلمة لا يستطيع أحد فتح النسخ المحمية. غيّرها فتحمي النسخ الجديدة بها (القديمة تبقى بكلمتها القديمة).', 'If the password is lost, nobody can open the protected copies. Changing it protects the new copies with the new one (the old ones keep their old password).')}</p>
-      {can('users.manage') ? <button className="btn" onClick={set}>{st.copyProtected ? t('غيّر كلمة السر', 'Change the password') : t('حدّد كلمة سر النسخ', 'Set the copy password')}</button>
-        : <p className="muted small">{t('يحدّدها من يدير المستخدمين (الرئيس).', 'It is set by whoever manages the users (the Superior).')}</p>}
+      {can('users.manage') ? (
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn" onClick={() => void set()}>{st.copyProtected ? t('غيّر كلمة السر (تحتاج القديمة)', 'Change the password (needs the old one)') : t('حدّد كلمة سر النسخ', 'Set the copy password')}</button>
+          {st.copyProtected && st.local && <button className="btn ghost small" onClick={() => void set(true)}>{t('نسيتُ القديمة', 'I forgot the old one')}</button>}
+        </div>
+      ) : <p className="muted small">{t('يحدّدها من يدير المستخدمين (الرئيس).', 'It is set by whoever manages the users (the Superior).')}</p>}
+      {st.copyProtected && !st.local && can('users.manage') && <p className="muted small" style={{ margin: '4px 0 0' }}>{t('نسيتَ الكلمة القديمة؟ تُستبدل من حاسوب الخادم نفسه فقط.', 'Forgot the old one? It can be replaced on the server computer itself only.')}</p>}
     </div>
   );
 }

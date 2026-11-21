@@ -18,7 +18,7 @@ import https from 'node:https';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import zlib from 'node:zlib';
 import { deriveKey, fromHex, newSalt, PROTECT_ITERATIONS, protectWithKey, toHex } from '../src/io/protect';
 import { createRequire } from 'node:module';
@@ -2577,6 +2577,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         copyProtected: !!config.copyKey,
         copyProtectedAt: config.copyKey?.at ?? null,
         copyProtectedBy: config.copyKey?.by ?? null,
+        /** this request comes from the server computer itself (a forgotten copy password can be replaced there) */
+        local: isLocal(req),
         idleMinutes: config.idleMinutes,
         mirrorOk: config.backupMirror ? fs.existsSync(config.backupMirror) : null,
         users: [...new Set([...sessions.values()].filter((x) => x.db === c.slug && Date.now() - x.last < 15 * 60e3).map((x) => x.profile.name))],
@@ -2594,14 +2596,35 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // the copy password: decided by the owner (who manages the users); only its key is kept, never the password
     if (url === '/api/server/copy-password' && method === 'POST') {
       if (!has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'لمن يدير المستخدمين فقط', en: 'Only for someone who manages the users' });
-      const body = (await readBody(req)) as { password?: string };
+      const body = (await readBody(req)) as { password?: string; oldPassword?: string; forgot?: boolean };
       const pw = String(body.password ?? '');
       if (pw.length < 10) throw new HttpError(400, { ar: 'كلمة سر النسخ: 10 أحرف على الأقل', en: 'The copy password must have at least 10 characters' });
+      // changing it needs the old one (a signed-in session alone is not enough: Fouad, 21 November 2026); if it is lost,
+      // only on the server computer itself, and it says so in the audit trail (the old protected copies stay closed)
+      const old = config.copyKey;
+      let reset = false;
+      if (old) {
+        const f = failures.get(ip);
+        if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
+        if (body.forgot === true) {
+          if (!isLocal(req)) throw new HttpError(403, { ar: 'نسيان الكلمة: من حاسوب الخادم نفسه فقط', en: 'A forgotten copy password can be replaced on the server computer itself only' });
+          reset = true;
+        } else {
+          const mine = toHex(await deriveKey(String(body.oldPassword ?? ''), fromHex(old.salt), old.iter));
+          const same = mine.length === old.key.length && timingSafeEqual(Buffer.from(mine), Buffer.from(old.key));
+          if (!same) {
+            const n = f && f.until > 0 && f.until <= Date.now() ? 1 : (f?.n ?? 0) + 1;
+            failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
+            throw new HttpError(403, { ar: 'كلمة سر النسخ القديمة غير صحيحة', en: 'The old copy password is not right' });
+          }
+          failures.delete(ip);
+        }
+      }
       const salt = newSalt();
       config = { ...config, copyKey: { salt: toHex(salt), key: toHex(await deriveKey(pw, salt)), iter: PROTECT_ITERATIONS, at: new Date().toISOString(), by: s.profile.name } };
       writeConfig(dataDir, config);
-      await c.handle.db.batch([auditStmt(whoOf(s), 'copy-password', 'server', null, null, { changed: true })]);
-      log(`copy password set by ${whoOf(s)}`);
+      await c.handle.db.batch([auditStmt(whoOf(s), reset ? 'copy-password-reset' : 'copy-password', 'server', null, null, { changed: !!old, forgotten: reset })]);
+      log(`copy password ${old ? (reset ? 'replaced (old one forgotten)' : 'changed') : 'set'} by ${whoOf(s)}`);
       return send(res, 200, { ok: true });
     }
     if (url === '/api/server/config' && method === 'POST') {

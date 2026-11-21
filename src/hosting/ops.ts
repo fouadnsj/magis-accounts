@@ -4,7 +4,8 @@
 //  - hosting.book: makes, changes and confirms bookings (still no amount);
 //  - hosting.keep: keeps the buildings, rooms, services, sees and sets the amounts and the payments.
 import { nowIso, one, type Stmt } from '../db/db';
-import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
+import { addHeading, addLine, auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
+import { FARM_LIST } from './farm';
 import { has } from '../auth';
 import { m } from '../i18n';
 import type { OpCtx } from '../ops';
@@ -324,6 +325,26 @@ export const HOST_OPS = {
       const st = a.on === false ? 'suggested' : 'refused';
       await c.db.batch([{ sql: 'UPDATE host_pay SET status = ? WHERE id = ?', params: [st, p.id] }, auditStmt(c.who, st, 'host_pay', p.receipt_no, null, null)]);
       return { ok: true };
+    },
+  },
+
+  /** Al-Ard's farm: the first headings and lines of its books (what already exists is left alone) */
+  'host.farm.seed': {
+    check: (c: OpCtx) => { if (!has(c.profile, 'lists.manage')) throw refuse(); },
+    run: async (c: OpCtx) => {
+      if ((await c.db.query('SELECT 1 FROM heading WHERE in_main = 1 LIMIT 1')).length)
+        throw new UserError(m('هذه القاعدة تأخذ من القائمة الرئيسية: أضف البنود من هناك', 'This database takes from the main list: add the headings there', 'Cette base prend de la liste principale : ajoutez les rubriques là'));
+      let headings = 0, lines = 0;
+      for (const h of FARM_LIST) {
+        let row = await one<{ id: number }>(c.db, 'SELECT id FROM heading WHERE name = ?', [h.name]);
+        if (!row) { await addHeading(c.db, h.name, h.types, c.who); headings++; row = await one<{ id: number }>(c.db, 'SELECT id FROM heading WHERE name = ?', [h.name]); }
+        for (const l of h.lines) {
+          if (await one(c.db, 'SELECT 1 FROM budget_line WHERE heading_id = ? AND name = ?', [row!.id, l])) continue;
+          await addLine(c.db, row!.id, l, c.who);
+          lines++;
+        }
+      }
+      return { headings, lines };
     },
   },
 

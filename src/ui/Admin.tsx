@@ -85,6 +85,13 @@ function Sections() {
       <p className="small muted">{t('كل مركز يختار ما يحتاجه. إيقاف قسم يخفيه من القائمة، ولا يمحو شيئاً.', 'Each centre chooses what it needs. Switching a section off hides it from the menu; nothing is erased.')}</p>
       <label style={{ display: 'block', margin: '8px 0' }}><input type="checkbox" disabled={busy} checked={invOn} onChange={(e) => void set('inventory', e.target.checked)} /> <b>{t('الجرد', 'Inventory')}</b> — {t('الأغراض والأماكن والعدّ', 'items, places, counts')}</label>
       <label style={{ display: 'block', margin: '8px 0' }}><input type="checkbox" disabled={busy} checked={hostOn} onChange={(e) => void set('hosting', e.target.checked)} /> <b>{t('الإقامة والتقويم', 'Accommodation and calendar')}</b> — {t('المباني والغرف والحجوزات والأنشطة والدفعات', 'buildings, rooms, bookings, events, payments')}</label>
+      <h3>{t('قائمة المزرعة (الأرض)', "The farm's list (Al-Ard)")}</h3>
+      <p className="small muted">{t('بنود وخطوط أولية لمزرعة: مبيعات زراعية، مخيمات، مصاريف تشغيلية. تُعدَّل لاحقاً. ما هو موجود يبقى كما هو.', 'A first list of headings and lines for a farm: farm sales, camps, running costs. Changed later as needed; what already exists is left alone.')}</p>
+      <button className="btn small" disabled={busy} onClick={async () => {
+        if (!(await confirmBox(t('أضف بنود وخطوط المزرعة إلى هذه القاعدة؟', "Add the farm's headings and lines to this database?")))) return;
+        setBusy(true);
+        try { const r = await s.api.call('host.farm.seed'); await reload(); toast(`${r.headings} ${t('بنداً', 'headings')} · ${r.lines} ${t('خطاً', 'lines')}`); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+      }}>{t('أضف قائمة المزرعة', "Add the farm's list")}</button>
       {hostOn && <p className="small muted">{t('من يرى ماذا: في «الأدوار والصلاحيات» (الإقامة والتقويم). الأسعار لمن «يمسك التقويم» فقط.', 'Who sees what: in "Roles and permissions" (Hosting and calendar). The prices are for those who "keep the calendar" only.')}</p>}
     </div>
   );

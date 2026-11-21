@@ -244,3 +244,17 @@ describe('the phone', () => {
     await expect(phoneHostBook(reception, { key: '!', booking: mk([1, 2]) })).rejects.toThrow();
   });
 });
+
+describe("Al-Ard's farm list", () => {
+  it('adds the headings and lines once, leaves what exists, and only for those who manage lists', async () => {
+    await expect(runOp(reception, 'host.farm.seed', undefined)).rejects.toThrow();
+    const a = (await runOp(sup, 'host.farm.seed', undefined)) as { headings: number; lines: number };
+    expect(a).toEqual({ headings: 3, lines: 15 });
+    const b = (await runOp(sup, 'host.farm.seed', undefined)) as { headings: number; lines: number };
+    expect(b).toEqual({ headings: 0, lines: 0 });
+    const names = (await db.query<{ name: string }>('SELECT name FROM budget_line')).map((x) => x.name);
+    expect(names).toContain('زيت زيتون · Olive oil');
+    expect(names).toContain('مخيمات · Camps');
+    expect(names).toContain('عمالة موسمية (تقليم…) · Seasonal labour (pruning…)');
+  });
+});

@@ -80,3 +80,14 @@ Build only when Fouad says "build".
 - Per-section on/off for the centre: Inventory, Calendar/accommodation (events too). Booking statuses: to confirm → confirmed → arrived → left → cancelled (from the website calendar).
 - Price per person per night (usual) or fixed price per group; services list editable in Settings (breaks, logistics, heating…).
 - Payments of a booking = suggestions the accountant turns into income entries (like the inventory "To register"); same idea later for salaries (needs a send from HR to the centre).
+
+## 0.12.0 — built on `main` 22 November 2026 (not in any installer; build only when Fouad says "build")
+- **Accommodation and calendar** (migration 58): buildings and rooms (each room is also an inventory place), bookings (stay / event in a hall),
+  statuses to confirm → confirmed → arrived → left / cancelled, beds shared in a room, "rooms by day" calendar, services list (editable),
+  price per person per night or fixed for the group, payments as suggestions of entries (receipt number H2027-0001 links them to the entry).
+- **Ticks:** `hosting.view`, `hosting.book`, `hosting.keep`. The Superior and the Accountant keep it. Prices and payments are removed on the SERVER for the others (and never go to the phone).
+- **Sections on/off per centre:** Admin → Sections (hosting off by default; inventory on by default). The menu follows.
+- **Phone:** the calendar offline; a booking made offline is always "to confirm"; after the connection a window per booking (confirm if free, change dates or rooms if taken, call the person); the same window on the computer.
+- **Al-Ard farm list:** Admin → Sections → *Add the farm's list* (3 headings, 15 lines; not in the migration, so each centre decides).
+- Tests: `tests/hosting.test.ts` (17). Checklist: `TEST-2026-11-14.md`, section 18. Guide page "Accommodation and calendar".
+- **Not done (kept for later):** salaries as suggestions (needs a send from the HR database to the centre); a public request page; the calendar for the Coordinator; Excel export of bookings.

@@ -3,9 +3,10 @@
 // the first link; the phone sends by itself when it finds the server again.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { allPhotos, allRows, delPhoto, delRow, gDel, gGet, gSet, kvGet, kvSet, lockKey, migrateLegacy, newId, openKey, putPhoto, putRow, setNs, waitingOf, wipe, wipeNs, type Entry, type Kind, type Link, type Msg, type Pack, type Photo } from './store';
-import { api, balance, check, Offline, openFull, Refused, sync, Unlinked } from './sync';
+import { api, balance, check, hostChange, hostConfirm, Offline, openFull, Refused, sync, Unlinked } from './sync';
 import { Count, invCounts, invPhotos } from './Count';
 import { Record as RecordItems, invNews } from './Record';
+import { CalendarPage, HostReview, hostNews } from './Calendar';
 
 type Lang = 'ar' | 'en' | 'fr';
 let lang: Lang = ((): Lang => {
@@ -326,11 +327,15 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
   const [form, setForm] = useState<{ type: Kind; row?: Entry } | null>(null);
   const [counting, setCounting] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [calendar, setCalendar] = useState(false);
+  /** the bookings just sent to the centre, shown in a window to confirm or change */
+  const [hostRev, setHostRev] = useState<number[] | null>(null);
+  const [hostWaiting, setHostWaiting] = useState(0);
   const [invWaiting, setInvWaiting] = useState(0);
   const [menu, setMenu] = useState(false);
   const [net, setNet] = useState<Net>({ state: 'idle' });
   const running = useRef(false);
-  const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); setInvWaiting((await invCounts()).filter((c) => !c.sent).length + (await invPhotos()).filter((p) => !p.sent).length + (await invNews()).filter((x) => x.state !== 'sent').length); }, []);
+  const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); setInvWaiting((await invCounts()).filter((c) => !c.sent).length + (await invPhotos()).filter((p) => !p.sent).length + (await invNews()).filter((x) => x.state !== 'sent').length); setHostWaiting((await hostNews()).filter((x) => x.state !== 'sent').length); }, []);
   useEffect(() => { void load(); }, [load]);
   // what waits in each database of this phone (shown on the switch, so nothing is forgotten in the other one)
   useEffect(() => { void (async () => { const w: Record<string, number> = {}; for (const x of links) w[x.ns] = await waitingOf(x.ns); setWaitBy(w); })(); }, [links, rows, menu]);
@@ -345,6 +350,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
       setPack(r.pack);
       setNet({ state: 'ok', text: r.result.refused ? t(`${r.result.refused} للتصحيح`, `${r.result.refused} to fix`, `${r.result.refused} à corriger`) : undefined });
       if (r.result.refused) setTab('fix');
+      if (r.result.hostIds.length) setHostRev(r.result.hostIds);
     } catch (e) {
       if (e instanceof Unlinked) setNet({ state: 'out', text: tm(e.msg) });
       else if (e instanceof Offline) setNet({ state: 'offline' });
@@ -375,6 +381,8 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
   };
   const daysLeft = Math.floor((Date.parse(pack.validUntil) - Date.now()) / 86_400_000);
 
+  if (hostRev && pack.host) return <HostReview pack={pack} ids={hostRev} tr={t} onConfirm={async (id) => { await hostConfirm(keyOf, id); const p = await sync(keyOf); setPack(p.pack); }} onChange={async (id, b) => { await hostChange(keyOf, id, b); const p = await sync(keyOf); setPack(p.pack); }} onClose={() => setHostRev(null)} />;
+  if (calendar && pack.host) return <CalendarPage pack={pack} tr={t} onClose={async (saved) => { setCalendar(false); await load(); if (saved) void doSync(true); }} />;
   if (counting && pack.inv) return <Count pack={pack} tr={t} onClose={async (saved) => { setCounting(false); await load(); if (saved) void doSync(true); }} />;
   if (recording && pack.inv) return <RecordItems pack={pack} tr={t} lang={lang} onClose={async (saved) => { setRecording(false); await load(); if (saved) void doSync(true); }} />;
   if (form) return <RowForm pack={pack} type={form.type} row={form.row} bookId={bookId} photos={photos.filter((p) => p.trxId === form.row?.id)} onClose={async (saved) => { setForm(null); await load(); if (saved) { setTab('waiting'); void doSync(true); } }} />;
@@ -411,7 +419,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
 
       {links.length > 1 && <div className="ph-chips">{links.map((x) => <button key={x.ns} className={x.ns === cur ? 'on' : ''} disabled={net.state === 'busy'} onClick={() => x.ns !== cur && void onSwitch(x.ns)}>{x.org}{waitBy[x.ns] && x.ns !== cur ? <i>{waitBy[x.ns]}</i> : null}</button>)}</div>}
       {pack.books.length > 1 && <div className="ph-chips">{pack.books.map((b) => <button key={b.id} className={b.id === bookId ? 'on' : ''} onClick={() => setBookId(b.id)}>{bkName(b)}{unsent(b.id) ? <i>{unsent(b.id)}</i> : null}</button>)}</div>}
-      {!pack.books.length ? <div className="ph-alert">{t('لا دفتر لك للكتابة فيه.', 'You have no book to write in.', "Vous n'avez pas de livre où écrire.")}</div> : (
+      {!pack.books.length ? (pack.host || pack.inv ? null : <div className="ph-alert">{t('لا دفتر لك للكتابة فيه.', 'You have no book to write in.', "Vous n'avez pas de livre où écrire.")}</div>) : (
         <section className="ph-balance">
           <small>{(() => { const b = pack.books.find((x) => x.id === bookId); return b ? bkName(b) : ''; })()}</small>
           <div className="ph-amounts">{cursOf(pack).filter((c, i) => i < 2 || bal.bal[c]).map((c) => <span key={c} className="ltr">{c === 'USD' || c === 'EUR' ? money(bal.bal[c] ?? 0, c) : <>{num(bal.bal[c] ?? 0)} <i>{curLabel(c)}</i></>}</span>)}</div>
@@ -419,10 +427,10 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
         </section>
       )}
 
-      <div className="ph-two">
+      {(pack.books.length > 0 || !(pack.host || pack.inv)) && <div className="ph-two">
         <button className="ph-big exp" disabled={!pack.books.length || noExpense(pack, bookId)} onClick={() => setForm({ type: 'Exp' })}><b>−</b>{t('نفقة', 'Expense', 'Dépense')}</button>
         <button className="ph-big inc" disabled={!pack.books.length} onClick={() => setForm({ type: 'Income' })}><b>+</b>{t('إيراد', 'Income', 'Recette')}</button>
-      </div>
+      </div>}
       {pack.kind === 'community' && (
         <button className="ph-big trf" disabled={!pack.books.length} onClick={() => setForm({ type: 'Transfer' })}><span>↔ {giveLabel(pack, bookId)}</span></button>
       )}
@@ -430,6 +438,9 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
         <button className="ph-big exc" disabled={!pack.books.length} onClick={() => setForm({ type: 'Exchange' })}><span>⇄ {pack.kind === 'community' ? t('صرافة', 'Exchange', 'Change') : t('تصريف: دولار ← ليرة', 'Exchange: dollars → pounds', 'Change : dollars → livres')}</span></button>
       )}
 
+      {pack.host && (
+        <button className="ph-big trf" onClick={() => setCalendar(true)}><span>📅 {t('التقويم والحجوزات', 'Calendar and bookings', 'Calendrier et réservations')}{hostWaiting ? ` · ${hostWaiting} ${t('ينتظر', 'waiting', 'en attente')}` : ''}</span></button>
+      )}
       {pack.inv && (
         <button className="ph-big inc" onClick={() => setRecording(true)}><span>➕ {t('تسجيل الأغراض', 'Record items', 'Enregistrer des objets')}</span></button>
       )}

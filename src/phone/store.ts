@@ -29,6 +29,14 @@ export interface Pack {
   curs?: { code: string; label: string }[];
   /** the inventory, for the one who keeps it (21 November 2026): the places and the items to count */
   inv?: { categories: { id: number; name: string; serial: number }[]; origins: { id: number; name: string }[]; names: string[]; places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
+  /** the calendar of rooms (22 November 2026): no amount; `book`: this person may make bookings */
+  host?: {
+    book: boolean;
+    buildings: { id: number; name: string }[];
+    rooms: { id: number; building_id: number; name: string; beds: number; kind: string }[];
+    bookings: { id: number; code: string; kind: 'stay' | 'event'; status: string; group_name: string; contact: string | null; phone: string | null; people: number; from_day: string; to_day: string; review: number }[];
+    allocs: { booking_id: number; room_id: number; beds: number | null }[];
+  };
 }
 
 /** expense, income, and exchange (dollars given for pounds received) */

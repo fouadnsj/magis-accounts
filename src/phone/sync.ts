@@ -4,6 +4,7 @@
 import { allPhotos, allRows, kvSet, putPhoto, putRow, type Entry, type Msg, type Pack } from './store';
 import { invCounts, invPhotos } from './Count';
 import { invNews, putInvNews } from './Record';
+import { hostNews, putHostNews } from './Calendar';
 
 export class Unlinked extends Error { constructor(public msg: Msg) { super(msg.en); } }
 export class Offline extends Error {}
@@ -38,13 +39,13 @@ export async function openFull(key: string) {
   location.href = '/';
 }
 
-export interface SyncResult { sent: number; refused: number; photos: number }
+export interface SyncResult { sent: number; refused: number; photos: number; /** the bookings just made on the server, to be looked at */ hostIds: number[] }
 
 /** One sync: rows waiting → the server; photos of the rows it has → the server; the fresh pack is kept. */
 export async function sync(key: string): Promise<{ pack: Pack; result: SyncResult }> {
   const rows = await allRows();
   const waiting = rows.filter((r) => r.state === 'waiting').sort((a, b) => a.made_at.localeCompare(b.made_at));
-  const res = { sent: 0, refused: 0, photos: 0 };
+  const res: SyncResult = { sent: 0, refused: 0, photos: 0, hostIds: [] };
   let pack: Pack;
   if (waiting.length) {
     const body = { rows: waiting.map((r) => ({ id: r.id, book_id: r.book_id, date: r.date, type: r.type, heading_id: r.heading_id, line_id: r.line_id, explanation: r.explanation, receipt: r.receipt || null, amount: r.amount, currency: r.currency, syp: r.syp, cur2: r.cur2, amount2: r.amount2, for_house: r.for_house ? 1 : 0, to_book_id: r.to_book_id ?? null })) };
@@ -103,10 +104,29 @@ export async function sync(key: string): Promise<{ pack: Pack; result: SyncResul
   }
   if (news.length) await putInvNews(news.filter((x) => x.state !== 'sent' || Date.now() - Date.parse(x.made_at) < 24 * 3600e3));
   invSent += newSent;
+  // the bookings made on the phone: each is made on the server as "to confirm"; the server says which it already had
+  const hosts = await hostNews();
+  let hostChanged = false;
+  for (const x of hosts) {
+    if (x.state !== 'waiting') continue;
+    try {
+      const r = await call<{ id: number }>('/api/phone/host-book', { key: x.key, booking: x.booking }, key);
+      x.state = 'sent'; x.id = r.id; x.error = null; res.hostIds.push(r.id); hostChanged = true;
+    } catch (e) { if (e instanceof Refused) { x.state = 'fix'; x.error = e.msg; hostChanged = true; continue; } throw e; }
+  }
+  if (hostChanged) {
+    await putHostNews(hosts.filter((x) => x.state !== 'sent' || Date.now() - Date.parse(x.made_at) < 24 * 3600e3));
+    pack = await call<Pack>('/api/phone/pack', {}, key); await kvSet('pack', pack);
+  }
   // the pack again, so that the counts just sent show on the phone
   if (invSent && pack.inv) { pack = await call<Pack>('/api/phone/pack', {}, key); await kvSet('pack', pack); }
   return { pack, result: res };
 }
+
+/** confirm a booking the phone made (the phone is connected: the server checks the rooms again) */
+export const hostConfirm = (key: string, id: number) => call('/api/phone/host-status', { id, status: 'confirmed' }, key);
+/** change the dates or the rooms of a booking (connected) */
+export const hostChange = (key: string, id: number, booking: unknown) => call('/api/phone/host-book', { key: `chg-${id}-${Date.now()}`, id, booking }, key);
 
 /** what a book holds as the phone knows it: the server's figure at the last sync, and the rows still waiting here */
 export function balance(pack: Pack, rows: Entry[], bookId: number) {

@@ -101,3 +101,20 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 .ph-install { margin: 8px 0; padding: 8px 12px; background: #fff; border: 1px dashed #d8cfbd; border-radius: 12px; font-size: 14px; }
 .ph-install summary { cursor: pointer; font-weight: 600; }
 .ph-install p { margin: 6px 0 0; color: #5b5e70; }
+
+/* the calendar of rooms (22 November 2026) */
+.ph-cal { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.ph-cal table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.ph-cal th, .ph-cal td { border: 1px solid var(--line); text-align: center; padding: 0 2px; height: 40px; min-width: 40px; white-space: nowrap; }
+.ph-cal th { background: #faf7f1; font-weight: 600; line-height: 1.1; }
+.ph-cal th:first-child { text-align: start; min-width: 88px; padding: 0 6px; position: sticky; inset-inline-start: 0; z-index: 1; }
+.ph-cal th.today { background: var(--navy); color: #fff; }
+.ph-cal td.free { background: #fff; }
+.ph-cal td.option { background: repeating-linear-gradient(135deg, #f3dca0, #f3dca0 5px, #fbeec8 5px, #fbeec8 10px); }
+.ph-cal td.confirmed { background: var(--navy); color: #fff; }
+.ph-cal td.arrived { background: #2e7d32; color: #fff; }
+.ph-cal td.left { background: #8a8a8a; color: #fff; }
+.ph-cal td.clash { background: #c62828; color: #fff; }
+.ph-pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
+.ph-row { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; border-top: 1px solid var(--line); }
+.warn { color: #c62828; }

@@ -13,6 +13,8 @@ import { auditStmt, blankTrx, closedMonths, getMeta, loadLists, loadTrx, UserErr
 import { has, listProfiles, loadProfile, type Profile } from '../src/auth';
 import { runOp, type OpCtx } from '../src/ops';
 import { inventoryPack } from '../src/inventory/ops';
+import { sectionOn } from '../src/hosting/ops';
+import type { HostAlloc, HostBooking, HostBuilding, HostRoom } from '../src/hosting/host';
 import { holders } from '../src/domain/reports';
 import { rateOn } from '../src/domain/compute';
 import { m, type Msg } from '../src/i18n';
@@ -31,7 +33,7 @@ export interface PhoneRow { id: string; profile_id: number; name: string; key_ha
 export const validUntil = (p: Pick<PhoneRow, 'created_at' | 'last_sync'>) => new Date(Date.parse(p.last_sync ?? p.created_at) + PHONE_DAYS * DAY).toISOString();
 
 /** may this person record from a phone at all? (somebody who writes in a book) */
-export const mayPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0) || has(p, 'inventory.manage');
+export const mayPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0) || has(p, 'inventory.manage') || has(p, 'hosting.view') || has(p, 'hosting.book') || has(p, 'hosting.keep');
 
 /** Pairs a phone for the person signed in on it. The key is given once, here. */
 export async function pairPhone(db: Db, profile: Profile, name: string): Promise<{ id: string; key: string }> {
@@ -88,6 +90,31 @@ export interface PhonePack {
   curs?: { code: string; label: string }[];
   /** the inventory, for the one who keeps it: the places and the items to count (21 November 2026) */
   inv?: { categories: { id: number; name: string; serial: number }[]; origins: { id: number; name: string }[]; names: string[]; places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
+  /** the calendar of rooms (22 November 2026): never an amount; `book`: this person may make bookings */
+  host?: HostPack;
+}
+
+/** what the phone keeps of the calendar to work offline */
+export interface HostPack {
+  book: boolean;
+  buildings: Pick<HostBuilding, 'id' | 'name'>[];
+  rooms: Pick<HostRoom, 'id' | 'building_id' | 'name' | 'beds' | 'kind'>[];
+  bookings: Pick<HostBooking, 'id' | 'code' | 'kind' | 'status' | 'group_name' | 'contact' | 'phone' | 'people' | 'from_day' | 'to_day' | 'review'>[];
+  allocs: HostAlloc[];
+}
+
+/** the rooms and the bookings of the days ahead (a few days back too), without any amount */
+export async function hostPack(db: Db, profile: Profile): Promise<HostPack | undefined> {
+  if (!(has(profile, 'hosting.view') || has(profile, 'hosting.book') || has(profile, 'hosting.keep')) || !(await sectionOn(db))) return undefined;
+  const bookings = await db.query<HostPack['bookings'][number]>("SELECT id, code, kind, status, group_name, contact, phone, people, from_day, to_day, review FROM host_booking WHERE status <> 'cancelled' AND to_day >= date('now', '-7 day') ORDER BY from_day, id");
+  const ids = new Set(bookings.map((b) => b.id));
+  return {
+    book: has(profile, 'hosting.book') || has(profile, 'hosting.keep'),
+    buildings: await db.query<HostPack['buildings'][number]>('SELECT id, name FROM host_building WHERE active = 1 ORDER BY sort, name'),
+    rooms: await db.query<HostPack['rooms'][number]>('SELECT id, building_id, name, beds, kind FROM host_room WHERE active = 1 ORDER BY building_id, sort, name'),
+    bookings,
+    allocs: (await db.query<HostAlloc>('SELECT * FROM host_alloc')).filter((a) => ids.has(a.booking_id)),
+  };
 }
 
 /** what a phone records: expenses, income and (Fouad, 2026-11-13) exchanges; transfers stay on the computer */
@@ -136,6 +163,7 @@ export async function phonePack(db: Db, profile: Profile, phone: PhoneRow): Prom
     rate: lists.settings.usd_rate,
     tolerance: lists.settings.exchange_tolerance,
     ...(has(profile, 'inventory.manage') ? { inv: await inventoryPack(db) } : {}),
+    ...((await hostPack(db, profile)) ? { host: await hostPack(db, profile) } : {}),
   };
 }
 
@@ -246,6 +274,31 @@ export async function phoneInvNew(ctx: OpCtx, a: { key: string; item: Record<str
   await ctx.db.batch([{ sql: 'INSERT INTO phone_photo (key, attachment_id, at) VALUES (?,?,?)', params: [key, 'inv-new', now()] }]);
   const code = (await one<{ code: string }>(ctx.db, 'SELECT code FROM inv_item WHERE id = ?', [id]))?.code;
   return { ok: true, id, code };
+}
+
+/**
+ * A booking made on the phone, perhaps with no connection: it is always "to confirm" here, whatever the phone says, and the
+ * phone's own number for it (`key`) makes sure it is never made twice. With `id` it changes a booking (the phone being online).
+ */
+export async function phoneHostBook(ctx: OpCtx, a: { key: string; id?: number | null; booking: Record<string, unknown> }): Promise<{ ok: true; id: number; conflicts: number; already?: boolean }> {
+  const key = String(a.key ?? '');
+  if (!ID.test(key)) throw new UserError(m('حجز بلا رقم', 'A booking without its number', 'Une réservation sans son numéro'));
+  const b = a.booking ?? {};
+  const rooms = (Array.isArray(b.allocs) ? (b.allocs as Record<string, unknown>[]) : []).map((x) => ({ room_id: Number(x.room_id), beds: x.beds == null ? null : Number(x.beds) }));
+  const lines = (Array.isArray(b.lines) ? (b.lines as Record<string, unknown>[]) : []).map((l) => ({ service_id: l.service_id == null ? null : Number(l.service_id), label: l.label == null ? undefined : String(l.label), qty: Number(l.qty ?? 1) }));
+  const r = (await runOp(ctx, 'host.booking.save', {
+    ...(a.id ? { id: Number(a.id) } : { source: 'phone', client_ref: key }),
+    kind: b.kind === 'event' ? 'event' : 'stay', group_name: String(b.group_name ?? ''), contact: b.contact == null ? null : String(b.contact), phone: b.phone == null ? null : String(b.phone),
+    people: Number(b.people ?? 0), from_day: String(b.from_day ?? ''), to_day: String(b.to_day ?? ''), note: b.note == null ? null : String(b.note), allocs: rooms, lines,
+  })) as { id: number; conflicts: number; again: boolean };
+  return { ok: true, id: r.id, conflicts: r.conflicts, ...(r.again ? { already: true } : {}) };
+}
+
+/** Confirm (or put back to "to confirm", or cancel) a booking from the phone: the server checks the rooms again. */
+export async function phoneHostStatus(ctx: OpCtx, a: { id: number; status: string; reason?: string | null }): Promise<{ ok: true }> {
+  const status = ['confirmed', 'option', 'cancelled'].includes(String(a.status)) ? String(a.status) : 'option';
+  await runOp(ctx, 'host.booking.status', { id: Number(a.id), status, reason: a.reason ?? null });
+  return { ok: true };
 }
 
 /** A photo of an item taken on the phone. */

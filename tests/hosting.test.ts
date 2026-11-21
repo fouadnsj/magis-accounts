@@ -217,3 +217,30 @@ describe('a booking made on a phone with no connection', () => {
     expect(((await runOp(reception, 'data', {})) as DataPayload).host?.review).toBe(0);
   });
 });
+
+describe('the phone', () => {
+  it('carries the calendar without any amount, for those who see it', async () => {
+    const { hostPack, mayPhone, phoneHostBook, phoneHostStatus } = await import('../server/phone');
+    expect(mayPhone(reception.profile)).toBe(true);
+    expect(mayPhone(holder.profile)).toBe(false);
+    const pack = (await hostPack(db, reception.profile))!;
+    expect(pack.book).toBe(true);
+    expect(pack.rooms.length).toBeGreaterThan(0);
+    expect(JSON.stringify(pack)).not.toMatch(/"rate"|"amount"|"price/);
+    expect(await hostPack(db, holder.profile)).toBeUndefined();
+
+    // a booking sent twice (no answer, sent again) is made once; it is "to confirm" whatever is asked
+    const mk = (days: [number, number]) => ({ kind: 'stay', group_name: 'Phone group', people: 3, from_day: day(days[0]), to_day: day(days[1]), contact: 'Rim', phone: '0999', allocs: [{ room_id: r1, beds: 2 }], status: 'confirmed' });
+    const a = await phoneHostBook(reception, { key: 'phone-key-0001', booking: mk([90, 92]) });
+    const b = await phoneHostBook(reception, { key: 'phone-key-0001', booking: mk([90, 92]) });
+    expect(b.already).toBe(true);
+    expect(b.id).toBe(a.id);
+    expect((await host()).bookings.find((x) => x.id === a.id)).toMatchObject({ status: 'option', review: 1, source: 'phone' });
+    // online: change the dates, then confirm
+    await phoneHostBook(reception, { key: 'phone-key-0002', id: a.id, booking: mk([95, 97]) });
+    await phoneHostStatus(reception, { id: a.id, status: 'confirmed' });
+    expect((await host()).bookings.find((x) => x.id === a.id)).toMatchObject({ status: 'confirmed', review: 0, from_day: day(95) });
+    // a bad key is refused
+    await expect(phoneHostBook(reception, { key: '!', booking: mk([1, 2]) })).rejects.toThrow();
+  });
+});

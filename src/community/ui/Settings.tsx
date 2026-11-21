@@ -49,7 +49,8 @@ export function SettingsScreen({ onLang, onLogout, onCloseDb, onDatabases, inDes
         </Card>
       )}
       {can('users.manage') && <LookCard key={JSON.stringify(d.style)} />}
-      {can('users.manage') && s.mode !== 'preview' && <GateCard server={s.mode === 'server'} />}
+      {/* the communities' password is gone on the server (Fouad, 21 November 2026): only a desktop file still has one */}
+      {can('users.manage') && s.mode === 'desktop' && <GateCard server={false} />}
       {(can('cty.limits') || can('users.manage')) && <ControlPanel key={JSON.stringify(d.settings) + JSON.stringify(d.limits)} />}
       {!inDesk && (
         <Card>

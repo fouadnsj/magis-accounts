@@ -800,7 +800,7 @@ function Settings({ onLang, onLogout, s, d, reload }: { onLang: () => void; onLo
           <button className="btn primary" onClick={saveRates}>{t3('احفظ', 'Save', 'Enregistrer')}</button>
         </div>
       </div>
-      {s.mode !== 'preview' && has(s.profile, 'users.manage') && <GateCard server={s.mode === 'server'} />}
+      {s.mode === 'desktop' && has(s.profile, 'users.manage') && <GateCard server={false} />}
       <button className="btn" onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
     </div>
   );

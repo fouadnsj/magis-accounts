@@ -167,7 +167,7 @@ export function Grants() {
 }
 
 /** The centres a grant can be divided between (the order of the menus). */
-const SHARE_CENTRES: CentreKey[] = ['jaramana', 'aleppo', 'homs', 'other'];
+const SHARE_CENTRES: CentreKey[] = ['jaramana', 'aleppo', 'homs', 'alard', 'other'];
 
 /**
  * New or changed grant (Fouad, 2026-11-01): the donor written as a name, the contract number,

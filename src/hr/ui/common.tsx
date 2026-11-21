@@ -17,7 +17,7 @@ export const usd = (n: number | null | undefined) => (n == null ? '—' : n.toLo
 /** The list item of a person's centre, and its key (jaramana | aleppo | homs | other) for the colour and the mark. */
 export function centreOf(d: HrData, p: Pick<HrPerson, 'centre'> | null | undefined): { item: HrListItem | null; key: CentreKey } {
   const item = p?.centre ? d.lists.find((x) => x.kind === 'centre' && x.name === p.centre) ?? null : null;
-  const key = (item?.code && ['jaramana', 'aleppo', 'homs', 'other'].includes(item.code) ? item.code : p?.centre ? guessCentre(p.centre) : 'other') as CentreKey;
+  const key = (item?.code && ['jaramana', 'aleppo', 'homs', 'alard', 'other'].includes(item.code) ? item.code : p?.centre ? guessCentre(p.centre) : 'other') as CentreKey;
   return { item, key };
 }
 
@@ -74,7 +74,7 @@ export function TwoNames({ p, big }: { p: HrPerson; big?: boolean }) {
 
 // ---------------------------------------------------------------- centres (Fouad, 31 October 2026: everything is by centre)
 
-export const CENTRE_KEYS: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
+export const CENTRE_KEYS: CentreKey[] = ['jaramana', 'aleppo', 'homs', 'alard'];
 
 /** the centre code of a person, from the lists (null: no centre) */
 export const codeOf = (d: HrData, p: Pick<HrPerson, 'centre'> | null | undefined): string | null => (p?.centre ? d.lists.find((x) => x.kind === 'centre' && x.name === p.centre)?.code ?? null : null);
@@ -85,7 +85,7 @@ export const seenCentres = (d: HrData) => d.lists.filter((x) => x.kind === 'cent
 /** a centre's name for a code: Jaramana, Aleppo, Homs (one centre may have several databases, old and new); else the name kept in the lists */
 export function centreLabel(d: HrData, code: string | null | undefined): string {
   if (!code) return t3('كل المراكز', 'Every centre', 'Tous les centres');
-  if (code === 'jaramana' || code === 'aleppo' || code === 'homs') { const n = CENTRES[code].name; return t3(n.ar, n.en, n.en); }
+  if (code === 'jaramana' || code === 'aleppo' || code === 'homs' || code === 'alard') { const n = CENTRES[code].name; return t3(n.ar, n.en, n.en); }
   return d.lists.find((x) => x.kind === 'centre' && x.code === code)?.name ?? code;
 }
 
@@ -99,7 +99,7 @@ export function mainCentreName(d: HrData, code: string): string | null {
 /** the centres this user sees, one per centre (not one per database), in the order Jaramana, Aleppo, Homs, other */
 export function centreChoices(d: HrData): { code: string; name: string }[] {
   const codes = [...new Set(seenCentres(d).map((x) => x.code).filter((x): x is string => !!x))];
-  const order = ['jaramana', 'aleppo', 'homs', 'other'];
+  const order = ['jaramana', 'aleppo', 'homs', 'alard', 'other'];
   return codes.sort((a, b) => order.indexOf(a) - order.indexOf(b)).map((code) => ({ code, name: centreLabel(d, code) }));
 }
 

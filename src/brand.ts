@@ -2,7 +2,7 @@
 // colour and one mark per centre — Jaramana gold, Aleppo navy, Homs maroon.
 import { m, type Msg } from './i18n';
 
-export type CentreKey = 'jaramana' | 'aleppo' | 'homs' | 'other';
+export type CentreKey = 'jaramana' | 'aleppo' | 'homs' | 'alard' | 'other';
 
 export interface CentreStyle {
   name: Msg;
@@ -17,6 +17,8 @@ export const CENTRES: Record<CentreKey, CentreStyle> = {
   jaramana: { name: m('جرمانا', 'Jaramana'), color: '#F2C230', deep: '#8A6A1A', mark: '/brand/mark-jaramana.png' },
   aleppo: { name: m('حلب', 'Aleppo'), color: '#232D53', deep: '#232D53', mark: '/brand/mark-aleppo.png' },
   homs: { name: m('حمص', 'Homs'), color: '#5B191D', deep: '#5B191D', mark: '/brand/mark-homs.png' },
+  // the fourth house (Fouad, 21 November 2026): the shared land where the three gather to breathe; orange, retreat and the earth
+  alard: { name: m('الأرض', 'Al-Ard'), color: '#F26522', deep: '#B5410D', mark: '/brand/mark-alard.png' },
   other: { name: m('أخرى', 'Other'), color: '#B8891B', deep: '#26292E', mark: null },
 };
 
@@ -28,6 +30,7 @@ export function guessCentre(name: string): CentreKey {
   if (/homs|حمص/.test(n)) return 'homs';
   if (/alep|aleppo|حلب/.test(n)) return 'aleppo';
   if (/jaramana|جرمانا|damas|دمشق|alberto/.test(n)) return 'jaramana';
+  if (/al-?ard|الأرض|الارض/.test(n)) return 'alard';
   return 'other';
 }
 

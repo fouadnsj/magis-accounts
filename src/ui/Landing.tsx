@@ -20,7 +20,7 @@ const CHARTER = m(
   'We dream of a space in which everyone can go further, deeper, so that, together, we can find the courage to be actors of our lives and the hope to build our society.',
   "Nous rêvons d'espaces dans lesquels chacun puisse aller plus loin, davantage en profondeur, afin que, ensemble, nous puissions retrouver le courage d'être acteurs de nos vies et l'espérance pour bâtir notre société.",
 );
-const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
+const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs', 'alard'];
 
 /** The charter's dream: in Arabic, and smaller under it in English or French (Fouad, 31 October 2026). */
 export function Charter() {

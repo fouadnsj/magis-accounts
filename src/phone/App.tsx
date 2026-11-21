@@ -50,7 +50,7 @@ const when = (iso: string) => { const d = new Date(iso); return `${d.getFullYear
 const errText = (e: unknown) => (e instanceof Offline ? t('لا اتصال بالخادم', 'No connection to the server', 'Pas de connexion au serveur') : e instanceof Refused || e instanceof Unlinked ? tm(e.msg) : String((e as Error)?.message ?? e));
 
 const HOUSES: [string, () => string][] = [
-  ['jaramana', () => t('جرمانا', 'Jaramana', 'Jaramana')], ['aleppo', () => t('حلب', 'Aleppo', 'Alep')], ['homs', () => t('حمص', 'Homs', 'Homs')], ['other', () => t('غير ذلك', 'Other', 'Autre')],
+  ['jaramana', () => t('جرمانا', 'Jaramana', 'Jaramana')], ['aleppo', () => t('حلب', 'Aleppo', 'Alep')], ['homs', () => t('حمص', 'Homs', 'Homs')], ['alard', () => t('الأرض', 'Al-Ard', 'Al-Ard')], ['other', () => t('غير ذلك', 'Other', 'Autre')],
   ['jesuits', () => t('جماعات اليسوعيين', 'Jesuit communities', 'Communautés jésuites')],
 ];
 

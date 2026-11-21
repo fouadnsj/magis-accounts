@@ -106,7 +106,7 @@ function CentreModal({ s, d, item, onClose, reload }: { s: Session; d: HrData; i
   return (
     <Modal title={item?.name ?? t3('مركز جديد', 'New centre', 'Nouveau centre')} onClose={onClose}>
       <div className="hr-chips">
-        {(['jaramana', 'aleppo', 'homs', 'other'] as CentreKey[]).map((k) => <button key={k} className={f.code === k ? 'on' : ''} style={centreVars(k)} onClick={() => setF({ ...f, code: k })}><img src={markOf(k)} alt="" />{CENTRES[k].name.en}</button>)}
+        {(['jaramana', 'aleppo', 'homs', 'alard', 'other'] as CentreKey[]).map((k) => <button key={k} className={f.code === k ? 'on' : ''} style={centreVars(k)} onClick={() => setF({ ...f, code: k })}><img src={markOf(k)} alt="" />{CENTRES[k].name.en}</button>)}
       </div>
       <Field label={t3('الاسم في القوائم', 'Name in the lists', 'Nom dans les listes')}><input value={f.name} onChange={set('name')} /></Field>
       <div className="hr-two" style={{ marginTop: 10 }}>

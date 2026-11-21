@@ -29,7 +29,7 @@ async function settingsOf(c: OpCtx): Promise<PaySettings> {
   // else its last run's)
   const last = (await one<{ r: number }>(c.db, 'SELECT rate_syp AS r FROM hr_run ORDER BY ym DESC, id DESC LIMIT 1'))?.r ?? 0;
   const rates: Record<string, number> = {};
-  for (const code of ['jaramana', 'aleppo', 'homs', 'other']) {
+  for (const code of ['jaramana', 'aleppo', 'homs', 'alard', 'other']) {
     const own = get(`hr_rate_syp:${code}`, 0) || ((await one<{ r: number }>(c.db, 'SELECT rate_syp AS r FROM hr_run WHERE centre = ? ORDER BY ym DESC, id DESC LIMIT 1', [code]))?.r ?? 0);
     if (own > 0) rates[code] = own;
   }

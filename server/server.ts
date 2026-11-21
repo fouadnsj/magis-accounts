@@ -254,7 +254,7 @@ async function certificate(dataDir: string): Promise<{ key: string; cert: string
 // ---------------------------------------------------------------- centres (one database each)
 
 /** The colour code of the MAGIS design: Jaramana gold, Aleppo navy, Homs maroon. */
-export const CENTRE_KEYS = ['jaramana', 'aleppo', 'homs', 'other'] as const;
+export const CENTRE_KEYS = ['jaramana', 'aleppo', 'homs', 'alard', 'other'] as const;
 export type CentreKey = (typeof CENTRE_KEYS)[number];
 
 /** Guess the centre from a name (for databases made before centres existed). */
@@ -263,6 +263,7 @@ function guessCentre(name: string): CentreKey {
   if (/homs|حمص/.test(n)) return 'homs';
   if (/alep|aleppo|حلب/.test(n)) return 'aleppo';
   if (/jaramana|جرمانا|damas|دمشق|alberto/.test(n)) return 'jaramana';
+  if (/al-?ard|الأرض|الارض/.test(n)) return 'alard';
   return 'other';
 }
 

@@ -55,7 +55,7 @@ export interface HrConduct { id: number; version: string; valid_from: string; no
 export interface HrSign { id: number; conduct_id: number; person_id: number; signed_on: string; file_name: string | null; size: number | null }
 export interface HrDoc { id: number; person_id: number; label: string; expires_on: string | null; file_name: string; mime: string; size: number; created_at: string }
 export interface HrAlert { kind: 'agreement_ending' | 'agreement_missing' | 'doc_expiring' | 'conduct_unsigned' | 'unsigned_paper' | 'insurance_ending'; person_id: number; item_id: number | null; date: string | null; days: number | null }
-/** an item of the lists; a centre also carries its heading on the documents (code = its mark: jaramana | aleppo | homs | other) */
+/** an item of the lists; a centre also carries its heading on the documents (code = its mark: jaramana | aleppo | homs | alard | other) */
 export interface HrListItem { id: number; kind: 'centre' | 'account' | 'line'; /** a line a centre pays its tutors on */ tutor: number; name: string; code: string | null; heading: string | null; source: string | null; salary_heading: string | null; account: string | null; party_ar: string | null; party_en: string | null; rep_ar: string | null; rep_en: string | null; city_ar: string | null; city_en: string | null; /** an account: the donors who fund it (from the grants in the accounts), joined by " | " */ donors: string | null }
 /** a thing to do when someone arrives or leaves (the list is kept in the settings) */
 export interface HrCheckItem { id: number; kind: 'arrival' | 'leaving'; label_ar: string | null; label_en: string; sort: number; active: number }
@@ -276,7 +276,7 @@ export const HR_OPS = {
       if (!['centre', 'account', 'line'].includes(a.kind)) throw new UserError(m('نوع غير معروف', 'Unknown kind', 'Type inconnu'));
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
-      if (a.kind === 'centre' && a.code && !['jaramana', 'aleppo', 'homs', 'other'].includes(a.code)) throw new UserError(m('مركز غير معروف', 'Unknown centre', 'Centre inconnu'));
+      if (a.kind === 'centre' && a.code && !['jaramana', 'aleppo', 'homs', 'alard', 'other'].includes(a.code)) throw new UserError(m('مركز غير معروف', 'Unknown centre', 'Centre inconnu'));
       // the heading of one's own centre can be changed; the rest of the lists by those who see every centre
       if (a.kind === 'centre' && a.id) { needCentre(c, (await one<{ code: string | null }>(c.db, 'SELECT code FROM hr_list WHERE id = ?', [a.id]))?.code); needCentre(c, txt(a.code)); } else needAll(c);
       const doc = [txt(a.party_ar), txt(a.party_en), txt(a.rep_ar), txt(a.rep_en), txt(a.city_ar), txt(a.city_en)];
@@ -593,7 +593,7 @@ export const HR_OPS = {
     run: async (c: OpCtx, a: { id?: number | null; name: string; accessId: number; centres: string[] | null; password?: string | null; active?: boolean }) => {
       const name = txt(a.name);
       if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty', 'Le nom est vide'));
-      const centres = (a.centres ?? []).filter((x) => ['jaramana', 'aleppo', 'homs', 'other'].includes(x));
+      const centres = (a.centres ?? []).filter((x) => ['jaramana', 'aleppo', 'homs', 'alard', 'other'].includes(x));
       // a user who sees some centres gives only those (and never "every centre")
       const sc = scopeOf(c);
       if (sc && (!centres.length || centres.some((x) => !sc.includes(x)))) throw new UserError(m('اختر من مراكزك فقط', 'Choose among your own centres only', 'Choisissez seulement parmi vos centres'));

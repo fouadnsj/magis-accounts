@@ -11,7 +11,7 @@ import { BrandFrame, Charter, DbCard, ValuesFoot } from './Landing';
 import { DirSetup, Forgot } from './Directory';
 import { Field, errText } from './kit';
 
-const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs'];
+const HOUSES: CentreKey[] = ['jaramana', 'aleppo', 'homs', 'alard'];
 const t3 = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
 
 /** the house and the name last used in this browser (never the password) */
@@ -24,10 +24,12 @@ const remember = (house: CentreKey, name: string) => {
 
 /** The sentences of the MAGIS animation (July 2026): one for each house, and the hope that holds them together. */
 const HOPE = m('رغم كلِّ شيء، الرجاء ممكن', 'Despite everything, hope is possible', "Malgré tout, l'espérance est possible");
-const SENTENCE: Record<'jaramana' | 'aleppo' | 'homs', Msg> = {
+const SENTENCE: Record<'jaramana' | 'aleppo' | 'homs' | 'alard', Msg> = {
   jaramana: m('في هذا البيت، البابُ مفتوحٌ قبل أن تصل', 'In this house the door is open before you arrive', 'Dans cette maison, la porte est ouverte avant que tu arrives'),
   aleppo: m('كلُّ إنسانٍ يدخل من هنا هو بداية', 'Everyone who comes through here is a beginning', 'Chaque personne qui entre ici est un commencement'),
   homs: m('أيدٍ مفتوحة، بعد كلِّ ما فُقد', 'Open hands, after everything that was lost', 'Des mains ouvertes, après tout ce qui a été perdu'),
+  // from the caption of the network page: "the shared land where the three gather to breathe" (the Arabic and French are to be confirmed)
+  alard: m('الأرضُ المشتركة، حيث يجتمع الثلاثة ليتنفّسوا', 'The shared land where the three gather to breathe', 'La terre commune où les trois viennent respirer'),
 };
 /** The Jesuits' sentence, like each house's: Ad Majorem Dei Gloriam (Fouad, 21 November 2026) */
 const AMDG = m('لمجد الله الأعظم', 'Ad Majorem Dei Gloriam', 'Ad Majorem Dei Gloriam');

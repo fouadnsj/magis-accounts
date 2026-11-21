@@ -28,8 +28,8 @@ const SENTENCE: Record<'jaramana' | 'aleppo' | 'homs' | 'alard', Msg> = {
   jaramana: m('في هذا البيت، البابُ مفتوحٌ قبل أن تصل', 'In this house the door is open before you arrive', 'Dans cette maison, la porte est ouverte avant que tu arrives'),
   aleppo: m('كلُّ إنسانٍ يدخل من هنا هو بداية', 'Everyone who comes through here is a beginning', 'Chaque personne qui entre ici est un commencement'),
   homs: m('أيدٍ مفتوحة، بعد كلِّ ما فُقد', 'Open hands, after everything that was lost', 'Des mains ouvertes, après tout ce qui a été perdu'),
-  // from the caption of the network page: "the shared land where the three gather to breathe" (the Arabic and French are to be confirmed)
-  alard: m('الأرضُ المشتركة، حيث يجتمع الثلاثة ليتنفّسوا', 'The shared land where the three gather to breathe', 'La terre commune où les trois viennent respirer'),
+  // Fouad, 21 November 2026: «الأرض: حيث يمكننا المضي للعمق» (the English and French follow his Arabic; to be confirmed)
+  alard: m('الأرض: حيث يمكننا المضي للعمق', 'Al-Ard: where we can go deep', 'Al-Ard : là où nous pouvons aller en profondeur'),
 };
 /** The Jesuits' sentence, like each house's: Ad Majorem Dei Gloriam (Fouad, 21 November 2026) */
 const AMDG = m('لمجد الله الأعظم', 'Ad Majorem Dei Gloriam', 'Ad Majorem Dei Gloriam');

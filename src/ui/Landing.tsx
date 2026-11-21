@@ -16,7 +16,7 @@ import { DirAdmin, DirSetup } from './Directory';
 
 /** The MAGIS Charter, in its three languages (Reference/MAGIS-charter.md): shown on the welcome page. */
 const CHARTER = m(
-  'فإنّنا نحلم بخلق مِساحاتٍ يستطيع فيها الجميع المضيّ أبعدَ وأعمق، فنجدَ معًا الشجاعة ونُحيي الرجاءَ لنكون فاعلين في حياتنا ومجتمعنا.',
+  'نحلم بخلق مِساحاتٍ يستطيع فيها الجميع المضيّ أبعدَ وأعمق، فنجدَ معًا الشجاعة ونُحيي الرجاءَ لنكون فاعلين في حياتنا ومجتمعنا.',
   'We dream of a space in which everyone can go further, deeper, so that, together, we can find the courage to be actors of our lives and the hope to build our society.',
   "Nous rêvons d'espaces dans lesquels chacun puisse aller plus loin, davantage en profondeur, afin que, ensemble, nous puissions retrouver le courage d'être acteurs de nos vies et l'espérance pour bâtir notre société.",
 );

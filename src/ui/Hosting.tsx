@@ -483,13 +483,18 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
       )}
       <Field label={t('ملاحظة في أسفل الوصل (طريقة الدفع، شكر…)', 'A note at the foot (how to pay, a thank-you…)')}><textarea className="inp" rows={2} style={{ width: '100%' }} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
 
-      <p style={{ margin: '10px 0 0' }}>
-        <b>{t('المجموع', 'Total')}: {fmtTotals(tot.total)}</b>{counted.length ? <> · {t('المدفوع', 'Paid')}: {fmtTotals(tot.paid)} · <b>{t('المتبقي', 'Balance due')}: {fmtTotals(tot.due)}</b></> : null}
-      </p>
-      <div className="modal-foot">
+      {/* the totals and the buttons stay at the bottom of the window while the rest scrolls */}
+      <div className="host-rcpt-foot">
+        <div className="host-rcpt-tot">
+          <span><small>{t('المجموع', 'Total')}</small> <b>{fmtTotals(tot.total)}</b></span>
+          {counted.length > 0 && <span><small>{t('المدفوع', 'Paid')}</small> {fmtTotals(tot.paid)}</span>}
+          {counted.length > 0 && <span><small>{t('المتبقي', 'Balance due')}</small> <b>{fmtTotals(tot.due)}</b></span>}
+        </div>
+      <div className="modal-foot" style={{ marginTop: 8 }}>
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn" disabled={busy || !name.trim() || needRate} onClick={() => void preview()}>{t('معاينة', 'Preview')}</button>
         <button className="btn primary" disabled={busy || !name.trim() || needRate} onClick={() => void exportPdf()}>{t('احفظ PDF', 'Export PDF')}</button>
+      </div>
       </div>
     </Modal>
   );

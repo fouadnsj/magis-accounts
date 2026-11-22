@@ -975,3 +975,9 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-note { margin: 10px 0 4px; padding: 8px 11px; background: #fff7df; border: 1px solid #ecd9a0; border-radius: 8px; font-size: 14px; line-height: 1.4; }
 
 .host-rcpt td { vertical-align: top; } .host-rcpt .inp { width: 100%; min-width: 0; }
+
+/* the receipt window: the totals and the buttons stay in view at the bottom */
+.host-rcpt-foot { position: sticky; bottom: -20px; background: #fff; margin: 12px -22px -20px; padding: 10px 22px 16px; border-top: 1px solid var(--line, #e3dccb); box-shadow: 0 -6px 12px rgba(0,0,0,0.05); border-radius: 0 0 12px 12px; }
+.host-rcpt-tot { display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 15px; }
+.host-rcpt-tot small { color: var(--muted, #6b665c); margin-inline-end: 4px; }
+@media (max-width: 700px) { .host-rcpt-foot { bottom: -30px; margin: 12px -14px -30px; padding: 10px 14px 16px; } }

@@ -47,6 +47,8 @@ says "build". Five new database updates (58 to 62); each database is copied befo
   adjust, before exporting, the date, reference, name, **number of people, number of nights, every line** (meals and services: description,
   quantity, price, currency), what is shown (rooms, equipment), the payments and a note. It saves a **PDF** titled *Receipt · وصل استلام*
   (never "invoice"), with the **centre logo and the Jesuit logo**, Arabic in **Amiri**, totals per currency and the balance. Nothing is stored.
+  **Currency of the receipt**: each amount as it is, or all in USD, or all in SYP at a rate you type (1 USD = … SYP; remembered for next time and
+  printed on the receipt). **Preview** shows the PDF in the window before saving; *Back to edit* keeps everything typed.
   New: the library `@pdf-lib/fontkit` and two font files in `public/fonts` (the program grows by about 0.6 MB).
 
 ## 2. Reports (Calendar → Reports)

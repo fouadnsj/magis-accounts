@@ -7,7 +7,7 @@ import { useApp } from '../state';
 import { Field, Modal, Select, Tabs, biName, confirmBox, errText, fmtDate, fmtUsd, promptBox, t, toast, todayIso } from './kit';
 import { saveFile } from '../platform';
 import { hostWorkbook } from '../io/hostFile';
-import { initialRows, receiptPdf, receiptTotals, rowAmount, type ReceiptRow } from '../io/hostReceipt';
+import { convertReceipt, initialRows, receiptPdf, receiptTotals, rowAmount, type ReceiptRow } from '../io/hostReceipt';
 import { brandStyle } from '../brand';
 import { GuideLink } from '../guide/GuideView';
 import { useNav } from './Shell';
@@ -347,6 +347,9 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
   const [showEquip, setShowEquip] = useState(true);
   const pays = data.pays.filter((p) => p.booking_id === b.id && p.status !== 'refused');
   const [payOn, setPayOn] = useState<Set<number>>(() => new Set(pays.map((p) => p.id)));
+  // one currency for the whole receipt (USD, or SYP at a rate), or each amount as it is
+  const [asCur, setAsCur] = useState<'as' | Currency>('as');
+  const [rate, setRate] = useState(() => { try { return localStorage.getItem('magis-receipt-rate') ?? ''; } catch { return ''; } });
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<EditRow[]>(() => {
     let n = 0;
@@ -370,27 +373,57 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
   const set = (id: number, patch: Partial<EditRow>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const cur = b.currency;
   const counted = pays.filter((p) => payOn.has(p.id));
-  const tot = receiptTotals(rows, counted);
+  const rateNum = Number(rate) || 0;
+  const conv = asCur !== 'as' && rateNum > 0 ? { to: asCur, rate: rateNum } : null;
+  const shown = conv ? convertReceipt(rows, counted, conv) : { rows, payments: counted, changed: false };
+  const tot = receiptTotals(shown.rows, shown.payments);
+  const needRate = asCur !== 'as' && !(rateNum > 0);
   const where = data.allocs.filter((a) => a.booking_id === b.id).map((a) => ({ a, r: data.rooms.find((x) => x.id === a.room_id) })).filter((x): x is { a: HostAlloc; r: HostRoom } => !!x.r)
     .map(({ a, r }) => `${data.buildings.find((x) => x.id === r.building_id)?.name ?? ''} · ${r.name}${r.kind === 'bedroom' ? ` (${a.beds ?? r.beds} beds)` : r.capacity ? ` (up to ${r.capacity} people)` : ''}`);
   const equip = data.needs.filter((n) => n.booking_id === b.id).map((n) => `${data.equip.find((e) => e.id === n.equip_id)?.name ?? ''} x ${n.qty}`);
 
+  // the PDF as it is now (used by the preview and by the export)
+  const build = async (): Promise<Uint8Array> => {
+    const get = async (u: string) => new Uint8Array(await (await fetch(u)).arrayBuffer());
+    const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
+    const [arabic, arabicBold, jesuit, centre] = await Promise.all([get('/fonts/amiri-arabic-400.ttf'), get('/fonts/amiri-arabic-700.ttf'), get('/brand/jesuits.png').catch(() => null), st.mark ? get(st.mark).catch(() => null) : Promise.resolve(null)]);
+    return receiptPdf({
+      organisation: s.organisation ?? '', logos: { jesuit, centre }, fonts: { arabic, arabicBold }, accent: st.deep,
+      issuedOn: date, ref, kind: b.kind, billedTo: { name, contact, phone }, from_day: b.from_day, to_day: b.to_day, people: num(people), nights: num(nights), repeats: !!b.repeat_days,
+      rooms: showRooms ? where : [], equipment: showEquip ? equip : [], rows: shown.rows.map(({ label, sub, qty, unit, currency }) => ({ label, sub, qty, unit, currency })),
+      payments: shown.payments.map((p) => ({ paid_on: p.paid_on, receipt_no: p.receipt_no, amount: p.amount, currency: p.currency })), conversion: conv && shown.changed ? conv : undefined, note,
+    });
+  };
+  const rememberRate = () => { if (conv) { try { localStorage.setItem('magis-receipt-rate', String(rateNum)); } catch { /* the rate is only remembered for next time */ } } };
   const exportPdf = async () => {
+    if (needRate) { toast(t('اكتب سعر الصرف', 'Write the exchange rate'), true); return; }
     setBusy(true);
     try {
-      const get = async (u: string) => new Uint8Array(await (await fetch(u)).arrayBuffer());
-      const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
-      const [arabic, arabicBold, jesuit, centre] = await Promise.all([get('/fonts/amiri-arabic-400.ttf'), get('/fonts/amiri-arabic-700.ttf'), get('/brand/jesuits.png').catch(() => null), st.mark ? get(st.mark).catch(() => null) : Promise.resolve(null)]);
-      const bytes = await receiptPdf({
-        organisation: s.organisation ?? '', logos: { jesuit, centre }, fonts: { arabic, arabicBold }, accent: st.deep,
-        issuedOn: date, ref, kind: b.kind, billedTo: { name, contact, phone }, from_day: b.from_day, to_day: b.to_day, people: num(people), nights: num(nights), repeats: !!b.repeat_days,
-        rooms: showRooms ? where : [], equipment: showEquip ? equip : [], rows: rows.map(({ label, sub, qty, unit, currency }) => ({ label, sub, qty, unit, currency })),
-        payments: counted.map((p) => ({ paid_on: p.paid_on, receipt_no: p.receipt_no, amount: p.amount, currency: p.currency })), note,
-      });
-      await saveFile(`receipt_${ref.replace(/[^A-Za-z0-9-]+/g, '')}_${todayIso()}.pdf`, ['pdf'], bytes, t('احفظ وصل الاستلام', 'Save the receipt'));
+      rememberRate();
+      await saveFile(`receipt_${ref.replace(/[^A-Za-z0-9-]+/g, '')}_${todayIso()}.pdf`, ['pdf'], await build(), t('احفظ وصل الاستلام', 'Save the receipt'));
       onClose();
     } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
   };
+  // a look at the receipt before saving it: the same PDF, shown in the window; "Back" keeps everything typed
+  const [view, setView] = useState<string | null>(null);
+  useEffect(() => () => { if (view) URL.revokeObjectURL(view); }, [view]);
+  const preview = async () => {
+    if (needRate) { toast(t('اكتب سعر الصرف', 'Write the exchange rate'), true); return; }
+    setBusy(true);
+    try { const bytes = await build(); setView(URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+  };
+
+  if (view) {
+    return (
+      <Modal title={`${t('معاينة وصل الاستلام', 'Preview of the receipt')} · ${b.group_name}`} onClose={() => setView(null)}>
+        <iframe title="receipt" src={view} style={{ width: '100%', height: '68vh', minHeight: 360, border: '1px solid var(--line, #ccc)', borderRadius: 6 }} />
+        <div className="modal-foot">
+          <button className="btn" onClick={() => setView(null)}>{t('رجوع للتعديل', 'Back to edit')}</button>
+          <button className="btn primary" disabled={busy} onClick={() => void exportPdf()}>{t('احفظ PDF', 'Export PDF')}</button>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal title={`${t('وصل استلام', 'Receipt')} · ${b.group_name}`} onClose={onClose}>
@@ -422,6 +455,19 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
         </tbody></table>
       <button className="btn small" onClick={() => setRows((rs) => [...rs, { id: nextId++, label: '', qty: 1, unit: 0, currency: cur }])}>＋ {t('بند', 'Add a line')}</button>
 
+      <h3 style={{ margin: '12px 0 4px' }}>{t('عملة الوصل', 'Currency of the receipt')}</h3>
+      <div className="small">
+        <label><input type="radio" name="rc-cur" checked={asCur === 'as'} onChange={() => setAsCur('as')} /> {t('كل مبلغ بعملته', 'Each amount in its own currency')}</label>{' '}
+        <label><input type="radio" name="rc-cur" checked={asCur === 'USD'} onChange={() => setAsCur('USD')} /> {t('الكل بالدولار', 'All in USD')}</label>{' '}
+        <label><input type="radio" name="rc-cur" checked={asCur === 'SYP'} onChange={() => setAsCur('SYP')} /> {t('الكل بالليرة السورية', 'All in SYP')}</label>
+      </div>
+      {asCur !== 'as' && (
+        <div className="small" style={{ marginTop: 6 }}>
+          <label>1 USD = <input className="inp" type="number" min={0} step="any" style={{ width: 120, direction: 'ltr' }} value={rate} onChange={(e) => setRate(e.target.value)} /> SYP</label>
+          <span className="muted"> · {needRate ? t('اكتب سعر الصرف المعتمد', 'Write the rate you agree on') : t('يُطبع سعر الصرف على الوصل', 'The rate is printed on the receipt')}</span>
+        </div>
+      )}
+
       <h3 style={{ margin: '12px 0 4px' }}>{t('ما يظهر', 'What is shown')}</h3>
       <div className="small">
         <label><input type="checkbox" checked={showRooms} onChange={(e) => setShowRooms(e.target.checked)} /> {t('الغرف', 'The rooms')}</label>{' '}
@@ -440,7 +486,8 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
       </p>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
-        <button className="btn primary" disabled={busy || !name.trim()} onClick={() => void exportPdf()}>{t('احفظ PDF', 'Export PDF')}</button>
+        <button className="btn" disabled={busy || !name.trim() || needRate} onClick={() => void preview()}>{t('معاينة', 'Preview')}</button>
+        <button className="btn primary" disabled={busy || !name.trim() || needRate} onClick={() => void exportPdf()}>{t('احفظ PDF', 'Export PDF')}</button>
       </div>
     </Modal>
   );

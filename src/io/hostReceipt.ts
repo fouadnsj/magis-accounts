@@ -10,6 +10,19 @@ import { stayAmount, type Currency, type HostBooking, type Totals } from '../hos
 export interface ReceiptRow { label: string; /** a small line under it (e.g. "18 people x 3 nights") */ sub?: string; qty: number; unit: number; currency: Currency }
 export const rowAmount = (r: Pick<ReceiptRow, 'qty' | 'unit'>) => Math.round((Number(r.qty) || 0) * (Number(r.unit) || 0) * 100) / 100;
 
+/** a receipt shown in one currency only: every amount in `to`, at `rate` = how many SYP are 1 USD */
+export interface ReceiptConversion { to: Currency; rate: number }
+export const convertAmount = (v: number, from: Currency, c: ReceiptConversion) =>
+  from === c.to ? v : c.to === 'SYP' ? Math.round(v * c.rate) : Math.round((v / c.rate) * 100) / 100;
+/** the lines and the payments in the one currency (a price is converted, then multiplied, so the lines still add up); `changed` = something was converted */
+export function convertReceipt<P extends { amount: number; currency: Currency }>(rows: ReceiptRow[], payments: P[], c: ReceiptConversion) {
+  return {
+    rows: rows.map((r) => (r.currency === c.to ? r : { ...r, unit: convertAmount(r.unit, r.currency, c), currency: c.to })),
+    payments: payments.map((p) => (p.currency === c.to ? p : { ...p, amount: convertAmount(p.amount, p.currency, c), currency: c.to })),
+    changed: rows.some((r) => r.currency !== c.to && rowAmount(r) !== 0) || payments.some((p) => p.currency !== c.to && p.amount !== 0),
+  };
+}
+
 /** what the receipt comes to in each currency, what was paid, and what is still due */
 export function receiptTotals(rows: ReceiptRow[], payments: { amount: number; currency: Currency }[]) {
   const total: Totals = { USD: 0, SYP: 0 }, paid: Totals = { USD: 0, SYP: 0 };
@@ -58,6 +71,8 @@ export interface ReceiptDoc {
   rows: ReceiptRow[];
   /** the payments received that are counted (empty: none shown) */
   payments: { paid_on: string; receipt_no: string; amount: number; currency: Currency }[];
+  /** set when the amounts were converted to one currency: a line at the foot gives the rate */
+  conversion?: ReceiptConversion;
   /** a line printed at the foot (bank details, a thank-you, a condition…) */
   note: string;
 }
@@ -248,6 +263,14 @@ export async function receiptPdf(x: ReceiptDoc): Promise<Uint8Array> {
     y -= 4;
     rule(y + 10, accent);
     totalLine('Balance due · المتبقي', (c) => due[c], true, accent);
+  }
+
+  if (x.conversion) {
+    const rt = x.conversion.rate.toLocaleString('en-US', { maximumFractionDigits: 4 });
+    y -= 10;
+    ensure(14);
+    put(`Rate · سعر الصرف:  1 USD = ${rt} SYP`, M, y, 9, { color: muted });
+    y -= 12.5;
   }
 
   // ---- a note, then the foot of every page

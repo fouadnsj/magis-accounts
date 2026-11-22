@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
-import { initialRows, receiptPdf, receiptTotals, rowAmount, type ReceiptDoc } from '../src/io/hostReceipt';
+import { convertReceipt, initialRows, receiptPdf, receiptTotals, rowAmount, type ReceiptDoc } from '../src/io/hostReceipt';
 
 const pub = (p: string) => new Uint8Array(fs.readFileSync(new URL('../public/' + p, import.meta.url)));
 const bk = { kind: 'stay' as const, people: 18, price_mode: 'person' as const, rate: 10, currency: 'USD' as const, from_day: '2027-01-20', to_day: '2027-01-23', repeat_days: null };
@@ -53,5 +53,20 @@ describe('the PDF', () => {
     const rows = Array.from({ length: 70 }, (_, i) => ({ label: `Line ${i + 1} · بند ${i + 1}`, qty: 2, unit: 3, currency: 'USD' as const }));
     const back = await PDFDocument.load(await receiptPdf(doc({ rows })));
     expect(back.getPageCount()).toBeGreaterThan(1);
+  });
+  it('one currency for the whole receipt: prices are converted, lines still add up, a PDF is written', async () => {
+    const rows = [{ label: 'Stay', qty: 54, unit: 10, currency: 'USD' as const }, { label: 'Fuel', qty: 1, unit: 130000, currency: 'SYP' as const }];
+    const pays = [{ paid_on: '2026-11-20', receipt_no: 'H2027-0001', amount: 200, currency: 'USD' as const }];
+    const toSyp = convertReceipt(rows, pays, { to: 'SYP', rate: 13000 });
+    expect(toSyp.rows.map((r) => r.currency)).toEqual(['SYP', 'SYP']);
+    expect(toSyp.rows[0].unit).toBe(130000);
+    expect(receiptTotals(toSyp.rows, toSyp.payments).total.SYP).toBe(54 * 130000 + 130000);
+    expect(receiptTotals(toSyp.rows, toSyp.payments).paid.SYP).toBe(2600000);
+    expect(toSyp.changed).toBe(true);
+    const toUsd = convertReceipt(rows, pays, { to: 'USD', rate: 13000 });
+    expect(receiptTotals(toUsd.rows, toUsd.payments).total).toEqual({ USD: 550, SYP: 0 });
+    expect(convertReceipt([rows[0]], [], { to: 'USD', rate: 13000 }).changed).toBe(false);
+    const bytes = await receiptPdf(doc({ rows: toSyp.rows, payments: toSyp.payments, conversion: { to: 'SYP', rate: 13000 } }));
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
   });
 });

@@ -99,6 +99,13 @@ program answered for every active person of every database (centre, community, H
 program on a copy of the whole folder, each database took a `before-update` copy, then upgraded. The two phones already linked
 to Homs keep working and take the new phone app by themselves. Nothing private was printed or kept (no names, no keys).
 
+### Final check before the build (22 November 2026, done by me)
+Type check clean; 274 tests pass; web and server both build. The guide was completed (booking, drag and filter, reports and Excel, the
+receipt, the phone's Day/Week/Month, Admin → Appearance). The upgrade was run again on **copies** of the six databases of `real-db/MAGIS`
+(Homs, the Homs community, the country, HR, the demo, the Province account), from 57 to 62: no row lost in any table, integrity check
+ok, no foreign-key problem. The real folder was only read. Not checked: the Windows installer itself, the PDF preview inside the
+Windows and Mac apps, a real phone.
+
 ### Earlier rehearsal on older copies (Homs 11 Nov, Aleppo 30 Oct)
 Copies of the real Homs (11 Nov, schema 49) and Aleppo (30 Oct, schema 35; and the new November one) were upgraded with
 this version, in a temporary folder: 11 to 25 updates applied in about 40 ms; **every row of every table is still there**,

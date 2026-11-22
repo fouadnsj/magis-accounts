@@ -10,11 +10,11 @@ import { hostWorkbook } from '../io/hostFile';
 import { GuideLink } from '../guide/GuideView';
 import { useNav } from './Shell';
 import {
-  addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, heldDays, knownNames, nameKey, nightsOf, occupancy, PALETTE, report, stayAmount, takenOn, toReview,
-  type BookingKind, type BookingStatus, type Currency, type HostAsset, type HostBooking, type HostData, type HostRoom, type Totals,
+  addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, equipmentLoad, heldDays, knownNames, live, nameKey, nightsOf, occupancy, PALETTE, report, shortagesFor, stayAmount, takenOn, toReview,
+  type BookingKind, type BookingStatus, type Currency, type Shortage, type HostAsset, type HostBooking, type HostData, type HostRoom, type Totals,
 } from '../hosting/host';
 
-type Tab = 'calendar' | 'bookings' | 'report' | 'payments' | 'settings';
+type Tab = 'calendar' | 'bookings' | 'equipment' | 'report' | 'payments' | 'settings';
 /** where a new booking starts: the rooms and the days picked on the calendar (the last night is `to` minus one day) */
 interface NewStart { rooms?: number[]; from?: string; to?: string }
 
@@ -32,6 +32,17 @@ const dayShort = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(un
 const kindName = (d: HostData, r: HostRoom) => biName(d.kinds.find((k) => k.id === r.kind_id)?.name ?? '') || (r.kind === 'bedroom' ? t('غرفة نوم', 'Bedroom') : t('قاعة', 'Hall'));
 const assetsOf = (d: HostData, r: HostRoom): HostAsset[] => d.assets.filter((a) => a.room_id === r.id);
 const assetText = (xs: HostAsset[]) => xs.map((a) => (a.qty > 1 ? `${a.qty} ${a.name}` : a.name)).join(' · ');
+/** the shortages of equipment, one line per piece of equipment: the days and who asks for it too */
+function shortageLines(d: Pick<HostData, 'equip' | 'bookings'>, xs: Shortage[]) {
+  const by = new Map<number, Shortage[]>();
+  for (const x of xs) by.set(x.equip_id, [...(by.get(x.equip_id) ?? []), x]);
+  return [...by].map(([id, list]) => {
+    const e = d.equip.find((q) => q.id === id);
+    const worst = [...list].sort((a, b) => b.wanted - a.wanted)[0];
+    const others = [...new Set(list.flatMap((x) => x.with))].map((i) => d.bookings.find((b) => b.id === i)?.group_name).filter(Boolean);
+    return { id, name: e?.name ?? '', days: list.length, first: list[0].day, wanted: worst.wanted, have: worst.have, others: others as string[] };
+  });
+}
 const roomName = (d: HostData, r: HostRoom) => `${d.buildings.find((b) => b.id === r.building_id)?.name ?? ''} · ${r.name}`;
 const phoneLink = (p: string | null) => (p ? <a href={`tel:${p.replace(/\s/g, '')}`} dir="ltr">{p}</a> : null);
 
@@ -44,6 +55,8 @@ export function Hosting() {
   const [tab, setTab] = useState<Tab>('calendar');
   const [data, setData] = useState<HostData | null>(null);
   const [edit, setEdit] = useState<{ booking: HostBooking | null; start?: NewStart } | null>(null);
+  // clicking a booking shows its information in a side window; changing it needs "Modify" (to avoid mistakes)
+  const [viewId, setViewId] = useState<number | null>(null);
   const [review, setReview] = useState<boolean>((d.host?.review ?? 0) > 0);
   const load = useCallback(async () => {
     try { setData(await s.api.call('host.get')); } catch (e) { toast(errText(e), true); }
@@ -59,6 +72,7 @@ export function Hosting() {
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'calendar', label: t('التقويم', 'Calendar') },
         { value: 'bookings', label: t('الحجوزات', 'Bookings') },
+        { value: 'equipment', label: t('التجهيزات', 'Equipment'), hidden: !data?.equip.some((e) => e.active) && !keeps },
         { value: 'report', label: t('تقارير', 'Reports') },
         { value: 'payments', label: `${t('الدفعات', 'Payments')}${toEnter ? ` (${toEnter})` : ''}`, hidden: !priced },
         { value: 'settings', label: t('المباني والغرف', 'Buildings and rooms'), hidden: !keeps },
@@ -70,11 +84,13 @@ export function Hosting() {
               <b>{waiting.length}</b> {t('حجز من الهاتف ينتظر نظرة', 'booking(s) made on a phone wait for a look')} <button className="btn small" onClick={() => setReview(true)}>{t('انظر', 'Look')}</button>
             </div>
           )}
-          {tab === 'calendar' && <CalendarTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={(start) => setEdit({ booking: null, start })} />}
-          {tab === 'bookings' && <BookingsTab data={data} books={books} onOpen={(b) => setEdit({ booking: b })} onNew={() => setEdit({ booking: null })} />}
-          {tab === 'report' && <ReportTab data={data} onOpen={(b) => setEdit({ booking: b })} />}
+          {tab === 'calendar' && <CalendarTab data={data} books={books} onOpen={(b) => setViewId(b.id)} onNew={(start) => setEdit({ booking: null, start })} />}
+          {tab === 'bookings' && <BookingsTab data={data} books={books} onOpen={(b) => setViewId(b.id)} onNew={() => setEdit({ booking: null })} />}
+          {tab === 'equipment' && <EquipmentTab data={data} onOpen={(b) => setViewId(b.id)} />}
+          {tab === 'report' && <ReportTab data={data} onOpen={(b) => setViewId(b.id)} />}
           {tab === 'payments' && priced && <PaymentsTab data={data} refresh={both} />}
           {tab === 'settings' && keeps && <SettingsTab data={data} refresh={both} />}
+          {viewId != null && !edit && data.bookings.some((x) => x.id === viewId) && <BookingView data={data} booking={data.bookings.find((x) => x.id === viewId)!} canChange={books} onClose={() => setViewId(null)} onModify={(b) => { setViewId(null); setEdit({ booking: b }); }} refresh={both} />}
           {edit && <BookingEditor data={data} start={edit} onClose={() => setEdit(null)} refresh={both} />}
           {review && waiting.length > 0 && <ReviewBox data={data} onClose={() => setReview(false)} refresh={both} onChange={(b) => { setReview(false); setEdit({ booking: b }); }} />}
         </>
@@ -271,6 +287,8 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
   const [q, setQ] = useState('');
   const list = data.bookings.filter((b) => (kind === 'all' || b.kind === kind) && (st === 'all' ? b.status !== 'cancelled' || false : b.status === st) && (!q.trim() || `${b.group_name} ${b.contact ?? ''} ${b.code}`.toLowerCase().includes(q.trim().toLowerCase())));
   const sorted = [...list].sort((a, b) => b.from_day.localeCompare(a.from_day));
+  // the bookings whose equipment does not suffice (with the others that meet them)
+  const bad = useMemo(() => new Set(data.bookings.filter((b) => live(b) && data.needs.some((n) => n.booking_id === b.id) && shortagesFor(b, data.needs.filter((n) => n.booking_id === b.id), data).length > 0).map((b) => b.id)), [data]);
   const names = (id: number) => data.allocs.filter((a) => a.booking_id === id).map((a) => { const r = data.rooms.find((x) => x.id === a.room_id); return r ? roomName(data, r) : ''; }).join('، ');
   return (
     <>
@@ -292,7 +310,7 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
             const total = bookingTotals(b, data.lines.filter((l) => l.booking_id === b.id));
             return (
               <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(b)}>
-                <td>{b.code}{b.review ? ' 📱' : ''}</td><td><b>{b.group_name}</b>{b.kind === 'event' ? <small> · {t('نشاط', 'event')}</small> : null}</td>
+                <td>{b.code}{b.review ? ' 📱' : ''}{bad.has(b.id) ? <span title={t('التجهيزات المطلوبة لا تكفي', 'Not enough equipment')}> ⚠</span> : null}</td><td><b>{b.group_name}</b>{b.kind === 'event' ? <small> · {t('نشاط', 'event')}</small> : null}</td>
                 <td>{fmtDate(b.from_day)}</td><td>{fmtDate(b.to_day)}</td><td className="n">{b.people}</td><td>{names(b.id)}</td>
                 <td><span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span></td>
                 {data.prices && <><td className="n">{total.USD || total.SYP ? fmtTotals(total) : ''}</td><td className="n">{total.USD || total.SYP ? fmtTotals(dueOf(total, data.pays.filter((p) => p.booking_id === b.id))) : ''}</td></>}
@@ -303,6 +321,75 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
         </tbody>
       </table></div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- the booking's information, in a side window (who, where, when, what they need)
+
+/** Read only: a click on a booking shows this; the form to change it opens only with "Modify". The amounts only for those who see prices. */
+function BookingView({ data, booking: b, canChange, onClose, onModify, refresh }: { data: HostData; booking: HostBooking; canChange: boolean; onClose: () => void; onModify: (b: HostBooking) => void; refresh: () => Promise<void> }) {
+  const { s } = useApp();
+  const [busy, setBusy] = useState(false);
+  // the two things reception does most, in one click: they arrived, they left (anything else needs Modify)
+  const mark = async (status: BookingStatus) => {
+    setBusy(true);
+    try { await s.api.call('host.booking.status', { id: b.id, status }); await refresh(); toast(status === 'arrived' ? t('سُجّل وصولهم', 'Marked as arrived') : t('سُجّلت مغادرتهم', 'Marked as left')); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+  };
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [onClose]);
+  const rooms = data.allocs.filter((a) => a.booking_id === b.id).map((a) => ({ a, r: data.rooms.find((x) => x.id === a.room_id) })).filter((x): x is { a: (typeof data.allocs)[number]; r: HostRoom } => !!x.r);
+  const needs = data.needs.filter((n) => n.booking_id === b.id).map((n) => ({ n, e: data.equip.find((x) => x.id === n.equip_id) }));
+  const lines = data.lines.filter((l) => l.booking_id === b.id);
+  const short = shortageLines(data, shortagesFor(b, data.needs.filter((n) => n.booking_id === b.id), data));
+  const total = data.prices ? bookingTotals(b, lines) : { USD: 0, SYP: 0 };
+  const days = heldDays(b).length;
+  const pays = data.pays.filter((p) => p.booking_id === b.id);
+  const row = (label: string, body: React.ReactNode) => <div className="host-vrow"><small className="muted">{label}</small><div>{body}</div></div>;
+  return (
+    <aside className="host-drawer" role="dialog" aria-label={b.group_name}>
+      <header>
+        <div><b>{b.group_name}</b><br /><small className="muted">{b.code} · {b.kind === 'event' ? t('نشاط في قاعة', 'Event') : t('إقامة', 'Stay')}{b.source === 'phone' ? ' · 📱' : ''}</small></div>
+        <button className="btn ghost small" onClick={onClose} aria-label="close">✕</button>
+      </header>
+      <p style={{ margin: '4px 0 10px' }}><span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span>{b.cancel_reason ? <small className="muted"> · {b.cancel_reason}</small> : null}</p>
+
+      <h4>{t('من', 'Who')}</h4>
+      {row(t('المجموعة', 'Group'), <>{b.group_name} · {b.people} {t('شخصاً', 'people')}</>)}
+      {(b.contact || b.phone) && row(t('المسؤول', 'In charge'), <>{b.contact} {phoneLink(b.phone)}</>)}
+
+      <h4>{t('متى', 'When')}</h4>
+      {row(b.kind === 'stay' ? t('الإقامة', 'Stay') : t('الأيام', 'Days'), <>{fmtDate(b.from_day)} → {fmtDate(b.to_day)} · {b.kind === 'stay' ? `${days} ${t('ليلة', 'night(s)')}` : `${days} ${b.repeat_days ? t('جلسة', 'session(s)') : t('يوم', 'day(s)')}`}</>)}
+      {b.kind === 'event' && b.time_from && row(t('الساعة', 'Hours'), <span dir="ltr">{b.time_from}{b.time_to ? ` – ${b.time_to}` : ''}</span>)}
+      {b.repeat_days && row(t('يتكرر', 'Repeats every'), b.repeat_days.split(',').map((d) => weekday(Number(d))).join('، '))}
+
+      <h4>{t('أين', 'Where')}</h4>
+      {rooms.length ? rooms.map(({ a, r }) => row(roomName(data, r), <>{kindName(data, r)}{r.beds > 0 ? ` · ${a.beds ?? r.beds} ${t('من', 'of')} ${r.beds} ${t('سرير', 'beds')}` : r.capacity ? ` · ${t('حتى', 'up to')} ${r.capacity} ${t('شخصاً', 'people')}` : ''}</>)) : <p className="muted small">{t('لم تُحدَّد غرف', 'No rooms chosen yet')}</p>}
+
+      <h4>{t('ماذا يحتاجون', 'What they need')}</h4>
+      {needs.length === 0 && lines.length === 0 && <p className="muted small">{t('لا شيء مطلوب', 'Nothing asked for')}</p>}
+      {needs.map(({ n, e }) => <div key={n.equip_id} className="host-vrow"><div>🎛 {e?.name ?? '?'} × {n.qty}</div></div>)}
+      {short.map((x) => <p key={x.id} className="small" style={{ color: 'var(--err)', margin: '2px 0' }}>⚠ {x.name}: {x.wanted} {t('مطلوب', 'asked for')}, {t('والجرد يحوي', 'the inventory holds')} {x.have}{x.others.length ? ` — ${t('تطلبه أيضاً', 'also asked by')}: ${x.others.join('، ')}` : ''}</p>)}
+      {lines.map((l) => <div key={l.id} className="host-vrow"><div>🍽 {l.label}{l.qty !== 1 ? ` × ${l.qty}` : ''}{data.prices && l.amount ? <small className="muted"> · {money(l.amount, l.currency)}</small> : null}</div></div>)}
+      {b.note && <><h4>{t('ملاحظة', 'Note')}</h4><p className="small">{b.note}</p></>}
+
+      {data.prices && (b.rate != null || lines.length > 0 || pays.length > 0) && (
+        <>
+          <h4>{t('المال', 'Money')}</h4>
+          {b.rate != null && row(t('السعر', 'Price'), <>{b.price_mode === 'group' ? t('ثابت للمجموعة', 'fixed for the group') : t('للشخص في الليلة', 'per person per night')}: {money(b.rate, b.currency)}</>)}
+          {row(t('المجموع', 'Total'), <>{fmtTotals(total)} · {t('المتبقي', 'due')} {fmtTotals(dueOf(total, pays))}</>)}
+        </>
+      )}
+
+      <div className="host-vfoot">
+        {canChange && <button className="btn" disabled={busy} onClick={() => onModify(b)}>{t('عدّل', 'Modify')}</button>}
+        {canChange && b.kind === 'stay' && b.status === 'confirmed' && <button className="btn primary" disabled={busy} onClick={() => void mark('arrived')}>{t('وصلوا', 'Arrived')}</button>}
+        {canChange && b.kind === 'stay' && b.status === 'arrived' && <button className="btn primary" disabled={busy} onClick={() => void mark('left')}>{t('غادروا', 'Left')}</button>}
+        <button className="btn ghost" onClick={onClose}>{t('إغلاق', 'Close')}</button>
+      </div>
+    </aside>
   );
 }
 
@@ -343,6 +430,8 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
     if (!b) for (const r of start.start?.rooms ?? []) m.set(r, null);
     return m;
   });
+  // the equipment the group asks for (chosen from the list taken from the inventory)
+  const [needs, setNeeds] = useState<{ equip_id: number | null; qty: string }[]>(() => data.needs.filter((n) => n.booking_id === b?.id).map((n) => ({ equip_id: n.equip_id, qty: String(n.qty) })));
   const [lines, setLines] = useState<Line[]>(() => data.lines.filter((l) => l.booking_id === b?.id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: String(l.qty), amount: String(l.amount), currency: l.currency })));
   const [busy, setBusy] = useState(false);
   const readOnly = !(can('hosting.book') || canPrice);
@@ -362,19 +451,26 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
   const pays = data.pays.filter((p) => p.booking_id === b?.id);
   const due = dueOf(total, pays);
 
+  const needsOk = needs.filter((n) => n.equip_id != null && Number(n.qty) >= 1).map((n) => ({ equip_id: n.equip_id as number, qty: Math.round(Number(n.qty)) }));
+  // would the others that meet this booking and this booking ask for more than the inventory holds?
+  const short = dates && needsOk.length ? shortagesFor(probe, needsOk, data) : [];
   const body = () => ({
     id: b?.id, kind: f.kind, group_name: f.group_name, contact: f.contact, phone: f.phone, people, from_day: f.from_day, to_day: f.to_day, note: f.note, repeat_days: repeatDays ? repeatDays.split(',').map(Number) : null, ...hours,
     price_mode: f.rate === '' ? null : f.price_mode, rate: f.rate === '' ? null : Number(f.rate), currency: f.currency,
     allocs: [...allocs].map(([room_id, beds]) => ({ room_id, beds })),
+    needs: needsOk,
     lines: lines.filter((l) => l.label.trim() || l.service_id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: Number(l.qty) || 1, amount: Number(l.amount) || 0, currency: l.currency })),
   });
   const save = async (status?: BookingStatus, reason?: string | null) => {
+    // confirming with equipment that does not exist in the stock asked: say so first
+    if (status === 'confirmed' && short.length && !(await confirmBox(`${t('التجهيزات لا تكفي:', 'Not enough equipment:')} ${shortageLines(data, short).map((x) => `${x.name} (${x.wanted}/${x.have})`).join('، ')}. ${t('أكّد مع ذلك؟', 'Confirm anyway?')}`))) return;
     setBusy(true);
     try {
       const r = await s.api.call('host.booking.save', body());
       if (status && status !== b?.status) await s.api.call('host.booking.status', { id: r.id, status, reason });
       await refresh();
       onClose();
+      if (r.shortages?.length) toast(`${t('تنبيه: التجهيزات لا تكفي', 'Careful: not enough equipment')}: ${shortageLines(data, r.shortages).map((x) => x.name).join('، ')}`, true);
       if (!status && r.conflicts) toast(t('تنبيه: الغرف محجوزة لمجموعة أخرى (للتأكيد فقط)', 'Careful: the rooms are also held by another group (not confirmed yet)'));
     } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
   };
@@ -456,6 +552,28 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
       {people > 0 && capTotal > 0 && people > capTotal && <p className="small" style={{ color: 'var(--err)' }}>⚠ {t(`عدد الأشخاص (${people}) أكبر من سعة القاعات المختارة (${capTotal})`, `${people} people, but the rooms chosen hold ${capTotal}`)}</p>}
       {sure.length > 0 && <p className="small" style={{ color: 'var(--err)' }}>{t('لا يمكن التأكيد: الغرف محجوزة لمجموعة مؤكَّدة في هذه الأيام. غيّر التواريخ أو الغرف.', 'It cannot be confirmed: the rooms are taken by a confirmed group on these days. Change the dates or the rooms.')}</p>}
 
+      {(data.equip.some((e) => e.active) || needs.length > 0) && (
+        <>
+          <h3 style={{ margin: '10px 0 4px' }}>{t('التجهيزات المطلوبة', 'Equipment asked for')}</h3>
+          {needs.map((n, i) => {
+            const e = data.equip.find((x) => x.id === n.equip_id);
+            return (
+              <div key={i} className="row" style={{ gap: 6, marginBottom: 4, alignItems: 'center' }}>
+                <Select value={n.equip_id} options={data.equip.filter((x) => x.active || x.id === n.equip_id).map((x) => ({ value: x.id, label: `${x.name} (${x.total})` }))} placeholder={t('تجهيز من الجرد…', 'Equipment (from the inventory)…')} disabled={readOnly}
+                  onChange={(v) => setNeeds((xs) => xs.map((x, k) => (k === i ? { ...x, equip_id: v } : x)))} />
+                <input className="inp" type="number" min={1} style={{ width: 70 }} title={t('العدد', 'How many')} disabled={readOnly} value={n.qty} onChange={(ev) => setNeeds((xs) => xs.map((x, k) => (k === i ? { ...x, qty: ev.target.value } : x)))} />
+                {e && <small className="muted">{e.total} {t('في الجرد', 'in the inventory')}</small>}
+                {!readOnly && <button className="btn ghost small" onClick={() => setNeeds((xs) => xs.filter((_, k) => k !== i))}>✕</button>}
+              </div>
+            );
+          })}
+          {!readOnly && <button className="btn small" onClick={() => setNeeds((xs) => [...xs, { equip_id: null, qty: '1' }])}>＋ {t('تجهيز', 'Equipment')}</button>}
+          {shortageLines(data, short).map((x) => (
+            <p key={x.id} className="small" style={{ color: 'var(--err)', margin: '4px 0' }}>⚠ {x.name}: {x.wanted} {t('مطلوب', 'asked for')}, {t('والموجود في الجرد', 'the inventory holds')} {x.have}{x.days > 1 ? ` (${x.days} ${t('أيام', 'days')}, ${t('من', 'from')} ${fmtDate(x.first)})` : ` (${fmtDate(x.first)})`}{x.others.length ? ` — ${t('تطلبه أيضاً', 'also asked by')}: ${x.others.join('، ')}` : ''}</p>
+          ))}
+        </>
+      )}
+
       <h3 style={{ margin: '10px 0 4px' }}>{t('الخدمات', 'Services')}</h3>
       {lines.map((l, i) => (
         <div key={i} className="row" style={{ gap: 6, marginBottom: 4, alignItems: 'center' }}>
@@ -505,8 +623,8 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
         <button className="btn" onClick={onClose}>{t('إغلاق', 'Close')}</button>
         {!readOnly && <button className="btn" disabled={busy || !f.group_name.trim() || !dates} onClick={() => void save()}>{!b || b.status === 'option' ? t('احفظ «للتأكيد»', 'Save as "to confirm"') : t('احفظ التغييرات', 'Save the changes')}</button>}
         {!readOnly && (!b || b.status === 'option') && <button className="btn primary" disabled={busy || !f.group_name.trim() || !dates || !allocs.size || sure.length > 0} onClick={() => void save('confirmed')}>{t('أكّد الحجز', 'Confirm the booking')}</button>}
-        {!readOnly && b?.status === 'confirmed' && <button className="btn primary" disabled={busy} onClick={() => void save('arrived')}>{t('وصلوا', 'They arrived')}</button>}
-        {!readOnly && b?.status === 'arrived' && <button className="btn primary" disabled={busy} onClick={() => void save('left')}>{t('غادروا', 'They left')}</button>}
+        {!readOnly && b?.kind === 'stay' && b.status === 'confirmed' && <button className="btn primary" disabled={busy} onClick={() => void save('arrived')}>{t('وصلوا', 'They arrived')}</button>}
+        {!readOnly && b?.kind === 'stay' && b.status === 'arrived' && <button className="btn primary" disabled={busy} onClick={() => void save('left')}>{t('غادروا', 'They left')}</button>}
         {!readOnly && b?.status === 'cancelled' && <button className="btn" disabled={busy} onClick={() => void save('option')}>{t('أعده للتأكيد', 'Back to "to confirm"')}</button>}
       </div>
       {payForm && (
@@ -649,6 +767,62 @@ function BusyView({ r, onOpen }: { r: ReturnType<typeof report>; onOpen: (b: Hos
   );
 }
 
+// ---------------------------------------------------------------- equipment: what is asked for, day by day, against what the inventory holds
+
+function EquipmentTab({ data, onOpen }: { data: HostData; onOpen: (b: HostBooking) => void }) {
+  const [from, setFrom] = useState(todayIso());
+  const [span, setSpan] = useState(14);
+  const days = useMemo(() => Array.from({ length: span }, (_, i) => addDays(from, i)), [from, span]);
+  const rows = useMemo(() => equipmentLoad(data, days[0], days[days.length - 1]).filter((r) => r.equip.active || r.days.size > 0), [data, days]);
+  const today = todayIso();
+  const over = rows.flatMap((r) => [...r.days].filter(([, x]) => x.wanted > r.equip.total).map(([day, x]) => ({ equip: r.equip, day, ...x }))).sort((a, b) => a.day.localeCompare(b.day));
+  return (
+    <>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+        <button className="btn small" onClick={() => setFrom(addDays(from, -7))}>‹</button>
+        <button className="btn small" onClick={() => setFrom(today)}>{t('اليوم', 'Today')}</button>
+        <button className="btn small" onClick={() => setFrom(addDays(from, 7))}>›</button>
+        <input className="inp" type="date" style={{ width: 150 }} value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} />
+        <select value={span} onChange={(e) => setSpan(Number(e.target.value))}><option value={7}>{t('أسبوع', '1 week')}</option><option value={14}>{t('أسبوعان', '2 weeks')}</option><option value={31}>{t('شهر', '1 month')}</option></select>
+      </div>
+      <p className="small muted">{t('كل خانة: كم مطلوب في ذلك اليوم من كل التجهيزات، مقابل ما في الجرد (الأغراض قيد الاستعمال وبحالة جيدة). أحمر = المطلوب أكثر من الموجود.', 'Each cell: how many are asked for that day, against what the inventory holds (items in use and in good condition). Red = more asked for than exist.')}</p>
+      {rows.length === 0 ? <p className="muted">{t('لا تجهيزات بعد: يختارها من يمسك التقويم من الجرد في «المباني والغرف».', 'No equipment yet: whoever keeps the calendar chooses it from the inventory in "Buildings and rooms".')}</p> : (
+        <div className="tbl-wrap host-wrap">
+          <table className="host-grid">
+            <thead><tr><th className="host-room">{t('التجهيز', 'Equipment')}</th>{days.map((dy) => <th key={dy} className={dy === today ? 'today' : dy.slice(8) === '01' ? 'first' : ''}><small>{dayShort(dy)}</small><br />{dy.slice(8)}{dy.slice(8) === '01' ? <small>/{dy.slice(5, 7)}</small> : null}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.equip.id}>
+                  <th className="host-room">{r.equip.name}<small> · {r.equip.total}</small></th>
+                  {days.map((dy) => {
+                    const x = r.days.get(dy);
+                    if (!x) return <td key={dy} />;
+                    const cls = x.wanted > r.equip.total ? 'over' : x.wanted === r.equip.total ? 'full' : 'ok';
+                    return <td key={dy} className={`host-eq ${cls}`} title={x.bookings.map((b) => `${b.group_name} (${data.needs.find((n) => n.booking_id === b.id && n.equip_id === r.equip.id)?.qty})`).join('\n')} onClick={() => onOpen(x.bookings[0])}>{x.wanted}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {over.length > 0 && (
+        <div className="panel" style={{ borderColor: 'var(--err)', marginTop: 12 }}>
+          <b>⚠ {t('أيام لا تكفي فيها التجهيزات', 'Days when the equipment is not enough')}</b>
+          <table className="t small"><tbody>
+            {over.map((x) => (
+              <tr key={`${x.equip.id}-${x.day}`}>
+                <td>{fmtDate(x.day)}</td><td>{x.equip.name}</td><td className="n">{x.wanted} / {x.equip.total}</td>
+                <td>{x.bookings.map((b) => <button key={b.id} type="button" className="btn ghost small" onClick={() => onOpen(b)}>{b.group_name} ({data.needs.find((n) => n.booking_id === b.id && n.equip_id === x.equip.id)?.qty}){b.status === 'option' ? ` · ${t('للتأكيد', 'to confirm')}` : ''}</button>)}</td>
+              </tr>
+            ))}
+          </tbody></table>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- reports
 
 /** accommodation and events over a period: totals, months, buildings, and how many bookings each group and each person made */
@@ -784,6 +958,10 @@ function SettingsTab({ data, refresh }: { data: HostData; refresh: () => Promise
   const { s } = useApp();
   const [room, setRoom] = useState<{ id?: number; building_id: number; name: string; beds: string; capacity: string; kind_id: number | null; active: boolean } | null>(null);
   const [kindForm, setKindForm] = useState<{ id?: number; name: string; sleeps: boolean; active: boolean; used: boolean } | null>(null);
+  // the equipment that bookings may ask for: names chosen from the inventory
+  const [invNames, setInvNames] = useState<{ name: string; total: number; good: number }[]>([]);
+  const [pick, setPick] = useState('');
+  useEffect(() => { void s.api.call('host.equip.options').then(setInvNames).catch(() => setInvNames([])); }, [s, data.equip.length]);
   const firstKind = (sleeps: boolean) => data.kinds.find((k) => k.active && !!k.sleeps === sleeps)?.id ?? null;
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); await refresh(); } catch (e) { toast(errText(e), true); } };
   const addBuilding = async () => {
@@ -800,6 +978,24 @@ function SettingsTab({ data, refresh }: { data: HostData; refresh: () => Promise
   };
   return (
     <>
+      <div className="panel">
+        <h3 style={{ margin: 0 }}>{t('التجهيزات التي يمكن طلبها', 'Equipment a booking can ask for')}</h3>
+        <p className="small muted">{t('تُختار من أسماء الأغراض في الجرد (جهاز عرض، سبّورة، مكبّرات صوت، كراسٍ…). عددها يُحسب من الجرد (الأغراض قيد الاستعمال وبحالة جيدة)، فإن طلبت حجوزات متزامنة أكثر منه يُنبَّه إلى ذلك قبل أن يقع.', 'Chosen from the names of the items in the inventory (video projector, whiteboard, speakers, chairs…). How many exist is counted live from the inventory (items in use and in good condition): when overlapping bookings ask for more, the program warns before it happens.')}</p>
+        <table className="t small"><tbody>
+          {data.equip.map((e) => (
+            <tr key={e.id} style={{ opacity: e.active ? 1 : 0.5 }}><td>{e.name}</td><td className="n">{e.total} {t('في الجرد', 'in the inventory')}</td>
+              <td><button className="btn ghost small" onClick={() => void act(() => s.api.call('host.equip.save', { id: e.id, active: !e.active }))}>{e.active ? t('أوقف', 'Switch off') : t('أعد', 'Switch on')}</button></td></tr>
+          ))}
+        </tbody></table>
+        <div className="row" style={{ gap: 6, marginTop: 6, alignItems: 'center' }}>
+          <select value={pick} onChange={(e) => setPick(e.target.value)}>
+            <option value="">{t('اختر غرضاً من الجرد…', 'Choose an item of the inventory…')}</option>
+            {invNames.filter((x) => !data.equip.some((e) => e.name.toLowerCase() === x.name.trim().toLowerCase())).map((x) => <option key={x.name} value={x.name}>{x.name} ({x.good}{x.good !== x.total ? ` / ${x.total}` : ''})</option>)}
+          </select>
+          <button className="btn small" disabled={!pick} onClick={() => void act(async () => { await s.api.call('host.equip.save', { name: pick }); setPick(''); })}>＋ {t('أضف', 'Add')}</button>
+        </div>
+        {!invNames.length && <p className="small muted">{t('الجرد فارغ: سجّل الأغراض فيه أولاً.', 'The inventory is empty: list the items there first.')}</p>}
+      </div>
       <div className="panel">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0 }}>{t('أنواع الغرف', 'Kinds of room')}</h3><button className="btn small" onClick={() => setKindForm({ name: '', sleeps: false, active: true, used: false })}>＋ {t('نوع', 'Kind')}</button></div>
         <p className="small muted">{t('نوع «فيه أسرّة» تُحسب فيه الأسرّة (غرفة نوم)؛ والأنواع الأخرى (قاعة، صف…) لها سعة: أكبر عدد من الأشخاص.', 'A kind "with beds" counts beds (a bedroom); the others (hall, classroom…) have a capacity: the most people they hold.')}</p>

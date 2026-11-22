@@ -2063,4 +2063,25 @@ ALTER TABLE host_room ADD COLUMN capacity INTEGER NOT NULL DEFAULT 0;   -- the m
 UPDATE host_room SET kind_id = CASE kind WHEN 'bedroom' THEN 1 WHEN 'hall' THEN 2 ELSE 6 END;
 `,
   },
+  {
+    n: 62,
+    name: 'hosting: equipment a booking asks for (a list taken from the inventory), checked against what the inventory holds',
+    sql: `
+-- (Fouad, 2026-11-22) A group may need a whiteboard, a video projector, speakers… The list of what can be asked for is chosen
+-- from the inventory's own item names; how many exist is counted live from the inventory (items in use and in good condition).
+-- If the bookings that overlap ask for more than exists, the program says so before it happens.
+CREATE TABLE host_equip (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,   -- an item name of the inventory
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE host_need (
+  booking_id INTEGER NOT NULL REFERENCES host_booking(id) ON DELETE CASCADE,
+  equip_id   INTEGER NOT NULL REFERENCES host_equip(id),
+  qty        INTEGER NOT NULL CHECK (qty >= 1),
+  PRIMARY KEY (booking_id, equip_id)
+);
+`,
+  },
 ];

@@ -1,7 +1,7 @@
 # What is new in 0.12.0 — list made 22 November 2026
 
 Everything below is committed on `main` after the tag `v0.11.4`. **Nothing is in an installer yet**: build only when Fouad
-says "build". Four new database updates (58, 59, 60, 61); each database is copied before it changes, as always.
+says "build". Five new database updates (58 to 62); each database is copied before it changes, as always.
 
 ## 1. Accommodation and calendar (a new section, per centre)
 - **Switched on per centre** in *Admin → Sections* (off by default). The *Inventory* has the same switch (on by default).
@@ -33,6 +33,16 @@ says "build". Four new database updates (58, 59, 60, 61); each database is copie
   **What a hall holds comes from the inventory**: the room is already a place of the inventory, so the items placed in it
   (video projector, sound system, microphones, chairs…) are listed, added up by name, in the room list and in the booking
   form; the booking form warns when the people are more than the capacity. The phone carries the capacity.
+
+- **A booking's information in a side window** (read only): who, when, where, what they need; changes need **Modify**;
+  for a stay, **Arrived** and **Left** in one click (not for events: their attendance will follow later with the people
+  and attendance section). The amounts show only to roles with the prices tick.
+- **Equipment a booking asks for, checked against the inventory** (migration 62): the list of what can be asked for is chosen
+  from the inventory's item names; the count is read live (in use, good condition). The program **foresees** the case of
+  four events asking for a projector when the inventory holds three: a warning in the booking (who else asks), when saving,
+  when confirming ("Confirm anyway?"), a ⚠ in the bookings list, and an **Equipment** tab with a day-by-day grid (red =
+  more asked for than exist) and the list of days and bookings concerned. Events whose hours do not cross do not compete.
+  Limit: the count is for the whole centre (it does not know which projector is in which room).
 
 ## 2. Reports (Calendar → Reports)
 - Period (this year, last year, all time, dates), type, with or without the bookings still "to confirm".

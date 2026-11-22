@@ -5,7 +5,7 @@ import { runOp, type DataPayload, type OpCtx } from '../src/ops';
 import { loadProfile } from '../src/auth';
 import { createOffice } from '../src/setup';
 import type { Db } from '../src/db/db';
-import { bookingTotals, colorOf, knownNames, nameKey, report, conflictsOf, dueOf, heldDays, nextCode, nextReceipt, nightsOf, occupancy, PALETTE, stayAmount, type HostData } from '../src/hosting/host';
+import { bookingTotals, colorOf, equipmentLoad, knownNames, nameKey, report, shortagesFor, conflictsOf, dueOf, heldDays, nextCode, nextReceipt, nightsOf, occupancy, PALETTE, stayAmount, type HostData } from '../src/hosting/host';
 import { nodeDb } from './nodeDb';
 
 const store = new Map<string, Uint8Array>();
@@ -548,6 +548,95 @@ describe('kinds of room, capacity, and what a hall holds (from the inventory)', 
     const { hostPack } = await import('../server/phone');
     const pack = (await hostPack(db, reception.profile))!;
     expect(pack.rooms.find((r) => r.id === hallId)?.capacity).toBe(25);
+  });
+});
+
+describe('equipment a booking asks for, against what the inventory holds', () => {
+  let projector = 0, board = 0;
+  const halls = async () => (await host()).rooms.filter((r) => r.kind !== 'bedroom' && r.active).map((r) => r.id);
+  const ev = async (group: string, dayN: number, projectors: number, o: Record<string, unknown> = {}) => {
+    const h = await halls();
+    return (await runOp(sup, 'host.booking.save', { kind: 'event', group_name: group, people: 10, from_day: day(dayN), to_day: day(dayN), allocs: [{ room_id: h[(o.room as number) ?? 0] }], needs: projectors ? [{ equip_id: projector, qty: projectors }] : [], ...o, room: undefined })) as { id: number; shortages: { equip_id: number; day: string; wanted: number; have: number; with: number[] }[] };
+  };
+
+  it('the list of equipment comes from the inventory\'s own names, and the count is read live (in use, in good condition)', async () => {
+    // two video projectors in the inventory (one is already in the hall), a whiteboard
+    await runOp(sup, 'inv.item.many', { items: [{ name: 'Video projector', qty: 1 }, { name: 'Whiteboard', qty: 3 }] });
+    const opts = (await runOp(sup, 'host.equip.options', undefined)) as { name: string; total: number }[];
+    expect(opts.find((o) => o.name === 'Video projector')?.total).toBeGreaterThanOrEqual(2);
+    // only a name the inventory holds can be chosen; any case; twice gives the same one; only a keeper
+    await expect(runOp(sup, 'host.equip.save', { name: 'Flying carpet' })).rejects.toThrow();
+    projector = ((await runOp(sup, 'host.equip.save', { name: 'video PROJECTOR' })) as { id: number }).id;
+    expect(((await runOp(sup, 'host.equip.save', { name: 'Video projector' })) as { id: number }).id).toBe(projector);
+    board = ((await runOp(sup, 'host.equip.save', { name: 'Whiteboard' })) as { id: number }).id;
+    await expect(runOp(reception, 'host.equip.save', { name: 'Chair' })).rejects.toThrow();
+    const d = await host();
+    expect(d.equip.find((e) => e.id === projector)?.total).toBe(2);
+    // a broken one no longer counts
+    await db.batch([{ sql: "UPDATE inv_item SET condition = 'broken' WHERE id = (SELECT MAX(id) FROM inv_item WHERE name = 'Video projector')" }]);
+    expect((await host()).equip.find((e) => e.id === projector)?.total).toBe(1);
+    await db.batch([{ sql: "UPDATE inv_item SET condition = 'good' WHERE name = 'Video projector'" }]);
+    expect((await host()).equip.find((e) => e.id === projector)?.total).toBe(2);
+  });
+
+  it('four events on one day each want a projector and there are two: the third and the fourth are told, and who else asks', async () => {
+    const a = await ev('Event A', 600, 1, { room: 0 });
+    const b2 = await ev('Event B', 600, 1, { room: 1 });
+    expect(a.shortages).toEqual([]);
+    expect(b2.shortages).toEqual([]);
+    const c3 = await ev('Event C', 600, 1, { room: 2 });
+    expect(c3.shortages).toEqual([{ equip_id: projector, day: day(600), wanted: 3, have: 2, with: expect.arrayContaining([a.id, b2.id]) }]);
+    // a booking that asks nothing is never told
+    expect((await ev('Event D', 600, 0, { room: 0 })).shortages).toEqual([]);
+    // the screens' own rule agrees, and the day-by-day load says 3 against 2
+    const d = await host();
+    expect(shortagesFor(d.bookings.find((x) => x.id === c3.id)!, d.needs.filter((n) => n.booking_id === c3.id), d).length).toBe(1);
+    const load = equipmentLoad(d, day(599), day(601)).find((r) => r.equip.id === projector)!;
+    expect(load.days.get(day(600))?.wanted).toBe(3);
+    expect(load.days.get(day(599))).toBeUndefined();
+    // confirming says it too
+    const c = await runOp(sup, 'host.booking.status', { id: c3.id, status: 'confirmed' }) as { ok: boolean; shortages: unknown[] };
+    expect(c.ok).toBe(true);
+    expect(c.shortages.length).toBe(1);
+  });
+
+  it('two events whose hours do not cross do not compete; a cancelled booking frees what it asked for', async () => {
+    const x = await ev('Morning', 610, 2, { room: 0, time_from: '09:00', time_to: '11:00' });
+    const y = await ev('Evening', 610, 2, { room: 1, time_from: '17:00', time_to: '19:00' });
+    expect(x.shortages).toEqual([]);
+    expect(y.shortages).toEqual([]);
+    const clash = await ev('Crossing', 610, 1, { room: 2, time_from: '10:00', time_to: '12:00' });
+    expect(clash.shortages.length).toBe(1); // 2 (Morning) + 1 = 3 > 2
+    await runOp(sup, 'host.booking.status', { id: x.id, status: 'cancelled', reason: 'test' });
+    const again = await ev('Crossing 2', 611, 2, { room: 0 });
+    expect(again.shortages).toEqual([]);
+    const d = await host();
+    expect(shortagesFor(d.bookings.find((b) => b.id === clash.id)!, d.needs.filter((n) => n.booking_id === clash.id), d)).toEqual([]);
+  });
+
+  it('a request for something not on the list is refused; reception sees the requests, never a price; deleting a booking removes them', async () => {
+    const h = await halls();
+    await expect(runOp(sup, 'host.booking.save', { kind: 'event', group_name: 'Bad', from_day: day(620), to_day: day(620), allocs: [{ room_id: h[0] }], needs: [{ equip_id: 9999, qty: 1 }] })).rejects.toThrow();
+    const made = await ev('Seen', 621, 1, { room: 0 });
+    const forDesk = await host(reception);
+    expect(forDesk.needs.some((n) => n.booking_id === made.id)).toBe(true);
+    expect(forDesk.prices).toBe(false);
+    // reception may ask for equipment on a booking
+    const byDesk = (await runOp(reception, 'host.booking.save', { kind: 'event', group_name: 'Desk event', people: 5, from_day: day(622), to_day: day(622), allocs: [{ room_id: h[0] }], needs: [{ equip_id: board, qty: 2 }] })) as { id: number };
+    expect((await host()).needs.find((n) => n.booking_id === byDesk.id)).toMatchObject({ equip_id: board, qty: 2 });
+    await runOp(sup, 'host.booking.delete', { id: byDesk.id });
+    expect((await host()).needs.some((n) => n.booking_id === byDesk.id)).toBe(false);
+  });
+
+  it('arrived and left are for accommodation only: an event cannot be marked so; a stay can', async () => {
+    const e = await ev('Event no arrival', 630, 0, { room: 0 });
+    await runOp(sup, 'host.booking.status', { id: e.id, status: 'confirmed' });
+    await expect(runOp(sup, 'host.booking.status', { id: e.id, status: 'arrived' })).rejects.toThrow();
+    await expect(runOp(sup, 'host.booking.status', { id: e.id, status: 'left' })).rejects.toThrow();
+    const stay = (await runOp(sup, 'host.booking.save', { kind: 'stay', group_name: 'Guests', people: 2, from_day: day(640), to_day: day(642), allocs: [{ room_id: r2 }], status: 'confirmed' })) as { id: number };
+    await runOp(sup, 'host.booking.status', { id: stay.id, status: 'arrived' });
+    await runOp(sup, 'host.booking.status', { id: stay.id, status: 'left' });
+    expect((await host()).bookings.find((b) => b.id === stay.id)?.status).toBe('left');
   });
 });
 

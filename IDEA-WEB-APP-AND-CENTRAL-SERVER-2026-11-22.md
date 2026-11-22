@@ -78,3 +78,6 @@ The current Hostinger plan cannot run this program.
    the app behaves with 10,000 people?
 
 Related: `~/.claude/.../memory/merge-web-app-idea.md`, `../Alberto WebSite/REPRISE.md`, `../Alberto WebSite/next/docs/data-model.md`.
+
+## Added 22 November (Fouad)
+Events in the calendar are followed with **attendance later**: no arrived/left for an event now; its attendance will come with the people and attendance section if the web application is moved into this app.

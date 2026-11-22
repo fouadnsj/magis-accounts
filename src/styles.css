@@ -950,3 +950,16 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 @media (hover: none) { .mg-admin-word { max-height: none; opacity: 1; transform: none; } }
 
 .host-assets { display: block; flex-basis: 100%; font-size: 11px; }
+
+/* equipment: asked for against what the inventory holds */
+.host-eq { cursor: pointer; font-weight: 700; color: var(--ink); }
+.host-eq.ok { background: color-mix(in srgb, var(--centre) 30%, #fff); }
+.host-eq.full { background: #e8c25a; }
+.host-eq.over { background: #c62828; color: #fff; }
+
+/* a booking's information in a side window; the form opens only with Modify */
+.host-drawer { position: fixed; top: 0; bottom: 0; inset-inline-end: 0; width: min(400px, 100vw); background: var(--panel); border-inline-start: 1px solid var(--line); box-shadow: -8px 0 28px rgba(0,0,0,.14); z-index: 900; padding: 16px 18px 16px; overflow-y: auto; }
+.host-drawer header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.host-drawer h4 { margin: 14px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+.host-vrow { display: flex; flex-direction: column; margin: 4px 0; }
+.host-vfoot { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 12px 0; margin-top: 16px; background: var(--panel); border-top: 1px solid var(--line); }

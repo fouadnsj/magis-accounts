@@ -12,7 +12,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
   checkBooking, clashing, conflictsOf, holds, isDay, nextCode, nextReceipt, STATUSES, toReview, withoutPrices,
-  type BookingKind, type BookingStatus, type Currency, type HostAlloc, type HostAsset, type HostBooking, type HostBuilding, type HostData, type HostKind, type HostLine, type HostPay, type HostRoom, type HostService,
+  shortagesFor, type BookingKind, type BookingStatus, type Currency, type HostAlloc, type HostAsset, type HostEquip, type HostNeed, type HostBooking, type HostBuilding, type HostData, type HostKind, type HostLine, type HostPay, type HostRoom, type HostService,
 } from './host';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non autorisé pour cet utilisateur'));
@@ -40,6 +40,8 @@ export async function loadHosting(c: OpCtx): Promise<HostData> {
     buildings: await c.db.query<HostBuilding>('SELECT * FROM host_building ORDER BY sort, name'),
     rooms: await c.db.query<HostRoom>('SELECT * FROM host_room ORDER BY building_id, sort, name'),
     kinds: await c.db.query<HostKind>('SELECT * FROM host_kind ORDER BY sort, name'),
+    equip: await equipOf(c),
+    needs: await c.db.query<HostNeed>('SELECT * FROM host_need'),
     // what each meeting space holds: the items of the inventory placed in it (projector, sound system, chairs…)
     assets: await c.db.query<HostAsset>("SELECT r.id AS room_id, i.name AS name, SUM(i.qty) AS qty FROM host_room r JOIN inv_item i ON i.place_id = r.place_id AND i.status = 'in_use' WHERE r.place_id IS NOT NULL AND r.kind <> 'bedroom' GROUP BY r.id, i.name ORDER BY r.id, i.name"),
     services: await c.db.query<HostService>('SELECT * FROM host_service ORDER BY sort, name'),
@@ -51,6 +53,11 @@ export async function loadHosting(c: OpCtx): Promise<HostData> {
     prices: true,
   };
   return priced(c) ? d : withoutPrices(d);
+}
+
+/** the equipment that can be asked for, each with how many the inventory holds (items in use and in good condition) */
+async function equipOf(c: OpCtx): Promise<HostEquip[]> {
+  return c.db.query<HostEquip>("SELECT e.*, COALESCE((SELECT SUM(i.qty) FROM inv_item i WHERE lower(trim(i.name)) = lower(trim(e.name)) AND i.status = 'in_use' AND i.condition = 'good'), 0) AS total FROM host_equip e ORDER BY e.sort, e.name");
 }
 
 async function roomsOf(c: OpCtx) { return c.db.query<HostRoom>('SELECT * FROM host_room'); }
@@ -83,6 +90,8 @@ export interface BookingInput {
   currency?: Currency;
   note?: string | null;
   allocs?: { room_id: number; beds?: number | null }[];
+  /** the equipment the group asks for */
+  needs?: { equip_id: number; qty: number }[];
   lines?: { id?: number; service_id?: number | null; label?: string; qty?: number; amount?: number; currency?: Currency }[];
   /** a booking made with no connection: the phone's own number for it, and where it was made */
   client_ref?: string | null;
@@ -134,7 +143,7 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
   const old = a.id ? await bookingOf(c, a.id) : null;
   const dup = a.client_ref ? await one<{ id: number }>(c.db, 'SELECT id FROM host_booking WHERE client_ref = ?', [a.client_ref]) : null;
   // a phone that sent the same booking twice (no answer, sent again): the first one stays
-  if (dup && !old) return { id: dup.id, conflicts: 0, again: true };
+  if (dup && !old) return { id: dup.id, conflicts: 0, again: true, shortages: [] };
   // the repeat and the hours are for events only (never a stay)
   const rep = kind === 'event' ? (Array.isArray(a.repeat_days) ? a.repeat_days : typeof a.repeat_days === 'string' && a.repeat_days ? a.repeat_days.split(',') : []).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6) : [];
   const repeat = rep.length ? [...new Set(rep)].sort((x, y) => x - y).join(',') : null;
@@ -196,9 +205,23 @@ async function saveBooking(c: OpCtx, a: BookingInput) {
     const lineCur = withPrice ? cur(l.currency ?? currency) : (l.id != null ? had.get(l.id)?.currency : null) ?? currency;
     stmts.push({ sql: 'INSERT INTO host_line (id, booking_id, service_id, label, qty, amount, currency) VALUES (?,?,?,?,?,?,?)', params: [++next, id, sv?.id ?? null, label, Math.max(0, Number(l.qty) || 1), amount, lineCur] });
   }
-  stmts.push(auditStmt(c.who, old ? 'update' : 'add', 'host_booking', String(id), null, { group: g.group_name.trim(), from: g.from_day, to: g.to_day, status, rooms: asked.length }));
+  // the equipment asked for: each must be on the list taken from the inventory
+  const equip = await equipOf(c);
+  const wants: { equip_id: number; qty: number }[] = [];
+  for (const n of Array.isArray(a.needs) ? a.needs : []) {
+    const e = equip.find((x) => x.id === Number(n.equip_id));
+    const qty = whole(n.qty);
+    if (!e) throw new UserError(m('تجهيز غير موجود في القائمة', 'That equipment is not on the list', 'Cet équipement n’est pas dans la liste'));
+    if (qty >= 1 && !wants.some((w) => w.equip_id === e.id)) wants.push({ equip_id: e.id, qty });
+  }
+  stmts.push({ sql: 'DELETE FROM host_need WHERE booking_id = ?', params: [id] });
+  for (const w of wants) stmts.push({ sql: 'INSERT INTO host_need (booking_id, equip_id, qty) VALUES (?,?,?)', params: [id, w.equip_id, w.qty] });
+  // would this booking, with the others that meet it, ask for more than the inventory holds?
+  const needsNow = await c.db.query<HostNeed>('SELECT * FROM host_need');
+  const shortages = shortagesFor(probe, wants, { bookings: snap.bookings, needs: needsNow, equip });
+  stmts.push(auditStmt(c.who, old ? 'update' : 'add', 'host_booking', String(id), null, { group: g.group_name.trim(), from: g.from_day, to: g.to_day, status, rooms: asked.length, equipment: wants.length }));
   await c.db.batch(stmts);
-  return { id, conflicts: clashing(any).length, again: false };
+  return { id, conflicts: clashing(any).length, again: false, shortages };
 }
 
 export const HOST_OPS = {
@@ -212,6 +235,8 @@ export const HOST_OPS = {
     run: async (c: OpCtx, a: { id: number; status: BookingStatus; reason?: string | null }) => {
       if (!(STATUSES as readonly string[]).includes(a.status)) throw new UserError(m('حالة غير معروفة', 'Unknown status', 'Statut inconnu'));
       const b = await bookingOf(c, a.id);
+      // arriving and leaving are for accommodation only (an event has days, not a stay)
+      if (b.kind === 'event' && (a.status === 'arrived' || a.status === 'left')) throw new UserError(m('الوصول والمغادرة للإقامة فقط', 'Arrived and left are for accommodation only', 'Arrivé et parti : pour l’hébergement seulement'));
       if (b.status === 'cancelled' && a.status !== 'option') throw new UserError(m('الحجز ملغى؛ أعده «للتأكيد» أولاً', 'The booking is cancelled: put it back to "to confirm" first', 'Réservation annulée : remettez-la d’abord « à confirmer »'));
       if (holds({ status: a.status })) {
         const snap = await snapshot(c);
@@ -228,7 +253,12 @@ export const HOST_OPS = {
         { sql: 'UPDATE host_booking SET status = ?, cancel_reason = ?, review = 0, updated_at = ? WHERE id = ?', params: [a.status, reason, nowIso(), b.id] },
         auditStmt(c.who, 'status', 'host_booking', String(b.id), { status: b.status }, { status: a.status, reason }),
       ]);
-      return { ok: true };
+      // equipment: does this booking, now counted as confirmed, ask for more than the inventory holds?
+      const equip = await equipOf(c);
+      const needsNow = await c.db.query<HostNeed>('SELECT * FROM host_need');
+      const snap2 = await snapshot(c);
+      const shortages = shortagesFor(b, needsNow.filter((x) => x.booking_id === b.id), { bookings: snap2.bookings, needs: needsNow, equip });
+      return { ok: true, shortages };
     },
   },
 
@@ -239,6 +269,7 @@ export const HOST_OPS = {
       const b = await bookingOf(c, a.id);
       if (await one(c.db, 'SELECT 1 FROM host_pay WHERE booking_id = ?', [b.id])) throw new UserError(m('عليه دفعات: ألغِه بدل حذفه', 'It has payments: cancel it instead', 'Il a des paiements : annulez-la plutôt'));
       await c.db.batch([
+        { sql: 'DELETE FROM host_need WHERE booking_id = ?', params: [b.id] },
         { sql: 'DELETE FROM host_line WHERE booking_id = ?', params: [b.id] },
         { sql: 'DELETE FROM host_alloc WHERE booking_id = ?', params: [b.id] },
         { sql: 'DELETE FROM host_booking WHERE id = ?', params: [b.id] },
@@ -304,6 +335,34 @@ export const HOST_OPS = {
       stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', 'host_room', a.id ? String(a.id) : null, null, { building: bld.name, name, beds, capacity, kind: row.name, active }));
       await c.db.batch(stmts);
       return { id: a.id ?? (await one<{ id: number }>(c.db, 'SELECT id FROM host_room WHERE building_id = ? AND name = ?', [bld.id, name]))?.id ?? null };
+    },
+  },
+
+  /** the names the inventory holds (items in use), with how many are in good condition: what can be chosen as equipment */
+  'host.equip.options': {
+    check: keep,
+    run: async (c: OpCtx) => c.db.query<{ name: string; total: number; good: number }>("SELECT MIN(name) AS name, SUM(qty) AS total, SUM(CASE WHEN condition = 'good' THEN qty ELSE 0 END) AS good FROM inv_item WHERE status = 'in_use' GROUP BY lower(trim(name)) ORDER BY lower(trim(name))"),
+  },
+
+  /** a piece of equipment that bookings may ask for: it must be a name the inventory holds; switch it off (never deleted) */
+  'host.equip.save': {
+    check: keep,
+    run: async (c: OpCtx, a: { id?: number; name?: string; active?: boolean }) => {
+      if (a.id) {
+        const old = await one<HostEquip>(c.db, 'SELECT * FROM host_equip WHERE id = ?', [a.id]);
+        if (!old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+        await c.db.batch([{ sql: 'UPDATE host_equip SET active = ? WHERE id = ?', params: [a.active === false ? 0 : 1, a.id] }, auditStmt(c.who, a.active === false ? 'off' : 'on', 'host_equip', String(a.id), null, { name: old.name })]);
+        return { id: a.id };
+      }
+      const name = txt(a.name);
+      if (!name) throw new UserError(m('اختر غرضاً من الجرد', 'Choose an item of the inventory', 'Choisissez un objet de l’inventaire'));
+      const inv = await one<{ name: string }>(c.db, "SELECT name FROM inv_item WHERE status = 'in_use' AND lower(trim(name)) = lower(trim(?)) LIMIT 1", [name]);
+      if (!inv) throw new UserError(m('هذا الغرض غير موجود في الجرد', 'The inventory holds no item with that name', 'L’inventaire ne contient aucun objet de ce nom'));
+      const had = await one<{ id: number }>(c.db, 'SELECT id FROM host_equip WHERE name = ?', [inv.name]);
+      if (had) { await c.db.batch([{ sql: 'UPDATE host_equip SET active = 1 WHERE id = ?', params: [had.id] }]); return { id: had.id }; }
+      const sort = ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(sort), 0) AS n FROM host_equip'))?.n ?? 0) + 1;
+      await c.db.batch([{ sql: 'INSERT INTO host_equip (name, sort) VALUES (?,?)', params: [inv.name, sort] }, auditStmt(c.who, 'add', 'host_equip', null, null, { name: inv.name })]);
+      return { id: (await one<{ id: number }>(c.db, 'SELECT id FROM host_equip WHERE name = ?', [inv.name]))?.id ?? null };
     },
   },
 

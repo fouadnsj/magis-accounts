@@ -19,6 +19,9 @@ export interface HostBuilding { id: number; name: string; active: number; sort: 
 export interface HostRoom { id: number; building_id: number; name: string; beds: number; kind: RoomKind; /** the kind of room, from the list the keeper edits */ kind_id: number | null; /** the most people a meeting space holds (a hall); 0: not given */ capacity: number; active: number; sort: number; place_id: number | null }
 /** a kind of room: with beds (people sleep there) or a meeting space */
 export interface HostKind { id: number; name: string; sleeps: number; active: number; sort: number }
+/** a piece of equipment a booking may ask for: an item name of the inventory, with how many the inventory holds (in use, in good condition) */
+export interface HostEquip { id: number; name: string; active: number; sort: number; total: number }
+export interface HostNeed { booking_id: number; equip_id: number; qty: number }
 /** what a room holds, read from the inventory (the room is a place of the inventory) */
 export interface HostAsset { room_id: number; name: string; qty: number }
 export interface HostService { id: number; name: string; active: number; sort: number }
@@ -66,6 +69,8 @@ export interface HostData {
   buildings: HostBuilding[];
   rooms: HostRoom[];
   kinds: HostKind[];
+  equip: HostEquip[];
+  needs: HostNeed[];
   /** the items the inventory holds in each meeting space (not in bedrooms) */
   assets: HostAsset[];
   services: HostService[];
@@ -197,6 +202,54 @@ export function takenOn(room: HostRoom, day: string, bookings: HostBooking[], al
     if (b && live(b) && heldDays(b).includes(day)) out.push({ booking: b, beds: Math.min(cap, a.beds ?? cap) });
   }
   return out;
+}
+
+// ------------------------------------------------------------------ equipment: what bookings ask for against what the inventory holds
+
+export interface Shortage { equip_id: number; day: string; wanted: number; have: number; /** the other bookings that ask for it on that day */ with: number[] }
+
+type Window = Pick<HostBooking, 'id' | 'kind' | 'from_day' | 'to_day'> & { repeat_days?: string | null; time_from?: string | null; time_to?: string | null };
+
+/**
+ * The days on which this booking's equipment cannot be had: its own request plus those of the other bookings that still count
+ * (to confirm, confirmed, arrived) and meet it that day (two events whose hours do not cross do not compete) are more than
+ * the inventory holds.
+ */
+export function shortagesFor(
+  b: Window, mine: { equip_id: number; qty: number }[],
+  all: { bookings: HostBooking[]; needs: HostNeed[]; equip: Pick<HostEquip, 'id' | 'total'>[] },
+): Shortage[] {
+  const out: Shortage[] = [];
+  const days = heldDays(b);
+  for (const n of mine) {
+    if (!(n.qty > 0)) continue;
+    const have = all.equip.find((e) => e.id === n.equip_id)?.total ?? 0;
+    const others = all.bookings.filter((o) => o.id !== b.id && live(o) && !apart(b, o)).map((o) => ({ o, q: all.needs.find((x) => x.booking_id === o.id && x.equip_id === n.equip_id)?.qty ?? 0, held: new Set(heldDays(o)) })).filter((x) => x.q > 0);
+    for (const day of days) {
+      const here = others.filter((x) => x.held.has(day));
+      const wanted = n.qty + here.reduce((s, x) => s + x.q, 0);
+      if (wanted > have) out.push({ equip_id: n.equip_id, day, wanted, have, with: here.map((x) => x.o.id) });
+    }
+  }
+  return out;
+}
+
+/** day by day, for each piece of equipment: how many are asked for, who asks, and how many exist (for the Equipment view) */
+export function equipmentLoad(d: { bookings: HostBooking[]; needs: HostNeed[]; equip: HostEquip[] }, from: string, to: string) {
+  const rows = d.equip.map((e) => {
+    const asks = d.bookings.filter((b) => live(b)).map((b) => ({ b, q: d.needs.find((x) => x.booking_id === b.id && x.equip_id === e.id)?.qty ?? 0 })).filter((x) => x.q > 0).map((x) => ({ ...x, held: new Set(heldDays(x.b)) }));
+    const days = new Map<string, { wanted: number; bookings: HostBooking[] }>();
+    for (let day = from; day <= to; day = addDays(day, 1)) {
+      const here = asks.filter((x) => x.held.has(day));
+      if (!here.length) continue;
+      // hours that do not cross do not compete: the worst moment is the booking with the most asked around it
+      const timed = here.some((x) => x.b.time_from && x.b.time_to);
+      const wanted = timed ? Math.max(...here.map((x) => x.q + here.filter((y) => y !== x && !apart(x.b, y.b)).reduce((s, y) => s + y.q, 0))) : here.reduce((s, x) => s + x.q, 0);
+      days.set(day, { wanted, bookings: here.map((x) => x.b) });
+    }
+    return { equip: e, days };
+  });
+  return rows;
 }
 
 // ------------------------------------------------------------------ views by month and by year

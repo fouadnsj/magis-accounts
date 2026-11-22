@@ -78,6 +78,34 @@ export function brandStyle(b: BrandInfo | null | undefined): CentreStyle {
   return { ...base, color, deep: b.color ? deepOf(color) : base.deep, mark: b.logo || base.mark };
 }
 
+/** A person's own look (Fouad, 22 November 2026): a colour for the menu and the buttons, and a softer page background */
+export interface MyLook { color: string | null; bg: string | null }
+/** ready page backgrounds, all light, to make the pages easier on the eyes (null = the house's own) */
+export const PAGE_BG: Record<string, { color: string; name: Msg }> = {
+  paper: { color: '#F7F2E7', name: m('ورقي دافئ', 'Warm paper') },
+  mint: { color: '#EEF5EF', name: m('أخضر هادئ', 'Soft green') },
+  sky: { color: '#EDF3F9', name: m('أزرق هادئ', 'Soft blue') },
+  grey: { color: '#F0F1F3', name: m('رمادي فاتح', 'Light grey') },
+  dim: { color: '#E6E8EB', name: m('خافت (أقل سطوعاً)', 'Dim (less glare)') },
+};
+export const BG_KEYS = Object.keys(PAGE_BG);
+/** calm colours to start from (each dark enough for white text) */
+export const MY_COLOURS: { color: string; name: Msg }[] = [
+  { color: '#1F6F6B', name: m('أخضر مزرق', 'Teal') },
+  { color: '#2F5D8A', name: m('أزرق', 'Blue') },
+  { color: '#3C6E47', name: m('أخضر', 'Green') },
+  { color: '#6B3F69', name: m('بنفسجي', 'Plum') },
+  { color: '#3F4B5B', name: m('رمادي مزرق', 'Slate') },
+  { color: '#9A4A2E', name: m('طوبي', 'Terracotta') },
+  { color: '#6B6B2A', name: m('زيتوني', 'Olive') },
+  { color: '#5B191D', name: m('عنابي', 'Maroon') },
+];
+/** the colours of a page for this person: his own colour if he chose one, else the house's; the background only if he chose one */
+export function applyLook(base: CentreStyle, look: MyLook | null | undefined): { deep: string; color: string; bg: string | null } {
+  const c = look?.color && /^#[0-9a-f]{6}$/i.test(look.color) ? look.color : null;
+  return { deep: c ? deepOf(c) : base.deep, color: c ?? base.color, bg: look?.bg && PAGE_BG[look.bg] ? PAGE_BG[look.bg].color : null };
+}
+
 /** A logo picked by the user, made small (max 256 px) and kept as PNG (transparency stays). */
 export async function logoToDataUrl(file: File): Promise<string> {
   const url = URL.createObjectURL(file);

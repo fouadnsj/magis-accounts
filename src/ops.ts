@@ -32,6 +32,7 @@ import { applySeed, readWorkbook, type ImportReport } from './io/importWorkbook'
 import { applyMainList, checkMainList, followedList, listId, type MainList } from './io/mainList';
 import { applyCommonList, commonListState, exportCommonList, joinCommonList, joinWithMatching, parseCommonList, type CommonList } from './io/commonList';
 import { m, type Msg } from './i18n';
+import { BG_KEYS } from './brand';
 import { CTY_OPS, CTY_READ_ONLY } from './community/ops';
 import { COUNTRY_OPS, COUNTRY_READ_ONLY } from './community/country';
 import { PEOPLE_OPS, PEOPLE_READ_ONLY } from './community/people';
@@ -1482,6 +1483,26 @@ export const OPS = {
     },
   },
 
+  // ---------------------------------------------------------------- my own colour and page background (comfort of the pages)
+  'me.look': {
+    check: anyone,
+    run: async (c: OpCtx) => {
+      const r = c.profile.id > 0 ? await one<{ ui_color: string | null; ui_bg: string | null }>(c.db, 'SELECT ui_color, ui_bg FROM profile WHERE id = ?', [c.profile.id]) : null;
+      return { color: r?.ui_color ?? null, bg: r?.ui_bg ?? null, own: !!r };
+    },
+  },
+  'me.look.save': {
+    check: anyone,
+    run: async (c: OpCtx, a: { color: string | null; bg: string | null }) => {
+      if (a.color && !/^#[0-9a-f]{6}$/i.test(a.color)) throw new UserError(m('لون غير صالح', 'Invalid colour'));
+      if (a.bg && !BG_KEYS.includes(a.bg)) throw new UserError(m('خلفية غير معروفة', 'Unknown background'));
+      if (!(c.profile.id > 0) || !(await one(c.db, 'SELECT 1 FROM profile WHERE id = ?', [c.profile.id])))
+        throw new UserError(m('هذا الحساب لا يحتفظ بلون خاص', 'This account cannot keep a colour of its own'));
+      await c.db.batch([{ sql: 'UPDATE profile SET ui_color = ?, ui_bg = ? WHERE id = ?', params: [a.color ? a.color.toLowerCase() : null, a.bg || null, c.profile.id] }]);
+      return { ok: true };
+    },
+  },
+
   // ---------------------------------------------------------------- the look of this database
   'brand.get': {
     check: anyone,
@@ -2185,7 +2206,7 @@ export type OpResult<K extends OpName> = Awaited<ReturnType<(typeof OPS)[K]['run
 
 /** Operations that only read (the server does not count them as changes). */
 export const READ_ONLY: ReadonlySet<string> = new Set([
-  'data', 'doc.get', 'brand.get', 'phone.list', 'province.sends', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY, ...INV_READ_ONLY, ...HOST_READ_ONLY,
+  'data', 'doc.get', 'brand.get', 'me.look', 'phone.list', 'province.sends', 'budget.get', 'grant.readiness', 'budget.fundCheck', 'common.status', 'common.export', 'backup.compare', 'cash.counts', 'cash.history', 'audit.list', 'importLog.list', 'users.list', 'access.list', 'closing.problems', 'backup.list', 'entries.build', 'lists.export', ...CTY_READ_ONLY, ...COUNTRY_READ_ONLY, ...PEOPLE_READ_ONLY, ...HR_READ_ONLY, ...HR_PAY_READ_ONLY, ...HR_RUN_READ_ONLY, ...HR_STAGE4_READ_ONLY, ...HR_SESSION_READ_ONLY, ...INV_READ_ONLY, ...HOST_READ_ONLY,
 ]);
 
 /** Runs one operation with its permission check. Used by the desktop app and by the server. */

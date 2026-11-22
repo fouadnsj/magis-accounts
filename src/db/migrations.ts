@@ -2084,4 +2084,14 @@ CREATE TABLE host_need (
 );
 `,
   },
+  {
+    n: 63,
+    name: 'a personal colour and page background for each person (comfort of the pages)',
+    sql: `
+-- (Fouad, 2026-11-22) Each person may choose the colour of the menu and the buttons, and a softer page background. NULL = the
+-- house's own look (set by the Superior in Admin → Appearance). It follows the person on every computer.
+ALTER TABLE profile ADD COLUMN ui_color TEXT;   -- #rrggbb or NULL
+ALTER TABLE profile ADD COLUMN ui_bg    TEXT;   -- the name of a ready background (brand.ts) or NULL
+`,
+  },
 ];

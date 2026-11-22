@@ -3,7 +3,8 @@ import { useApp } from '../state';
 import { LangPick } from './LangPick';
 import type { Perm } from '../perms';
 import { t } from './kit';
-import { brandStyle } from '../brand';
+import { applyLook, brandStyle, type MyLook } from '../brand';
+import { MyLookWindow } from './MyLook';
 import { Home } from './Home';
 import { EntryForm, type EntryStart } from './EntryForm';
 import { Register } from './Register';
@@ -89,7 +90,23 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
   );
 
   const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
-  const theme = { '--brand': st.deep, '--brand-2': st.deep, '--centre': st.color } as React.CSSProperties;
+  // my own colour and page background (kept on my login; shown at once while I choose)
+  const [savedLook, setSavedLook] = useState<MyLook>({ color: null, bg: null });
+  const [look, setLook] = useState<MyLook>({ color: null, bg: null });
+  const [lookOpen, setLookOpen] = useState(false);
+  const [lookOwn, setLookOwn] = useState(false);
+  useEffect(() => {
+    let live = true;
+    s.api.call('me.look').then((x) => { if (live) { const l = { color: x.color, bg: x.bg }; setSavedLook(l); setLook(l); setLookOwn(x.own); } }).catch(() => undefined);
+    return () => { live = false; };
+  }, [s.api, s.profile.id]);
+  const lk = applyLook(st, look);
+  useEffect(() => {
+    const root = document.documentElement;
+    if (lk.bg) root.style.setProperty('--bg', lk.bg); else root.style.removeProperty('--bg');
+    return () => { root.style.removeProperty('--bg'); };
+  }, [lk.bg]);
+  const theme = { '--brand': lk.deep, '--brand-2': lk.deep, '--centre': lk.color } as React.CSSProperties;
 
   // the light phone window on a phone (Fouad, 19 October 2026); the computer window stays as it was
   const narrow = useNarrow();
@@ -140,11 +157,13 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
           <div className="spacer" />
           <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
           <LangPick onChange={onToggleLang} />
+          {lookOwn && <button onClick={() => setLookOpen(true)}>🎨 {t('لوني', 'My colour')}</button>}
           {onDatabases && <button onClick={onDatabases}>{can('users.manage') ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
           {onAllDatabases && <button onClick={onAllDatabases}>🏠 {t('الصفحة الأولى', 'Home page')}</button>}
           <button onClick={logout}>{t('خروج', 'Log out')}</button>
           {s.mode !== 'server' && <button onClick={onCloseDb} className="small">{t('إغلاق الملف', 'Close file')}</button>}
         </nav>
+        {lookOpen && <MyLookWindow base={st} saved={savedLook} onPreview={setLook} onSaved={(l) => { setSavedLook(l); setLook(l); }} onClose={() => setLookOpen(false)} />}
         <main className="main">
           {page === 'home' && <Home />}
           {page === 'register' && <Register key={`${reviewOnly}|${bookOnly}`} />}

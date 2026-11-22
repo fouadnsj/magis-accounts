@@ -649,3 +649,25 @@ describe('equipment a booking asks for, against what the inventory holds', () =>
     expect(JSON.stringify(pack)).not.toMatch(/"(rate|amount|price)/);
   });
 });
+
+describe('my own colour and page background', () => {
+  it('each person keeps his own; only a ready background or a #rrggbb colour is accepted; the others are not changed', async () => {
+    const blank = (await runOp(sup, 'me.look', undefined)) as { color: string | null; bg: string | null; own: boolean };
+    expect(blank).toEqual({ color: null, bg: null, own: true });
+    await runOp(sup, 'me.look.save', { color: '#1F6F6B', bg: 'mint' });
+    expect(await runOp(sup, 'me.look', undefined)).toEqual({ color: '#1f6f6b', bg: 'mint', own: true });
+    // nobody else is touched
+    expect(await runOp(reception, 'me.look', undefined)).toEqual({ color: null, bg: null, own: true });
+    await expect(runOp(reception, 'me.look.save', { color: 'red', bg: null })).rejects.toThrow();
+    await expect(runOp(reception, 'me.look.save', { color: null, bg: 'neon' })).rejects.toThrow();
+    // back to the house's own look
+    await runOp(sup, 'me.look.save', { color: null, bg: null });
+    expect(await runOp(sup, 'me.look', undefined)).toEqual({ color: null, bg: null, own: true });
+  });
+  it('an account that is not a person of the database cannot keep one', async () => {
+    const ghost: OpCtx = { ...sup, profile: { ...sup.profile, id: 0 } };
+    expect(((await runOp(ghost, 'me.look', undefined)) as { own: boolean }).own).toBe(false);
+    await expect(runOp(ghost, 'me.look.save', { color: '#1f6f6b', bg: null })).rejects.toThrow();
+  });
+});
+

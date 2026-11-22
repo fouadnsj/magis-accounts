@@ -48,6 +48,8 @@ export function initialRows(b: Pick<HostBooking, 'kind' | 'people' | 'price_mode
 /** everything the receipt shows (the window lets it be adjusted before it is written) */
 export interface ReceiptDoc {
   organisation: string;
+  /** the Arabic line under the name (empty: "Society of Jesus · الرهبنة اليسوعية") */
+  titleAr?: string;
   /** PNG bytes: the Jesuits' logo and the centre's */
   logos: { jesuit?: Uint8Array | null; centre?: Uint8Array | null };
   /** TrueType files of Amiri (regular and bold) */
@@ -80,7 +82,6 @@ export interface ReceiptDoc {
 // ---------------------------------------------------------------- text: Arabic runs and the rest, in the right visual order
 
 const AR = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
-const NEUTRAL_ONLY = /^[\s.,:;!?()\-–—/"'·•|]+$/;
 interface Run { text: string; ar: boolean }
 /** the little of fontkit that is used here */
 interface FkFont { unitsPerEm: number; layout(text: string): { glyphs: { path?: { commands: unknown[]; transform(a: number, b: number, c: number, d: number, e: number, f: number): { toSVG(): string } } }[]; positions: { xAdvance: number; xOffset: number; yOffset: number }[] } }
@@ -92,8 +93,8 @@ function runsOf(text: string): Run[] {
     const last = raw[raw.length - 1];
     if (last && last.ar === ar) last.text += ch; else raw.push({ text: ch, ar });
   }
-  // spaces and punctuation between two Arabic runs belong to the Arabic
-  const joined = raw.map((r, i) => (!r.ar && NEUTRAL_ONLY.test(r.text) && raw[i - 1]?.ar && raw[i + 1]?.ar ? { text: r.text, ar: true } : r));
+  // spaces between two Arabic runs belong to the Arabic; a dash or other sign between them is drawn by Helvetica (the Arabic font has no Latin signs)
+  const joined = raw.map((r, i) => (!r.ar && /^\s+$/.test(r.text) && raw[i - 1]?.ar && raw[i + 1]?.ar ? { text: r.text, ar: true } : r));
   const out: Run[] = [];
   for (const r of joined) { const l = out[out.length - 1]; if (l && l.ar === r.ar) l.text += r.text; else out.push({ ...r }); }
   return out;
@@ -177,13 +178,14 @@ export async function receiptPdf(x: ReceiptDoc): Promise<Uint8Array> {
   if (lj) { const d = fit(lj, 58, 120); page.drawImage(lj, { x: M, y: top - d.h, width: d.w, height: d.h }); hMax = Math.max(hMax, d.h); }
   if (lc) { const d = fit(lc, 58, 120); page.drawImage(lc, { x: W - M - d.w, y: top - d.h, width: d.w, height: d.h }); hMax = Math.max(hMax, d.h); }
   put(x.organisation, W / 2, top - 22, 15, { bold: true, align: 'center', color: accent });
-  put('Society of Jesus  ·  الرهبنة اليسوعية', W / 2, top - 38, 9.5, { align: 'center', color: muted });
+  if (x.titleAr) put(x.titleAr, W / 2, top - 39, 11, { align: 'center', color: muted });
+  else put('Society of Jesus  ·  الرهبنة اليسوعية', W / 2, top - 38, 9.5, { align: 'center', color: muted });
   y = top - Math.max(hMax, 44) - 16;
   rule(y, accent);
   y -= 30;
 
   // ---- title and reference
-  put('RECEIPT  ·  وصل استلام', M, y, 22, { bold: true, color: accent });
+  put('RECEIPT  ·  وصل استلام', M, y, 15, { bold: true, color: accent });
   put(`Date · التاريخ:  ${day(x.issuedOn)}`, W - M, y + 8, 10, { align: 'right' });
   if (x.ref) put(`Ref · المرجع:  ${x.ref}`, W - M, y - 6, 10, { align: 'right', color: muted });
   y -= 34;

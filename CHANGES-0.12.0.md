@@ -49,6 +49,7 @@ says "build". Five new database updates (58 to 62); each database is copied befo
   (never "invoice"), with the **centre logo and the Jesuit logo**, Arabic in **Amiri**, totals per currency and the balance. Nothing is stored.
   **Currency of the receipt**: each amount as it is, or all in USD, or all in SYP at a rate you type (1 USD = … SYP; remembered for next time and
   printed on the receipt). **Preview** shows the PDF in the window before saving; *Back to edit* keeps everything typed.
+  **The Arabic title under the centre's name** on the receipt (for example "الرهبانية اليسوعية - دير الآباء اليسوعيين في حمص"; Al-Ard: "الرهبانية اليسوعية - مركز الأرض") is ready for each house and can be changed in *Admin → Appearance → Title of the receipt* (empty = the usual one). The *RECEIPT · وصل استلام* heading was made smaller.
   New: the library `@pdf-lib/fontkit` and two font files in `public/fonts` (the program grows by about 0.6 MB).
 
 ## 2. Reports (Calendar → Reports)

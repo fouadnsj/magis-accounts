@@ -603,6 +603,14 @@ describe('server: several databases', () => {
     expect((await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: '#123456', logo: null }, sup)).status).toBe(200);
     expect(((await call('/api/hello')).body.dbs as { slug: string; color: string }[]).find((x) => x.slug === DB)!.color).toBe('#123456');
     expect((await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: null, logo: null }, sup)).status).toBe(200);
+    // the Arabic title of a receipt: set per house; not sent = kept; empty = back to the usual one
+    expect(((await op('brand.get', {}, sup)).body as { receipt_title: string | null }).receipt_title).toBeNull();
+    await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: null, logo: null, receipt_title: '  عنوان خاص  ' }, sup);
+    expect(((await op('brand.get', {}, sup)).body as { receipt_title: string | null }).receipt_title).toBe('عنوان خاص');
+    await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: null, logo: null }, sup);
+    expect(((await op('brand.get', {}, sup)).body as { receipt_title: string | null }).receipt_title).toBe('عنوان خاص');
+    await op('brand.save', { organisation: 'Test centre', centre: 'homs', color: null, logo: null, receipt_title: '' }, sup);
+    expect(((await op('brand.get', {}, sup)).body as { receipt_title: string | null }).receipt_title).toBeNull();
   });
 
   it('a number N is never given twice, even after deleting the last row', async () => {

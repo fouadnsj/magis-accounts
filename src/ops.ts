@@ -1490,18 +1490,22 @@ export const OPS = {
       centre: (await getMeta(c.db, 'centre')) ?? 'other',
       color: await getMeta(c.db, 'brand_color'),
       logo: await getMeta(c.db, 'brand_logo'),
+      /** the Arabic line under the name on a receipt (null: the house's usual one) */
+      receipt_title: await getMeta(c.db, 'receipt_title_ar'),
     }),
   },
   'brand.save': {
     check: (c: OpCtx) => need(c, 'users.manage'),
-    run: async (c: OpCtx, a: { organisation: string; centre: string; color: string | null; logo: string | null }) => {
+    run: async (c: OpCtx, a: { organisation: string; centre: string; color: string | null; logo: string | null; receipt_title?: string | null }) => {
       const name = a.organisation.trim();
+      const rtitle = a.receipt_title === undefined ? undefined : (a.receipt_title ?? '').trim().slice(0, 200) || null;
       if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
       if (a.color && !/^#[0-9a-f]{6}$/i.test(a.color)) throw new UserError(m('لون غير صالح', 'Invalid colour'));
       if (a.logo && (!a.logo.startsWith('data:image/png;base64,') || a.logo.length > 400_000)) throw new UserError(m('شعار غير صالح', 'Invalid logo'));
       await c.db.batch([
         setMetaStmt('organisation', name), setMetaStmt('centre', a.centre), setMetaStmt('brand_color', a.color), setMetaStmt('brand_logo', a.logo),
-        auditStmt(c.who, 'edit', 'meta', 'brand', null, { organisation: name, centre: a.centre, color: a.color, logo: a.logo ? 'yes' : 'no' }),
+        ...(rtitle === undefined ? [] : [setMetaStmt('receipt_title_ar', rtitle)]),
+        auditStmt(c.who, 'edit', 'meta', 'brand', null, { organisation: name, centre: a.centre, color: a.color, logo: a.logo ? 'yes' : 'no', ...(rtitle === undefined ? {} : { receipt_title: rtitle }) }),
       ]);
     },
   },

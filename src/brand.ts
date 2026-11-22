@@ -22,6 +22,14 @@ export const CENTRES: Record<CentreKey, CentreStyle> = {
   other: { name: m('أخرى', 'Other'), color: '#B8891B', deep: '#26292E', mark: null },
 };
 
+/** the Arabic title under the name, per house (Fouad, 22 November 2026); each house can set its own in Admin → Appearance */
+export const RECEIPT_TITLE_AR: Record<string, string> = {
+  homs: 'الرهبانية اليسوعية - دير الآباء اليسوعيين في حمص',
+  aleppo: 'الرهبانية اليسوعية - دير الآباء اليسوعيين في حلب',
+  jaramana: 'الرهبانية اليسوعية - دير الآباء اليسوعيين في جرمانا',
+  alard: 'الرهبانية اليسوعية - مركز الأرض',
+};
+
 export const centreStyle = (k: string | null | undefined): CentreStyle => CENTRES[(k as CentreKey) in CENTRES ? (k as CentreKey) : 'other'];
 
 /** Guess a centre from a name (databases made before centres existed). */

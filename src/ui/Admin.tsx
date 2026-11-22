@@ -12,7 +12,7 @@ import { ServerTab } from './ServerTab';
 import { MonthReport } from './MonthReport';
 import { CompareModal } from './Compare';
 import { DbCard, OwnBrand } from './Landing';
-import { CENTRES, brandStyle, type CentreKey } from '../brand';
+import { CENTRES, RECEIPT_TITLE_AR, brandStyle, type CentreKey } from '../brand';
 import { mainListApi, serverRestoreUpload } from '../net';
 import { MainListPanel } from './MainListPanel';
 import { saveFile, toBase64 } from '../platform';
@@ -821,13 +821,15 @@ function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow>; onClose: (
 
 function Appearance() {
   const { s } = useApp();
-  const [b, setB] = useState<{ organisation: string; centre: string; color: string | null; logo: string | null } | null>(null);
+  const [b, setB] = useState<{ organisation: string; centre: string; color: string | null; logo: string | null; receipt_title: string | null } | null>(null);
+  const [rt, setRt] = useState('');
   const [own, setOwn] = useState(false);
   const [color, setColor] = useState('#2E7D32');
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     s.api.call('brand.get').then((x) => {
       setB(x);
+      setRt(x.receipt_title ?? RECEIPT_TITLE_AR[x.centre] ?? '');
       setOwn(!!(x.color || x.logo));
       if (x.color) setColor(x.color);
       setLogo(x.logo);
@@ -837,7 +839,7 @@ function Appearance() {
   const preview = { slug: '', organisation: b.organisation, centre: b.centre, color: own ? color : null, logo: own ? logo : null, setupNeeded: false };
   const save = async () => {
     try {
-      await s.api.call('brand.save', { organisation: b.organisation, centre: b.centre, color: own ? color : null, logo: own ? logo : null });
+      await s.api.call('brand.save', { organisation: b.organisation, centre: b.centre, color: own ? color : null, logo: own ? logo : null, receipt_title: rt.trim() === (RECEIPT_TITLE_AR[b.centre] ?? '') ? null : rt });
       toast(t('حُفظ — يُعاد فتح البرنامج', 'Saved — reopening the program'));
       setTimeout(() => window.location.reload(), 700);
     } catch (e) {
@@ -847,6 +849,8 @@ function Appearance() {
   return (
     <div className="panel" style={{ maxWidth: 760 }}>
       <Field label={t('اسم قاعدة البيانات', 'Name of the database')}><input value={b.organisation} onChange={(e) => setB({ ...b, organisation: e.target.value })} /></Field>
+      <Field label={t('عنوان وصل الاستلام (تحت اسم المركز، بالعربية)', 'Title of the receipt (under the name, in Arabic)')}><input dir="rtl" value={rt} placeholder={RECEIPT_TITLE_AR[b.centre] ?? ''} onChange={(e) => setRt(e.target.value)} /></Field>
+      <p className="small muted">{t('يُطبع تحت اسم المركز على وصل الاستلام في التقويم. اتركه فارغاً ليُستعمل العنوان المعتاد للمركز.', 'Printed under the name on the receipt in the calendar. Leave it empty to use the house\'s usual title.')}</p>
       <h3 style={{ marginTop: 16 }}>{t('المركز: لونه ورمزه', 'Centre: its colour and mark')}</h3>
       <div className="centre-pick">
         {(Object.keys(CENTRES) as CentreKey[]).map((k) => (

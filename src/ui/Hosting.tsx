@@ -8,7 +8,7 @@ import { Field, Modal, Select, Tabs, biName, confirmBox, errText, fmtDate, fmtUs
 import { saveFile } from '../platform';
 import { hostWorkbook } from '../io/hostFile';
 import { convertReceipt, initialRows, receiptPdf, receiptTotals, rowAmount, type ReceiptRow } from '../io/hostReceipt';
-import { brandStyle } from '../brand';
+import { RECEIPT_TITLE_AR, brandStyle } from '../brand';
 import { GuideLink } from '../guide/GuideView';
 import { useNav } from './Shell';
 import {
@@ -385,10 +385,12 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
   // the PDF as it is now (used by the preview and by the export)
   const build = async (): Promise<Uint8Array> => {
     const get = async (u: string) => new Uint8Array(await (await fetch(u)).arrayBuffer());
+    // the Arabic title under the name: the one set in Admin → Appearance, else the house's usual one
+    const custom = await s.api.call('brand.get').then((x) => x.receipt_title).catch(() => null);
     const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
     const [arabic, arabicBold, jesuit, centre] = await Promise.all([get('/fonts/amiri-arabic-400.ttf'), get('/fonts/amiri-arabic-700.ttf'), get('/brand/jesuits.png').catch(() => null), st.mark ? get(st.mark).catch(() => null) : Promise.resolve(null)]);
     return receiptPdf({
-      organisation: s.organisation ?? '', logos: { jesuit, centre }, fonts: { arabic, arabicBold }, accent: st.deep,
+      organisation: s.organisation ?? '', titleAr: custom || RECEIPT_TITLE_AR[s.centre ?? ''], logos: { jesuit, centre }, fonts: { arabic, arabicBold }, accent: st.deep,
       issuedOn: date, ref, kind: b.kind, billedTo: { name, contact, phone }, from_day: b.from_day, to_day: b.to_day, people: num(people), nights: num(nights), repeats: !!b.repeat_days,
       rooms: showRooms ? where : [], equipment: showEquip ? equip : [], rows: shown.rows.map(({ label, sub, qty, unit, currency }) => ({ label, sub, qty, unit, currency })),
       payments: shown.payments.map((p) => ({ paid_on: p.paid_on, receipt_no: p.receipt_no, amount: p.amount, currency: p.currency })), conversion: conv && shown.changed ? conv : undefined, note,

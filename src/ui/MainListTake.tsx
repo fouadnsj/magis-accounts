@@ -32,10 +32,18 @@ export function MainListTake() {
   const [asking, setAsking] = useState(false);
   const [sent, setSent] = useState(0);
   const main = useMainAdmin();
+  // the lists of the server: a database that has not taken from any list yet chooses the one it follows (22 November 2026: an
+  // imported database followed "Centres" by default and could not be pointed to another list)
+  const [names, setNames] = useState<{ id: string; title: string }[]>([]);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [shownId, setShownId] = useState<string | null>(null);
   useEffect(() => {
-    if (s.mode === 'server') mainListApi.get().then((x) => setList(x.list)).catch(() => setList(null));
-    else setList(null);
+    if (s.mode === 'server') mainListApi.names().then(setNames).catch(() => setNames([]));
   }, [s]);
+  useEffect(() => {
+    if (s.mode === 'server') mainListApi.get(chosen).then((x) => { setList(x.list); setShownId(x.id); }).catch(() => setList(null));
+    else setList(null);
+  }, [s, chosen]);
   if (!can('lists.manage') || list === undefined) return null;
   const mine = d.lists.headings.some((h) => h.in_main);
   const fromFile = async () => {
@@ -53,6 +61,16 @@ export function MainListTake() {
         {list ? `· ${t('على الخادم: النسخة', 'on the server: version')} ${list.version}${list.published_at ? `, ${fmtDate(list.published_at.slice(0, 10))}` : ''}` : s.mode === 'server' ? `· ${t('لم يُنشرها المدير بعد', 'the administrator has not published it yet')}` : ''}
         {mine ? ` · ${t('هذه القاعدة أخذت منها', 'this database took from it')}` : ''}
       </span>
+      {!mine && names.length > 1 && (
+        <div className="small" style={{ marginTop: 8 }}>
+          <label>{t('القائمة التي تتبعها هذه القاعدة', 'The list this database follows')}:{' '}
+            <select value={shownId ?? ''} onChange={(e) => setChosen(e.target.value || null)}>
+              {names.map((n) => <option key={n.id} value={n.id}>{n.title}</option>)}
+            </select>
+          </label>
+          <span className="muted"> · {t('لم تأخذ هذه القاعدة من أي قائمة بعد: اختر قائمتها ثم خذ منها، وبعد ذلك تتبع هذه القائمة.', 'This database has not taken from a list yet: choose its list, then take from it; after that it follows that list.')}</span>
+        </div>
+      )}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
         {list && <button className="btn primary" onClick={() => setOpen(list)}>{t('خذ من القائمة الرئيسية…', 'Take from the main list…')}</button>}
         {main.admin && <button className="btn" onClick={() => main.open()}>✎ {t('غيّر القائمة (المنسّق) →', 'Change the list (Coordinator) →')}</button>}

@@ -1,7 +1,9 @@
 // Al-Ard: a ready database of the program — its lines (the farm list and the guest-house lines) and two budgets, every
 // amount empty. Writes ONE new database file; nothing else is touched. (Fouad, 22 November 2026)
 //   build:  node_modules/.bin/esbuild scripts/alard-build.ts --bundle --platform=node --format=esm --outfile=/tmp/alard-build.mjs
-//   run:    node --no-warnings /tmp/alard-build.mjs <out.db>
+//   run:    node --no-warnings /tmp/alard-build.mjs <out.db> [main-list-id]
+// The database follows the server's main list "Al Ard" (id al-ard unless another id is given): the Lists → Budget page then
+// offers that list, and lines can be taken, switched on and off from it.
 // The two default passwords are "fouadsj" and must be changed at the first sign-in (a rule of this program for given passwords).
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -14,6 +16,7 @@ import { FARM_LIST, type FarmHeading } from '../src/hosting/farm';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 const out = process.argv[2];
+const listId = process.argv[3] || 'al-ard';
 if (!out) throw new Error('usage: alard-build.mjs <out.db>');
 if (fs.existsSync(out)) throw new Error(`${out} already exists: choose a new name`);
 
@@ -40,6 +43,7 @@ await createOffice(db, { organisation: 'MAGIS Al-Ard', supName: 'Fouad', supPin:
 await db.batch([
   setMetaStmt('centre', 'alard'),
   setMetaStmt('sec_hosting', '1'), // the calendar is on for Al-Ard
+  setMetaStmt('main_list', listId), // it follows the main list of Al-Ard (the lines below are the same as the list's)
   { sql: 'UPDATE profile SET must_change = 1' },
 ]);
 

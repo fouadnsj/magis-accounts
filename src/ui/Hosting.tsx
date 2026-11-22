@@ -341,6 +341,11 @@ function BookingView({ data, booking: b, canChange, onClose, onModify, refresh }
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
   const rooms = data.allocs.filter((a) => a.booking_id === b.id).map((a) => ({ a, r: data.rooms.find((x) => x.id === a.room_id) })).filter((x): x is { a: (typeof data.allocs)[number]; r: HostRoom } => !!x.r);
+  // a hall (a meeting space) is shown first, then the bedrooms together with their beds
+  const halls = rooms.filter(({ r }) => r.kind !== 'bedroom');
+  const sleeping = rooms.filter(({ r }) => r.kind === 'bedroom');
+  const bedsTotal = sleeping.reduce((n, { a, r }) => n + (a.beds ?? r.beds), 0);
+  const byBuilding = [...sleeping.reduce((m, x) => { const k = data.buildings.find((bd) => bd.id === x.r.building_id)?.name ?? ''; m.set(k, [...(m.get(k) ?? []), x]); return m; }, new Map<string, typeof sleeping>())];
   const needs = data.needs.filter((n) => n.booking_id === b.id).map((n) => ({ n, e: data.equip.find((x) => x.id === n.equip_id) }));
   const lines = data.lines.filter((l) => l.booking_id === b.id);
   const short = shortageLines(data, shortagesFor(b, data.needs.filter((n) => n.booking_id === b.id), data));
@@ -358,39 +363,36 @@ function BookingView({ data, booking: b, canChange, onClose, onModify, refresh }
           <h2>{b.group_name}</h2>
           <span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span>
           <small className="muted"> · {b.kind === 'event' ? t('نشاط', 'Event') : t('إقامة', 'Stay')} · {b.code}{b.source === 'phone' ? ' · 📱' : ''}</small>
+          <div className="host-hdate">📅 {sameDay ? long(b.from_day) : `${long(b.from_day)} → ${long(b.to_day)}`}{b.kind === 'stay' ? <small className="muted"> · {days} {t('ليلة', 'night(s)')}</small> : b.repeat_days ? <small className="muted"> · {days} {t('جلسة', 'session(s)')}</small> : !sameDay ? <small className="muted"> · {days} {t('يوم', 'day(s)')}</small> : null}</div>
           {b.cancel_reason && <div className="small muted">{b.cancel_reason}</div>}
         </div>
         <button className="btn ghost small" onClick={onClose} aria-label="close">✕</button>
       </header>
 
       <div className="host-vbody">
-        {line('👥', <><b>{b.people}</b> {t('شخصاً', 'people')}</>)}
-        {(b.contact || b.phone) && line('👤', <>{b.contact}{b.contact && b.phone ? ' · ' : ''}{phoneLink(b.phone)}</>)}
-
-        <hr />
-
-        {line('📅', <>
-          <b>{sameDay ? long(b.from_day) : `${long(b.from_day)} → ${long(b.to_day)}`}</b>
-          <div className="small muted">{b.kind === 'stay' ? `${days} ${t('ليلة', 'night(s)')}` : b.repeat_days ? `${days} ${t('جلسة', 'session(s)')}` : sameDay ? '' : `${days} ${t('يوم', 'day(s)')}`}</div>
+        {/* what matters first: the rooms booked (a hall with bedrooms, mostly) and the equipment they need */}
+        {halls.map(({ a, r }) => line('🏛', <>
+          <b>{r.name}</b> <span className="muted">· {data.buildings.find((x) => x.id === r.building_id)?.name}</span>
+          <div className="small muted">{kindName(data, r)}{r.capacity ? ` · ${t('حتى', 'up to')} ${r.capacity} ${t('شخصاً', 'people')}` : ''}{a.beds ? ` · ${a.beds}` : ''}</div>
+        </>, `h${r.id}`))}
+        {sleeping.length > 0 && line('🛏', <>
+          <b>{sleeping.length === 1 ? sleeping[0].r.name : `${sleeping.length} ${t('غرف نوم', 'bedrooms')}`}</b> <span className="muted">· {bedsTotal} {t('سرير', 'beds')}{b.people ? ` ${t('لـ', 'for')} ${b.people} ${t('شخصاً', 'people')}` : ''}</span>
+          {byBuilding.map(([bd, rs]) => <div key={bd} className="small muted">{bd}: {rs.map(({ a, r }) => `${r.name} (${a.beds ?? r.beds})`).join('، ')}</div>)}
         </>)}
-        {b.kind === 'event' && b.time_from && line('🕐', <span dir="ltr"><b>{b.time_from}{b.time_to ? ` – ${b.time_to}` : ''}</b></span>)}
-        {b.repeat_days && line('🔁', <>{t('كل', 'Every')} {b.repeat_days.split(',').map((d) => weekday(Number(d))).join('، ')}</>)}
+        {rooms.length === 0 && line('🏛', <span className="muted">{t('لم تُحدَّد غرف بعد', 'No room chosen yet')}</span>)}
 
-        <hr />
-
-        {rooms.length
-          ? rooms.map(({ a, r }) => line('📍', <>
-              <b>{r.name}</b> <span className="muted">· {data.buildings.find((x) => x.id === r.building_id)?.name}</span>
-              <div className="small muted">{kindName(data, r)}{r.beds > 0 ? ` · ${a.beds ?? r.beds} ${t('من', 'of')} ${r.beds} ${t('سرير', 'beds')}` : r.capacity ? ` · ${t('حتى', 'up to')} ${r.capacity} ${t('شخصاً', 'people')}` : ''}</div>
-            </>, `r${r.id}`))
-          : line('📍', <span className="muted">{t('لم تُحدَّد غرف بعد', 'No room chosen yet')}</span>)}
-
-        {(needs.length > 0 || lines.length > 0) && <hr />}
         {needs.length > 0 && line('🎛', <div className="host-chips">{needs.map(({ n, e }) => <span key={n.equip_id} className="host-chip2">{e?.name ?? '?'}{n.qty > 1 ? ` × ${n.qty}` : ''}</span>)}</div>)}
         {short.map((x) => <div key={x.id} className="host-warn">⚠ <b>{x.name}</b>: {x.wanted} {t('مطلوب والجرد يحوي', 'asked for, the inventory holds')} {x.have}{x.others.length ? ` — ${t('تطلبه أيضاً', 'also asked by')} ${x.others.join('، ')}` : ''}</div>)}
+
+        <hr />
+
+        {line('👥', <><b>{b.people}</b> {t('شخصاً', 'people')}</>)}
+        {(b.contact || b.phone) && line('👤', <>{b.contact}{b.contact && b.phone ? ' · ' : ''}{phoneLink(b.phone)}</>)}
+        {b.kind === 'event' && b.time_from && line('🕐', <span dir="ltr"><b>{b.time_from}{b.time_to ? ` – ${b.time_to}` : ''}</b></span>)}
+        {b.repeat_days && line('🔁', <>{t('كل', 'Every')} {b.repeat_days.split(',').map((d) => weekday(Number(d))).join('، ')}</>)}
         {lines.length > 0 && line('🍽', <div className="host-chips">{lines.map((l) => <span key={l.id} className="host-chip2">{l.label}{l.qty !== 1 ? ` × ${l.qty}` : ''}{data.prices && l.amount ? ` · ${money(l.amount, l.currency)}` : ''}</span>)}</div>)}
 
-        {b.note && <><hr />{line('📝', <i>{b.note}</i>)}</>}
+        {b.note && <div className="host-note">📝 {b.note}</div>}
 
         {data.prices && (b.rate != null || lines.length > 0 || pays.length > 0) && (
           <>
@@ -529,7 +531,6 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
         {f.kind === 'event' && <Field label={t('من الساعة', 'From (hour)')}><input className="inp" type="time" disabled={readOnly} value={f.time_from} onChange={(e) => set('time_from', e.target.value)} /></Field>}
         {f.kind === 'event' && <Field label={t('إلى الساعة', 'To (hour)')}><input className="inp" type="time" disabled={readOnly} value={f.time_to} onChange={(e) => set('time_to', e.target.value)} /></Field>}
         <Field label={t('عدد الأشخاص', 'Number of people')}><input className="inp" type="number" min={0} disabled={readOnly} value={f.people} onChange={(e) => set('people', e.target.value)} /></Field>
-        <Field label={t('ملاحظة', 'Note')}><input className="inp" disabled={readOnly} value={f.note} onChange={(e) => set('note', e.target.value)} /></Field>
       </div>
       {f.kind === 'event' && (
         <div className="small" style={{ margin: '6px 0' }}>
@@ -594,11 +595,16 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
         </>
       )}
 
+      <h3 style={{ margin: '10px 0 4px' }}>{t('ملاحظة', 'Note')}</h3>
+      <textarea className="inp" rows={2} disabled={readOnly} style={{ width: '100%', resize: 'vertical' }} value={f.note} onChange={(e) => set('note', e.target.value)}
+        placeholder={t('مثلاً: يحتاجون غرفة هادئة، يصلون متأخرين، وجبات نباتية…', 'e.g. needs a quiet room, arrives late, vegetarian meals…')} />
+
       <h3 style={{ margin: '10px 0 4px' }}>{t('الخدمات', 'Services')}</h3>
       {lines.map((l, i) => (
         <div key={i} className="row" style={{ gap: 6, marginBottom: 4, alignItems: 'center' }}>
-          <Select value={l.service_id} options={data.services.filter((x) => x.active || x.id === l.service_id).map((x) => ({ value: x.id, label: x.name }))} placeholder={t('خدمة…', 'Service…')} disabled={readOnly}
-            onChange={(v) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, service_id: v, label: data.services.find((s2) => s2.id === v)?.name ?? x.label } : x)))} />
+          {l.service_id == null && l.label.trim() ? <input className="inp" style={{ minWidth: 150 }} disabled={readOnly} value={l.label} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, label: e.target.value } : x)))} /> : null}
+          {!(l.service_id == null && l.label.trim()) && <Select value={l.service_id} options={data.services.filter((x) => x.active || x.id === l.service_id).map((x) => ({ value: x.id, label: x.name }))} placeholder={t('خدمة…', 'Service…')} disabled={readOnly}
+            onChange={(v) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, service_id: v, label: data.services.find((s2) => s2.id === v)?.name ?? x.label } : x)))} />}
           <input className="inp" type="number" min={0} style={{ width: 70 }} title={t('الكمية', 'Quantity')} disabled={readOnly} value={l.qty} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, qty: e.target.value } : x)))} />
           {data.prices && <input className="inp" inputMode="decimal" style={{ width: 90 }} title={t('المبلغ المتفق عليه', 'Agreed amount')} disabled={!canPrice} value={l.amount} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))} />}
           {data.prices && <select style={{ width: 80 }} title={t('العملة', 'Currency')} disabled={!canPrice} value={l.currency} onChange={(e) => setLines((xs) => xs.map((x, k) => (k === i ? { ...x, currency: e.target.value as Currency } : x)))}><option value="USD">USD</option><option value="SYP">SYP</option></select>}

@@ -970,3 +970,6 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-chip2 { background: color-mix(in srgb, var(--centre) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--centre) 28%, var(--line)); border-radius: 999px; padding: 2px 11px; font-size: 13.5px; }
 .host-warn { margin: 6px 0; margin-inline-start: 36px; padding: 7px 10px; background: #fdecea; border: 1px solid #f1b4ac; color: #8a1c10; border-radius: 8px; font-size: 13px; }
 .host-vfoot { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--panel); }
+
+.host-hdate { margin-top: 6px; font-weight: 600; font-size: 14px; }
+.host-note { margin: 10px 0 4px; padding: 8px 11px; background: #fff7df; border: 1px solid #ecd9a0; border-radius: 8px; font-size: 14px; line-height: 1.4; }

@@ -62,7 +62,7 @@ Build only when Fouad says "build".
 - Version 0.11.4 in the 5 files (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`,
   `server/server.ts`), tag `v0.11.4`, push, Mac dmg, GitHub builds the Windows installers, then a new `installers-0.11.4` with
   its `INSTALL-README.md` and `desinstaller-mac.command`.
-- The upgrade of the **real server (0.7.4)** to the new version: rehearse on a **copy** first; the upgrade makes a
+- The upgrade of the **real server (it runs 0.11.3 since 21 November)** to the new version: rehearse on a **copy** first; the upgrade makes a
   `…_before-update-…` copy by itself.
 
 ---

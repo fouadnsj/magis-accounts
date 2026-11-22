@@ -65,7 +65,16 @@ says "build". Three new database updates (58, 59, 60); each database is copied b
 - A guide page *Accommodation and calendar*; a checklist (`TEST-2026-11-14.md`, section 18); this list.
 - The full test suite passes (new tests in `tests/hosting.test.ts`, one in `tests/inventory.test.ts`).
 
-## Rehearsal on copies of the real databases (22 November 2026, done by me)
+## Rehearsal on the fresh copy of the real server's data (22 November 2026, done by me)
+Fouad put a copy of the server's whole data folder in `real-db/MAGIS` (the real server has run 0.11.3 since 21 November).
+All **six** databases in it (Homs, the Homs community, the country, HR, the demo, the Province account) were upgraded
+with this version, in a temporary folder: 3 updates (57 → 60) in about 6 ms each; **every row of every table identical**, except the
+roles of the centre and Province databases, which gained the new ticks as intended; integrity and foreign-key checks pass; the
+program answered for every active person of every database (centre, community, HR and country). Through the real server
+program on a copy of the whole folder, each database took a `before-update` copy, then upgraded. The two phones already linked
+to Homs keep working and take the new phone app by themselves. Nothing private was printed or kept (no names, no keys).
+
+### Earlier rehearsal on older copies (Homs 11 Nov, Aleppo 30 Oct)
 Copies of the real Homs (11 Nov, schema 49) and Aleppo (30 Oct, schema 35; and the new November one) were upgraded with
 this version, in a temporary folder: 11 to 25 updates applied in about 40 ms; **every row of every table is still there**,
 the entries are **identical** (checked by a fingerprint of all columns they had before); the database integrity check and the
@@ -93,4 +102,4 @@ installer itself. See `../test-servers/REHEARSAL-ON-REAL-DATA.md` to rehearse on
 - Version 0.12.0 in the 5 files (`package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`,
   `src-tauri/Cargo.lock`, `server/server.ts`), tag `v0.12.0`, push, Mac dmg, GitHub builds the Windows installers, then a
   new `installers-0.12.0` with its `INSTALL-README.md` and `desinstaller-mac.command`.
-- The upgrade of the real server (0.7.4): rehearse on a **copy** first.
+- The real server runs **0.11.3** (since 21 November): the upgrade is three small database updates (58, 59, 60). Rehearsed on a fresh copy of its whole data folder (see above); take a manual backup and a USB copy before the real one.

@@ -347,41 +347,61 @@ function BookingView({ data, booking: b, canChange, onClose, onModify, refresh }
   const total = data.prices ? bookingTotals(b, lines) : { USD: 0, SYP: 0 };
   const days = heldDays(b).length;
   const pays = data.pays.filter((p) => p.booking_id === b.id);
-  const row = (label: string, body: React.ReactNode) => <div className="host-vrow"><small className="muted">{label}</small><div>{body}</div></div>;
+  // one line = an icon and the information itself (no headings: the icon says what it is)
+  const line = (icon: string, body: React.ReactNode, key?: string) => <div key={key} className="host-vl"><span className="host-vi" aria-hidden="true">{icon}</span><div>{body}</div></div>;
+  const long = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  const sameDay = b.from_day === b.to_day;
   return (
     <aside className="host-drawer" role="dialog" aria-label={b.group_name}>
       <header>
-        <div><b>{b.group_name}</b><br /><small className="muted">{b.code} · {b.kind === 'event' ? t('نشاط في قاعة', 'Event') : t('إقامة', 'Stay')}{b.source === 'phone' ? ' · 📱' : ''}</small></div>
+        <div>
+          <h2>{b.group_name}</h2>
+          <span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span>
+          <small className="muted"> · {b.kind === 'event' ? t('نشاط', 'Event') : t('إقامة', 'Stay')} · {b.code}{b.source === 'phone' ? ' · 📱' : ''}</small>
+          {b.cancel_reason && <div className="small muted">{b.cancel_reason}</div>}
+        </div>
         <button className="btn ghost small" onClick={onClose} aria-label="close">✕</button>
       </header>
-      <p style={{ margin: '4px 0 10px' }}><span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span>{b.cancel_reason ? <small className="muted"> · {b.cancel_reason}</small> : null}</p>
 
-      <h4>{t('من', 'Who')}</h4>
-      {row(t('المجموعة', 'Group'), <>{b.group_name} · {b.people} {t('شخصاً', 'people')}</>)}
-      {(b.contact || b.phone) && row(t('المسؤول', 'In charge'), <>{b.contact} {phoneLink(b.phone)}</>)}
+      <div className="host-vbody">
+        {line('👥', <><b>{b.people}</b> {t('شخصاً', 'people')}</>)}
+        {(b.contact || b.phone) && line('👤', <>{b.contact}{b.contact && b.phone ? ' · ' : ''}{phoneLink(b.phone)}</>)}
 
-      <h4>{t('متى', 'When')}</h4>
-      {row(b.kind === 'stay' ? t('الإقامة', 'Stay') : t('الأيام', 'Days'), <>{fmtDate(b.from_day)} → {fmtDate(b.to_day)} · {b.kind === 'stay' ? `${days} ${t('ليلة', 'night(s)')}` : `${days} ${b.repeat_days ? t('جلسة', 'session(s)') : t('يوم', 'day(s)')}`}</>)}
-      {b.kind === 'event' && b.time_from && row(t('الساعة', 'Hours'), <span dir="ltr">{b.time_from}{b.time_to ? ` – ${b.time_to}` : ''}</span>)}
-      {b.repeat_days && row(t('يتكرر', 'Repeats every'), b.repeat_days.split(',').map((d) => weekday(Number(d))).join('، '))}
+        <hr />
 
-      <h4>{t('أين', 'Where')}</h4>
-      {rooms.length ? rooms.map(({ a, r }) => row(roomName(data, r), <>{kindName(data, r)}{r.beds > 0 ? ` · ${a.beds ?? r.beds} ${t('من', 'of')} ${r.beds} ${t('سرير', 'beds')}` : r.capacity ? ` · ${t('حتى', 'up to')} ${r.capacity} ${t('شخصاً', 'people')}` : ''}</>)) : <p className="muted small">{t('لم تُحدَّد غرف', 'No rooms chosen yet')}</p>}
+        {line('📅', <>
+          <b>{sameDay ? long(b.from_day) : `${long(b.from_day)} → ${long(b.to_day)}`}</b>
+          <div className="small muted">{b.kind === 'stay' ? `${days} ${t('ليلة', 'night(s)')}` : b.repeat_days ? `${days} ${t('جلسة', 'session(s)')}` : sameDay ? '' : `${days} ${t('يوم', 'day(s)')}`}</div>
+        </>)}
+        {b.kind === 'event' && b.time_from && line('🕐', <span dir="ltr"><b>{b.time_from}{b.time_to ? ` – ${b.time_to}` : ''}</b></span>)}
+        {b.repeat_days && line('🔁', <>{t('كل', 'Every')} {b.repeat_days.split(',').map((d) => weekday(Number(d))).join('، ')}</>)}
 
-      <h4>{t('ماذا يحتاجون', 'What they need')}</h4>
-      {needs.length === 0 && lines.length === 0 && <p className="muted small">{t('لا شيء مطلوب', 'Nothing asked for')}</p>}
-      {needs.map(({ n, e }) => <div key={n.equip_id} className="host-vrow"><div>🎛 {e?.name ?? '?'} × {n.qty}</div></div>)}
-      {short.map((x) => <p key={x.id} className="small" style={{ color: 'var(--err)', margin: '2px 0' }}>⚠ {x.name}: {x.wanted} {t('مطلوب', 'asked for')}, {t('والجرد يحوي', 'the inventory holds')} {x.have}{x.others.length ? ` — ${t('تطلبه أيضاً', 'also asked by')}: ${x.others.join('، ')}` : ''}</p>)}
-      {lines.map((l) => <div key={l.id} className="host-vrow"><div>🍽 {l.label}{l.qty !== 1 ? ` × ${l.qty}` : ''}{data.prices && l.amount ? <small className="muted"> · {money(l.amount, l.currency)}</small> : null}</div></div>)}
-      {b.note && <><h4>{t('ملاحظة', 'Note')}</h4><p className="small">{b.note}</p></>}
+        <hr />
 
-      {data.prices && (b.rate != null || lines.length > 0 || pays.length > 0) && (
-        <>
-          <h4>{t('المال', 'Money')}</h4>
-          {b.rate != null && row(t('السعر', 'Price'), <>{b.price_mode === 'group' ? t('ثابت للمجموعة', 'fixed for the group') : t('للشخص في الليلة', 'per person per night')}: {money(b.rate, b.currency)}</>)}
-          {row(t('المجموع', 'Total'), <>{fmtTotals(total)} · {t('المتبقي', 'due')} {fmtTotals(dueOf(total, pays))}</>)}
-        </>
-      )}
+        {rooms.length
+          ? rooms.map(({ a, r }) => line('📍', <>
+              <b>{r.name}</b> <span className="muted">· {data.buildings.find((x) => x.id === r.building_id)?.name}</span>
+              <div className="small muted">{kindName(data, r)}{r.beds > 0 ? ` · ${a.beds ?? r.beds} ${t('من', 'of')} ${r.beds} ${t('سرير', 'beds')}` : r.capacity ? ` · ${t('حتى', 'up to')} ${r.capacity} ${t('شخصاً', 'people')}` : ''}</div>
+            </>, `r${r.id}`))
+          : line('📍', <span className="muted">{t('لم تُحدَّد غرف بعد', 'No room chosen yet')}</span>)}
+
+        {(needs.length > 0 || lines.length > 0) && <hr />}
+        {needs.length > 0 && line('🎛', <div className="host-chips">{needs.map(({ n, e }) => <span key={n.equip_id} className="host-chip2">{e?.name ?? '?'}{n.qty > 1 ? ` × ${n.qty}` : ''}</span>)}</div>)}
+        {short.map((x) => <div key={x.id} className="host-warn">⚠ <b>{x.name}</b>: {x.wanted} {t('مطلوب والجرد يحوي', 'asked for, the inventory holds')} {x.have}{x.others.length ? ` — ${t('تطلبه أيضاً', 'also asked by')} ${x.others.join('، ')}` : ''}</div>)}
+        {lines.length > 0 && line('🍽', <div className="host-chips">{lines.map((l) => <span key={l.id} className="host-chip2">{l.label}{l.qty !== 1 ? ` × ${l.qty}` : ''}{data.prices && l.amount ? ` · ${money(l.amount, l.currency)}` : ''}</span>)}</div>)}
+
+        {b.note && <><hr />{line('📝', <i>{b.note}</i>)}</>}
+
+        {data.prices && (b.rate != null || lines.length > 0 || pays.length > 0) && (
+          <>
+            <hr />
+            {line('💰', <>
+              <b>{fmtTotals(total)}</b>{b.rate != null ? <span className="muted"> · {b.price_mode === 'group' ? t('سعر ثابت', 'fixed price') : `${money(b.rate, b.currency)} ${t('للشخص/ليلة', 'per person/night')}`}</span> : null}
+              <div className="small muted">{t('المتبقي', 'Still due')}: {fmtTotals(dueOf(total, pays))}</div>
+            </>)}
+          </>
+        )}
+      </div>
 
       <div className="host-vfoot">
         {canChange && <button className="btn" disabled={busy} onClick={() => onModify(b)}>{t('عدّل', 'Modify')}</button>}

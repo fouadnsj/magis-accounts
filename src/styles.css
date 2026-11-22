@@ -958,8 +958,15 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-eq.over { background: #c62828; color: #fff; }
 
 /* a booking's information in a side window; the form opens only with Modify */
-.host-drawer { position: fixed; top: 0; bottom: 0; inset-inline-end: 0; width: min(400px, 100vw); background: var(--panel); border-inline-start: 1px solid var(--line); box-shadow: -8px 0 28px rgba(0,0,0,.14); z-index: 900; padding: 16px 18px 16px; overflow-y: auto; }
-.host-drawer header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-.host-drawer h4 { margin: 14px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 2px; }
-.host-vrow { display: flex; flex-direction: column; margin: 4px 0; }
-.host-vfoot { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 12px 0; margin-top: 16px; background: var(--panel); border-top: 1px solid var(--line); }
+.host-drawer { position: fixed; top: 0; bottom: 0; inset-inline-end: 0; width: min(380px, 100vw); background: var(--panel); border-inline-start: 1px solid var(--line); box-shadow: -10px 0 30px rgba(0,0,0,.16); z-index: 900; display: flex; flex-direction: column; }
+.host-drawer header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding: 18px 18px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--centre) 7%, var(--panel)); }
+.host-drawer h2 { margin: 0 0 6px; font-size: 21px; line-height: 1.25; }
+.host-vbody { flex: 1; overflow-y: auto; padding: 14px 18px; }
+.host-vbody hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+.host-vl { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0; font-size: 15px; line-height: 1.4; }
+.host-vi { width: 24px; text-align: center; font-size: 17px; flex: none; line-height: 1.3; }
+.host-vl > div { flex: 1; min-width: 0; }
+.host-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.host-chip2 { background: color-mix(in srgb, var(--centre) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--centre) 28%, var(--line)); border-radius: 999px; padding: 2px 11px; font-size: 13.5px; }
+.host-warn { margin: 6px 0; margin-inline-start: 36px; padding: 7px 10px; background: #fdecea; border: 1px solid #f1b4ac; color: #8a1c10; border-radius: 8px; font-size: 13px; }
+.host-vfoot { display: flex; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--panel); }

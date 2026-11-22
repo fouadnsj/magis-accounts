@@ -7,11 +7,13 @@ import { useApp } from '../state';
 import { Field, Modal, Select, Tabs, biName, confirmBox, errText, fmtDate, fmtUsd, promptBox, t, toast, todayIso } from './kit';
 import { saveFile } from '../platform';
 import { hostWorkbook } from '../io/hostFile';
+import { initialRows, receiptPdf, receiptTotals, rowAmount, type ReceiptRow } from '../io/hostReceipt';
+import { brandStyle } from '../brand';
 import { GuideLink } from '../guide/GuideView';
 import { useNav } from './Shell';
 import {
   addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, equipmentLoad, heldDays, knownNames, live, nameKey, nightsOf, occupancy, PALETTE, report, shortagesFor, stayAmount, takenOn, toReview,
-  type BookingKind, type BookingStatus, type Currency, type Shortage, type HostAsset, type HostBooking, type HostData, type HostRoom, type Totals,
+  type BookingKind, type BookingStatus, type Currency, type Shortage, type HostAlloc, type HostAsset, type HostBooking, type HostData, type HostRoom, type Totals,
 } from '../hosting/host';
 
 type Tab = 'calendar' | 'bookings' | 'equipment' | 'report' | 'payments' | 'settings';
@@ -324,12 +326,133 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
   );
 }
 
+// ---------------------------------------------------------------- the receipt (وصل استلام) of a group, adjusted in a window before it is exported
+
+type EditRow = ReceiptRow & { id: number; /** the stay (or the hall) line, priced per person */ perPerson?: boolean; stay?: boolean };
+
+/** Opens with everything the booking holds; the number of people, the nights, the meals and every line can be changed, the amounts follow, then it is written as a PDF. */
+function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking: HostBooking; onClose: () => void }) {
+  const { s } = useApp();
+  const ev = b.kind === 'event';
+  const nights0 = Math.max(1, heldDays(b).length);
+  const [people, setPeople] = useState(String(b.people));
+  const [nights, setNights] = useState(String(nights0));
+  const [date, setDate] = useState(todayIso());
+  const [ref, setRef] = useState(b.code);
+  const [name, setName] = useState(b.group_name);
+  const [contact, setContact] = useState(b.contact ?? '');
+  const [phone, setPhone] = useState(b.phone ?? '');
+  const [note, setNote] = useState('');
+  const [showRooms, setShowRooms] = useState(true);
+  const [showEquip, setShowEquip] = useState(true);
+  const pays = data.pays.filter((p) => p.booking_id === b.id && p.status !== 'refused');
+  const [payOn, setPayOn] = useState<Set<number>>(() => new Set(pays.map((p) => p.id)));
+  const [busy, setBusy] = useState(false);
+  const [rows, setRows] = useState<EditRow[]>(() => {
+    let n = 0;
+    const base = initialRows(b, nights0, data.lines.filter((l) => l.booking_id === b.id).map((l) => ({ label: l.label, qty: l.qty, amount: l.amount, currency: l.currency })));
+    return base.map((r, i) => ({ ...r, id: ++n, stay: i === 0 && b.rate != null && !!b.price_mode, perPerson: i === 0 && b.rate != null && b.price_mode === 'person' }));
+  });
+  let nextId = rows.reduce((m, r) => Math.max(m, r.id), 0) + 1;
+  const num = (v: string) => Math.max(0, Number(v) || 0);
+
+  // changing the people or the nights: the stay line follows, and so does any line that counted the same people (the meals)
+  const changePeople = (v: string) => {
+    const p0 = num(people), p1 = num(v), n = num(nights);
+    setPeople(v);
+    setRows((rs) => rs.map((r) => (r.perPerson ? { ...r, qty: p1 * n, sub: `${p1} people x ${n} ${ev ? 'day(s)' : 'night(s)'}` } : !r.stay && p0 > 0 && r.qty === p0 ? { ...r, qty: p1 } : r)));
+  };
+  const changeNights = (v: string) => {
+    const p = num(people), n = num(v);
+    setNights(v);
+    setRows((rs) => rs.map((r) => (r.perPerson ? { ...r, qty: p * n, sub: `${p} people x ${n} ${ev ? 'day(s)' : 'night(s)'}` } : r)));
+  };
+  const set = (id: number, patch: Partial<EditRow>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const cur = b.currency;
+  const counted = pays.filter((p) => payOn.has(p.id));
+  const tot = receiptTotals(rows, counted);
+  const where = data.allocs.filter((a) => a.booking_id === b.id).map((a) => ({ a, r: data.rooms.find((x) => x.id === a.room_id) })).filter((x): x is { a: HostAlloc; r: HostRoom } => !!x.r)
+    .map(({ a, r }) => `${data.buildings.find((x) => x.id === r.building_id)?.name ?? ''} · ${r.name}${r.kind === 'bedroom' ? ` (${a.beds ?? r.beds} beds)` : r.capacity ? ` (up to ${r.capacity} people)` : ''}`);
+  const equip = data.needs.filter((n) => n.booking_id === b.id).map((n) => `${data.equip.find((e) => e.id === n.equip_id)?.name ?? ''} x ${n.qty}`);
+
+  const exportPdf = async () => {
+    setBusy(true);
+    try {
+      const get = async (u: string) => new Uint8Array(await (await fetch(u)).arrayBuffer());
+      const st = brandStyle({ centre: s.centre ?? 'other', color: s.brandColor, logo: s.brandLogo });
+      const [arabic, arabicBold, jesuit, centre] = await Promise.all([get('/fonts/amiri-arabic-400.ttf'), get('/fonts/amiri-arabic-700.ttf'), get('/brand/jesuits.png').catch(() => null), st.mark ? get(st.mark).catch(() => null) : Promise.resolve(null)]);
+      const bytes = await receiptPdf({
+        organisation: s.organisation ?? '', logos: { jesuit, centre }, fonts: { arabic, arabicBold }, accent: st.deep,
+        issuedOn: date, ref, kind: b.kind, billedTo: { name, contact, phone }, from_day: b.from_day, to_day: b.to_day, people: num(people), nights: num(nights), repeats: !!b.repeat_days,
+        rooms: showRooms ? where : [], equipment: showEquip ? equip : [], rows: rows.map(({ label, sub, qty, unit, currency }) => ({ label, sub, qty, unit, currency })),
+        payments: counted.map((p) => ({ paid_on: p.paid_on, receipt_no: p.receipt_no, amount: p.amount, currency: p.currency })), note,
+      });
+      await saveFile(`receipt_${ref.replace(/[^A-Za-z0-9-]+/g, '')}_${todayIso()}.pdf`, ['pdf'], bytes, t('احفظ وصل الاستلام', 'Save the receipt'));
+      onClose();
+    } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title={`${t('وصل استلام', 'Receipt')} · ${b.group_name}`} onClose={onClose}>
+      <div className="grid2">
+        <Field label={t('التاريخ', 'Date')}><input className="inp" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label={t('المرجع', 'Reference')}><input className="inp" value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
+        <Field label={t('إلى (المجموعة)', 'Billed to (group)')}><input className="inp" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={t('الشخص المسؤول', 'Person in charge')}><input className="inp" value={contact} onChange={(e) => setContact(e.target.value)} /></Field>
+        <Field label={t('الهاتف', 'Phone')}><input className="inp" style={{ direction: 'ltr' }} value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
+        <span />
+        <Field label={t('عدد الأشخاص', 'Number of people')}><input className="inp" type="number" min={0} value={people} onChange={(e) => changePeople(e.target.value)} /></Field>
+        <Field label={ev ? t('عدد الأيام', 'Number of days') : t('عدد الليالي', 'Number of nights')}><input className="inp" type="number" min={0} value={nights} onChange={(e) => changeNights(e.target.value)} /></Field>
+      </div>
+      <p className="small muted">{t('تغيير الأشخاص أو الليالي يعدّل سطر الإقامة، وكل سطر كان يحسب العدد نفسه (الوجبات).', 'Changing the people or the nights changes the stay line, and any line that counted the same people (the meals).')}</p>
+
+      <h3 style={{ margin: '10px 0 4px' }}>{t('البنود', 'Lines')}</h3>
+      <table className="t small host-rcpt"><thead><tr><th>{t('البيان', 'Description')}</th><th className="n">{t('العدد', 'Qty')}</th><th className="n">{t('السعر', 'Price')}</th><th>{t('العملة', 'Cur.')}</th><th className="n">{t('المبلغ', 'Amount')}</th><th /></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td><input className="inp" value={r.label} onChange={(e) => set(r.id, { label: e.target.value })} />{r.sub ? <small className="muted">{r.sub}</small> : null}</td>
+              <td><input className="inp" type="number" min={0} style={{ width: 80 }} value={r.qty} onChange={(e) => set(r.id, { qty: Number(e.target.value) || 0, ...(r.perPerson ? { sub: undefined, perPerson: false } : {}) })} /></td>
+              <td><input className="inp" type="number" min={0} step="any" style={{ width: 100 }} value={r.unit} onChange={(e) => set(r.id, { unit: Number(e.target.value) || 0 })} /></td>
+              <td><select value={r.currency} onChange={(e) => set(r.id, { currency: e.target.value as Currency })}><option value="USD">USD</option><option value="SYP">SYP</option></select></td>
+              <td className="n"><b>{money(rowAmount(r), r.currency)}</b></td>
+              <td><button className="btn ghost small" onClick={() => setRows((rs) => rs.filter((x) => x.id !== r.id))}>✕</button></td>
+            </tr>
+          ))}
+        </tbody></table>
+      <button className="btn small" onClick={() => setRows((rs) => [...rs, { id: nextId++, label: '', qty: 1, unit: 0, currency: cur }])}>＋ {t('بند', 'Add a line')}</button>
+
+      <h3 style={{ margin: '12px 0 4px' }}>{t('ما يظهر', 'What is shown')}</h3>
+      <div className="small">
+        <label><input type="checkbox" checked={showRooms} onChange={(e) => setShowRooms(e.target.checked)} /> {t('الغرف', 'The rooms')}</label>{' '}
+        <label><input type="checkbox" checked={showEquip} onChange={(e) => setShowEquip(e.target.checked)} /> {t('التجهيزات', 'The equipment')}</label>
+      </div>
+      {pays.length > 0 && (
+        <div className="small" style={{ marginTop: 6 }}>
+          <b>{t('الدفعات المقبوضة', 'Payments received')}</b>
+          {pays.map((p) => <label key={p.id} style={{ display: 'block' }}><input type="checkbox" checked={payOn.has(p.id)} onChange={(e) => setPayOn((x) => { const n = new Set(x); if (e.target.checked) n.add(p.id); else n.delete(p.id); return n; })} /> {fmtDate(p.paid_on)} · {p.receipt_no} · {money(p.amount, p.currency)}</label>)}
+        </div>
+      )}
+      <Field label={t('ملاحظة في أسفل الوصل (طريقة الدفع، شكر…)', 'A note at the foot (how to pay, a thank-you…)')}><textarea className="inp" rows={2} style={{ width: '100%' }} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+
+      <p style={{ margin: '10px 0 0' }}>
+        <b>{t('المجموع', 'Total')}: {fmtTotals(tot.total)}</b>{counted.length ? <> · {t('المدفوع', 'Paid')}: {fmtTotals(tot.paid)} · <b>{t('المتبقي', 'Balance due')}: {fmtTotals(tot.due)}</b></> : null}
+      </p>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={busy || !name.trim()} onClick={() => void exportPdf()}>{t('احفظ PDF', 'Export PDF')}</button>
+      </div>
+    </Modal>
+  );
+}
+
 // ---------------------------------------------------------------- the booking's information, in a side window (who, where, when, what they need)
 
 /** Read only: a click on a booking shows this; the form to change it opens only with "Modify". The amounts only for those who see prices. */
 function BookingView({ data, booking: b, canChange, onClose, onModify, refresh }: { data: HostData; booking: HostBooking; canChange: boolean; onClose: () => void; onModify: (b: HostBooking) => void; refresh: () => Promise<void> }) {
   const { s } = useApp();
   const [busy, setBusy] = useState(false);
+  const [receipt, setReceipt] = useState(false);
   // the two things reception does most, in one click: they arrived, they left (anything else needs Modify)
   const mark = async (status: BookingStatus) => {
     setBusy(true);
@@ -362,7 +485,7 @@ function BookingView({ data, booking: b, canChange, onClose, onModify, refresh }
         <div>
           <h2>{b.group_name}</h2>
           <span className={`host-badge ${b.status}`}>{STATUS_LABEL[b.status]()}</span>
-          <small className="muted"> · {b.kind === 'event' ? t('نشاط', 'Event') : t('إقامة', 'Stay')} · {b.code}{b.source === 'phone' ? ' · 📱' : ''}</small>
+          <small className="muted"> · {b.kind === 'event' ? t('نشاط', 'Event') : t('إقامة', 'Stay')}{b.source === 'phone' ? ' · 📱' : ''}</small>
           <div className="host-hdate">📅 {sameDay ? long(b.from_day) : `${long(b.from_day)} → ${long(b.to_day)}`}{b.kind === 'stay' ? <small className="muted"> · {days} {t('ليلة', 'night(s)')}</small> : b.repeat_days ? <small className="muted"> · {days} {t('جلسة', 'session(s)')}</small> : !sameDay ? <small className="muted"> · {days} {t('يوم', 'day(s)')}</small> : null}</div>
           {b.cancel_reason && <div className="small muted">{b.cancel_reason}</div>}
         </div>
@@ -409,8 +532,10 @@ function BookingView({ data, booking: b, canChange, onClose, onModify, refresh }
         {canChange && <button className="btn" disabled={busy} onClick={() => onModify(b)}>{t('عدّل', 'Modify')}</button>}
         {canChange && b.kind === 'stay' && b.status === 'confirmed' && <button className="btn primary" disabled={busy} onClick={() => void mark('arrived')}>{t('وصلوا', 'Arrived')}</button>}
         {canChange && b.kind === 'stay' && b.status === 'arrived' && <button className="btn primary" disabled={busy} onClick={() => void mark('left')}>{t('غادروا', 'Left')}</button>}
+        {data.prices && (b.rate != null || lines.length > 0) && <button className="btn" disabled={busy} onClick={() => setReceipt(true)}>{t('وصل استلام', 'Receipt')}</button>}
         <button className="btn ghost" onClick={onClose}>{t('إغلاق', 'Close')}</button>
       </div>
+      {receipt && <ReceiptWindow data={data} booking={b} onClose={() => setReceipt(false)} />}
     </aside>
   );
 }

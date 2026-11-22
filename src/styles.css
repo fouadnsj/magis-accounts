@@ -973,3 +973,5 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 
 .host-hdate { margin-top: 6px; font-weight: 600; font-size: 14px; }
 .host-note { margin: 10px 0 4px; padding: 8px 11px; background: #fff7df; border: 1px solid #ecd9a0; border-radius: 8px; font-size: 14px; line-height: 1.4; }
+
+.host-rcpt td { vertical-align: top; } .host-rcpt .inp { width: 100%; min-width: 0; }

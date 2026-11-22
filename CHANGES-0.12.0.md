@@ -43,6 +43,11 @@ says "build". Five new database updates (58 to 62); each database is copied befo
   when confirming ("Confirm anyway?"), a ⚠ in the bookings list, and an **Equipment** tab with a day-by-day grid (red =
   more asked for than exist) and the list of days and bookings concerned. Events whose hours do not cross do not compete.
   Limit: the count is for the whole centre (it does not know which projector is in which room).
+- **A receipt for a group (وصل استلام)**: in a booking's side window, for roles with the prices tick, a *Receipt* button opens a window to
+  adjust, before exporting, the date, reference, name, **number of people, number of nights, every line** (meals and services: description,
+  quantity, price, currency), what is shown (rooms, equipment), the payments and a note. It saves a **PDF** titled *Receipt · وصل استلام*
+  (never "invoice"), with the **centre logo and the Jesuit logo**, Arabic in **Amiri**, totals per currency and the balance. Nothing is stored.
+  New: the library `@pdf-lib/fontkit` and two font files in `public/fonts` (the program grows by about 0.6 MB).
 
 ## 2. Reports (Calendar → Reports)
 - Period (this year, last year, all time, dates), type, with or without the bookings still "to confirm".

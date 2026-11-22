@@ -12,6 +12,7 @@
     "server": "node --no-warnings server-dist/server.mjs"
   },
   "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
     "@peculiar/x509": "^1.14.3",
     "@tauri-apps/api": "^2.12.3",
     "@tauri-apps/plugin-dialog": "^2.8.2",

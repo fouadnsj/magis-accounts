@@ -67,6 +67,7 @@ says "build". Five new database updates (58 to 62); each database is copied befo
   each booking: no clash → *Confirm*; a clash → names the group it runs into, gives the phone number to **call**, and lets
   you **change the dates or the rooms**. The same window appears on the computer.
 - Names of groups and people are completed on the phone too. No amount ever reaches the phone.
+- **A booking on the phone shows what the group asks for** (equipment and counts) and the note, read only; they arrive with the next sync.
 - Fixed: tapping *free +* used to blank the screen.
 
 ## 4. Who sees what

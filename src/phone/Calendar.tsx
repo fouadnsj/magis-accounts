@@ -58,6 +58,8 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
   const occ = useMemo(() => occupancy(data, new Set(rooms.map((r) => r.id))), [data, rooms]); // eslint-disable-line react-hooks/exhaustive-deps
   const bName = (id: number) => host.buildings.find((b) => b.id === id)?.name ?? '';
   const roomsOf = (id: number) => data.allocs.filter((a) => a.booking_id === id).map((a) => { const r = data.rooms.find((x) => x.id === a.room_id); return r ? `${bName(r.building_id)} · ${r.name}` : ''; }).join('، ');
+  // what the group asks for (the equipment), read only
+  const needsOf = (id: number) => (host.needs ?? []).filter((n) => n.booking_id === id).map((n) => `${host.equip?.find((e) => e.id === n.equip_id)?.name ?? ''} × ${n.qty}`);
   const STATUS: Record<string, string> = { option: t('للتأكيد', 'To confirm', 'À confirmer'), confirmed: t('مؤكَّد', 'Confirmed', 'Confirmée'), arrived: t('وصلوا', 'Arrived', 'Arrivés'), left: t('غادروا', 'Left', 'Partis'), cancelled: t('ملغى', 'Cancelled', 'Annulée') };
 
   if (form) return <BookingForm pack={pack} tr={t} start={form} waiting={waiting} onClose={(saved) => { setForm(null); reload(); if (saved) onClose(true); }} />;
@@ -69,6 +71,8 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
           <div>{view.from_day} → {view.to_day} · {view.people} {t('شخص', 'people', 'personnes')}</div>
           <div className="ph-muted">{roomsOf(view.id)}</div>
           {(view.contact || view.phone) && <div>☎ {view.contact} {phoneLink(view.phone)}</div>}
+          {needsOf(view.id).length > 0 && <div>🎛 {needsOf(view.id).join('، ')}</div>}
+          {(view as { note?: string | null }).note?.trim() && <div className="ph-muted" style={{ whiteSpace: 'pre-wrap' }}>📝 {(view as { note?: string | null }).note}</div>}
           {view.id < 0 && <div className="ph-muted">📱 {t('لم يُرسل بعد: ينتظر الاتصال بالمركز', 'Not sent yet: it waits for the connection to the centre', 'Pas encore envoyée : elle attend la connexion au centre')}</div>}
         </section>
         <button className="ph-btn" onClick={() => setView(null)}>{t('رجوع', 'Back', 'Retour')}</button>

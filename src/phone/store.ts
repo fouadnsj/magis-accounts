@@ -34,8 +34,11 @@ export interface Pack {
     book: boolean;
     buildings: { id: number; name: string; color: string | null }[];
     rooms: { id: number; building_id: number; name: string; beds: number; kind: string; capacity?: number }[];
-    bookings: { id: number; code: string; kind: 'stay' | 'event'; status: string; group_name: string; contact: string | null; phone: string | null; people: number; from_day: string; to_day: string; repeat_days: string | null; time_from: string | null; time_to: string | null; review: number }[];
+    bookings: { id: number; code: string; kind: 'stay' | 'event'; status: string; group_name: string; contact: string | null; phone: string | null; people: number; from_day: string; to_day: string; repeat_days: string | null; time_from: string | null; time_to: string | null; review: number; note?: string | null }[];
     allocs: { booking_id: number; room_id: number; beds: number | null }[];
+    /** what a booking asks for, read only (a pack kept before 0.12 has none) */
+    equip?: { id: number; name: string }[];
+    needs?: { booking_id: number; equip_id: number; qty: number }[];
   };
 }
 

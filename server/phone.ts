@@ -99,14 +99,17 @@ export interface HostPack {
   book: boolean;
   buildings: Pick<HostBuilding, 'id' | 'name' | 'color'>[];
   rooms: Pick<HostRoom, 'id' | 'building_id' | 'name' | 'beds' | 'kind' | 'capacity'>[];
-  bookings: Pick<HostBooking, 'id' | 'code' | 'kind' | 'status' | 'group_name' | 'contact' | 'phone' | 'people' | 'from_day' | 'to_day' | 'repeat_days' | 'time_from' | 'time_to' | 'review'>[];
+  bookings: Pick<HostBooking, 'id' | 'code' | 'kind' | 'status' | 'group_name' | 'contact' | 'phone' | 'people' | 'from_day' | 'to_day' | 'repeat_days' | 'time_from' | 'time_to' | 'review' | 'note'>[];
   allocs: HostAlloc[];
+  /** what a booking asks for (read only on the phone): the names of the equipment and how many */
+  equip: { id: number; name: string }[];
+  needs: { booking_id: number; equip_id: number; qty: number }[];
 }
 
 /** the rooms and the bookings of the days ahead (a few days back too), without any amount */
 export async function hostPack(db: Db, profile: Profile): Promise<HostPack | undefined> {
   if (!(has(profile, 'hosting.view') || has(profile, 'hosting.book') || has(profile, 'hosting.prices') || has(profile, 'hosting.keep')) || !(await sectionOn(db))) return undefined;
-  const bookings = await db.query<HostPack['bookings'][number]>("SELECT id, code, kind, status, group_name, contact, phone, people, from_day, to_day, repeat_days, time_from, time_to, review FROM host_booking WHERE status <> 'cancelled' AND to_day >= date('now', '-7 day') ORDER BY from_day, id");
+  const bookings = await db.query<HostPack['bookings'][number]>("SELECT id, code, kind, status, group_name, contact, phone, people, from_day, to_day, repeat_days, time_from, time_to, review, note FROM host_booking WHERE status <> 'cancelled' AND to_day >= date('now', '-7 day') ORDER BY from_day, id");
   const ids = new Set(bookings.map((b) => b.id));
   return {
     book: has(profile, 'hosting.book') || has(profile, 'hosting.prices') || has(profile, 'hosting.keep'),
@@ -114,6 +117,8 @@ export async function hostPack(db: Db, profile: Profile): Promise<HostPack | und
     rooms: await db.query<HostPack['rooms'][number]>('SELECT id, building_id, name, beds, kind, capacity FROM host_room WHERE active = 1 ORDER BY building_id, sort, name'),
     bookings,
     allocs: (await db.query<HostAlloc>('SELECT * FROM host_alloc')).filter((a) => ids.has(a.booking_id)),
+    equip: await db.query<{ id: number; name: string }>('SELECT id, name FROM host_equip ORDER BY sort, name'),
+    needs: (await db.query<{ booking_id: number; equip_id: number; qty: number }>('SELECT booking_id, equip_id, qty FROM host_need')).filter((n) => ids.has(n.booking_id)),
   };
 }
 

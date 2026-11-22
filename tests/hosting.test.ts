@@ -638,5 +638,14 @@ describe('equipment a booking asks for, against what the inventory holds', () =>
     await runOp(sup, 'host.booking.status', { id: stay.id, status: 'left' });
     expect((await host()).bookings.find((b) => b.id === stay.id)?.status).toBe('left');
   });
-});
 
+  it('the phone carries what a booking asks for (names, counts, the note), read only and with no price', async () => {
+    const e = await ev('Phone equipment', 700, 1, { room: 0, note: 'needs a quiet room' });
+    const { hostPack } = await import('../server/phone');
+    const pack = (await hostPack(db, reception.profile))!;
+    expect(pack.needs.filter((n) => n.booking_id === e.id).map((n) => [n.equip_id, n.qty])).toEqual([[projector, 1]]);
+    expect(pack.equip.find((x) => x.id === projector)?.name).toBe('Video projector');
+    expect(pack.bookings.find((b) => b.id === e.id)?.note).toBe('needs a quiet room');
+    expect(JSON.stringify(pack)).not.toMatch(/"(rate|amount|price)/);
+  });
+});

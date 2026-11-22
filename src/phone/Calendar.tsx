@@ -113,7 +113,7 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
                 const beds = taken.reduce((n, x) => n + x.beds, 0);
                 return (
                   <div key={r.id} className="ph-room">
-                    <span className="ph-room-name">{r.name}{r.beds > 0 ? <small> · {beds}/{r.beds}</small> : null}</span>
+                    <span className="ph-room-name">{r.name}{r.beds > 0 ? <small> · {beds}/{r.beds}</small> : r.capacity ? <small> · {r.capacity}</small> : null}</span>
                     {taken.length ? <span className="ph-chip-row">{taken.map((x) => bookingChip(x.booking, r.beds > 1 ? `${x.beds}` : undefined))}</span>
                       : <button type="button" className="ph-free" disabled={!host.book} onClick={() => setForm({ room: r.id, day: from })}>{t('حرّة', 'free', 'libre')}{host.book ? ' ＋' : ''}</button>}
                   </div>
@@ -132,7 +132,7 @@ export function CalendarPage({ pack, tr: t, onClose }: { pack: Pack; tr: Tr; onC
             <tbody>
               {rooms.map((r) => (
                 <tr key={r.id}>
-                  <th style={{ borderInlineStart: `5px solid ${colorOf(host.buildings, r.building_id)}` }}>{r.name}{r.beds > 0 ? <small> · {r.beds}</small> : null}</th>
+                  <th style={{ borderInlineStart: `5px solid ${colorOf(host.buildings, r.building_id)}` }}>{r.name}{r.beds > 0 ? <small> · {r.beds}</small> : r.capacity ? <small> · {r.capacity}</small> : null}</th>
                   {days.map((d) => {
                     const taken = takenOn(r, d, data.bookings, data.allocs);
                     if (!taken.length) return <td key={d} className="free" onClick={() => host.book && setForm({ room: r.id, day: d })} />;
@@ -253,7 +253,7 @@ export function BookingForm({ pack, tr: t, start, waiting, editing, onSave, onCl
               const mine = hit.filter((c) => c.room_id === r.id);
               return (
                 <div key={r.id} className="ph-pick">
-                  <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 24, minHeight: 24 }} checked={on} onChange={(e) => setRooms((m) => { const n = new Map(m); if (e.target.checked) n.set(r.id, null); else n.delete(r.id); return n; })} /> {r.name} <small>{r.beds ? `(${r.beds})` : `(${t('قاعة', 'hall', 'salle')})`}</small></label>
+                  <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><input type="checkbox" style={{ width: 24, minHeight: 24 }} checked={on} onChange={(e) => setRooms((m) => { const n = new Map(m); if (e.target.checked) n.set(r.id, null); else n.delete(r.id); return n; })} /> {r.name} <small>{r.beds ? `(${r.beds})` : r.capacity ? `(${r.capacity} ${t('شخصاً', 'people', 'pers.')})` : `(${t('قاعة', 'hall', 'salle')})`}</small></label>
                   {on && r.beds > 1 && f.kind === 'stay' && <input type="number" inputMode="numeric" min={1} max={r.beds} placeholder={t('كلها', 'all', 'tous')} style={{ width: 90 }} value={rooms.get(r.id) ?? ''} onChange={(e) => setRooms((m) => new Map(m).set(r.id, e.target.value === '' ? null : Number(e.target.value)))} />}
                   {on && mine.length > 0 && <small className="warn">⚠ {t('محجوزة', 'taken', 'prise')}: {[...new Set(clashing(mine))].map(by).join('، ')}</small>}
                 </div>

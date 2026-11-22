@@ -1,7 +1,7 @@
 # What is new in 0.12.0 — list made 22 November 2026
 
 Everything below is committed on `main` after the tag `v0.11.4`. **Nothing is in an installer yet**: build only when Fouad
-says "build". Three new database updates (58, 59, 60); each database is copied before it changes, as always.
+says "build". Four new database updates (58, 59, 60, 61); each database is copied before it changes, as always.
 
 ## 1. Accommodation and calendar (a new section, per centre)
 - **Switched on per centre** in *Admin → Sections* (off by default). The *Inventory* has the same switch (on by default).
@@ -27,6 +27,12 @@ says "build". Three new database updates (58, 59, 60); each database is copied b
   that "to confirm" holds the days but is not final.
 - **Groups and people in charge are remembered** from the bookings: names are completed while typing, a known group fills
   its person in charge and phone, and shows "N earlier booking(s)". (No separate list: the same name = the same group.)
+
+- **Kinds of room are a list you edit** (migration 61): bedroom, hall, classroom, meeting room, dining room, other, and your own.
+  A kind either has beds or has a **capacity** (the most people it holds). For a hall there is no number of beds.
+  **What a hall holds comes from the inventory**: the room is already a place of the inventory, so the items placed in it
+  (video projector, sound system, microphones, chairs…) are listed, added up by name, in the room list and in the booking
+  form; the booking form warns when the people are more than the capacity. The phone carries the capacity.
 
 ## 2. Reports (Calendar → Reports)
 - Period (this year, last year, all time, dates), type, with or without the bookings still "to confirm".

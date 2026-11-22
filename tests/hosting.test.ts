@@ -482,3 +482,72 @@ describe('who sees the prices, and people with no books', () => {
     expect(JSON.stringify(pack)).not.toMatch(/"rate"|"amount"/);
   });
 });
+
+describe('kinds of room, capacity, and what a hall holds (from the inventory)', () => {
+  let classroom = 0, hallId = 0, placeOfHall = 0;
+
+  it('the kinds are a list: bedroom has beds, the others have a capacity; the list is edited by whoever keeps the calendar', async () => {
+    const d = await host();
+    expect(d.kinds.map((k) => [k.name.split(' · ')[0], k.sleeps])).toEqual([['Bedroom', 1], ['Hall', 0], ['Classroom', 0], ['Meeting room', 0], ['Dining room', 0], ['Other', 0]]);
+    // the rooms made before carry their kind
+    expect(d.rooms.find((r) => r.id === r1)?.kind_id).toBe(1);
+    expect(d.rooms.find((r) => r.id === hall)?.kind_id).toBe(2);
+    classroom = d.kinds.find((k) => k.name.startsWith('Classroom'))!.id;
+    const chapel = (await runOp(sup, 'host.kind.save', { name: 'Chapel · كنيسة', sleeps: false })) as { ok: boolean };
+    expect(chapel.ok).toBe(true);
+    await expect(runOp(sup, 'host.kind.save', { name: 'chapel · كنيسة' })).rejects.toThrow(); // same name
+    await expect(runOp(reception, 'host.kind.save', { name: 'Garden' })).rejects.toThrow();
+  });
+
+  it('a meeting space keeps a capacity (never beds); a bedroom keeps beds (never a capacity)', async () => {
+    const b = (await host()).buildings[0].id;
+    const made = (await runOp(sup, 'host.room.save', { building_id: b, name: 'Class A', kind_id: classroom, capacity: 25, beds: 9 })) as { id: number };
+    hallId = made.id;
+    let r = (await host()).rooms.find((x) => x.id === hallId)!;
+    expect(r).toMatchObject({ kind_id: classroom, capacity: 25, beds: 0, kind: 'hall' });
+    // a bedroom
+    const bed = (await runOp(sup, 'host.room.save', { building_id: b, name: 'Dorm X', kind_id: 1, beds: 6, capacity: 99 })) as { id: number };
+    r = (await host()).rooms.find((x) => x.id === bed.id)!;
+    expect(r).toMatchObject({ kind_id: 1, beds: 6, capacity: 0, kind: 'bedroom' });
+    // an unknown kind is refused; the old way (a word) still works
+    await expect(runOp(sup, 'host.room.save', { building_id: b, name: 'Nope', kind_id: 999 })).rejects.toThrow();
+    const old = (await runOp(sup, 'host.room.save', { building_id: b, name: 'Old style hall', kind: 'hall', capacity: 40 })) as { id: number };
+    expect((await host()).rooms.find((x) => x.id === old.id)).toMatchObject({ kind_id: 2, capacity: 40, kind: 'hall' });
+  });
+
+  it('a kind used by rooms cannot change between beds and no beds', async () => {
+    await expect(runOp(sup, 'host.kind.save', { id: 1, name: 'Bedroom · غرفة نوم', sleeps: false })).rejects.toThrow();
+    await runOp(sup, 'host.kind.save', { id: 1, name: 'Bedroom · غرفة نوم', sleeps: true, active: true }); // renaming/keeping is fine
+  });
+
+  it('what a hall holds is read from the inventory: the items placed in the room, added up by name, never for a bedroom', async () => {
+    const room = (await host()).rooms.find((x) => x.id === hallId)!;
+    placeOfHall = room.place_id!;
+    expect(placeOfHall).toBeGreaterThan(0);
+    await runOp(sup, 'inv.item.many', { items: [
+      { name: 'Video projector', qty: 1, place_id: placeOfHall }, { name: 'Sound system', qty: 1, place_id: placeOfHall },
+      { name: 'Microphone', qty: 2, place_id: placeOfHall }, { name: 'Chair', qty: 30, place_id: placeOfHall }, { name: 'Chair', qty: 20, place_id: placeOfHall },
+    ] });
+    // an item in a bedroom is not listed
+    const bedPlace = (await host()).rooms.find((x) => x.id === r1)!.place_id!;
+    await runOp(sup, 'inv.item.many', { items: [{ name: 'Wardrobe', qty: 2, place_id: bedPlace }] });
+    const d = await host();
+    expect(d.assets.filter((a) => a.room_id === hallId).map((a) => [a.name, a.qty])).toEqual([['Chair', 50], ['Microphone', 2], ['Sound system', 1], ['Video projector', 1]]);
+    expect(d.assets.some((a) => a.room_id === r1)).toBe(false);
+    // the reception sees the equipment (and still no price)
+    const forDesk = await host(reception);
+    expect(forDesk.assets.filter((a) => a.room_id === hallId).length).toBe(4);
+    expect(forDesk.prices).toBe(false);
+    // an item taken out of use no longer counts
+    const item = (await db.query<{ id: number }>("SELECT id FROM inv_item WHERE name = 'Microphone'"))[0].id;
+    await runOp(sup, 'inv.item.out', { id: item, kind: 'lost', reason: 'test' });
+    expect((await host()).assets.find((a) => a.room_id === hallId && a.name === 'Microphone')).toBeUndefined();
+  });
+
+  it('the phone carries the capacity', async () => {
+    const { hostPack } = await import('../server/phone');
+    const pack = (await hostPack(db, reception.profile))!;
+    expect(pack.rooms.find((r) => r.id === hallId)?.capacity).toBe(25);
+  });
+});
+

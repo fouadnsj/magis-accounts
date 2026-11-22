@@ -33,7 +33,7 @@ export interface Pack {
   host?: {
     book: boolean;
     buildings: { id: number; name: string; color: string | null }[];
-    rooms: { id: number; building_id: number; name: string; beds: number; kind: string }[];
+    rooms: { id: number; building_id: number; name: string; beds: number; kind: string; capacity?: number }[];
     bookings: { id: number; code: string; kind: 'stay' | 'event'; status: string; group_name: string; contact: string | null; phone: string | null; people: number; from_day: string; to_day: string; repeat_days: string | null; time_from: string | null; time_to: string | null; review: number }[];
     allocs: { booking_id: number; room_id: number; beds: number | null }[];
   };

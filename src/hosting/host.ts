@@ -16,7 +16,11 @@ export type RoomKind = 'bedroom' | 'hall' | 'other';
 export type Currency = 'USD' | 'SYP';
 
 export interface HostBuilding { id: number; name: string; active: number; sort: number; /** its colour on the calendar (#rrggbb); null: one from the palette */ color: string | null }
-export interface HostRoom { id: number; building_id: number; name: string; beds: number; kind: RoomKind; active: number; sort: number; place_id: number | null }
+export interface HostRoom { id: number; building_id: number; name: string; beds: number; kind: RoomKind; /** the kind of room, from the list the keeper edits */ kind_id: number | null; /** the most people a meeting space holds (a hall); 0: not given */ capacity: number; active: number; sort: number; place_id: number | null }
+/** a kind of room: with beds (people sleep there) or a meeting space */
+export interface HostKind { id: number; name: string; sleeps: number; active: number; sort: number }
+/** what a room holds, read from the inventory (the room is a place of the inventory) */
+export interface HostAsset { room_id: number; name: string; qty: number }
 export interface HostService { id: number; name: string; active: number; sort: number }
 export interface HostBooking {
   id: number;
@@ -61,6 +65,9 @@ export interface HostPay {
 export interface HostData {
   buildings: HostBuilding[];
   rooms: HostRoom[];
+  kinds: HostKind[];
+  /** the items the inventory holds in each meeting space (not in bedrooms) */
+  assets: HostAsset[];
   services: HostService[];
   bookings: HostBooking[];
   allocs: HostAlloc[];

@@ -12,7 +12,7 @@ import { m } from '../i18n';
 import type { OpCtx } from '../ops';
 import {
   checkBooking, clashing, conflictsOf, holds, isDay, nextCode, nextReceipt, STATUSES, toReview, withoutPrices,
-  type BookingKind, type BookingStatus, type Currency, type HostAlloc, type HostBooking, type HostBuilding, type HostData, type HostLine, type HostPay, type HostRoom, type HostService,
+  type BookingKind, type BookingStatus, type Currency, type HostAlloc, type HostAsset, type HostBooking, type HostBuilding, type HostData, type HostKind, type HostLine, type HostPay, type HostRoom, type HostService,
 } from './host';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non autorisé pour cet utilisateur'));
@@ -39,6 +39,9 @@ export async function loadHosting(c: OpCtx): Promise<HostData> {
   const d: HostData = {
     buildings: await c.db.query<HostBuilding>('SELECT * FROM host_building ORDER BY sort, name'),
     rooms: await c.db.query<HostRoom>('SELECT * FROM host_room ORDER BY building_id, sort, name'),
+    kinds: await c.db.query<HostKind>('SELECT * FROM host_kind ORDER BY sort, name'),
+    // what each meeting space holds: the items of the inventory placed in it (projector, sound system, chairs…)
+    assets: await c.db.query<HostAsset>("SELECT r.id AS room_id, i.name AS name, SUM(i.qty) AS qty FROM host_room r JOIN inv_item i ON i.place_id = r.place_id AND i.status = 'in_use' WHERE r.place_id IS NOT NULL AND r.kind <> 'bedroom' GROUP BY r.id, i.name ORDER BY r.id, i.name"),
     services: await c.db.query<HostService>('SELECT * FROM host_service ORDER BY sort, name'),
     bookings: await c.db.query<HostBooking>('SELECT * FROM host_booking ORDER BY from_day, id'),
     allocs: await c.db.query<HostAlloc>('SELECT * FROM host_alloc'),
@@ -265,14 +268,22 @@ export const HOST_OPS = {
   /** a room (or a hall): its beds; it is also a place of the inventory, so the things in it are listed there */
   'host.room.save': {
     check: keep,
-    run: async (c: OpCtx, a: { id?: number; building_id: number; name: string; beds?: number; kind?: string; active?: boolean }) => {
+    run: async (c: OpCtx, a: { id?: number; building_id: number; name: string; beds?: number; capacity?: number; kind?: string; kind_id?: number | null; active?: boolean }) => {
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
       const bld = await one<HostBuilding>(c.db, 'SELECT * FROM host_building WHERE id = ?', [a.building_id]);
       if (!bld) throw new UserError(m('المبنى غير موجود', 'Building not found', 'Bâtiment introuvable'));
       if (await one(c.db, 'SELECT 1 FROM host_room WHERE building_id = ? AND name = ? AND id <> ?', [bld.id, name, a.id ?? -1])) throw new UserError(m('الاسم موجود في هذا المبنى', 'That name exists in this building', 'Ce nom existe déjà dans ce bâtiment'));
-      const kind = a.kind === 'hall' ? 'hall' : a.kind === 'other' ? 'other' : 'bedroom';
-      const beds = whole(a.beds);
+      // the kind comes from the list the keeper edits; a kind with beds sleeps people, any other is a meeting space with a capacity
+      const kinds = await c.db.query<HostKind>('SELECT * FROM host_kind');
+      let row = a.kind_id != null ? kinds.find((k) => k.id === Number(a.kind_id)) : undefined;
+      if (a.kind_id != null && !row) throw new UserError(m('نوع الغرفة غير موجود', 'That kind of room does not exist', 'Ce type de salle n’existe pas'));
+      if (!row) row = a.kind === 'hall' || a.kind === 'other' ? kinds.find((k) => !k.sleeps) : kinds.find((k) => k.sleeps);
+      if (!row) throw new UserError(m('أضف نوع غرفة أولاً', 'Add a kind of room first', 'Ajoutez d’abord un type de salle'));
+      const sleeps = !!row.sleeps;
+      const kind = sleeps ? 'bedroom' : a.kind === 'other' ? 'other' : 'hall';
+      const beds = sleeps ? whole(a.beds) : 0;
+      const capacity = sleeps ? 0 : whole(a.capacity);
       const active = a.active === false ? 0 : 1;
       const old = a.id ? await one<HostRoom>(c.db, 'SELECT * FROM host_room WHERE id = ?', [a.id]) : null;
       const placeName = `${bld.name} · ${name}`;
@@ -288,11 +299,33 @@ export const HOST_OPS = {
       }
       const sort = ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(sort), 0) AS n FROM host_room'))?.n ?? 0) + 1;
       stmts.push(a.id
-        ? { sql: 'UPDATE host_room SET building_id = ?, name = ?, beds = ?, kind = ?, active = ?, place_id = ? WHERE id = ?', params: [bld.id, name, beds, kind, active, placeId, a.id] }
-        : { sql: 'INSERT INTO host_room (building_id, name, beds, kind, active, sort, place_id) VALUES (?,?,?,?,?,?,?)', params: [bld.id, name, beds, kind, active, sort, placeId] });
-      stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', 'host_room', a.id ? String(a.id) : null, null, { building: bld.name, name, beds, kind, active }));
+        ? { sql: 'UPDATE host_room SET building_id = ?, name = ?, beds = ?, kind = ?, kind_id = ?, capacity = ?, active = ?, place_id = ? WHERE id = ?', params: [bld.id, name, beds, kind, row.id, capacity, active, placeId, a.id] }
+        : { sql: 'INSERT INTO host_room (building_id, name, beds, kind, kind_id, capacity, active, sort, place_id) VALUES (?,?,?,?,?,?,?,?,?)', params: [bld.id, name, beds, kind, row.id, capacity, active, sort, placeId] });
+      stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', 'host_room', a.id ? String(a.id) : null, null, { building: bld.name, name, beds, capacity, kind: row.name, active }));
       await c.db.batch(stmts);
       return { id: a.id ?? (await one<{ id: number }>(c.db, 'SELECT id FROM host_room WHERE building_id = ? AND name = ?', [bld.id, name]))?.id ?? null };
+    },
+  },
+
+  /** the kinds of room: add, rename, say whether it has beds, switch off (never deleted) */
+  'host.kind.save': {
+    check: keep,
+    run: async (c: OpCtx, a: { id?: number; name: string; sleeps?: boolean; active?: boolean }) => {
+      const name = txt(a.name);
+      if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
+      if (await one(c.db, 'SELECT 1 FROM host_kind WHERE name = ? AND id <> ?', [name, a.id ?? -1])) throw new UserError(m('الاسم موجود', 'That name exists', 'Ce nom existe déjà'));
+      const old = a.id ? await one<HostKind>(c.db, 'SELECT * FROM host_kind WHERE id = ?', [a.id]) : null;
+      if (a.id && !old) throw new UserError(m('غير موجود', 'Not found', 'Introuvable'));
+      const sleeps = a.sleeps ? 1 : 0;
+      const active = a.active === false ? 0 : 1;
+      // a kind that rooms already use cannot change between beds and no beds (their beds and capacity would no longer mean the same)
+      if (old && old.sleeps !== sleeps && (await one(c.db, 'SELECT 1 FROM host_room WHERE kind_id = ?', [old.id]))) throw new UserError(m('غرف تستعمل هذا النوع: لا يمكن تغيير «فيه أسرّة»', 'Rooms use this kind: "has beds" cannot be changed', 'Des chambres utilisent ce type : « a des lits » ne peut plus changer'));
+      const sort = ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(sort), 0) AS n FROM host_kind'))?.n ?? 0) + 1;
+      await c.db.batch([
+        a.id ? { sql: 'UPDATE host_kind SET name = ?, sleeps = ?, active = ? WHERE id = ?', params: [name, sleeps, active, a.id] } : { sql: 'INSERT INTO host_kind (name, sleeps, sort) VALUES (?,?,?)', params: [name, sleeps, sort] },
+        auditStmt(c.who, a.id ? 'update' : 'add', 'host_kind', a.id ? String(a.id) : null, null, { name, sleeps, active }),
+      ]);
+      return { ok: true };
     },
   },
 

@@ -948,3 +948,5 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .mg-admin-word { font-family: var(--serif); font-size: 15px; font-weight: 600; color: var(--centre-deep); letter-spacing: .02em; max-height: 0; opacity: 0; overflow: hidden; transform: translateY(-3px); transition: max-height .4s ease, opacity .4s ease .05s, transform .4s ease; }
 .mg-adminbtn:hover .mg-admin-word, .mg-adminbtn:focus-visible .mg-admin-word { max-height: 24px; opacity: 1; transform: none; }
 @media (hover: none) { .mg-admin-word { max-height: none; opacity: 1; transform: none; } }
+
+.host-assets { display: block; flex-basis: 100%; font-size: 11px; }

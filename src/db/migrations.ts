@@ -2041,4 +2041,26 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"hosting.prices"]')
  WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"hosting.prices"%';
 `,
   },
+  {
+    n: 61,
+    name: 'hosting: a list of kinds of room (a hall has a capacity, a bedroom has beds)',
+    sql: `
+-- (Fouad, 2026-11-22) The kinds of room are a list the keeper edits (bedroom, hall, classroom, meeting room…). A kind either
+-- has beds (people sleep there) or is a meeting space with a maximum number of people. What a hall holds (projector, sound,
+-- chairs…) is read from the inventory: the room is already a place of the inventory.
+CREATE TABLE host_kind (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  sleeps INTEGER NOT NULL DEFAULT 0,          -- 1: has beds
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO host_kind (id, name, sleeps, sort) VALUES
+  (1, 'Bedroom · غرفة نوم', 1, 1), (2, 'Hall · قاعة', 0, 2), (3, 'Classroom · صف', 0, 3),
+  (4, 'Meeting room · قاعة اجتماعات', 0, 4), (5, 'Dining room · قاعة طعام', 0, 5), (6, 'Other · أخرى', 0, 6);
+ALTER TABLE host_room ADD COLUMN kind_id INTEGER REFERENCES host_kind(id);
+ALTER TABLE host_room ADD COLUMN capacity INTEGER NOT NULL DEFAULT 0;   -- the most people a meeting space holds
+UPDATE host_room SET kind_id = CASE kind WHEN 'bedroom' THEN 1 WHEN 'hall' THEN 2 ELSE 6 END;
+`,
+  },
 ];

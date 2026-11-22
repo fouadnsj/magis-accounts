@@ -4,14 +4,14 @@
 // connection waits for a look in a window that shows what it runs into.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
-import { Field, Modal, Select, Tabs, confirmBox, errText, fmtDate, fmtUsd, promptBox, t, toast, todayIso } from './kit';
+import { Field, Modal, Select, Tabs, biName, confirmBox, errText, fmtDate, fmtUsd, promptBox, t, toast, todayIso } from './kit';
 import { saveFile } from '../platform';
 import { hostWorkbook } from '../io/hostFile';
 import { GuideLink } from '../guide/GuideView';
 import { useNav } from './Shell';
 import {
   addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, heldDays, knownNames, nameKey, nightsOf, occupancy, PALETTE, report, stayAmount, takenOn, toReview,
-  type BookingKind, type BookingStatus, type Currency, type HostBooking, type HostData, type HostRoom, type Totals,
+  type BookingKind, type BookingStatus, type Currency, type HostAsset, type HostBooking, type HostData, type HostRoom, type Totals,
 } from '../hosting/host';
 
 type Tab = 'calendar' | 'bookings' | 'report' | 'payments' | 'settings';
@@ -28,6 +28,10 @@ const fmtTotals = (x: Totals) => [x.USD ? money(x.USD, 'USD') : '', x.SYP ? mone
 const weekday = (i: number) => new Date(Date.UTC(2026, 10, 22 + i)).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
 const monthName = (ym: string) => new Date(`${ym}-01T00:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
 const dayShort = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' });
+/** the kind of a room, in the current language; and what the inventory holds in it (projector, sound system, chairs…) */
+const kindName = (d: HostData, r: HostRoom) => biName(d.kinds.find((k) => k.id === r.kind_id)?.name ?? '') || (r.kind === 'bedroom' ? t('غرفة نوم', 'Bedroom') : t('قاعة', 'Hall'));
+const assetsOf = (d: HostData, r: HostRoom): HostAsset[] => d.assets.filter((a) => a.room_id === r.id);
+const assetText = (xs: HostAsset[]) => xs.map((a) => (a.qty > 1 ? `${a.qty} ${a.name}` : a.name)).join(' · ');
 const roomName = (d: HostData, r: HostRoom) => `${d.buildings.find((b) => b.id === r.building_id)?.name ?? ''} · ${r.name}`;
 const phoneLink = (p: string | null) => (p ? <a href={`tel:${p.replace(/\s/g, '')}`} dir="ltr">{p}</a> : null);
 
@@ -173,7 +177,7 @@ function BuildingRows({ data, building, rooms, days, books, onOpen, order, sel, 
       <tr className="host-building"><td colSpan={days.length + 1} style={{ borderInlineStart: `6px solid ${color}` }}>{name}</td></tr>
       {rooms.map((r) => (
         <tr key={r.id}>
-          <th className="host-room" style={{ borderInlineStart: `6px solid ${color}` }}>{r.name}{r.kind === 'bedroom' ? <small> · {r.beds}</small> : r.kind === 'hall' ? <small> · {t('قاعة', 'hall')}</small> : null}</th>
+          <th className="host-room" style={{ borderInlineStart: `6px solid ${color}` }}>{r.name}{r.kind === 'bedroom' ? <small> · {r.beds}</small> : <small title={assetText(assetsOf(data, r))}> · {r.capacity ? `${r.capacity} ${t('شخص', 'p.')}` : kindName(data, r)}</small>}</th>
           {days.map((dy, di) => {
             const ri = order.findIndex((x) => x.id === r.id);
             const picked = !!sel && ri >= sel.r0 && ri <= sel.r1 && di >= sel.d0 && di <= sel.d1;
@@ -351,6 +355,8 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
   const clashes = dates ? conflictsOf(probe, asked, data, 'any') : [];
   const sure = dates ? conflictsOf(probe, asked, data, 'sure') : [];
   const by = (id: number) => data.bookings.find((x) => x.id === id)?.group_name ?? '';
+  // the meeting spaces chosen hold this many people in all (0: no capacity given)
+  const capTotal = [...allocs.keys()].map((id) => data.rooms.find((r) => r.id === id)).filter((r): r is HostRoom => !!r && r.kind !== 'bedroom').reduce((n, r) => n + (r.capacity || 0), 0);
   const priced = { kind: f.kind, from_day: f.from_day, to_day: f.to_day, repeat_days: repeatDays, people, price_mode: f.price_mode, rate: f.rate === '' ? null : Number(f.rate) };
   const total: Totals = dates && data.prices ? bookingTotals({ ...priced, currency: f.currency }, lines.map((l) => ({ amount: Number(l.amount) || 0, currency: l.currency }))) : { USD: 0, SYP: 0 };
   const pays = data.pays.filter((p) => p.booking_id === b?.id);
@@ -433,7 +439,8 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
                 const mine = dates ? clashes.filter((c) => c.room_id === r.id) : [];
                 return (
                   <div key={r.id} className="host-pick-row">
-                    <label><input type="checkbox" disabled={readOnly} checked={on} onChange={(e) => setAllocs((m) => { const n = new Map(m); if (e.target.checked) n.set(r.id, null); else n.delete(r.id); return n; })} /> {r.name} {r.beds ? <small>({r.beds} {t('سرير', 'beds')})</small> : <small>({t('قاعة', 'hall')})</small>}</label>
+                    <label><input type="checkbox" disabled={readOnly} checked={on} onChange={(e) => setAllocs((m) => { const n = new Map(m); if (e.target.checked) n.set(r.id, null); else n.delete(r.id); return n; })} /> {r.name} {r.beds ? <small>({r.beds} {t('سرير', 'beds')})</small> : <small>({kindName(data, r)}{r.capacity ? ` · ${t('حتى', 'up to')} ${r.capacity} ${t('شخصاً', 'people')}` : ''})</small>}</label>
+                    {assetsOf(data, r).length > 0 && <small className="muted host-assets" title={t('من الجرد', 'from the inventory')}>🎛 {assetText(assetsOf(data, r))}</small>}
                     {on && r.beds > 1 && f.kind === 'stay' && (
                       <input className="inp" type="number" min={1} max={r.beds} style={{ width: 70 }} placeholder={t('كلها', 'all')} disabled={readOnly} value={allocs.get(r.id) ?? ''}
                         onChange={(e) => setAllocs((m) => new Map(m).set(r.id, e.target.value === '' ? null : Number(e.target.value)))} />
@@ -446,6 +453,7 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
           );
         })}
       </div>
+      {people > 0 && capTotal > 0 && people > capTotal && <p className="small" style={{ color: 'var(--err)' }}>⚠ {t(`عدد الأشخاص (${people}) أكبر من سعة القاعات المختارة (${capTotal})`, `${people} people, but the rooms chosen hold ${capTotal}`)}</p>}
       {sure.length > 0 && <p className="small" style={{ color: 'var(--err)' }}>{t('لا يمكن التأكيد: الغرف محجوزة لمجموعة مؤكَّدة في هذه الأيام. غيّر التواريخ أو الغرف.', 'It cannot be confirmed: the rooms are taken by a confirmed group on these days. Change the dates or the rooms.')}</p>}
 
       <h3 style={{ margin: '10px 0 4px' }}>{t('الخدمات', 'Services')}</h3>
@@ -774,7 +782,9 @@ function PaymentsTab({ data, refresh }: { data: HostData; refresh: () => Promise
 
 function SettingsTab({ data, refresh }: { data: HostData; refresh: () => Promise<void> }) {
   const { s } = useApp();
-  const [room, setRoom] = useState<{ id?: number; building_id: number; name: string; beds: string; kind: string; active: boolean } | null>(null);
+  const [room, setRoom] = useState<{ id?: number; building_id: number; name: string; beds: string; capacity: string; kind_id: number | null; active: boolean } | null>(null);
+  const [kindForm, setKindForm] = useState<{ id?: number; name: string; sleeps: boolean; active: boolean; used: boolean } | null>(null);
+  const firstKind = (sleeps: boolean) => data.kinds.find((k) => k.active && !!k.sleeps === sleeps)?.id ?? null;
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); await refresh(); } catch (e) { toast(errText(e), true); } };
   const addBuilding = async () => {
     const n = await promptBox(t('اسم المبنى', 'Name of the building'));
@@ -791,6 +801,16 @@ function SettingsTab({ data, refresh }: { data: HostData; refresh: () => Promise
   return (
     <>
       <div className="panel">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0 }}>{t('أنواع الغرف', 'Kinds of room')}</h3><button className="btn small" onClick={() => setKindForm({ name: '', sleeps: false, active: true, used: false })}>＋ {t('نوع', 'Kind')}</button></div>
+        <p className="small muted">{t('نوع «فيه أسرّة» تُحسب فيه الأسرّة (غرفة نوم)؛ والأنواع الأخرى (قاعة، صف…) لها سعة: أكبر عدد من الأشخاص.', 'A kind "with beds" counts beds (a bedroom); the others (hall, classroom…) have a capacity: the most people they hold.')}</p>
+        <table className="t small"><tbody>
+          {data.kinds.map((k) => (
+            <tr key={k.id} style={{ opacity: k.active ? 1 : 0.5 }}><td>{biName(k.name)}</td><td>{k.sleeps ? t('فيه أسرّة', 'with beds') : t('سعة (أشخاص)', 'capacity (people)')}</td><td>{data.rooms.filter((r) => r.kind_id === k.id).length} {t('غرفة', 'room(s)')}</td>
+              <td><button className="btn ghost small" onClick={() => setKindForm({ id: k.id, name: k.name, sleeps: !!k.sleeps, active: !!k.active, used: data.rooms.some((r) => r.kind_id === k.id) })}>{t('عدّل', 'Edit')}</button></td></tr>
+          ))}
+        </tbody></table>
+      </div>
+      <div className="panel">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><h3 style={{ margin: 0 }}>{t('المباني والغرف', 'Buildings and rooms')}</h3><button className="btn primary small" onClick={() => void addBuilding()}>＋ {t('مبنى', 'Building')}</button></div>
         <p className="small muted">{t('كل غرفة هي أيضاً «مكان» في الجرد، فتُسجَّل فيها الأغراض.', 'Each room is also a "place" of the inventory, so the things in it are listed there.')}</p>
         {data.buildings.map((b) => (
@@ -801,12 +821,12 @@ function SettingsTab({ data, refresh }: { data: HostData; refresh: () => Promise
             {PALETTE.map((c) => <button key={c} type="button" className="host-pal" style={{ background: c }} aria-label={c} onClick={() => void act(() => s.api.call('host.building.save', { id: b.id, name: b.name, active: !!b.active, color: c }))} />)}
             <button className="btn ghost small" onClick={() => void rename(b.id, b.name, b.active === 1)}>{t('اسم', 'Rename')}</button>
             <button className="btn ghost small" onClick={() => void act(() => s.api.call('host.building.save', { id: b.id, name: b.name, active: !b.active }))}>{b.active ? t('أوقف', 'Switch off') : t('أعد', 'Switch on')}</button>
-            <button className="btn small" onClick={() => setRoom({ building_id: b.id, name: '', beds: '2', kind: 'bedroom', active: true })}>＋ {t('غرفة', 'Room')}</button>
+            <button className="btn small" onClick={() => setRoom({ building_id: b.id, name: '', beds: '2', capacity: '', kind_id: firstKind(true), active: true })}>＋ {t('غرفة', 'Room')}</button>
             <table className="t small"><tbody>
               {data.rooms.filter((r) => r.building_id === b.id).map((r) => (
                 <tr key={r.id} style={{ opacity: r.active ? 1 : 0.5 }}>
-                  <td>{r.name}</td><td>{r.kind === 'hall' ? t('قاعة', 'Hall') : r.kind === 'other' ? t('أخرى', 'Other') : t('غرفة نوم', 'Bedroom')}</td><td className="n">{r.beds || ''} {r.beds ? t('سرير', 'beds') : ''}</td>
-                  <td><button className="btn ghost small" onClick={() => setRoom({ id: r.id, building_id: r.building_id, name: r.name, beds: String(r.beds), kind: r.kind, active: !!r.active })}>{t('عدّل', 'Edit')}</button></td>
+                  <td>{r.name}</td><td>{kindName(data, r)}</td><td className="n">{r.kind === 'bedroom' ? `${r.beds} ${t('سرير', 'beds')}` : r.capacity ? `${t('حتى', 'up to')} ${r.capacity} ${t('شخصاً', 'people')}` : ''}</td><td className="small muted">{r.kind === 'bedroom' ? '' : assetsOf(data, r).length ? `🎛 ${assetText(assetsOf(data, r))}` : t('لا أغراض في الجرد', 'nothing in the inventory yet')}</td>
+                  <td><button className="btn ghost small" onClick={() => setRoom({ id: r.id, building_id: r.building_id, name: r.name, beds: String(r.beds), capacity: String(r.capacity || ''), kind_id: r.kind_id, active: !!r.active })}>{t('عدّل', 'Edit')}</button></td>
                 </tr>
               ))}
             </tbody></table>
@@ -825,17 +845,35 @@ function SettingsTab({ data, refresh }: { data: HostData; refresh: () => Promise
           ))}
         </tbody></table>
       </div>
+      {kindForm && (
+        <Modal title={kindForm.id ? t('نوع غرفة', 'Kind of room') : t('نوع جديد', 'New kind of room')} onClose={() => setKindForm(null)} narrow>
+          <Field label={t('الاسم (عربي · English)', 'Name (Arabic · English)')}><input className="inp" autoFocus value={kindForm.name} onChange={(e) => setKindForm({ ...kindForm, name: e.target.value })} /></Field>
+          <label className="small" style={{ display: 'block', margin: '6px 0' }}><input type="checkbox" disabled={kindForm.used} checked={kindForm.sleeps} onChange={(e) => setKindForm({ ...kindForm, sleeps: e.target.checked })} /> {t('فيه أسرّة (ينام فيه أشخاص)', 'Has beds (people sleep there)')}{kindForm.used ? ` — ${t('مستعمل في غرف: لا يتغيّر', 'used by rooms: it cannot change')}` : ''}</label>
+          {kindForm.id && <label className="small" style={{ display: 'block' }}><input type="checkbox" checked={kindForm.active} onChange={(e) => setKindForm({ ...kindForm, active: e.target.checked })} /> {t('قيد الاستعمال', 'In use')}</label>}
+          <div className="modal-foot">
+            <button className="btn" onClick={() => setKindForm(null)}>{t('إلغاء', 'Cancel')}</button>
+            <button className="btn primary" disabled={!kindForm.name.trim()} onClick={() => void act(async () => { await s.api.call('host.kind.save', { id: kindForm.id, name: kindForm.name, sleeps: kindForm.sleeps, active: kindForm.active }); setKindForm(null); })}>{t('احفظ', 'Save')}</button>
+          </div>
+        </Modal>
+      )}
       {room && (
         <Modal title={room.id ? t('غرفة', 'Room') : t('غرفة جديدة', 'New room')} onClose={() => setRoom(null)} narrow>
           <Field label={t('الاسم', 'Name')}><input className="inp" autoFocus value={room.name} onChange={(e) => setRoom({ ...room, name: e.target.value })} /></Field>
           <Field label={t('النوع', 'Kind')}>
-            <select value={room.kind} onChange={(e) => setRoom({ ...room, kind: e.target.value })}><option value="bedroom">{t('غرفة نوم', 'Bedroom')}</option><option value="hall">{t('قاعة', 'Hall')}</option><option value="other">{t('أخرى', 'Other')}</option></select>
+            <select value={room.kind_id ?? ''} onChange={(e) => setRoom({ ...room, kind_id: Number(e.target.value) || null })}>
+              {data.kinds.filter((k) => k.active || k.id === room.kind_id).map((k) => <option key={k.id} value={k.id}>{biName(k.name)}{k.sleeps ? ` · ${t('فيه أسرّة', 'with beds')}` : ''}</option>)}
+            </select>
           </Field>
-          <Field label={t('عدد الأسرّة', 'Number of beds')}><input className="inp" type="number" min={0} value={room.beds} onChange={(e) => setRoom({ ...room, beds: e.target.value })} /></Field>
+          {data.kinds.find((k) => k.id === room.kind_id)?.sleeps
+            ? <Field label={t('عدد الأسرّة', 'Number of beds')}><input className="inp" type="number" min={0} value={room.beds} onChange={(e) => setRoom({ ...room, beds: e.target.value })} /></Field>
+            : <>
+                <Field label={t('السعة: أكبر عدد من الأشخاص', 'Capacity: the most people it holds')}><input className="inp" type="number" min={0} value={room.capacity} onChange={(e) => setRoom({ ...room, capacity: e.target.value })} /></Field>
+                <p className="small muted">🎛 {t('ما فيها من تجهيزات (جهاز عرض، صوت، ميكروفونات، كراسٍ…) يأتي من الجرد: سجّلها في مكان «', 'What it holds (projector, sound system, microphones, chairs…) comes from the Inventory: list the items in the place "')}{data.buildings.find((x) => x.id === room.building_id)?.name} · {room.name || '…'}{t('».', '".')}</p>
+              </>}
           {room.id && <label className="small"><input type="checkbox" checked={room.active} onChange={(e) => setRoom({ ...room, active: e.target.checked })} /> {t('قيد الاستعمال', 'In use')}</label>}
           <div className="modal-foot">
             <button className="btn" onClick={() => setRoom(null)}>{t('إلغاء', 'Cancel')}</button>
-            <button className="btn primary" disabled={!room.name.trim()} onClick={() => void act(async () => { await s.api.call('host.room.save', { ...room, beds: Number(room.beds) || 0 }); setRoom(null); })}>{t('احفظ', 'Save')}</button>
+            <button className="btn primary" disabled={!room.name.trim()} onClick={() => void act(async () => { await s.api.call('host.room.save', { ...room, beds: Number(room.beds) || 0, capacity: Number(room.capacity) || 0 }); setRoom(null); })}>{t('احفظ', 'Save')}</button>
           </div>
         </Modal>
       )}

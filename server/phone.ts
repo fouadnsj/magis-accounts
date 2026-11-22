@@ -98,7 +98,7 @@ export interface PhonePack {
 export interface HostPack {
   book: boolean;
   buildings: Pick<HostBuilding, 'id' | 'name' | 'color'>[];
-  rooms: Pick<HostRoom, 'id' | 'building_id' | 'name' | 'beds' | 'kind'>[];
+  rooms: Pick<HostRoom, 'id' | 'building_id' | 'name' | 'beds' | 'kind' | 'capacity'>[];
   bookings: Pick<HostBooking, 'id' | 'code' | 'kind' | 'status' | 'group_name' | 'contact' | 'phone' | 'people' | 'from_day' | 'to_day' | 'repeat_days' | 'time_from' | 'time_to' | 'review'>[];
   allocs: HostAlloc[];
 }
@@ -111,7 +111,7 @@ export async function hostPack(db: Db, profile: Profile): Promise<HostPack | und
   return {
     book: has(profile, 'hosting.book') || has(profile, 'hosting.prices') || has(profile, 'hosting.keep'),
     buildings: await db.query<HostPack['buildings'][number]>('SELECT id, name, color FROM host_building WHERE active = 1 ORDER BY sort, name'),
-    rooms: await db.query<HostPack['rooms'][number]>('SELECT id, building_id, name, beds, kind FROM host_room WHERE active = 1 ORDER BY building_id, sort, name'),
+    rooms: await db.query<HostPack['rooms'][number]>('SELECT id, building_id, name, beds, kind, capacity FROM host_room WHERE active = 1 ORDER BY building_id, sort, name'),
     bookings,
     allocs: (await db.query<HostAlloc>('SELECT * FROM host_alloc')).filter((a) => ids.has(a.booking_id)),
   };

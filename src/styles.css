@@ -981,3 +981,8 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .host-rcpt-tot { display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 15px; }
 .host-rcpt-tot small { color: var(--muted, #6b665c); margin-inline-end: 4px; }
 @media (max-width: 700px) { .host-rcpt-foot { bottom: -30px; margin: 12px -14px -30px; padding: 10px 14px 16px; } }
+
+/* ---------------------------------------------------------------- the MAGIS Calendar (baseline 2.1) */
+.cal-area { border-top: 1px solid var(--line); padding: 10px 0; }
+.cal-form { display: grid; gap: 8px; }
+.cal-check { display: flex; gap: 6px; align-items: center; }

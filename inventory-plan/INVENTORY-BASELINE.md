@@ -1,7 +1,7 @@
-# MAGIS Inventory — the concept (BASELINE 1.0, 24 November 2026)
+# MAGIS Inventory — the concept (BASELINE 1.1 — FINAL, 24 November 2026)
 
 Made from Fouad's two rounds of answers (`inventory-questions.html`, `inventory-questions-2.html`, pasted 24 November).
-One small point remains (§10). Nothing is built yet: building starts when Fouad says so.
+Every point is decided (the last one on 24 November, §10). Nothing is built yet: building starts when Fouad says so.
 Drawings: `inventory-mockups.html` (examples only) · summary: `INVENTORY-SUMMARY.html`. The inventory of today:
 `src/inventory/` (migrations 55–57). It goes with the new calendar: `calendar-plan/CALENDAR-BASELINE.md`.
 
@@ -30,7 +30,7 @@ own, where it is, in what state, and what it is worth** — in a way that is **m
 | Look at the inventory (map, spaces, items) | ✔ | ✔ | ✔ | ✔ | |
 | See the values ($) | ✔ | ✔ | | | |
 | Add, **move**, count, take out, set the state, give to a staff member | ✔ | | | | |
-| Report a problem (laptop or full phone app) | ✔ | ✔ | ✔ | ✔ | ✔ (§10) |
+| Report a problem (laptop or full phone app) | ✔ | ✔ | ✔ | ✔ | ✔ |
 
 - The **keeper** is the accountant, or a person given the task (store keeper). Both may exist. Only the keeper moves items.
 - The right to **look** can be given to other persons as a **normal tick**, taken back by hand.
@@ -56,7 +56,8 @@ leaves** (in MAGIS HR), the keeper is **reminded** of what they still have. No o
 
 **Problems reported**: the person **writes what and where, with a photo** (they do not look at the inventory); it goes to
 the keeper's list; the keeper sets the state of the item (or "nothing wrong"); the person then sees **"seen by the
-keeper"** and the new state. From the laptop and the full phone app only (not the calendar phones). See §10.
+keeper"** and the new state. From the laptop and the full phone app only (not the calendar phones). **Kept very simple**: one button, what, where,
+a photo (§10).
 
 ## 4. The screens
 1. **Home = the map of the centre**: areas, a card per space (photo, how many items, value for those who may see it,
@@ -102,7 +103,6 @@ keeper"** and the new state. From the laptop and the full phone app only (not th
 
 Step 1 comes after the calendar's step 2 or alongside it, since both use the same areas and spaces.
 
-## 10. The one point left
-**Reporting a problem.** You wrote that reporting is "not very practical". Two ways:
-- keep it **very simple** (a button "Report a problem": what, where, a photo; from the laptop and the full phone app), or
-- **leave it out**: people tell the keeper, who sets the state.
+## 10. The last point (decided 24 November 2026: "Keep it simple")
+**Reporting a problem** stays, **very simple**: one button "Report a problem" (laptop and full phone app) — what is wrong,
+where, a photo. Nothing else to fill in. It goes to the keeper's list; the person sees "seen by the keeper" and the new state.

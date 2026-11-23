@@ -68,6 +68,24 @@ export const PERM_GROUPS = [
     ],
   },
   {
+    // (Fouad, calendar baseline 2.1, §3) Director, Coordinator, Reception and Team are made of these ticks; Team only looks
+    key: 'calendar',
+    label: m('التقويم', 'Calendar', 'Calendrier'),
+    perms: [
+      { key: 'cal.view', label: m('يرى التقويم و«للتحضير اليوم»', 'Sees the calendar and "To prepare today"', 'Voit le calendrier et « À préparer aujourd’hui »') },
+      { key: 'cal.contacts', label: m('يرى جهات الاتصال (المسؤول والهاتف)', 'Sees the contacts (person in charge, phone)', 'Voit les contacts (responsable, téléphone)') },
+      { key: 'cal.programme', label: m('يضيف ويعدّل برنامجنا', 'Adds or changes our programme', 'Ajoute ou modifie notre programme') },
+      { key: 'cal.outside', label: m('يضيف ويعدّل الحجوزات الخارجية', 'Adds or changes outside bookings', 'Ajoute ou modifie les réservations extérieures') },
+      { key: 'cal.orgs', label: m('يضيف ويعدّل الجهات والمسؤولين فيها', 'Adds or changes organisations and their persons', 'Ajoute ou modifie les organisations et leurs responsables') },
+      { key: 'cal.arrive', label: m('يسجّل وصول الضيوف ومغادرتهم', 'Marks guests arrived / left', 'Note l’arrivée et le départ des hôtes') },
+      { key: 'cal.prices', label: m('يحدّد الأسعار ومبالغ الخدمات وعلامة «مجاني»', 'Sets prices and service amounts, the "free" tick', 'Fixe les prix, les montants des services, la case « gratuit »') },
+      { key: 'cal.money', label: m('يسجّل الدفعات ويقرّر ما يُحتفظ به عند الإلغاء', 'Records payments, decides what is kept when cancelled', 'Note les paiements, décide ce qui est gardé en cas d’annulation') },
+      { key: 'cal.whole', label: m('يحجز المركز كله ويغلق مكاناً للإصلاح', 'Books the whole centre, closes a space for repairs', 'Réserve tout le centre, ferme un espace pour travaux') },
+      { key: 'cal.setup', label: m('يجهّز الأماكن والقوائم', 'Sets up spaces and lists', 'Prépare les espaces et les listes') },
+      { key: 'cal.history', label: m('يرى سجل التعديلات في التقويم', 'Sees the history of changes of the calendar', 'Voit l’historique des changements du calendrier') },
+    ],
+  },
+  {
     key: 'admin',
     label: m('الإدارة', 'Admin'),
     perms: [
@@ -170,6 +188,9 @@ export function withImplied(perms: Perm[]): Perm[] {
   if (out.has('hosting.keep')) out.add('hosting.prices');
   if (out.has('hosting.prices')) out.add('hosting.book');
   if (out.has('hosting.book')) out.add('hosting.view');
+  // the calendar: every tick sees the calendar; who books outside groups, keeps the organisations or welcomes the guests sees their phone
+  if (perms.some((p) => p.startsWith('cal.'))) out.add('cal.view');
+  if (out.has('cal.outside') || out.has('cal.orgs') || out.has('cal.arrive')) out.add('cal.contacts');
   if (perms.some((p) => p.startsWith('hr.'))) out.add('hr.view');
   if (perms.some((p) => p === 'hr.agreements' || p === 'hr.scale' || p === 'hr.pay' || p === 'hr.approve' || p === 'hr.paid' || p === 'hr.hourly' || p === 'hr.donors' || p === 'hr.reports')) out.add('hr.salary');
   return [...out];

@@ -2094,4 +2094,183 @@ ALTER TABLE profile ADD COLUMN ui_color TEXT;   -- #rrggbb or NULL
 ALTER TABLE profile ADD COLUMN ui_bg    TEXT;   -- the name of a ready background (brand.ts) or NULL
 `,
   },
+  {
+    n: 64,
+    name: 'calendar: areas and spaces with categories (Halls, Rooms), kinds of space, spaces closed for repairs, closed periods',
+    sql: `
+-- (Fouad, 22-24 November 2026, calendar baseline 2.1, step 1) The calendar of each centre starts from the 0.12 hosting
+-- tables: a building is now an AREA (it keeps its colour), a room is a SPACE. Nothing of 0.12 is removed.
+-- Categories are the quick views of the calendar: Halls and Rooms (bedrooms), more may be added (Playground...).
+CREATE TABLE cal_category (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cal_category (id, name, sort) VALUES (1, 'Halls · القاعات', 1), (2, 'Rooms · الغرف', 2);
+-- each kind of space belongs to a category (a kind with beds: Rooms, any other: Halls)
+ALTER TABLE host_kind ADD COLUMN category_id INTEGER REFERENCES cal_category(id);
+UPDATE host_kind SET category_id = CASE WHEN sleeps = 1 THEN 2 ELSE 1 END;
+UPDATE host_kind SET sort = 99 WHERE id = 6 AND name = 'Other · أخرى';
+INSERT INTO host_kind (name, sleeps, sort, category_id) SELECT 'Kitchen · مطبخ', 0, 7, 1 WHERE NOT EXISTS (SELECT 1 FROM host_kind WHERE name = 'Kitchen · مطبخ');
+INSERT INTO host_kind (name, sleeps, sort, category_id) SELECT 'Library · مكتبة', 0, 8, 1 WHERE NOT EXISTS (SELECT 1 FROM host_kind WHERE name = 'Library · مكتبة');
+INSERT INTO host_kind (name, sleeps, sort, category_id) SELECT 'Chapel · كنيسة', 0, 9, 1 WHERE NOT EXISTS (SELECT 1 FROM host_kind WHERE name = 'Chapel · كنيسة');
+INSERT INTO host_kind (name, sleeps, sort, category_id) SELECT 'Outdoor · ساحة خارجية', 0, 10, 1 WHERE NOT EXISTS (SELECT 1 FROM host_kind WHERE name = 'Outdoor · ساحة خارجية');
+INSERT INTO host_kind (name, sleeps, sort, category_id) SELECT 'Office · مكتب', 0, 11, 1 WHERE NOT EXISTS (SELECT 1 FROM host_kind WHERE name = 'Office · مكتب');
+-- a space: its floor, rentable (an outside group may book it) or ours only, what is always in it, a note, and a
+-- category of its own when it is not the one of its kind (NULL: the kind's)
+ALTER TABLE host_room ADD COLUMN floor TEXT;
+ALTER TABLE host_room ADD COLUMN rentable INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE host_room ADD COLUMN fixed TEXT;
+ALTER TABLE host_room ADD COLUMN note TEXT;
+ALTER TABLE host_room ADD COLUMN category_id INTEGER REFERENCES cal_category(id);
+-- a space closed for a while (repairs, painting): nothing can be booked there. Never deleted: cancelled with a reason.
+CREATE TABLE cal_space_closed (
+  id            INTEGER PRIMARY KEY,
+  room_id       INTEGER NOT NULL REFERENCES host_room(id),
+  from_day      TEXT NOT NULL,
+  to_day        TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  cancelled     INTEGER NOT NULL DEFAULT 0,
+  cancel_reason TEXT,
+  who           TEXT,
+  at            TEXT NOT NULL
+);
+-- the centre closed (holidays, usually August): a band and a warning, booking stays possible
+CREATE TABLE cal_closed_period (
+  id            INTEGER PRIMARY KEY,
+  name          TEXT NOT NULL,
+  from_day      TEXT NOT NULL,
+  to_day        TEXT NOT NULL,
+  cancelled     INTEGER NOT NULL DEFAULT 0,
+  cancel_reason TEXT,
+  who           TEXT,
+  at            TEXT NOT NULL
+);
+`,
+  },
+  {
+    n: 65,
+    name: 'calendar: our programme and outside bookings, organisations with their persons, private, whole centre, holds, free tick, dates moved or cancelled, price history',
+    sql: `
+-- (Fouad, calendar baseline 2.1, step 1) One calendar for our own activities and for the bookings of others.
+-- The kinds of our activities, each with a colour (an editable list)
+CREATE TABLE cal_activity_kind (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  color  TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cal_activity_kind (id, name, color, sort) VALUES
+  (1, 'Workshop · ورشة', '#B5D4F4', 1), (2, 'Course · دورة', '#9FE1CB', 2), (3, 'Club · نادي', '#CECBF6', 3),
+  (4, 'Training · تدريب', '#C0DD97', 4), (5, 'Event · نشاط', '#FAC775', 5), (6, 'Christian education · تعليم مسيحي', '#F4C0D1', 6),
+  (7, 'Prayer groups · فرق صلاة', '#F5C4B3', 7);
+-- organisations, registered once, with one or several persons in charge (the person is chosen for each booking)
+CREATE TABLE cal_org_kind (
+  id     INTEGER PRIMARY KEY,
+  name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cal_org_kind (id, name, sort) VALUES
+  (1, 'Church · كنيسة', 1), (2, 'Parish group · مجموعة رعوية', 2), (3, 'Association · جمعية', 3), (4, 'School · مدرسة', 4),
+  (5, 'University · جامعة', 5), (6, 'Company · شركة', 6), (7, 'Person · شخص', 7), (8, 'Other · أخرى', 8);
+CREATE TABLE cal_org (
+  id         INTEGER PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  kind_id    INTEGER REFERENCES cal_org_kind(id),
+  note       TEXT,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+CREATE TABLE cal_org_person (
+  id     INTEGER PRIMARY KEY,
+  org_id INTEGER NOT NULL REFERENCES cal_org(id),
+  name   TEXT NOT NULL,
+  phone  TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  sort   INTEGER NOT NULL DEFAULT 0
+);
+-- a booking is OURS (our programme) or OUTSIDE (a hall booking or a guest stay). The 0.12 bookings were all for groups
+-- from outside. group_name stays the name shown: the title of our activity, or the organisation or person.
+ALTER TABLE host_booking ADD COLUMN origin TEXT NOT NULL DEFAULT 'outside' CHECK (origin IN ('ours','outside'));
+ALTER TABLE host_booking ADD COLUMN activity_kind_id INTEGER REFERENCES cal_activity_kind(id);
+ALTER TABLE host_booking ADD COLUMN leader TEXT;
+ALTER TABLE host_booking ADD COLUMN org_id INTEGER REFERENCES cal_org(id);
+ALTER TABLE host_booking ADD COLUMN person_id INTEGER REFERENCES cal_org_person(id);
+ALTER TABLE host_booking ADD COLUMN subject TEXT;
+ALTER TABLE host_booking ADD COLUMN private INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE host_booking ADD COLUMN whole_centre INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE host_booking ADD COLUMN outside_place TEXT;
+-- "to confirm" holds the space until this day (NULL: 7 days after it was made)
+ALTER TABLE host_booking ADD COLUMN hold_until TEXT;
+-- free (ticked by default), priced, or "price not set" (a booking made by Reception). NULL for our own activities.
+ALTER TABLE host_booking ADD COLUMN price_state TEXT DEFAULT 'unset' CHECK (price_state IS NULL OR price_state IN ('free','priced','unset'));
+-- with price_mode 'group': 1 = the amount is for EACH date of a repeating booking (0 = for the whole booking)
+ALTER TABLE host_booking ADD COLUMN price_each INTEGER NOT NULL DEFAULT 0;
+-- cancelled after money was received: keep all, give all back, or keep a part (the amounts kept). NULL: to decide.
+ALTER TABLE host_booking ADD COLUMN cancel_money TEXT CHECK (cancel_money IS NULL OR cancel_money IN ('all','none','part'));
+ALTER TABLE host_booking ADD COLUMN kept_usd REAL;
+ALTER TABLE host_booking ADD COLUMN kept_syp REAL;
+ALTER TABLE host_booking ADD COLUMN cancelled_by TEXT;
+ALTER TABLE host_booking ADD COLUMN cancelled_at TEXT;
+UPDATE host_booking SET price_state = CASE WHEN rate IS NOT NULL OR EXISTS (SELECT 1 FROM host_line l WHERE l.booking_id = host_booking.id AND l.amount > 0) THEN 'priced' ELSE 'unset' END;
+-- one date of a booking cancelled, moved (to another day or other hours), or this date and the following cancelled.
+-- taken = 1: left out when the series was saved, because the space was already held. Never deleted: undone = 1.
+CREATE TABLE cal_date (
+  id         INTEGER PRIMARY KEY,
+  booking_id INTEGER NOT NULL REFERENCES host_booking(id) ON DELETE CASCADE,
+  day        TEXT NOT NULL,
+  action     TEXT NOT NULL CHECK (action IN ('cancel','move','cancel_from')),
+  to_day     TEXT,
+  time_from  TEXT,
+  time_to    TEXT,
+  reason     TEXT,
+  taken      INTEGER NOT NULL DEFAULT 0,
+  undone     INTEGER NOT NULL DEFAULT 0,
+  who        TEXT,
+  at         TEXT NOT NULL
+);
+CREATE INDEX cal_date_booking ON cal_date(booking_id);
+-- every change of price is kept (free / priced / not set, the mode, the amount, the services)
+CREATE TABLE cal_price_hist (
+  id          INTEGER PRIMARY KEY,
+  booking_id  INTEGER NOT NULL REFERENCES host_booking(id) ON DELETE CASCADE,
+  price_state TEXT,
+  price_mode  TEXT,
+  price_each  INTEGER NOT NULL DEFAULT 0,
+  rate        REAL,
+  currency    TEXT,
+  lines       TEXT,
+  who         TEXT,
+  at          TEXT NOT NULL
+);
+-- the price the 0.12 bookings already had is the first line of their history
+INSERT INTO cal_price_hist (booking_id, price_state, price_mode, rate, currency, who, at)
+  SELECT id, price_state, price_mode, rate, currency, created_by, COALESCE(updated_at, created_at) FROM host_booking WHERE price_state = 'priced';
+`,
+  },
+  {
+    n: 66,
+    name: 'calendar: the new rights (Director, Coordinator, Reception, Team are ticks), carried over from the 0.12 hosting ticks',
+    sql: `
+-- (Fouad, calendar baseline 2.1, section 3) Each line of the table of rights is a tick the Superior can change.
+-- Carried over: whoever saw the 0.12 calendar sees the new one; whoever booked gets the Reception ticks; whoever set
+-- the prices gets the prices and payments; whoever kept the calendar (and the Superior) gets every tick.
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.view"]') WHERE (perms LIKE '%"hosting.%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.view"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.contacts"]') WHERE (perms LIKE '%"hosting.book"%' OR perms LIKE '%"hosting.prices"%' OR perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.contacts"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.programme"]') WHERE (perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.programme"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.outside"]') WHERE (perms LIKE '%"hosting.book"%' OR perms LIKE '%"hosting.prices"%' OR perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.outside"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.orgs"]') WHERE (perms LIKE '%"hosting.book"%' OR perms LIKE '%"hosting.prices"%' OR perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.orgs"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.arrive"]') WHERE (perms LIKE '%"hosting.book"%' OR perms LIKE '%"hosting.prices"%' OR perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.arrive"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.prices"]') WHERE (perms LIKE '%"hosting.prices"%' OR perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.prices"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.money"]') WHERE (perms LIKE '%"hosting.prices"%' OR perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.money"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.whole"]') WHERE (perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.whole"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.setup"]') WHERE (perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.setup"%';
+UPDATE access_profile SET perms = replace(perms, ']', ',"cal.history"]') WHERE (perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.history"%';
+`,
+  },
 ];

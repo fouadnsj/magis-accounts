@@ -15,6 +15,11 @@ import { inventoryPack, inventorySummary } from '../src/inventory/ops';
 import { labelsPdf, qrMatrix } from '../src/io/invLabels';
 import { phoneInvCount, phoneInvNew, phoneInvPhoto, mayPhone } from '../server/phone';
 import { inventoryTemplate, readTable } from '../src/io/invFile';
+import fs from 'node:fs';
+import { PDFDocument } from 'pdf-lib';
+import { countingPlan, inMonths, itemsOfSpace, placeLabel, projectReport } from '../src/inventory/report';
+import { INV_AREA } from '../src/inventory/map';
+import { countingListPdf, projectReportPdf, projectReportXlsx, spaceSheetPdf } from '../src/io/invPaper';
 
 const WORKBOOK = decodeURIComponent(new URL('../../template/Master Sup.xlsx', import.meta.url).pathname);
 const store = new Map<string, Uint8Array>();
@@ -281,5 +286,85 @@ describe('someone else keeps the inventory (22 November 2026)', () => {
     expect(pendingEntries(invEntries({ rows: after.rows, comp: new Map(), inv: after.inv }).rows, after.lists, after.inv).map((r) => r.explanation)).not.toContain('Two wardrobes');
     // he may not touch the register itself
     await expect(runOp(stock, 'trx.save', { rows: [row] })).rejects.toThrow();
+  });
+});
+
+// ------------------------------------------------------------------ step 4: printed pages and the donor report
+
+const pub = (p: string) => new Uint8Array(fs.readFileSync(new URL('../public/' + p, import.meta.url)));
+const look = { organisation: 'MAGIS Test · ماجيس', logos: { jesuit: pub('brand/jesuits.png'), centre: pub('brand/mark-homs.png') }, fonts: { arabic: pub('fonts/amiri-arabic-400.ttf'), arabicBold: pub('fonts/amiri-arabic-700.ttf') }, accent: '#5a1a1a' };
+
+describe('step 4: what a project bought (the donor report)', () => {
+  it('the months of a period', () => {
+    expect(inMonths('2026-11-03', '2026-11', '2026-11')).toBe(true);
+    expect(inMonths('2026-12-01', '2026-01', '2026-11')).toBe(false);
+    expect(inMonths(null, '2026-01', '2026-12')).toBe(false);
+  });
+
+  it('the operation: the items bought with the entries of the project in the period; the keeper and who sees values only', async () => {
+    const acc = L.accounts[0].id;
+    const r = (await runOp(sup, 'inv.report.project', { account_id: acc, from: '2026-11', to: '2026-11' })) as { project: string; found: { item_id: number; trx_id: string; date: string }[]; waiting: number };
+    expect(r.found.length).toBeGreaterThan(0);
+    expect(r.found.every((f) => f.date.startsWith('2026-11'))).toBe(true);
+    const items = (await get()).items;
+    expect(r.found.every((f) => items.find((i) => i.id === f.item_id)?.trx_id === f.trx_id)).toBe(true);
+    // another period: nothing; another project: nothing of this one
+    expect(((await runOp(sup, 'inv.report.project', { account_id: acc, from: '2027-01', to: '2027-02' })) as { found: unknown[] }).found).toEqual([]);
+    await expect(runOp(sup, 'inv.report.project', { account_id: acc, from: '2026-12', to: '2026-11' })).rejects.toThrow(/period/);
+    await expect(runOp(sup, 'inv.report.project', { account_id: 99999, from: '2026-11', to: '2026-11' })).rejects.toThrow(/not found/);
+    await expect(runOp(keeper, 'inv.report.project', { account_id: acc, from: '2026-11', to: '2026-11' })).rejects.toThrow();
+  });
+
+  it('the report: rows in the order of the purchase, values, by space, items without a photo', async () => {
+    const inv = await get();
+    const acc = L.accounts[0].id;
+    const r = (await runOp(sup, 'inv.report.project', { account_id: acc, from: '2026-11', to: '2026-11' })) as { found: Parameters<typeof projectReport>[0]['found'] };
+    const rep = projectReport({
+      found: r.found, items: inv.items, categories: inv.categories, photos: inv.photos, areas: inv.areas, spaces: inv.spaces,
+      entry: (id) => ({ bill: `B-${id.slice(0, 4)}`, supplier: 'Shop', heading: 'Furniture', line: 'Equipment' }),
+      spaceName: (pid) => placeLabel(inv, pid, INV_AREA),
+    });
+    expect(rep.items).toBe(r.found.length);
+    expect(rep.rows.map((x) => x.date)).toEqual([...rep.rows.map((x) => x.date)].sort());
+    expect(rep.value).toBeCloseTo(rep.rows.reduce((n, x) => n + (x.value ?? 0), 0), 2);
+    expect(rep.bySpace.reduce((n, x) => n + x.items, 0)).toBe(rep.items);
+    expect(rep.noPhoto).toBe(rep.rows.filter((x) => !x.photo).length);
+    // the pages (PDF with a photo, Excel)
+    const first = rep.rows[0];
+    const photos = new Map<string, { bytes: Uint8Array; mime: string }>();
+    if (first) { first.photo = 'p1'; photos.set('p1', { bytes: pub('brand/phone-180.png'), mime: 'image/png' }); }
+    const head = { project: 'Test project · مشروع', donor: 'Donor X', period: { from: '2026-11', to: '2026-11' }, issuedOn: '2026-11-24' };
+    expect((await PDFDocument.load(await projectReportPdf(look, head, rep, photos))).getPageCount()).toBeGreaterThan(0);
+    const xl = new (await import('exceljs')).default.Workbook();
+    await xl.xlsx.load(Buffer.from(await projectReportXlsx({ ...head, organisation: 'Test centre' }, rep)));
+    expect(xl.worksheets.map((w) => w.name)).toEqual(['Summary', 'Items', 'By space']);
+    expect(xl.getWorksheet('Items')!.rowCount).toBe(rep.rows.length + 2);
+    // an empty report is still a page
+    const none = projectReport({ found: [], items: inv.items, categories: inv.categories, photos: [], areas: inv.areas, spaces: inv.spaces, entry: () => ({ bill: '', supplier: '', heading: '', line: '' }), spaceName: () => '' });
+    expect((await PDFDocument.load(await projectReportPdf(look, head, none, new Map()))).getPageCount()).toBe(1);
+  });
+
+  it('the sheet of a space and the counting list: only what is in use, by label, space by space', async () => {
+    const inv = await get();
+    const place = ((await runOp(sup, 'inv.list.save', { table: 'place', name: 'Hall Z · قاعة' })) as { id: number }).id;
+    const ids = ((await runOp(sup, 'inv.item.many', { items: [{ name: 'Chairs · كراسي', qty: 40, place_id: place }, { name: 'Table', qty: 2, place_id: place }, { name: 'Projector', qty: 1, place_id: place, serial: 'PJ-1' }] })) as { ids: number[] }).ids;
+    await runOp(sup, 'inv.item.out', { id: ids[1], status: 'disposed', why: 'broken beyond repair' });
+    const d = await get();
+    const sp = d.spaces.find((x) => x.place_id === place)!;
+    const here = itemsOfSpace(d.items, sp);
+    expect(here.map((i) => i.name)).toEqual(['Chairs · كراسي', 'Projector']);
+    const plan = countingPlan(d);
+    expect(plan.some((x) => x.space.id === sp.id && x.items.length === 2)).toBe(true);
+    expect(plan.every((x) => x.items.length > 0)).toBe(true);
+    expect(countingPlan(d, new Set([sp.id])).map((x) => x.space.id)).toEqual([sp.id]);
+    const sheet = await PDFDocument.load(await spaceSheetPdf(look, { space: sp.name, area: '', items: here, categories: d.categories, lastCount: null, fixed: null }, '2026-11-24'));
+    expect(sheet.getPageCount()).toBe(1);
+    const list = await PDFDocument.load(await countingListPdf(look, plan.map((x) => ({ area: x.area.name, space: x.space.name, lastCount: null, items: x.items })), '2026-11-24'));
+    expect(list.getPageCount()).toBeGreaterThanOrEqual(plan.length);
+    expect((await PDFDocument.load(await countingListPdf(look, [], '2026-11-24'))).getPageCount()).toBe(1);
+    expect(inv.items.length).toBeLessThan(d.items.length);
+    // a long list runs over to a second page, with its header again
+    const many = Array.from({ length: 70 }, (_, k) => ({ ...here[0], id: 1000 + k, code: `HOM-${String(k + 1).padStart(4, '0')}`, name: `Item ${k}` }));
+    expect((await PDFDocument.load(await spaceSheetPdf(look, { space: 'Big store', area: '', items: many, categories: d.categories, lastCount: '2026-10-01', fixed: null }, '2026-11-24'))).getPageCount()).toBeGreaterThan(1);
   });
 });

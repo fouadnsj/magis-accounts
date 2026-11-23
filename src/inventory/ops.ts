@@ -500,6 +500,36 @@ export const INV_OPS = {
     },
   },
 
+  // ---------------------------------------------------------------- the donor report (step 4)
+
+  /**
+   * What a project bought (baseline 1.1 section 5): the items bought with the entries of the project (the fund of an expense
+   * comes from its budget line), dated in the chosen months. Only for who sees the values; never an entry of a private book.
+   * The screens build the pages from this and from the inventory they already have.
+   */
+  'inv.report.project': {
+    check: (c: OpCtx) => { if (!invRights(c.profile.perms).values) throw refuse(); },
+    run: async (c: OpCtx, a: { account_id: number; from: string; to: string }) => {
+      const ym = /^\d{4}-\d{2}$/;
+      if (!ym.test(String(a.from)) || !ym.test(String(a.to)) || a.from > a.to) throw new UserError(m('الفترة غير صالحة', 'Not a valid period', 'Période non valide'));
+      const acc = await one<{ id: number; name: string }>(c.db, 'SELECT id, name FROM account WHERE id = ?', [Number(a.account_id)]);
+      if (!acc) throw new UserError(m('المشروع غير موجود', 'Project not found', 'Projet introuvable'));
+      const found = await c.db.query<{ item_id: number; trx_id: string; date: string | null; line_id: number | null; heading_id: number | null; party_id: number | null }>(
+        `SELECT i.id AS item_id, t.id AS trx_id, t.date, t.line_id, t.heading_id, t.party_id
+           FROM inv_item i JOIN trx t ON t.id = i.trx_id LEFT JOIN book b ON b.id = t.book_id
+          WHERE t.account_id = ? AND t.type = 'Exp' AND substr(t.date, 1, 7) BETWEEN ? AND ? AND COALESCE(b.private, 0) = 0
+          ORDER BY t.date, i.code`, [acc.id, a.from, a.to]);
+      // the purchases of the project in that period, on inventory lines, that are not yet items: the donor's page would miss them
+      const waiting = await one<{ n: number; usd: number }>(c.db,
+        `SELECT COUNT(*) AS n, COALESCE(SUM(t.exp_usd), 0) AS usd FROM trx t LEFT JOIN book b ON b.id = t.book_id
+          WHERE t.account_id = ? AND t.type = 'Exp' AND (t.exp_syp > 0 OR t.exp_usd > 0) AND COALESCE(b.private, 0) = 0 AND substr(t.date, 1, 7) BETWEEN ? AND ?
+            AND t.id NOT IN (SELECT trx_id FROM inv_item WHERE trx_id IS NOT NULL) AND t.id NOT IN (SELECT trx_id FROM inv_skip)
+            AND (t.line_id IN (SELECT ref FROM inv_source WHERE kind = 'line') OR t.heading_id IN (SELECT ref FROM inv_source WHERE kind = 'heading')
+                 OR t.line_id IN (SELECT id FROM budget_line WHERE heading_id IN (SELECT ref FROM inv_source WHERE kind = 'heading')))`, [acc.id, a.from, a.to]);
+      return { project: acc.name, found, waiting: waiting?.n ?? 0 };
+    },
+  },
+
   // ---------------------------------------------------------------- problems reported (step 3)
 
   /** the spaces a problem may be about: names only (whoever reports does not look at the inventory) */

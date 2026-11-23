@@ -19,6 +19,7 @@ import { hm, itemsBetween } from '../hosting/calview';
 import { COND_LABEL, ItemModal, MOVE_LABEL, Photos, RegisterTab, SettingsTab, labelsOf, useEntries } from './Inventory';
 import { QuickAddRoom, ReadyLists } from './InvQuick';
 import { ProblemsView, ReportButton } from './InvProblem';
+import { CountListWindow, DonorReportWindow, SpacePrint } from './InvPaper';
 import type { InvProblem } from '../inventory/problems';
 
 const L = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
@@ -111,6 +112,7 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
 }) {
   const r = inv.rights;
   const [open, setOpen] = useState(false);
+  const [paper, setPaper] = useState<'count' | 'donor' | null>(null);
   const live = inv.items.filter(inUse);
   const map = useMemo(() => invMap(inv, { values: r.values }), [inv, r.values]);
   const stores = useMemo(() => invMap(inv, { values: r.values, only: (x) => isStore(x, inv.kinds) }), [inv, r.values]);
@@ -147,6 +149,8 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
         </div>
         <input className="inp cal-search" placeholder={L('بحث: رمز، اسم، رقم تسلسلي، شخص…', 'Search: label, name, serial, person…', 'Chercher : étiquette, nom, n° de série, personne…')} value={q} onChange={(e) => setQ(e.target.value)} />
         <ReportButton className="btn" />
+        {r.keep && <button className="btn" onClick={() => setPaper('count')}>☑ {L('قائمة للعدّ', 'Counting list', 'Liste de comptage')}</button>}
+        {r.values && <button className="btn" onClick={() => setPaper('donor')}>📄 {L('تقرير للمانح', 'Report for a donor', 'Rapport pour un bailleur')}</button>}
         {r.keep && <button className="btn" onClick={() => go({ k: 'quick', spaceId: null })}>⚡ {L('تسجيل سريع', 'Quick add', 'Ajout rapide')}</button>}
         {r.keep && <button className="btn primary" onClick={() => setOpen(true)}>＋ {L('غرض', 'Item', 'Objet')}</button>}
       </div>
@@ -158,6 +162,8 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
         : view === 'register' && r.keep ? <RegisterTab inv={inv} manage pending={pendingRows} refresh={refresh} />
         : <ListView inv={inv} view={view} go={go} people={people} />}
       {open && <ItemModal inv={inv} item={null} manage onClose={() => setOpen(false)} refresh={refresh} people={people} />}
+      {paper === 'count' && <CountListWindow inv={inv} onClose={() => setPaper(null)} />}
+      {paper === 'donor' && <DonorReportWindow inv={inv} onClose={() => setPaper(null)} />}
     </>
   );
 }
@@ -347,6 +353,7 @@ function SpacePage({ inv, cal, spaceId, go, back, refresh, people }: { inv: InvD
         <span className="muted">{area ? biName(area.name) : ''}{sp.floor ? ` · ${sp.floor}` : ''}</span>
         {!sp.bookable && <span className="inv-dot b">{L('لا يُحجز: في الجرد فقط', 'not booked: inventory only', 'pas réservé : inventaire seulement')}</span>}
         <span style={{ flex: 1 }} />
+        <SpacePrint inv={inv} sp={sp} />
         {r.keep && sp.place_id != null && <button className="btn primary" onClick={() => go({ k: 'quick', spaceId: sp.id })}>⚡ {L('تسجيل سريع', 'Quick add', 'Ajout rapide')}</button>}
         {r.keep && sp.place_id != null && <button className="btn" onClick={() => setAdding(true)}>＋ {L('غرض', 'Item', 'Objet')}</button>}
         {r.keep && <button className="btn" disabled={!here.length} onClick={() => void count()}>✔ {L('عُدّ هذا المكان', 'Count this space', 'Compter cet espace')}</button>}

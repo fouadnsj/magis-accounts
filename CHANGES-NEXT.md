@@ -236,5 +236,22 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   أماكن الجرد"; (3) **the Coordinator's inventory page no longer shows any value** (nor does the server send it).
 - Update **75** rehearsed on copies only (the first-test copies and the 0.12 copies): nothing else changed.
 
+## 11. The new Inventory — step 4 "On paper and for the donors" (no database update)
+- **Sheet of a space, for its door:** on a space's page, "🖨 Sheet for the door": the name of the space, what is in it (label,
+  item, quantity, category, state if not good), the date and the last count. **No values.** Arabic and English, the two logos
+  (the look of the calendar's receipts). Anyone who looks at the inventory may print it.
+- **List for counting, space by space:** on the home "☑ Counting list" (choose the spaces, one page each) and on a space's page
+  (that space): label, item, quantity, serial, last count, a box to tick what you see, a line for what is not found, and
+  "Counted by / on". For the keeper. **Labels (QR) as today**, and also all the labels of a space from its page.
+- **Report for a donor, "What a project bought":** on the home "📄 Report for a donor" (for whoever sees the values): choose the
+  project and the months (the project's own dates when it has them); the items bought with the entries of that project (the
+  fund of an expense comes from its budget line) dated in those months, never an entry of a private book. A **PDF with
+  photos** (landscape: photo, label, item, space, quantity, purchase date, receipt, supplier, budget line, value, then
+  the totals and "By space") and an **Excel** (Summary, Items with brand, model, serial, state, By space). The donor and
+  contract come from the project's grant when there is one. The window warns when purchases of the project in that period are
+  not yet items ("not in the report").
+- Words: "Receipt" (never invoice), "prepare" the pages.
+- Tried in the side pane (the windows, the buttons); the pages drawn from sample data and looked at. No database update.
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

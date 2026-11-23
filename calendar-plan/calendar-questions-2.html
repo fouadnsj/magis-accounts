@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGIS Calendar — questions, round 2</title>
+<style>
+:root{--text:#26292E;--muted:#6b6f76;--faint:#9a9da3;--line:#e2dfd6;--line2:#cfcbbf;--paper:#FDFCF9;--card:#fff;--soft:#f3f1ea;--ok:#3B6D11}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 80px;background:var(--paper);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+p.lead{color:var(--muted);margin:0 0 10px}
+table.q{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line)}
+table.q td,table.q th{border-bottom:1px solid var(--line);padding:10px 12px;vertical-align:top;text-align:start}
+table.q th{background:var(--soft);font-size:12px;color:var(--muted);font-weight:600}
+td.n{width:40px;color:var(--faint);font-weight:600}
+td.qq{width:44%}
+td.qq b{display:block;margin-bottom:2px}
+td.qq small{color:var(--muted);display:block}
+label.o{display:block;margin:3px 0;cursor:pointer}
+label.o input{margin-inline-end:6px}
+label.o em{font-style:normal;font-size:11px;color:var(--faint)}
+textarea{width:100%;font:inherit;border:1px solid var(--line2);border-radius:8px;padding:6px 8px;background:#fff;margin-top:6px;min-height:40px;resize:vertical}
+.bar{position:sticky;bottom:0;background:var(--paper);border-top:1px solid var(--line);padding:12px 0;margin-top:24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--line2);background:#fff;border-radius:8px;padding:7px 14px;cursor:pointer}
+button.pri{background:#26292E;color:#fff;border-color:#26292E}
+#saved{font-size:12px;color:var(--ok)}
+#out{width:100%;min-height:220px;font:12px/1.5 ui-monospace,Menlo,monospace;display:none;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MAGIS Calendar — questions, round 2</h1>
+<p class="lead">These are the points still open in the baseline (CALENDAR-BASELINE.md, marked ▲). What is ticked is my suggestion. At the end: <b>Make my answers</b>, then <b>Copy</b>, and paste in our conversation. Your answers are kept in this browser while you work.</p>
+<form id="f"></form>
+<div class="bar">
+  <button class="pri" type="button" id="make">Make my answers</button>
+  <button type="button" id="copy">Copy</button>
+  <button type="button" id="reset">Back to my suggestions</button>
+  <span id="saved"></span>
+</div>
+<textarea id="out" readonly></textarea>
+</div>
+<script>
+var S='(my suggestion)';
+var Q=[
+ ['G','Our activities first'],
+ ['G1','radio','A clash: our activity and an outside booking, same space, same time','For example a workshop is added where a church has already booked the hall.',
+  [['Not possible: the second one cannot be saved',0],['A warning; the outside booking is marked "to move: call them"',1],['A warning only',0]]],
+ ['G2','radio','An outside booking on top of one of our weekly activities','For example a group asks for Hall A on a Tuesday evening when our club meets there.',
+  [['Refused, unless our date is first moved or cancelled',1],['A warning, then allowed',0]]],
+ ['G3','radio','Outside bookings that repeat every week','For example a choir every Tuesday.',[['Allowed',1],['Not allowed: only once at a time',0]]],
+ ['H','Phones and the TV'],
+ ['H1','radio','A role for each calendar phone','Chosen by the manager when the phone is linked.',
+  [['Yes: Team, Reception, Coordinator or Director',1],['No: every calendar phone shows the same',0]]],
+ ['H2','check','Which phones show the contact person and the phone number','You wrote it helps to see the number to call.',
+  [['Team phones',0],['Reception phones',1],['Coordinator phones',1],['Director phones',1]]],
+ ['H3','radio','The TV at the entrance: what device','',[['A laptop or a small computer plugged into the TV',1],['A smart TV with its own browser',0],['I do not know yet',0]]],
+ ['H4','radio','The TV: names of the groups','Private bookings always show "Reserved".',[['Show the names',1],['Show only the activity kind and the hall',0]]],
+ ['P','Prices and organisations'],
+ ['P1','radio','You wrote "prices could change…" — what did you mean?','',
+  [['The Coordinator should also see and set the prices',0],['A price may change after it is agreed (it can already be changed)',0],['We need a price list per kind of space (default prices)',0],['Something else (write below)',0]]],
+ ['P2','check','Who may add or change an organisation and its persons','',[['Director',1],['Coordinator',1],['Reception',1]]],
+ ['P3','check','Kinds of organisation','Untick or add.',
+  [['Church · كنيسة',1],['Parish group · مجموعة رعوية',1],['Association · جمعية',1],['School · مدرسة',1],['University · جامعة',1],['Company · شركة',1],['Person · شخص',1],['Other · أخرى',1]]],
+ ['D','Days'],
+ ['D1','radio','Booking a hall on a Sunday','Accommodation on Sunday is always welcome.',[['A gentle warning ("Sunday: usually no bookings")',1],['Nothing special',0],['Not possible for halls',0]]],
+ ['D2','radio','A closed period (for example August)','',
+  [['A coloured band and a warning; booking still possible',1],['Our activities stop, accommodation still possible',0],['Nothing can be booked',0]]],
+ ['D3','check','Who may book the whole centre (festival, one big activity)','',[['Director',1],['Coordinator',0]]],
+ ['K','Kinds and preparing'],
+ ['K1','radio','Study Zone','It was unticked in your answers.',[['Remove it: not on the calendar',0],['Keep it as a kind of activity',0],['It is the library being open, not an activity',0]]],
+ ['K2','check','"To prepare today" shows…','',
+  [['Halls before their first activity or booking',1],['Bedrooms for the groups arriving',1],['Bedrooms after a group leaves (ready again)',1],['Kitchens for the rentals',1]]],
+ ['N','Before starting'],
+ ['N1','radio','The calendar of 0.12.1 (already built)','If you start using it, everything typed in it is carried into the new calendar.',
+  [['I will wait for the new calendar',1],['I will start using 0.12.1 now in a centre (write which)',0]]],
+ ['N2','check','More analysis before starting: what do you want?','',
+  [['A clickable model of the laptop screen with invented data, to try before any code',1],['Walk through real situations of one week in Homs, on paper',1],['First look at a fresh export of the website calendar',0]]],
+ ['N3','text','Anything else','What I forgot, what worries you.',[]]
+];
+var f=document.getElementById('f'),h='',open=false;
+Q.forEach(function(q){
+ if(q.length===2){if(open)h+='</table>';h+='<h2>'+q[1]+'</h2><table class="q"><tr><th>#</th><th>Question</th><th>Your answer</th></tr>';open=true;return;}
+ var id=q[0],ty=q[1];h+='<tr data-q="'+id+'"><td class="n">'+id+'</td><td class="qq"><b>'+q[2]+'</b><small>'+q[3]+'</small></td><td>';
+ q[4].forEach(function(o){h+='<label class="o"><input type="'+(ty==='radio'?'radio':'checkbox')+'" name="'+id+'" value="'+o[0].replace(/"/g,'&quot;')+'"'+(o[1]?' checked':'')+'>'+o[0]+(o[1]?' <em>'+S+'</em>':'')+'</label>';});
+ h+='<textarea name="'+id+'note" placeholder="'+(ty==='text'?'Free text':'Note (optional)')+'"'+(ty==='text'?' style="min-height:90px"':'')+'></textarea></td></tr>';});
+f.innerHTML=h+'</table>';
+var KEY='magis-cal-answers-2';
+function save(){var o={};Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox')o[e.name+'|'+e.value]=e.checked;else if(e.type==='radio'){if(e.checked)o[e.name]=e.value;}else o[e.name]=e.value;});try{localStorage.setItem(KEY,JSON.stringify(o));document.getElementById('saved').textContent='Kept in this browser';}catch(x){}}
+function load(){var o;try{o=JSON.parse(localStorage.getItem(KEY)||'null');}catch(x){}if(!o)return;Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox'){var k=e.name+'|'+e.value;if(k in o)e.checked=o[k];}else if(e.type==='radio'){if(e.name in o)e.checked=(o[e.name]===e.value);}else if(e.name in o)e.value=o[e.name];});}
+load();f.addEventListener('input',save);f.addEventListener('change',save);
+document.getElementById('make').onclick=function(){
+ var L=['MAGIS Calendar — answers, round 2 ('+new Date().toISOString().slice(0,10)+')',''];
+ document.querySelectorAll('tr[data-q]').forEach(function(tr){var id=tr.getAttribute('data-q'),parts=[];
+  tr.querySelectorAll('input,textarea').forEach(function(e){if(e.type==='checkbox'||e.type==='radio'){if(e.checked)parts.push(e.value);}else if(e.value.trim())parts.push('Note: '+e.value.trim());});
+  L.push(id+'. '+tr.querySelector('td.qq b').textContent+': '+(parts.join(' | ')||'—'));});
+ var o=document.getElementById('out');o.style.display='block';o.value=L.join('\n');o.select();};
+document.getElementById('copy').onclick=function(){document.getElementById('make').onclick();var o=document.getElementById('out');o.select();
+ var done=function(){document.getElementById('saved').textContent='Copied: paste it in the conversation';};
+ if(navigator.clipboard)navigator.clipboard.writeText(o.value).then(done,function(){document.execCommand('copy');done();});else{document.execCommand('copy');done();}};
+document.getElementById('reset').onclick=function(){if(!confirm('Put back my suggestions and erase your answers?'))return;try{localStorage.removeItem(KEY);}catch(x){}location.reload();};
+</script>
+</body>
+</html>

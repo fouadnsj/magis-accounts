@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGIS Calendar — questions, round 4</title>
+<style>
+:root{--text:#26292E;--muted:#6b6f76;--faint:#9a9da3;--line:#e2dfd6;--line2:#cfcbbf;--paper:#FDFCF9;--card:#fff;--soft:#f3f1ea;--ok:#3B6D11}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 80px;background:var(--paper);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+p.lead{color:var(--muted);margin:0 0 10px}
+table.q{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line)}
+table.q td,table.q th{border-bottom:1px solid var(--line);padding:10px 12px;vertical-align:top;text-align:start}
+table.q th{background:var(--soft);font-size:12px;color:var(--muted);font-weight:600}
+td.n{width:40px;color:var(--faint);font-weight:600}
+td.qq{width:44%}
+td.qq b{display:block;margin-bottom:2px}
+td.qq small{color:var(--muted);display:block}
+label.o{display:block;margin:3px 0;cursor:pointer}
+label.o input{margin-inline-end:6px}
+label.o em{font-style:normal;font-size:11px;color:var(--faint)}
+textarea{width:100%;font:inherit;border:1px solid var(--line2);border-radius:8px;padding:6px 8px;background:#fff;margin-top:6px;min-height:40px;resize:vertical}
+.bar{position:sticky;bottom:0;background:var(--paper);border-top:1px solid var(--line);padding:12px 0;margin-top:24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--line2);background:#fff;border-radius:8px;padding:7px 14px;cursor:pointer}
+button.pri{background:#26292E;color:#fff;border-color:#26292E}
+#saved{font-size:12px;color:var(--ok)}
+#out{width:100%;min-height:220px;font:12px/1.5 ui-monospace,Menlo,monospace;display:none;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MAGIS Calendar — questions, round 4</h1>
+<p class="lead">The last cases to settle before building: what happens with money, holding, spaces, printing and display. Where nothing is ticked, I have no suggestion: it is your choice. What is ticked is my suggestion. At the end: <b>Make my answers</b>, then <b>Copy</b>, and paste in our conversation. Your answers are kept in this browser while you work.</p>
+<form id="f"></form>
+<div class="bar">
+  <button class="pri" type="button" id="make">Make my answers</button>
+  <button type="button" id="copy">Copy</button>
+  <button type="button" id="reset">Back to my suggestions</button>
+  <span id="saved"></span>
+</div>
+<textarea id="out" readonly></textarea>
+</div>
+<script>
+var S='(my suggestion)';
+var Q=[
+ ['M','Money'],
+ ['M1','radio','The Coordinator sets the prices (round 3). Does the Coordinator also record the payments?','Each payment goes to the books as a suggestion, with its receipt.',[['Yes, like the Director',1],['No, only the Director records payments',0]]],
+ ['M2','radio','A booking is cancelled after money was received','',[['Decided each time: kept, or given back (giving back goes to the books as a suggestion)',1],['Always kept',0],['Always given back',0]]],
+ ['M3','radio','An advance (deposit) before confirming','',[['Not required',1],['Required: an amount or a part (write it below)',0]]],
+ ['M4','radio','Free bookings (a partner, a parish, at no cost)','',[['A "free" tick: the report counts them as free use of our spaces',1],['Price 0, nothing more',0]]],
+ ['H','Holding and changing'],
+ ['H1','radio','"To confirm": how long is the space held by default?','The date can be changed in each booking.',[['3 days',0],['7 days',1],['14 days',0]]],
+ ['H2','radio','A group changes bedroom during its stay (for example from the second night)','',[['Allowed: the rooms change from a chosen night',1],['Not needed: cancel and make a new booking',0]]],
+ ['H3','radio','Several persons in charge in one organisation','',[['Choose the person for each booking',1],['Always the first person',0]]],
+ ['S','Spaces'],
+ ['S1','radio','More people than the space holds (capacity)','',[['A warning; saving still possible',1],['Not possible',0]]],
+ ['S2','radio','Halls that join into one (a movable wall: Hall A + Hall B = one big hall)','',[['Yes, we have some: booking the big hall takes both (write which below)',0],['No, we have none',0],['I do not know yet',1]]],
+ ['S3','radio','A space not available for a while (repairs, painting)','',[['It can be closed from a date to a date, with a reason: nothing can be booked there',1],['Only a note',0]]],
+ ['S4','radio','Our activities outside the centre (a trip, a camp at Al-Ard, a visit)','',[['On the calendar, without a space',1],['Not on the calendar',0]]],
+ ['P','Printing and reminders'],
+ ['P1','check','What should be printed?','',[['The week of one hall (to put on its door)',1],["Today's list (for the reception or the guard)",1],["A booking's sheet for the group (dates, spaces, services)",1],['An Excel list of the bookings',1]]],
+ ['P2','radio','Reminders (held date passed, groups arriving tomorrow)','',[['In the program only: Today strip and lists',1],['Also on the phones of the managers',0]]],
+ ['D','Display'],
+ ['D1','radio','Digits on the screens','',[['0 1 2 3 (as in the website today)',1],['٠ ١ ٢ ٣',0]]],
+ ['D2','radio','First day of the week in Arabic','In English and French the week starts on Monday.',[['Monday, like the others',0],['Saturday',0],['Sunday',0]]],
+ ['O','Others'],
+ ['O1','radio','Leaders of activities who have no account (a tutor, a volunteer)','',[['They can have a calendar phone as "Team"',1],['Nothing for them',0]]],
+ ['O2','radio','The history of every change (who, when, what)','It is always kept.',[['Seen by the Director',1],['Seen by the Director and the Coordinator',0]]],
+ ['O3','radio','Later, on the central server: one view of the calendars of all the centres together?','',[['Yes, later',1],['No',0]]],
+ ['O4','text','Anything else','Any situation of your centres that you do not find in the model or in the walk-through.',[]]
+];
+var f=document.getElementById('f'),h='',open=false;
+Q.forEach(function(q){
+ if(q.length===2){if(open)h+='</table>';h+='<h2>'+q[1]+'</h2><table class="q"><tr><th>#</th><th>Question</th><th>Your answer</th></tr>';open=true;return;}
+ var id=q[0],ty=q[1];h+='<tr data-q="'+id+'"><td class="n">'+id+'</td><td class="qq"><b>'+q[2]+'</b><small>'+q[3]+'</small></td><td>';
+ q[4].forEach(function(o){h+='<label class="o"><input type="'+(ty==='radio'?'radio':'checkbox')+'" name="'+id+'" value="'+o[0].replace(/"/g,'&quot;')+'"'+(o[1]?' checked':'')+'>'+o[0]+(o[1]?' <em>'+S+'</em>':'')+'</label>';});
+ h+='<textarea name="'+id+'note" placeholder="'+(ty==='text'?'Free text':'Note (optional)')+'"'+(ty==='text'?' style="min-height:90px"':'')+'></textarea></td></tr>';});
+f.innerHTML=h+'</table>';
+var KEY='magis-cal-answers-4';
+function save(){var o={};Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox')o[e.name+'|'+e.value]=e.checked;else if(e.type==='radio'){if(e.checked)o[e.name]=e.value;}else o[e.name]=e.value;});try{localStorage.setItem(KEY,JSON.stringify(o));document.getElementById('saved').textContent='Kept in this browser';}catch(x){}}
+function load(){var o;try{o=JSON.parse(localStorage.getItem(KEY)||'null');}catch(x){}if(!o)return;Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox'){var k=e.name+'|'+e.value;if(k in o)e.checked=o[k];}else if(e.type==='radio'){if(e.name in o)e.checked=(o[e.name]===e.value);}else if(e.name in o)e.value=o[e.name];});}
+load();f.addEventListener('input',save);f.addEventListener('change',save);
+document.getElementById('make').onclick=function(){
+ var L=['MAGIS Calendar — answers, round 4 ('+new Date().toISOString().slice(0,10)+')',''];
+ document.querySelectorAll('tr[data-q]').forEach(function(tr){var id=tr.getAttribute('data-q'),parts=[];
+  tr.querySelectorAll('input,textarea').forEach(function(e){if(e.type==='checkbox'||e.type==='radio'){if(e.checked)parts.push(e.value);}else if(e.value.trim())parts.push('Note: '+e.value.trim());});
+  L.push(id+'. '+tr.querySelector('td.qq b').textContent+': '+(parts.join(' | ')||'—'));});
+ var o=document.getElementById('out');o.style.display='block';o.value=L.join('\n');o.select();};
+document.getElementById('copy').onclick=function(){document.getElementById('make').onclick();var o=document.getElementById('out');o.select();
+ var done=function(){document.getElementById('saved').textContent='Copied: paste it in the conversation';};
+ if(navigator.clipboard)navigator.clipboard.writeText(o.value).then(done,function(){document.execCommand('copy');done();});else{document.execCommand('copy');done();}};
+document.getElementById('reset').onclick=function(){if(!confirm('Put back my suggestions and erase your answers?'))return;try{localStorage.removeItem(KEY);}catch(x){}location.reload();};
+</script>
+</body>
+</html>

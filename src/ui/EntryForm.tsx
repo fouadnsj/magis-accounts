@@ -199,8 +199,9 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     setWarnings([]);
   };
 
-  // an expense takes its fund from its budget line; only a fund outside the budget (Deir) is chosen
-  const outsideFunds = L.accounts.filter((a) => a.outside_budget && (a.active || a.id === f.accountId));
+  // an expense takes its project from its budget line: a funded line is in its project, a line not funded is outside the
+  // budget. The window no longer asks for a project (Fouad, 24 November 2026); an older expense put by hand on a project
+  // outside the budget (Deir) keeps it when it is changed.
   const outsideIds = new Set(L.accounts.filter((a) => a.outside_budget).map((a) => a.id));
   const fundOfRow = () => (f.type === 'Exp' && (f.accountId == null || !outsideIds.has(f.accountId)) ? null : f.accountId);
 
@@ -486,14 +487,6 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
                 </Field>
               )}
             </>
-          )}
-          {f.type === 'Exp' && outsideFunds.length > 0 && (
-            <Field label={t('المشروع', 'Project')}>
-              <select className="inp" value={f.accountId != null && outsideIds.has(f.accountId) ? f.accountId : ''} onChange={(e) => set('accountId', e.target.value ? Number(e.target.value) : null)}>
-                <option value="">{t('من خط الموازنة', 'From the budget line')}</option>
-                {outsideFunds.map((a) => <option key={a.id} value={a.id}>{a.name} ({t('خارج الموازنة', 'outside the budget')})</option>)}
-              </select>
-            </Field>
           )}
           {f.type === 'Income' && can('lists.donors') && (
             <Field label={t('المشروع', 'Project')}>

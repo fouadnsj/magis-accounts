@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGIS Calendar — drawings (examples only)</title>
+<style>
+:root{--text:#26292E;--muted:#6b6f76;--faint:#9a9da3;--line:#e2dfd6;--line2:#cfcbbf;--paper:#FDFCF9;--card:#fff;--soft:#f3f1ea;--accent-bg:#E6F1FB;--accent:#185FA5;--warn-bg:#FAEEDA;--warn:#854F0B;--dark:#26292E}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 60px;background:var(--paper);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:22px;font-weight:600;margin:0 0 4px}
+h2{font-size:17px;font-weight:600;margin:36px 0 4px}
+p.lead{color:var(--muted);margin:0 0 14px}
+.note{font-size:12px;color:var(--faint);margin:6px 2px 0}
+.cm{border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden;font-size:13px}
+.bar{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.bar button{font:inherit;border:1px solid var(--line2);background:var(--card);border-radius:8px;padding:3px 10px;color:var(--text)}
+.bar button.pri{background:var(--dark);color:#fff;border-color:var(--dark);padding:4px 14px}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.seg span{padding:4px 11px;font-size:12px;color:var(--muted)}
+.seg span.on{background:var(--soft);color:var(--text);font-weight:600}
+.pill{border:1px solid var(--line2);border-radius:999px;padding:3px 11px;font-size:12px;color:var(--muted);white-space:nowrap}
+.pill.on{background:var(--accent-bg);color:var(--accent);border-color:#85B7EB}
+.strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.tile{background:var(--soft);border-radius:8px;padding:6px 10px}
+.tile b{display:block;font-size:19px;font-weight:600}
+.tile small{font-size:11px;color:var(--muted)}
+.tile.w{background:var(--warn-bg)}.tile.w b,.tile.w small{color:var(--warn)}
+.r{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+.lab{width:140px;flex:none;padding:0 10px;display:flex;align-items:center;font-size:12px}
+.trk{flex:1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));min-height:38px}
+.c{grid-row:1;border-inline-start:1px solid var(--line)}
+.c.t{background:var(--accent-bg)}
+.e{grid-row:1;z-index:1;margin:4px 2px;border-radius:6px;padding:0 8px;display:flex;align-items:center;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.e.o{background:transparent!important;border:1.5px dashed currentColor}
+.hd .c{padding:6px 0;text-align:center;font-size:11px;color:var(--muted)}
+.hd .c.t{color:var(--accent);font-weight:600}
+.ar{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--soft);font-size:12px;font-weight:600}
+.ar small{font-weight:400;color:var(--muted)}
+.heat{grid-row:1;margin:6px 2px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)}
+.ph{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;background:var(--soft);border-radius:12px;padding:18px}
+.dv{background:var(--card);border:1px solid var(--line2);border-radius:26px;padding:14px;font-size:12px;min-height:350px}
+.who{font-size:11px;color:var(--faint);text-align:center;margin-bottom:6px}
+.dv h4{margin:0 0 8px;font-size:15px;font-weight:600}
+.sec{font-size:11px;color:var(--muted);margin:10px 0 4px;font-weight:600}
+.it{border:1px solid var(--line);border-radius:8px;padding:6px 9px;margin-bottom:5px;display:flex;gap:8px;align-items:center}
+.it b{font-weight:600;display:block}.it small{color:var(--muted);font-size:11px}
+.dot{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--line2);flex:none}
+.k{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.k div{background:var(--soft);border-radius:8px;padding:5px 9px}
+.k b{font-size:17px;font-weight:600;display:block}.k small{font-size:11px;color:var(--muted)}
+.tab{display:flex;justify-content:space-around;border-top:1px solid var(--line);margin-top:12px;padding-top:8px;font-size:11px;color:var(--muted)}
+.b2{border:1px solid var(--line2);border-radius:6px;padding:2px 9px;font-size:11px;background:var(--card)}
+.diag{display:grid;gap:10px}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.row4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bx{border-radius:10px;padding:10px 12px;text-align:center;border:1px solid}
+.bx b{display:block;font-size:14px}.bx small{font-size:12px}
+.teal{background:#E1F5EE;border-color:#5DCAA5;color:#085041}
+.purple{background:#EEEDFE;border-color:#AFA9EC;color:#3C3489}
+.amber{background:#FAEEDA;border-color:#EF9F27;color:#633806}
+.blue{background:#E6F1FB;border-color:#85B7EB;color:#0C447C}
+.gray{background:var(--soft);border-color:var(--line2);color:var(--text)}
+.core{border:1px solid var(--line2);border-radius:14px;padding:12px;background:#fafaf6}
+.core>b{display:block;margin-bottom:8px}
+.arrow{text-align:center;color:var(--faint);font-size:18px;line-height:1}
+@media (max-width:640px){.strip{grid-template-columns:repeat(2,1fr)}.lab{width:96px}.row4{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MAGIS Calendar — drawings</h1>
+<p class="lead">Examples only. Names, rooms and numbers are invented to show the layout; nothing here is real data.</p>
+
+<h2>1. The laptop screen (the week)</h2>
+<p class="lead">One slim bar on top, a "Today" strip, rooms grouped by area, every booking drawn as a bar across its days. Dashed = still to confirm. Folded areas show how busy they are.</p>
+<div class="cm">
+  <div class="bar">
+    <button>‹</button><button>Today</button><button>›</button>
+    <b style="font-size:14px">23 – 29 November 2026</b>
+    <span style="flex:1"></span>
+    <span class="seg"><span>Day</span><span class="on">Week</span><span>Month</span></span>
+    <span class="pill on">All areas ▾</span>
+    <button class="pri">+ New</button>
+  </div>
+  <div class="bar" style="padding:7px 12px;gap:6px;background:#faf9f5">
+    <span style="font-size:12px;color:var(--muted)">My views:</span>
+    <span class="pill on">Everything</span><span class="pill">Halls</span><span class="pill">Bedrooms</span><span class="pill">Kitchens</span><span class="pill">Only what needs me</span>
+    <span style="flex:1"></span><span style="font-size:11px;color:var(--faint)">Colours ▾</span>
+  </div>
+  <div class="strip">
+    <div class="tile"><b>2</b><small>arrive today</small></div>
+    <div class="tile"><b>1</b><small>leave today</small></div>
+    <div class="tile"><b>5 / 20</b><small>halls in use now</small></div>
+    <div class="tile"><b>3 / 10</b><small>bedrooms free tonight</small></div>
+    <div class="tile w"><b>3</b><small>to confirm</small></div>
+  </div>
+  <div id="grid"></div>
+</div>
+<p class="note">In Arabic (or Arabic + English) the whole screen turns right-to-left; in English or French it starts on Monday, left-to-right.</p>
+
+<h2>2. The phone: three people, three first screens</h2>
+<p class="lead">Same calendar, read-only for most people. The last view stays on the phone when there is no connection.</p>
+<div class="ph">
+  <div class="dv">
+    <div class="who">Cleaner · kitchen · maintenance</div>
+    <h4>Today · Wed 25 Nov</h4>
+    <div class="sec">To prepare</div>
+    <div class="it"><span class="dot"></span><span><b>Hall A</b><small>workshop 09:00 · 40 chairs</small></span></div>
+    <div class="it"><span class="dot"></span><span><b>Kitchen 1</b><small>rented 10:00 – 16:00</small></span></div>
+    <div class="sec">To clean</div>
+    <div class="it"><span class="dot"></span><span><b>Bedroom 2</b><small>group leaves today</small></span></div>
+    <div class="it"><span class="dot"></span><span><b>Bedroom 5</b><small>group arrives 15:00</small></span></div>
+    <div class="tab"><span>Today</span><span>Week</span><span>Rooms</span></div>
+  </div>
+  <div class="dv">
+    <div class="who">Reception</div>
+    <h4>Today · Wed 25 Nov</h4>
+    <div class="k"><div><b>2</b><small>arrive</small></div><div><b>1</b><small>leave</small></div><div><b>14</b><small>in the house</small></div><div><b>3</b><small>rooms free</small></div></div>
+    <div class="sec">Arriving</div>
+    <div class="it"><span><b>Group stay · 8 people</b><small>15:00 · until Fri · Bedrooms 1, 2</small></span></div>
+    <div class="sec">Now in the halls</div>
+    <div class="it"><span><b>Hall A</b><small>Workshop until 12:00</small></span></div>
+    <div class="it"><span><b>Hall B</b><small>free until 16:00</small></span></div>
+    <div class="tab"><span>Today</span><span>Week</span><span>Rooms</span></div>
+  </div>
+  <div class="dv">
+    <div class="who">Director · coordinators</div>
+    <h4>Week · 23 – 29 Nov</h4>
+    <div style="background:var(--warn-bg);border-radius:8px;padding:6px 9px;margin-bottom:8px">
+      <b style="color:var(--warn)">3 to confirm</b>
+      <div style="margin-top:4px"><span class="b2">Look</span></div>
+    </div>
+    <div class="sec">Busy days</div>
+    <div style="display:flex;gap:4px;align-items:flex-end;height:48px">
+      <div style="flex:1;height:55%;background:#85B7EB;border-radius:3px"></div><div style="flex:1;height:70%;background:#85B7EB;border-radius:3px"></div><div style="flex:1;height:90%;background:#378ADD;border-radius:3px"></div><div style="flex:1;height:60%;background:#85B7EB;border-radius:3px"></div><div style="flex:1;height:40%;background:#B5D4F4;border-radius:3px"></div><div style="flex:1;height:75%;background:#85B7EB;border-radius:3px"></div><div style="flex:1;height:30%;background:#B5D4F4;border-radius:3px"></div>
+    </div>
+    <div class="sec">Wed 25</div>
+    <div class="it"><span><b>Hall A · Workshop</b><small>09:00 – 12:00</small></span></div>
+    <div class="it"><span><b>Hall B · Hall rental</b><small>to confirm</small></span></div>
+    <div class="tab"><span>Today</span><span>Week</span><span>＋ New</span></div>
+  </div>
+</div>
+<p class="note">"To prepare" and "to clean" would be made by the program from the bookings; nobody types them.</p>
+
+<h2>3. How the pieces fit</h2>
+<p class="lead">One calendar for each centre, kept inside MAGIS. Three kinds of rights. A phone that only looks.</p>
+<div class="diag">
+  <div class="row3">
+    <div class="bx teal"><b>See</b><small>everyone: laptop or phone</small></div>
+    <div class="bx purple"><b>Manage</b><small>roles you choose</small></div>
+    <div class="bx amber"><b>Money</b><small>prices and payments</small></div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="core"><b>The calendar of one centre (inside the MAGIS database)</b>
+    <div class="row4">
+      <div class="bx blue"><b>Spaces</b><small>areas, rooms, beds</small></div>
+      <div class="bx blue"><b>Programme</b><small>workshops, courses, clubs</small></div>
+      <div class="bx blue"><b>Bookings</b><small>halls, stays, meals</small></div>
+      <div class="bx blue"><b>Equipment</b><small>chairs, projectors</small></div>
+    </div>
+  </div>
+  <div class="arrow">↓</div>
+  <div class="row3">
+    <div class="bx teal"><b>Calendar phone</b><small>no sign-in · last view kept</small></div>
+    <div class="bx teal"><b>Laptop screen</b><small>the full board</small></div>
+    <div class="bx gray"><b>MAGIS Accounts</b><small>payment suggestions</small></div>
+  </div>
+  <div class="arrow">↓ later</div>
+  <div class="bx gray"><b>Central server</b><small>reads the synchronised copies of every centre</small></div>
+</div>
+</div>
+<script>
+var days=['Mon 23','Tue 24','Wed 25','Thu 26','Fri 27','Sat 28','Sun 29'],T=2;
+var K={w:['#B5D4F4','#0C447C'],c:['#9FE1CB','#085041'],k:['#CECBF6','#3C3489'],r:['#F5C4B3','#712B13'],s:['#FAC775','#633806']};
+function track(items,head){var h='<div class="trk">';for(var i=0;i<7;i++){h+='<div class="c'+(i===T?' t':'')+'" style="grid-column:'+(i+1)+'">'+(head?days[i]:'')+'</div>';}
+ (items||[]).forEach(function(e){var k=K[e[3]];h+='<div class="e'+(e[4]?' o':'')+'" style="grid-column:'+e[0]+'/'+e[1]+';background:'+k[0]+';color:'+k[1]+'">'+e[2]+'</div>';});return h+'</div>';}
+var A=[
+ {n:'Area 1 · Main building',s:'halls · 6 of 8 in use today',r:[
+  ['Hall A · 60',[[1,3,'Workshop','w'],[3,5,'Course','c'],[6,8,'Hall rental · weekend','r']]],
+  ['Hall B · 30',[[1,2,'Club','k'],[2,4,'Hall rental','r',1],[5,6,'Club','k']]],
+  ['Library',[[1,8,'Study Zone, every day','k']]]]},
+ {n:'Area 2 · Guest house',s:'7 of 10 bedrooms taken tonight',r:[
+  ['Bedroom 1 · 2 beds',[[1,4,'Group stay · 3 nights','s'],[5,8,'Group stay · to confirm','s',1]]],
+  ['Bedroom 2 · 2 beds',[[2,6,'Group stay · 4 nights','s']]],
+  ['Kitchen 1',[[3,4,'Rental','r'],[6,7,'Rental','r']]]]}];
+var h='<div class="r hd"><div class="lab"></div>'+track([],true)+'</div>';
+A.forEach(function(a){h+='<div class="ar">▾ '+a.n+'<small>'+a.s+'</small></div>';
+ a.r.forEach(function(r){h+='<div class="r"><div class="lab">'+r[0]+'</div>'+track(r[1])+'</div>';});});
+[['Area 3 · Annex',[2,3,3,1,0,1,2]],['Area 4 · Outdoor',[0,1,1,0,2,2,1]]].forEach(function(a){
+ h+='<div class="r"><div class="lab" style="font-weight:600">▸ '+a[0]+'</div><div class="trk">';
+ for(var i=0;i<7;i++){var v=a[1][i];h+='<div class="c'+(i===T?' t':'')+'" style="grid-column:'+(i+1)+'"></div><div class="heat" style="grid-column:'+(i+1)+';background:'+(v?'rgba(55,138,221,'+(0.15+v*0.2)+')':'transparent')+'">'+(v?v+' in use':'free')+'</div>';}
+ h+='</div></div>';});
+document.getElementById('grid').innerHTML=h;
+</script>
+</body>
+</html>

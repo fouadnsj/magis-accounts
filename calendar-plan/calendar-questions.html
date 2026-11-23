@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGIS Calendar — questions</title>
+<style>
+:root{--text:#26292E;--muted:#6b6f76;--faint:#9a9da3;--line:#e2dfd6;--line2:#cfcbbf;--paper:#FDFCF9;--card:#fff;--soft:#f3f1ea;--accent:#185FA5;--accent-bg:#E6F1FB;--ok:#3B6D11}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 80px;background:var(--paper);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+p.lead{color:var(--muted);margin:0 0 10px}
+table.q{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+table.q td,table.q th{border-bottom:1px solid var(--line);padding:10px 12px;vertical-align:top;text-align:start}
+table.q th{background:var(--soft);font-size:12px;color:var(--muted);font-weight:600}
+td.n{width:34px;color:var(--faint);font-weight:600}
+td.qq{width:42%}
+td.qq b{display:block;margin-bottom:2px}
+td.qq small{color:var(--muted);display:block}
+label.o{display:block;margin:2px 0;cursor:pointer}
+label.o input{margin-inline-end:6px}
+textarea,input[type=text]{width:100%;font:inherit;border:1px solid var(--line2);border-radius:8px;padding:6px 8px;background:#fff;margin-top:6px}
+textarea{min-height:42px;resize:vertical}
+input.hr{width:70px;margin:0 4px}
+table.g{border-collapse:collapse;width:100%;font-size:12px;margin-top:4px}
+table.g th,table.g td{border:1px solid var(--line);padding:4px 5px;text-align:center}
+table.g th{background:var(--soft);font-weight:600}
+table.g td:first-child,table.g th:first-child{text-align:start}
+table.g input[type=text]{margin:0;padding:3px 5px;font-size:12px;min-width:80px}
+.days label{display:inline-block;margin:2px 10px 2px 0}
+.bar{position:sticky;bottom:0;background:var(--paper);border-top:1px solid var(--line);padding:12px 0;margin-top:24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--line2);background:#fff;border-radius:8px;padding:7px 14px;cursor:pointer}
+button.pri{background:#26292E;color:#fff;border-color:#26292E}
+#saved{font-size:12px;color:var(--ok)}
+#out{width:100%;min-height:220px;font:12px/1.5 ui-monospace,Menlo,monospace;display:none;margin-top:10px}
+.hint{font-size:12px;color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MAGIS Calendar — your answers</h1>
+<p class="lead">Tick or write after each point. What is already ticked is my suggestion: change it freely. Your answers are kept in this browser while you work. At the end press <b>Make my answers</b>, then <b>Copy</b>, and paste them in our conversation.</p>
+<p class="hint">Drawings: calendar-mockups.html (same folder).</p>
+
+<form id="f">
+
+<h2>A. The calendar phone (no sign-in)</h2>
+<table class="q">
+<tr><th>#</th><th>Question</th><th>Your answer</th></tr>
+<tr data-q="A1"><td class="n">A1</td><td class="qq"><b>Linking a calendar phone</b><small>A manager links each phone once at the centre and gives it a name ("Cleaner's phone"). After that it opens straight on the calendar. The manager can cut it off at any time.</small></td>
+<td><label class="o"><input type="radio" name="A1" value="No password, no code" checked>No password, no code</label>
+<label class="o"><input type="radio" name="A1" value="A short code to open it">A short code to open it (4 digits)</label>
+<label class="o"><input type="radio" name="A1" value="Keep a normal sign-in">Keep a normal sign-in</label>
+<textarea name="A1note" placeholder="Note (optional)"></textarea></td></tr>
+<tr data-q="A2"><td class="n">A2</td><td class="qq"><b>Private bookings</b><small>A booking can be ticked "private": the phones show only "Reserved", not the group's name.</small></td>
+<td><label class="o"><input type="radio" name="A2" value="Yes, a private tick" checked>Yes, a private tick</label>
+<label class="o"><input type="radio" name="A2" value="No, names always shown">No, names always shown</label>
+<textarea name="A2note" placeholder="Note (optional)"></textarea></td></tr>
+<tr data-q="A3"><td class="n">A3</td><td class="qq"><b>What a calendar phone never receives</b><small>Tick what must NEVER go to a calendar phone.</small></td>
+<td><label class="o"><input type="checkbox" name="A3" value="Prices and payments" checked>Prices and payments</label>
+<label class="o"><input type="checkbox" name="A3" value="Guests' phone numbers and contact persons" checked>Guests' phone numbers and contact persons</label>
+<label class="o"><input type="checkbox" name="A3" value="Notes of the bookings">Notes of the bookings</label>
+<textarea name="A3note" placeholder="Other (optional)"></textarea></td></tr>
+<tr data-q="A4"><td class="n">A4</td><td class="qq"><b>How far the phone keeps the calendar</b><small>What the phone holds for its offline view.</small></td>
+<td>From <input type="text" class="hr" name="A4from" value="1 month"> before today, to <input type="text" class="hr" name="A4to" value="6 months"> after today.
+<textarea name="A4note" placeholder="Note (optional)"></textarea></td></tr>
+</table>
+
+<h2>B. Roles and rights</h2>
+<table class="q">
+<tr><th>#</th><th>Question</th><th>Your answer</th></tr>
+<tr data-q="B1"><td class="n">B1</td><td class="qq" colspan="2"><b>Who may do what?</b><small>Tick the rights of each role. You can rename the last two columns or add a role. Everyone who has an account or a calendar phone at least sees the calendar.</small>
+<div style="overflow-x:auto"><table class="g" id="grid"></table></div>
+<textarea name="B1note" placeholder="Note on the roles (optional)"></textarea></td></tr>
+<tr data-q="B2"><td class="n">B2</td><td class="qq"><b>Limit the coordinators to their own kinds?</b><small>For example: the workshop coordinator changes only workshops, the academic coordinator only courses.</small></td>
+<td><label class="o"><input type="radio" name="B2" value="No: whoever has the right manages everything" checked>No: whoever has the right manages everything</label>
+<label class="o"><input type="radio" name="B2" value="Yes: each role only its own kinds">Yes: each role only its own kinds (write which below)</label>
+<textarea name="B2note" placeholder="Which role → which kinds"></textarea></td></tr>
+</table>
+
+<h2>C. Lists for the cleaner and the kitchen</h2>
+<table class="q">
+<tr><th>#</th><th>Question</th><th>Your answer</th></tr>
+<tr data-q="C1"><td class="n">C1</td><td class="qq"><b>Bedroom</b><small>To clean on the day the group leaves; to have ready on the day a group arrives.</small></td>
+<td><label class="o"><input type="radio" name="C1" value="OK" checked>OK</label><label class="o"><input type="radio" name="C1" value="Change">Change:</label><textarea name="C1note" placeholder="Your rule"></textarea></td></tr>
+<tr data-q="C2"><td class="n">C2</td><td class="qq"><b>Hall</b><small>To prepare before the first session of the day, with the equipment asked and the number of people; to clean after.</small></td>
+<td><label class="o"><input type="radio" name="C2" value="OK" checked>OK</label><label class="o"><input type="radio" name="C2" value="Change">Change:</label><textarea name="C2note" placeholder="Your rule"></textarea></td></tr>
+<tr data-q="C3"><td class="n">C3</td><td class="qq"><b>Kitchen</b><small>To clean after each rental.</small></td>
+<td><label class="o"><input type="radio" name="C3" value="OK" checked>OK</label><label class="o"><input type="radio" name="C3" value="Change">Change:</label><textarea name="C3note" placeholder="Your rule"></textarea></td></tr>
+<tr data-q="C4"><td class="n">C4</td><td class="qq"><b>Ticking "done"</b><small>A tick needs the phone to send it when it is on the centre's Wi-Fi.</small></td>
+<td><label class="o"><input type="radio" name="C4" value="Read only at first, tick later" checked>Read only at first, tick later</label>
+<label class="o"><input type="radio" name="C4" value="Tick done from the start">Tick "done" from the start</label>
+<textarea name="C4note" placeholder="Note (optional)"></textarea></td></tr>
+</table>
+
+<h2>D. The programme</h2>
+<table class="q">
+<tr><th>#</th><th>Question</th><th>Your answer</th></tr>
+<tr data-q="D1"><td class="n">D1</td><td class="qq"><b>Kinds of activity</b><small>Untick what you do not want. Each kind has its own colour.</small></td>
+<td><label class="o"><input type="checkbox" name="D1" value="Workshop · ورشة" checked>Workshop · ورشة</label>
+<label class="o"><input type="checkbox" name="D1" value="Course · دورة" checked>Course · دورة</label>
+<label class="o"><input type="checkbox" name="D1" value="Club · نادي" checked>Club · نادي</label>
+<label class="o"><input type="checkbox" name="D1" value="Study Zone · منطقة الدراسة" checked>Study Zone · منطقة الدراسة</label>
+<label class="o"><input type="checkbox" name="D1" value="Training · تدريب" checked>Training · تدريب</label>
+<label class="o"><input type="checkbox" name="D1" value="Event · نشاط" checked>Event · نشاط</label>
+<label class="o"><input type="checkbox" name="D1" value="Hall booking · حجز قاعة" checked>Hall booking · حجز قاعة</label>
+<label class="o"><input type="checkbox" name="D1" value="Guest stay · إقامة" checked>Guest stay · إقامة</label>
+<textarea name="D1note" placeholder="Add or rename (one per line)"></textarea></td></tr>
+<tr data-q="D2"><td class="n">D2</td><td class="qq"><b>Leader of an activity</b><small>The website notes say tutors are paid per session in MAGIS HR.</small></td>
+<td><label class="o"><input type="radio" name="D2" value="A name now, link with HR later" checked>A name now, link with HR later</label>
+<label class="o"><input type="radio" name="D2" value="No leader for now">No leader for now</label>
+<textarea name="D2note" placeholder="Note (optional)"></textarea></td></tr>
+</table>
+
+<h2>E. Days and hours</h2>
+<table class="q">
+<tr><th>#</th><th>Question</th><th>Your answer</th></tr>
+<tr data-q="E1"><td class="n">E1</td><td class="qq"><b>Weekend or closed days</b><small>They are shaded on the calendar.</small></td>
+<td class="days"><label><input type="checkbox" name="E1" value="Monday">Mon</label><label><input type="checkbox" name="E1" value="Tuesday">Tue</label><label><input type="checkbox" name="E1" value="Wednesday">Wed</label><label><input type="checkbox" name="E1" value="Thursday">Thu</label><label><input type="checkbox" name="E1" value="Friday">Fri</label><label><input type="checkbox" name="E1" value="Saturday">Sat</label><label><input type="checkbox" name="E1" value="Sunday">Sun</label>
+<textarea name="E1note" placeholder="Different for each centre? Write it here"></textarea></td></tr>
+<tr data-q="E2"><td class="n">E2</td><td class="qq"><b>Hours shown in the day view</b><small>The website uses 07:00 to 24:00.</small></td>
+<td>From <input type="text" class="hr" name="E2from" value="07:00"> to <input type="text" class="hr" name="E2to" value="24:00"></td></tr>
+</table>
+
+<h2>F. Spaces, names and the website</h2>
+<table class="q">
+<tr><th>#</th><th>Question</th><th>Your answer</th></tr>
+<tr data-q="F1"><td class="n">F1</td><td class="qq"><b>How you give the areas and rooms</b><small>For each room: its area, kind, capacity (halls) or beds (bedrooms), and whether it can be rented. Homs first.</small></td>
+<td><label class="o"><input type="radio" name="F1" value="Make me an Excel table to fill" checked>Make me an Excel table to fill</label>
+<label class="o"><input type="radio" name="F1" value="I will type a list in the conversation">I will type a list in the conversation</label>
+<label class="o"><input type="radio" name="F1" value="I have my own file">I have my own file</label>
+<textarea name="F1note" placeholder="Which centres, in what order"></textarea></td></tr>
+<tr data-q="F2"><td class="n">F2</td><td class="qq"><b>A "Today" screen for a TV at the entrance</b></td>
+<td><label class="o"><input type="radio" name="F2" value="Not needed">Not needed</label>
+<label class="o"><input type="radio" name="F2" value="Later" checked>Later</label>
+<label class="o"><input type="radio" name="F2" value="Yes, in this project">Yes, in this project</label></td></tr>
+<tr data-q="F3"><td class="n">F3</td><td class="qq"><b>Name of the badge</b><small>Shown on the door and on the phone's icon.</small></td>
+<td>Arabic <input type="text" name="F3ar" value="التقويم"> English <input type="text" name="F3en" value="Calendar"> French <input type="text" name="F3fr" value="Calendrier"></td></tr>
+<tr data-q="F4"><td class="n">F4</td><td class="qq"><b>Moving the website's calendar (step 7)</b><small>Today in the local test copy: about 580 sessions around now in Damascus, 22 in Homs, 3 in Aleppo.</small></td>
+<td><label class="o"><input type="checkbox" name="F4" value="Damascus: move the future sessions">Damascus: move the future sessions</label>
+<label class="o"><input type="checkbox" name="F4" value="Homs: move the future sessions">Homs: move the future sessions</label>
+<label class="o"><input type="checkbox" name="F4" value="Aleppo: move the future sessions">Aleppo: move the future sessions</label>
+<label class="o"><input type="checkbox" name="F4" value="Also the past (history)">Also the past (history)</label>
+<textarea name="F4note" placeholder="Note (optional)"></textarea></td></tr>
+<tr data-q="F5"><td class="n">F5</td><td class="qq"><b>Anything else</b><small>What I forgot, what worries you.</small></td>
+<td><textarea name="F5note" placeholder="Free text" style="min-height:80px"></textarea></td></tr>
+</table>
+</form>
+
+<div class="bar">
+  <button class="pri" type="button" id="make">Make my answers</button>
+  <button type="button" id="copy">Copy</button>
+  <button type="button" id="reset">Back to my suggestions</button>
+  <span id="saved"></span>
+</div>
+<textarea id="out" readonly></textarea>
+</div>
+<script>
+var RIGHTS=['See the calendar','See guests\' contacts','Add or change the programme','Add or change bookings','Mark guests arrived / left','See prices and payments','Set up spaces and lists'];
+var ROLES=['Director','Workshop coordinator','Academic coordinator','Reception','Cleaner / kitchen','Accountant','Other role'];
+var DEF={'Director':[1,1,1,1,1,1,1],'Workshop coordinator':[1,1,1,1,0,0,0],'Academic coordinator':[1,1,1,1,0,0,0],'Reception':[1,1,0,1,1,0,0],'Cleaner / kitchen':[1,0,0,0,0,0,0],'Accountant':[1,1,0,0,0,1,0],'Other role':[1,0,0,0,0,0,0]};
+var g='<tr><th>Right</th>';ROLES.forEach(function(r,j){g+='<th><input type="text" name="role'+j+'" value="'+r+'"></th>';});g+='</tr>';
+RIGHTS.forEach(function(x,i){g+='<tr><td>'+x+'</td>';ROLES.forEach(function(r,j){g+='<td><input type="checkbox" name="g_'+i+'_'+j+'"'+(DEF[r][i]?' checked':'')+'></td>';});g+='</tr>';});
+document.getElementById('grid').innerHTML=g;
+var f=document.getElementById('f'),KEY='magis-cal-answers';
+function save(){var o={};Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox')o[e.name+'|'+e.value]=e.checked;else if(e.type==='radio'){if(e.checked)o[e.name]=e.value;}else o[e.name]=e.value;});try{localStorage.setItem(KEY,JSON.stringify(o));document.getElementById('saved').textContent='Kept in this browser';}catch(x){}}
+function load(){var o;try{o=JSON.parse(localStorage.getItem(KEY)||'null');}catch(x){}if(!o)return;Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox'){var k=e.name+'|'+e.value;if(k in o)e.checked=o[k];}else if(e.type==='radio'){if(e.name in o)e.checked=(o[e.name]===e.value);}else if(e.name in o)e.value=o[e.name];});}
+load();f.addEventListener('input',save);f.addEventListener('change',save);
+function val(n){var e=f.elements[n];return e?e.value.trim():'';}
+document.getElementById('make').onclick=function(){
+ var L=['MAGIS Calendar — answers of Fouad ('+new Date().toISOString().slice(0,10)+')',''];
+ document.querySelectorAll('tr[data-q]').forEach(function(tr){
+  var id=tr.getAttribute('data-q'),title=tr.querySelector('td.qq b').textContent,parts=[];
+  if(id==='B1'){var names=ROLES.map(function(_,j){return val('role'+j);});L.push(id+'. '+title);
+   names.forEach(function(nm,j){if(!nm)return;var r=RIGHTS.filter(function(_,i){return f.elements['g_'+i+'_'+j].checked;});L.push('   - '+nm+': '+(r.length?r.join('; '):'nothing'));});
+   if(val('B1note'))L.push('   Note: '+val('B1note'));return;}
+  tr.querySelectorAll('input,textarea').forEach(function(e){
+   if(e.type==='checkbox'||e.type==='radio'){if(e.checked)parts.push(e.value);}
+   else if(e.value.trim()){var lab=e.name.endsWith('note')?'Note':e.name.replace(id,'');parts.push(lab+': '+e.value.trim());}});
+  L.push(id+'. '+title+': '+(parts.join(' | ')||'—'));});
+ var o=document.getElementById('out');o.style.display='block';o.value=L.join('\n');o.focus();o.select();};
+document.getElementById('copy').onclick=function(){document.getElementById('make').onclick();var o=document.getElementById('out');o.select();
+ var done=function(){document.getElementById('saved').textContent='Copied: paste it in the conversation';};
+ if(navigator.clipboard)navigator.clipboard.writeText(o.value).then(done,function(){document.execCommand('copy');done();});else{document.execCommand('copy');done();}};
+document.getElementById('reset').onclick=function(){if(!confirm('Put back my suggestions and erase your answers?'))return;try{localStorage.removeItem(KEY);}catch(x){}location.reload();};
+</script>
+</body>
+</html>

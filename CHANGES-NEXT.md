@@ -328,6 +328,7 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - Tried in the side pane at 375 wide on a new empty test database: Today, Week (English), Spaces (Arabic, right to left).
   Not tried: French, a real phone, many colours of areas, very long group names.
 - **Small fix:** on the calendar phone, "I forgot the code" now asks "Yes, forget this phone / Cancel" inside the page (the browser's own box is blocked in some views). No other `confirm` or `alert` is in that page.
+- **Halls and rooms apart (calendar phone):** on Today, Week and Spaces there are two titled groups, **Halls · القاعات · Salles** and **Rooms · الغرف · Chambres** (title in the phone's language). Activities and bookings in halls go under Halls; stays under Rooms. Arriving / leaving / free tonight and the bedroom "To prepare" lines belong to Rooms; the hall "To prepare" lines to Halls. Area colours and marks kept. A space is a room when its kind has beds (as in "To prepare"), otherwise a hall; no pack change, no database update. Tried at 375 wide (Arabic: Spaces and Today).
 
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

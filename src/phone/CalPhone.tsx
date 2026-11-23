@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { gDel, gGet, gSet, lockKey, openKey, type Link, type Msg } from './store';
 import { addDays, colorOf } from '../hosting/host';
-import { inCalendar, type CalBooking, type CalData, type CalSpace } from '../hosting/calendar';
+import { inCalendar, sleepsIn, type CalBooking, type CalData, type CalSpace } from '../hosting/calendar';
 import { hm, itemsBetween, prepareOf, mondayOf, shutOf, bandOf, todayFigures, type DayItem } from '../hosting/calview';
 import { ROLE_NAME, type CalPhonePack } from '../hosting/calphone';
 
@@ -238,7 +238,14 @@ function Calendar({ t, tm, lang, langPick, link, pack, setPack, keyOf, onLock, o
                 </button>
                 {pd && <div className="ph-weekday-band">⛔ {pd.name}</div>}
                 <div className="ph-weekday-b">
-                  {list.length ? list.map((it) => row(it)) : <div className="ph-weekday-empty">{t('لا شيء — يوم فارغ', 'Nothing planned — an empty day', 'Rien de prévu — journée libre')}</div>}
+                  {list.length ? (
+                    <>
+                      {list.some((it) => it.b.kind !== 'stay') && <h3 className="ph-grp">{HALLS(t)}</h3>}
+                      {list.filter((it) => it.b.kind !== 'stay').map((it) => row(it))}
+                      {list.some((it) => it.b.kind === 'stay') && <h3 className="ph-grp">{ROOMS(t)}</h3>}
+                      {list.filter((it) => it.b.kind === 'stay').map((it) => row(it))}
+                    </>
+                  ) : <div className="ph-weekday-empty">{t('لا شيء — يوم فارغ', 'Nothing planned — an empty day', 'Rien de prévu — journée libre')}</div>}
                 </div>
               </section>
             );
@@ -262,40 +269,52 @@ function TodayView({ t, d, day, today, items, row, dayLong, band, spaceName, nam
   const prep = useMemo(() => prepareOf(d, day), [d, day]);
   const stays = list.filter((x) => x.b.kind === 'stay'), events = list.filter((x) => x.b.kind !== 'stay');
   void spaceName;
+  const hallPrep = prep.filter((x) => x.kind === 'hall'), roomPrep = prep.filter((x) => x.kind !== 'hall');
+  const prepCard = (list: typeof prep) => list.length > 0 && (
+    <div className="ph-sub">
+      <b>🧹 {t('للتحضير', 'To prepare', 'À préparer')}{day === today ? ` ${t('اليوم', 'today', 'aujourd’hui')}` : ''}</b>
+      {list.map((x, i) => (
+        <div key={i} className="ph-cal-row">
+          <span className="ph-cal-when ltr">{x.kind === 'hall' ? hm(x.at ?? 0) : x.kind === 'arrive' ? '↘' : '↗'}</span>
+          <span className="ph-cal-what"><b>{name(x.space.name)}</b><small>{x.kind === 'hall' ? [x.b.group_name, x.people ? `${x.people} ${t('شخص', 'people', 'pers.')}` : '', ...x.equipment.map((e) => `${e.name} × ${e.qty}`)].filter(Boolean).join(' · ') : x.kind === 'arrive' ? `${t('تجهيز لوصول', 'for the arrival of', 'pour l’arrivée de')} ${x.b.group_name}${x.people ? ` · ${x.people}` : ''}` : t('جاهزة من جديد بعد المغادرة', 'ready again after the group leaves', 'de nouveau prête après le départ')}</small></span>
+        </div>
+      ))}
+    </div>
+  );
   return (
     <>
       <section className="ph-card">
         <b>{dayLong(day)}{day === today ? ` · ${t('اليوم', 'today', 'aujourd’hui')}` : ''}</b>
         {band && <div className="ph-alert">⛔ {band.name}</div>}
+      </section>
+      <section className="ph-card ph-group">
+        <h3 className="ph-grp">{HALLS(t)}</h3>
+        {events.map((it) => row(it))}
+        {!events.length && <div className="ph-muted">{t('لا شيء في القاعات', 'Nothing in the halls', 'Rien dans les salles')}</div>}
+        {prepCard(hallPrep)}
+      </section>
+      <section className="ph-card ph-group">
+        <h3 className="ph-grp">{ROOMS(t)}</h3>
         <div className="ph-cal-figs">
           <span>↘ {t('يصلون', 'Arriving', 'Arrivées')} <b>{fig.arrive.length}</b></span>
           <span>↗ {t('يغادرون', 'Leaving', 'Départs')} <b>{fig.leave.length}</b></span>
           <span>🛏 {t('حرّة الليلة', 'Free tonight', 'Libres ce soir')} <b>{fig.freeTonight.length}</b></span>
         </div>
+        {stays.map((it) => row(it))}
+        {!stays.length && <div className="ph-muted">{t('لا ضيوف', 'No guests', 'Aucun hôte')}</div>}
+        {prepCard(roomPrep)}
       </section>
-      {events.length > 0 && <section className="ph-card"><b>{t('النشاطات والحجوزات', 'Activities and bookings', 'Activités et réservations')}</b>{events.map((it) => row(it))}</section>}
-      {stays.length > 0 && <section className="ph-card"><b>{t('الضيوف في البيت', 'Guests in the house', 'Hôtes dans la maison')}</b>{stays.map((it) => row(it))}</section>}
-      {prep.length > 0 && (
-        <section className="ph-card">
-          <b>🧹 {t('للتحضير', 'To prepare', 'À préparer')}{day === today ? ` ${t('اليوم', 'today', 'aujourd’hui')}` : ''}</b>
-          {prep.map((x, i) => (
-            <div key={i} className="ph-cal-row">
-              <span className="ph-cal-when ltr">{x.kind === 'hall' ? hm(x.at ?? 0) : x.kind === 'arrive' ? '↘' : '↗'}</span>
-              <span className="ph-cal-what"><b>{name(x.space.name)}</b><small>{x.kind === 'hall' ? [x.b.group_name, x.people ? `${x.people} ${t('شخص', 'people', 'pers.')}` : '', ...x.equipment.map((e) => `${e.name} × ${e.qty}`)].filter(Boolean).join(' · ') : x.kind === 'arrive' ? `${t('تجهيز لوصول', 'for the arrival of', 'pour l’arrivée de')} ${x.b.group_name}${x.people ? ` · ${x.people}` : ''}` : t('جاهزة من جديد بعد المغادرة', 'ready again after the group leaves', 'de nouveau prête après le départ')}</small></span>
-            </div>
-          ))}
-        </section>
-      )}
-      {!list.length && <section className="ph-card ph-muted">{t('لا شيء في هذا اليوم', 'Nothing on this day', 'Rien ce jour-là')}</section>}
     </>
   );
 }
+
+const HALLS = (t: Tr) => t('القاعات', 'Halls', 'Salles');
+const ROOMS = (t: Tr) => t('الغرف', 'Rooms', 'Chambres');
 
 function SpacesView({ t, d, day, items, dayLong, band, name, spaceName, setOpen }: { t: Tr; d: CalData; day: string; items: Map<string, DayItem[]>; dayLong: (x: string) => string; band: ReturnType<typeof bandOf>; name: (s: string) => string; spaceName: (id: number) => string; setOpen: (b: CalBooking) => void }) {
   void spaceName;
   const list = items.get(day) ?? [];
   const spaces = d.spaces.filter(inCalendar);
-  const areas = d.areas.filter((a) => spaces.some((s) => s.building_id === a.id));
   const state = (s: CalSpace) => {
     const shut = shutOf(d, s.id, day);
     const users = list.filter((it) => it.spaces.includes(s.id));
@@ -305,10 +324,16 @@ function SpacesView({ t, d, day, items, dayLong, band, name, spaceName, setOpen 
     <>
       <b>{dayLong(day)}</b>
       {band && <div className="ph-alert">⛔ {band.name}</div>}
-      {areas.map((a) => (
+      {[false, true].map((rooms) => {
+        const mine = spaces.filter((s) => sleepsIn(s, d.kinds) === rooms);
+        const areas = d.areas.filter((a) => mine.some((s) => s.building_id === a.id));
+        return areas.length ? (
+          <section key={String(rooms)} className="ph-group">
+            <h3 className="ph-grp">{rooms ? ROOMS(t) : HALLS(t)}</h3>
+            {areas.map((a) => (
         <section key={a.id} className="ph-card" style={{ borderInlineStart: `6px solid ${colorOf(d.areas, a.id)}` }}>
           <b>{name(a.name)}</b>
-          {spaces.filter((s) => s.building_id === a.id).map((s) => {
+          {mine.filter((s) => s.building_id === a.id).map((s) => {
             const { shut, users } = state(s);
             return (
               <div key={s.id} className="ph-room">
@@ -320,8 +345,11 @@ function SpacesView({ t, d, day, items, dayLong, band, name, spaceName, setOpen 
             );
           })}
         </section>
-      ))}
-      {!areas.length && <section className="ph-card ph-muted">{t('لا أماكن', 'No spaces', 'Aucun espace')}</section>}
+            ))}
+          </section>
+        ) : null;
+      })}
+      {!spaces.length && <section className="ph-card ph-muted">{t('لا أماكن', 'No spaces', 'Aucun espace')}</section>}
     </>
   );
 }

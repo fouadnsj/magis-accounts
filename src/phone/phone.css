@@ -180,3 +180,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 .ph-chip2.option { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ac) 20%, #fff), color-mix(in srgb, var(--ac) 20%, #fff) 6px, #fff 6px, #fff 12px); border: 2px dashed var(--ac); }
 .ph-chip2.arrived { background: color-mix(in srgb, var(--ac) 16%, #fff); } .ph-chip2.left { background: #eee; color: #555; opacity: .7; }
 .ph-room-name { font-size: 18px; }
+
+/* halls and rooms kept apart (24 Nov 2026) */
+.ph-grp { margin: 2px 0 4px; font-size: 19px; letter-spacing: .02em; border-bottom: 2px solid var(--gold); padding-bottom: 3px; }
+.ph-group { display: flex; flex-direction: column; gap: 4px; }
+.ph-weekday-b .ph-grp { font-size: 15px; color: var(--muted); border-bottom-width: 1px; margin-top: 8px; }
+.ph-sub { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; }

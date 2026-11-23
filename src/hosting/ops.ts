@@ -49,7 +49,8 @@ export async function loadHosting(c: OpCtx): Promise<HostData> {
     allocs: await c.db.query<HostAlloc>('SELECT * FROM host_alloc'),
     lines: await c.db.query<HostLine>('SELECT * FROM host_line ORDER BY id'),
     pays: await c.db.query<HostPay>('SELECT * FROM host_pay ORDER BY paid_on, id'),
-    entered: (await c.db.query<{ receipt: string }>("SELECT DISTINCT receipt FROM trx WHERE type = 'Income' AND receipt IN (SELECT receipt_no FROM host_pay)")).map((x) => x.receipt),
+    // an income for money received, an expense for money given back (HR…, calendar step 4)
+    entered: (await c.db.query<{ receipt: string }>('SELECT DISTINCT receipt FROM trx WHERE receipt IS NOT NULL AND receipt IN (SELECT receipt_no FROM host_pay)')).map((x) => x.receipt),
     prices: true,
   };
   return priced(c) ? d : withoutPrices(d);
@@ -429,7 +430,7 @@ export const HOST_OPS = {
     run: async (c: OpCtx, a: { id: number; on?: boolean }) => {
       const p = await one<HostPay>(c.db, 'SELECT * FROM host_pay WHERE id = ?', [a.id]);
       if (!p) throw new UserError(m('الدفعة غير موجودة', 'Payment not found', 'Paiement introuvable'));
-      if (await one(c.db, "SELECT 1 FROM trx WHERE receipt = ? AND type = 'Income'", [p.receipt_no])) throw new UserError(m('صارت قيداً في السجل', 'It is already an entry of the register', 'C’est déjà une écriture du registre'));
+      if (await one(c.db, 'SELECT 1 FROM trx WHERE receipt = ?', [p.receipt_no])) throw new UserError(m('صارت قيداً في السجل', 'It is already an entry of the register', 'C’est déjà une écriture du registre'));
       const st = a.on === false ? 'suggested' : 'refused';
       await c.db.batch([{ sql: 'UPDATE host_pay SET status = ? WHERE id = ?', params: [st, p.id] }, auditStmt(c.who, st, 'host_pay', p.receipt_no, null, null)]);
       return { ok: true };
@@ -477,7 +478,7 @@ export async function hostLite(c: OpCtx) {
   if (!can) return null;
   const review = looksAtAll(c) ? ((await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM host_booking WHERE review = 1 AND status <> ?', ['cancelled']))?.n ?? 0) : 0;
   const toEnter = priced(c)
-    ? ((await one<{ n: number }>(c.db, "SELECT COUNT(*) AS n FROM host_pay WHERE status = 'suggested' AND receipt_no NOT IN (SELECT receipt FROM trx WHERE receipt IS NOT NULL AND type = 'Income')"))?.n ?? 0)
+    ? ((await one<{ n: number }>(c.db, "SELECT COUNT(*) AS n FROM host_pay WHERE status = 'suggested' AND receipt_no NOT IN (SELECT receipt FROM trx WHERE receipt IS NOT NULL)"))?.n ?? 0)
     : 0;
   return { on: true, review, toEnter, inventoryOn: await inventoryOn(c.db) };
 }

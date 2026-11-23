@@ -70,7 +70,7 @@ const upTo72 = async (kind?: string) => {
 describe('update 73 on a database at 72', () => {
   it('each kind of space gets its usual items (common names only, with their category); the Store kind its shelf', async () => {
     const db = await upTo72();
-    expect(await migrate(db)).toEqual([73]);
+    expect(await migrate(db)).toEqual([73, 74]);
     const rows = await db.query<{ kind: string; name: string; cat: string | null; code: string | null }>(
       'SELECT k.name AS kind, r.name, c.name AS cat, k.code FROM inv_ready r JOIN host_kind k ON k.id = r.kind_id LEFT JOIN inv_category c ON c.id = r.category_id ORDER BY k.sort, r.sort');
     const of = (kind: string) => rows.filter((r) => r.kind === kind).map((r) => r.name);
@@ -92,7 +92,7 @@ describe('update 73 on a database at 72', () => {
   it('a community, the country and HR get no ready list', async () => {
     for (const k of ['community', 'country', 'hr']) {
       const db = await upTo72(k);
-      expect(await migrate(db)).toEqual([73]);
+      expect(await migrate(db)).toEqual([73, 74]);
       expect((await db.query<{ n: number }>('SELECT COUNT(*) AS n FROM inv_ready'))[0].n).toBe(0);
     }
   });

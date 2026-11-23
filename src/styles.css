@@ -1078,11 +1078,18 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .cal-view-money td.warn { color: var(--warn); font-weight: 600; }
 .cal-view-list span + span::before { content: ' · '; color: var(--muted); }
 .cal-view-list > span.muted + span::before { content: ''; }
-.cal-view-list .cal-view-amt { margin-inline-start: 5px; }
+.cal-view-list .cal-view-amt { margin: 0 5px; }
 .cal-view-money td:first-child { white-space: nowrap; }
 .cal-view-actions { display: grid; gap: 8px; margin-top: 12px; }
 .cal-view-group { background: var(--bg); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 6px; }
 .cal-view-date { border-inline-start: 3px solid var(--brand); }
+.cal-pays { margin-top: 4px; }
+.cal-pays td { padding: 3px 6px; }
+.cal-pays tr.off td { text-decoration: line-through; opacity: .55; }
+.cal-money-choice { display: grid; gap: 4px; margin-top: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); }
+.cal-print-opt { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.cal-print-opt input { margin-top: 4px; }
+.cal-bar .cal-print-btn { border: 1px solid var(--line); }
 .cal-win section { border-bottom: 1px solid var(--line); padding: 8px 0 10px; }
 .cal-win h4 { margin: 0 0 6px; }
 .cal-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 12px; margin-top: 6px; }

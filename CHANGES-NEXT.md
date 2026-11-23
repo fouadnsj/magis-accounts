@@ -193,5 +193,29 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   Fouad's typed "Store", space 101). Nothing that was there changed; each centre got 51 ready rows; a community, the
   country and HR got none.
 
+## 9. The new Calendar — step 4 "Money and paper" (update 74)
+- **Payments**, by the Director or the Coordinator, at any time, **also before confirming** (an advance): "＋ A payment
+  received" in the booking view (amount, currency, date, cash / transfer / other, note). Each is a **suggestion for the
+  books** with its receipt number (H2026-0001…), as in 0.12; it can be taken back (shown struck through) until it is an
+  entry of the books. The booking view lists its payments with their state (waiting for the books / in the books).
+- **Cancelling with money received**: a window with the reason and the three choices (keep all, give all back, keep a
+  part with the amount typed per currency); it can be decided later ("Decide"). **What is given back is a suggestion for
+  the books too: an expense numbered HR2026-0001…** (the books' Payments tab makes an expense of it, and an income for the
+  others). Decided again, it is replaced; once it is an entry of the books it cannot change, and the booking cannot be put
+  back. A booking put back "to confirm" undoes the decision and the waiting amounts.
+- **Receipts (وصل استلام / Receipt, never invoice):** the whole booking's receipt keeps the 0.12 window (lines, currency
+  and rate, preview, two logos) and now carries **the amount in words, Arabic and English** (words.ts), **two places to
+  sign** ("Received by / Paid by"), and the mark **"COPY"** when printed again (counted by the program). New: **a receipt
+  for each payment** with the same number as in the books (🖨 on each payment line). The calendar gives the receipt its own
+  lines (price per person per night / each date / whole booking, then the services) and its own count of dates.
+- **Printed pages** (a "🖨 Print" button in the bar, with a preview): a **short page for a week or a day** (reception,
+  guard: each day, hours, spaces, people, phone, arrivals and leavings), **the week of one hall** (landscape, for its door),
+  and in the booking view **the booking sheet for the group** (same look, two logos; amounts only for who sees them and
+  never for a free booking). **Excel**: the list of the bookings of a period, and for who sees the money a sheet of the
+  payments (received and given back, in the books or not). Reception gets no amounts anywhere.
+- Update **74**: `host_pay.kind` ('in' / 'back'), `host_pay.printed`, `host_booking.receipt_printed`. Rehearsed on copies
+  only (Al-Ard, the 0.12 Homs copies, the test copy): nothing changed, integrity ok. The 0.12 hosting page keeps working
+  and its receipt window is shared (moving the pages to one drawing helper: `src/io/pdfCanvas.ts`).
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

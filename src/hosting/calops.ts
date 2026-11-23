@@ -6,9 +6,9 @@ import { nowIso, one, type Stmt } from '../db/db';
 import { auditStmt, UserError } from '../db/repo';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
-import { addDays, isDay, nextCode, type Currency, type HostAlloc, type HostBuilding, type HostEquip, type HostLine, type HostNeed, type HostPay, type HostService } from './host';
+import { addDays, isDay, nextCode, nextReceipt, type Currency, type HostAlloc, type HostBuilding, type HostEquip, type HostLine, type HostNeed, type HostPay, type HostService } from './host';
 import {
-  calRights, cancelMoney, decide, forViewer, isHour, mayChange, occurrences, priceSign, readOrgsSheet, readSpacesSheet, received, seesPrices, spaceProblem, warningsOf, checkCal, clashesOf,
+  calRights, cancelMoney, decide, forViewer, givenBack, isHour, mayChange, occurrences, priceSign, readOrgsSheet, readSpacesSheet, received, seesPrices, spaceProblem, warningsOf, checkCal, clashesOf,
   HOLD_DAYS, type CalActivityKind, type CalBooking, type CalCategory, type CalData, type CalDate, type CalKind, type CalOrg, type CalOrgKind, type CalPerson, type CalRights,
   type CalSpace, type CancelMoney, type ClosedPeriod, type Clash, type Origin, type PriceHist, type Probe, type SpaceClosed, type World,
 } from './calendar';
@@ -36,6 +36,11 @@ async function equipOf(c: OpCtx): Promise<HostEquip[]> {
   return c.db.query<HostEquip>("SELECT e.*, COALESCE((SELECT SUM(i.qty) FROM inv_item i WHERE lower(trim(i.name)) = lower(trim(e.name)) AND i.status = 'in_use' AND i.condition = 'good'), 0) AS total FROM host_equip e ORDER BY e.sort, e.name");
 }
 
+/** the receipt numbers already made entries in the books (an income for money received, an expense for money given back) */
+async function enteredOf(c: OpCtx): Promise<string[]> {
+  return (await c.db.query<{ receipt: string }>('SELECT DISTINCT receipt FROM trx WHERE receipt IS NOT NULL AND receipt IN (SELECT receipt_no FROM host_pay)')).map((x) => x.receipt);
+}
+
 /** everything the calendar holds, before it is cut to what this person may see */
 export async function loadCalAll(c: OpCtx): Promise<CalData> {
   const q = <T>(sql: string) => c.db.query<T>(sql);
@@ -59,6 +64,7 @@ export async function loadCalAll(c: OpCtx): Promise<CalData> {
     pays: await q<HostPay>('SELECT * FROM host_pay ORDER BY paid_on, id'),
     services: await q<HostService>('SELECT * FROM host_service ORDER BY sort, name'),
     inRoom: await inRoomRows(c.db),
+    entered: await enteredOf(c),
     rights: rightsOf(c),
   };
 }
@@ -325,8 +331,11 @@ async function setStatus(c: OpCtx, a: { id: number; status: 'option' | 'confirme
     if (clashes.length || shut.length) return { ok: false as const, refused: 'taken' as const, clashes: await clashList(c, clashes), closed: shut };
   }
   const hold = a.status === 'option' ? (a.hold_until && isDay(a.hold_until) ? a.hold_until : b.status === 'cancelled' || !b.hold_until ? addDays(today(), HOLD_DAYS) : b.hold_until) : b.hold_until;
+  // put back: the decision on the money is undone, and the money given back that is not yet in the books is taken away
+  const undoBack = b.status === 'cancelled' ? await backStmts(c, b, null) : [];
   await c.db.batch([
-    { sql: 'UPDATE host_booking SET status = ?, hold_until = ?, cancel_reason = CASE WHEN ? = 1 THEN NULL ELSE cancel_reason END, updated_at = ? WHERE id = ?', params: [a.status, hold, b.status === 'cancelled' ? 1 : 0, nowIso(), b.id] },
+    ...undoBack,
+    { sql: 'UPDATE host_booking SET status = ?, hold_until = ?, cancel_reason = CASE WHEN ? = 1 THEN NULL ELSE cancel_reason END, cancel_money = CASE WHEN ? = 1 THEN NULL ELSE cancel_money END, kept_usd = CASE WHEN ? = 1 THEN NULL ELSE kept_usd END, kept_syp = CASE WHEN ? = 1 THEN NULL ELSE kept_syp END, updated_at = ? WHERE id = ?', params: [a.status, hold, ...Array(4).fill(b.status === 'cancelled' ? 1 : 0), nowIso(), b.id] },
     auditStmt(c.who, 'status', 'host_booking', String(b.id), { status: b.status, hold: b.hold_until }, { status: a.status, hold }),
   ]);
   return { ok: true as const };
@@ -347,11 +356,44 @@ async function cancelBooking(c: OpCtx, a: { id: number; reason: string; money?: 
     decision = keptOf(got, a.money, a.kept_usd, a.kept_syp);
   }
   const stamp = nowIso();
+  const back = decision.money ? await backStmts(c, b, { USD: r2(got.USD - (decision.usd ?? 0)), SYP: r2(got.SYP - (decision.syp ?? 0)) }) : [];
   await c.db.batch([
+    ...back,
     { sql: 'UPDATE host_booking SET status = ?, cancel_reason = ?, cancel_money = ?, kept_usd = ?, kept_syp = ?, cancelled_by = ?, cancelled_at = ?, updated_at = ? WHERE id = ?', params: ['cancelled', reason, decision.money, decision.usd, decision.syp, c.who, stamp, stamp, b.id] },
     auditStmt(c.who, 'cancel', 'host_booking', String(b.id), { status: b.status }, { status: 'cancelled', reason, money: decision.money, kept_usd: decision.usd, kept_syp: decision.syp }),
   ]);
   return { ok: true as const, received: got, toDecide: (got.USD > 0 || got.SYP > 0) && !decision.money };
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+/**
+ * The money given back after a cancellation: one suggestion for the books per currency (an expense), numbered HR2026-0001…
+ * Decided again: the rows still waiting are replaced. Once one is an entry of the books it cannot change any more.
+ * `back` null: the booking is put back, the rows waiting are taken away.
+ */
+async function backStmts(c: OpCtx, b: CalBooking, back: { USD: number; SYP: number } | null): Promise<Stmt[]> {
+  const rows = await c.db.query<HostPay>("SELECT * FROM host_pay WHERE booking_id = ? AND kind = 'back' AND status <> 'refused'", [b.id]);
+  const entered = new Set(await enteredOf(c));
+  const want = back ?? { USD: 0, SYP: 0 };
+  const now = givenBack(rows);
+  if (rows.some((p) => entered.has(p.receipt_no))) {
+    if (now.USD === r2(want.USD) && now.SYP === r2(want.SYP)) return [];
+    throw err('المبلغ المُعاد صار قيداً في الدفاتر: لا يتغيّر من هنا', 'The money given back is already an entry of the books: it cannot change from here', 'L’argent rendu est déjà une écriture des livres : il ne change plus d’ici');
+  }
+  const out: Stmt[] = rows.map((p) => ({ sql: 'DELETE FROM host_pay WHERE id = ?', params: [p.id] }));
+  const year = Number(today().slice(0, 4));
+  // the rows replaced give back their numbers (never used in the books): a new decision keeps HR2026-0001
+  const gone = new Set(rows.map((p) => p.receipt_no));
+  const numbers = (await c.db.query<{ receipt_no: string }>('SELECT receipt_no FROM host_pay')).map((x) => x.receipt_no).filter((x) => !gone.has(x));
+  for (const cu of ['USD', 'SYP'] as Currency[]) {
+    const amount = r2(want[cu]);
+    if (amount <= 0) continue;
+    const no = nextReceipt(numbers, year, 'HR');
+    numbers.push(no);
+    out.push({ sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, method, receipt_no, note, who, at, kind) VALUES (?,?,?,?,?,?,?,?,?,'back')", params: [b.id, amount, cu, today(), 'cash', no, 'Given back after the cancellation · مُعاد بعد الإلغاء', c.who, nowIso()] });
+    out.push(auditStmt(c.who, 'add', 'host_pay', no, null, { booking: b.code, amount, currency: cu, kind: 'back' }));
+  }
+  return out;
 }
 
 function keptOf(got: { USD: number; SYP: number }, choice: CancelMoney, usd?: number | null, syp?: number | null) {
@@ -592,6 +634,37 @@ async function history(c: OpCtx, a: { booking_id?: number } = {}) {
 
 // ------------------------------------------------------------------ the operations
 
+// ------------------------------------------------------------------ payments (baseline §7)
+
+async function addPay(c: OpCtx, a: { booking_id: number; amount: number; currency?: Currency; paid_on?: string; method?: string; note?: string | null }) {
+  const b = await bookingOf(c, a.booking_id);
+  if (b.status === 'cancelled') throw err('الحجز ملغى: لا تُسجَّل عليه دفعة', 'The booking is cancelled: no payment can be recorded', 'La réservation est annulée : aucun paiement');
+  const amount = money(a.amount);
+  if (!amount) throw err('اكتب المبلغ', 'Write the amount', 'Écrivez le montant');
+  const day = a.paid_on && isDay(a.paid_on) ? a.paid_on : today();
+  if (day > today()) throw err('تاريخ الدفعة في المستقبل', 'The date of the payment is in the future', 'La date du paiement est dans le futur');
+  const receipt = nextReceipt((await c.db.query<{ receipt_no: string }>('SELECT receipt_no FROM host_pay')).map((x) => x.receipt_no), Number(day.slice(0, 4)));
+  const method = ['cash', 'transfer', 'other'].includes(String(a.method)) ? String(a.method) : 'cash';
+  const currency = cur(a.currency ?? b.currency);
+  await c.db.batch([
+    { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, method, receipt_no, note, who, at, kind) VALUES (?,?,?,?,?,?,?,?,?,'in')", params: [b.id, amount, currency, day, method, receipt, txt(a.note), c.who, nowIso()] },
+    auditStmt(c.who, 'add', 'host_pay', receipt, null, { booking: b.code, amount, currency, paid_on: day, method }),
+  ]);
+  const p = await one<{ id: number }>(c.db, 'SELECT id FROM host_pay WHERE receipt_no = ?', [receipt]);
+  return { id: p?.id ?? null, receipt_no: receipt };
+}
+
+async function cancelPay(c: OpCtx, a: { id: number }) {
+  const p = await one<HostPay>(c.db, 'SELECT * FROM host_pay WHERE id = ?', [Number(a.id)]);
+  if (!p || p.kind === 'back') throw err('الدفعة غير موجودة', 'Payment not found', 'Paiement introuvable');
+  const b = await bookingOf(c, p.booking_id);
+  if (b.status === 'cancelled') throw err('الحجز ملغى: المال يُقرَّر في الإلغاء', 'The booking is cancelled: the money is decided with the cancellation', 'Réservation annulée : l’argent se décide avec l’annulation');
+  if ((await enteredOf(c)).includes(p.receipt_no)) throw err('صارت قيداً في الدفاتر', 'It is already an entry of the books', 'C’est déjà une écriture des livres');
+  if (p.status === 'refused') return { ok: true as const };
+  await c.db.batch([{ sql: "UPDATE host_pay SET status = 'refused' WHERE id = ?", params: [p.id] }, auditStmt(c.who, 'refused', 'host_pay', p.receipt_no, null, { booking: b.code })]);
+  return { ok: true as const };
+}
+
 export const CAL_OPS = {
   'cal.get': { check: need('view'), run: (c: OpCtx) => loadCal(c) },
   'cal.history': { check: need('history'), run: (c: OpCtx, a: { booking_id?: number }) => history(c, a) },
@@ -609,11 +682,28 @@ export const CAL_OPS = {
       if (b.status !== 'cancelled') throw err('الحجز غير ملغى', 'The booking is not cancelled', 'La réservation n’est pas annulée');
       const got = received(await c.db.query<HostPay>('SELECT * FROM host_pay WHERE booking_id = ?', [b.id]));
       const d = keptOf(got, a.money, a.kept_usd, a.kept_syp);
+      const back = await backStmts(c, b, { USD: r2(got.USD - (d.usd ?? 0)), SYP: r2(got.SYP - (d.syp ?? 0)) });
       await c.db.batch([
+        ...back,
         { sql: 'UPDATE host_booking SET cancel_money = ?, kept_usd = ?, kept_syp = ?, updated_at = ? WHERE id = ?', params: [d.money, d.usd, d.syp, nowIso(), b.id] },
         auditStmt(c.who, 'money', 'host_booking', String(b.id), { money: b.cancel_money, kept_usd: b.kept_usd, kept_syp: b.kept_syp }, { money: d.money, kept_usd: d.usd, kept_syp: d.syp }),
       ]);
       return { ok: true as const, received: got, kept: { USD: d.usd, SYP: d.syp } };
+    },
+  },
+  /** money received for a booking, at any time, even before confirming: a suggestion for the books with its receipt number */
+  'cal.pay.add': { check: need('money'), run: (c: OpCtx, a: Parameters<typeof addPay>[1]) => addPay(c, a) },
+  /** a payment recorded by mistake, not yet in the books: taken back (kept, marked refused) */
+  'cal.pay.cancel': { check: need('money'), run: (c: OpCtx, a: { id: number }) => cancelPay(c, a) },
+  /** a receipt was printed: counted, so the next print carries the mark "copy"; returns how many times it was printed before */
+  'cal.paper.printed': {
+    check: (c: OpCtx) => { if (!seesPrices(rightsOf(c))) throw refuse(); },
+    run: async (c: OpCtx, a: { what: 'booking' | 'pay'; id: number }) => {
+      const [table, col] = a.what === 'pay' ? ['host_pay', 'printed'] : ['host_booking', 'receipt_printed'];
+      const row = await one<{ n: number }>(c.db, `SELECT ${col} AS n FROM ${table} WHERE id = ?`, [Number(a.id)]);
+      if (!row) throw err('غير موجود', 'Not found', 'Introuvable');
+      await c.db.batch([{ sql: `UPDATE ${table} SET ${col} = ${col} + 1 WHERE id = ?`, params: [Number(a.id)] }]);
+      return { before: row.n };
     },
   },
   'cal.date.change': { check: anyChange, run: (c: OpCtx, a: Parameters<typeof dateChange>[1]) => dateChange(c, a) },

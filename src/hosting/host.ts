@@ -62,6 +62,10 @@ export interface HostLine { id: number; booking_id: number; service_id: number |
 export interface HostPay {
   id: number; booking_id: number; amount: number; currency: Currency; paid_on: string; method: string; receipt_no: string;
   status: 'suggested' | 'refused'; note: string | null; who: string | null; at: string;
+  /** 'in': money received (an income for the books); 'back': money given back after a cancellation (an expense). Update 74. */
+  kind?: 'in' | 'back';
+  /** how many times its receipt was printed (printed again: the mark "copy"). Update 74. */
+  printed?: number;
 }
 
 /** What the screens receive. The amounts are null (and `pays` empty) for someone who does not keep the calendar. */
@@ -295,9 +299,9 @@ export function bookingTotals(b: Parameters<typeof stayAmount>[0] & { currency: 
   return { USD: r2(t.USD), SYP: r2(t.SYP) };
 }
 /** what is still due, in each currency (a payment counts in its own currency) */
-export function dueOf(total: Totals, pays: Pick<HostPay, 'amount' | 'currency' | 'status'>[]): Totals {
+export function dueOf(total: Totals, pays: Pick<HostPay, 'amount' | 'currency' | 'status' | 'kind'>[]): Totals {
   const paid: Totals = { USD: 0, SYP: 0 };
-  for (const p of pays) if (p.status !== 'refused') paid[p.currency] += p.amount;
+  for (const p of pays) if (p.status !== 'refused' && p.kind !== 'back') paid[p.currency] += p.amount;
   return { USD: r2(total.USD - paid.USD), SYP: r2(total.SYP - paid.SYP) };
 }
 
@@ -342,7 +346,7 @@ export function report(d: HostData, o: ReportOpts) {
   const eventDays = events.reduce((n, r) => n + r.days.length, 0);
   const linesOf = (id: number) => d.lines.filter((l) => l.booking_id === id);
   const totalOf = (b: HostBooking) => (d.prices ? bookingTotals(b, linesOf(b.id)) : zero());
-  const paidIn = (id: number): Totals => { const t = zero(); for (const p of d.pays) if (p.booking_id === id && p.status !== 'refused' && inP(p.paid_on)) t[p.currency] += p.amount; return t; };
+  const paidIn = (id: number): Totals => { const t = zero(); for (const p of d.pays) if (p.booking_id === id && p.status !== 'refused' && p.kind !== 'back' && inP(p.paid_on)) t[p.currency] += p.amount; return t; };
 
   // beds used: only stays and the bedrooms; halls: only events
   const bedRooms = new Set(d.rooms.filter((r) => r.kind === 'bedroom' && r.beds > 0).map((r) => r.id));
@@ -427,10 +431,11 @@ export function nextCode(existing: string[], year: number): string {
   return `HB-${year}-${String(n + 1).padStart(4, '0')}`;
 }
 /** H2026-0007: the next receipt number of a year (it goes on the entry of the register) */
-export function nextReceipt(existing: string[], year: number): string {
-  const re = new RegExp(`^H${year}-(\\d+)$`);
+/** the next number of a series: H2026-0001 (money received), HR2026-0001 (money given back) */
+export function nextReceipt(existing: string[], year: number, prefix = 'H'): string {
+  const re = new RegExp(`^${prefix}${year}-(\\d+)$`);
   const n = Math.max(0, ...existing.map((c) => Number(re.exec(c)?.[1] ?? 0)));
-  return `H${year}-${String(n + 1).padStart(4, '0')}`;
+  return `${prefix}${year}-${String(n + 1).padStart(4, '0')}`;
 }
 
 /** the amounts, hidden: what someone who does not keep the calendar receives */

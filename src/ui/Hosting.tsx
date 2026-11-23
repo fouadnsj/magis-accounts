@@ -331,10 +331,17 @@ function BookingsTab({ data, books, onOpen, onNew }: { data: HostData; books: bo
 type EditRow = ReceiptRow & { id: number; /** the stay (or the hall) line, priced per person */ perPerson?: boolean; stay?: boolean };
 
 /** Opens with everything the booking holds; the number of people, the nights, the meals and every line can be changed, the amounts follow, then it is written as a PDF. */
-function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking: HostBooking; onClose: () => void }) {
+/** what the receipt window reads (the 0.12 page gives its data; the new calendar gives its own, step 4) */
+export type ReceiptData = Pick<HostData, 'pays' | 'lines' | 'allocs' | 'rooms' | 'buildings' | 'needs' | 'equip'>;
+export function ReceiptWindow({ data, booking: b, onClose, printed, onPrinted, rows0, nights: givenNights }: {
+  data: ReceiptData; booking: HostBooking; onClose: () => void;
+  /** printed before: the mark "copy" */ printed?: number; onPrinted?: () => Promise<void>;
+  /** the calendar gives its own first lines (a price for each date) and its own count of dates (moved and cancelled ones) */
+  rows0?: ReceiptRow[]; nights?: number;
+}) {
   const { s } = useApp();
   const ev = b.kind === 'event';
-  const nights0 = Math.max(1, heldDays(b).length);
+  const nights0 = givenNights ?? Math.max(1, heldDays(b).length);
   const [people, setPeople] = useState(String(b.people));
   const [nights, setNights] = useState(String(nights0));
   const [date, setDate] = useState(todayIso());
@@ -345,7 +352,7 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
   const [note, setNote] = useState('');
   const [showRooms, setShowRooms] = useState(true);
   const [showEquip, setShowEquip] = useState(true);
-  const pays = data.pays.filter((p) => p.booking_id === b.id && p.status !== 'refused');
+  const pays = data.pays.filter((p) => p.booking_id === b.id && p.status !== 'refused' && p.kind !== 'back');
   const [payOn, setPayOn] = useState<Set<number>>(() => new Set(pays.map((p) => p.id)));
   // one currency for the whole receipt (USD, or SYP at a rate), or each amount as it is
   const [asCur, setAsCur] = useState<'as' | Currency>('as');
@@ -353,7 +360,7 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<EditRow[]>(() => {
     let n = 0;
-    const base = initialRows(b, nights0, data.lines.filter((l) => l.booking_id === b.id).map((l) => ({ label: l.label, qty: l.qty, amount: l.amount, currency: l.currency })));
+    const base = rows0 ?? initialRows(b, nights0, data.lines.filter((l) => l.booking_id === b.id).map((l) => ({ label: l.label, qty: l.qty, amount: l.amount, currency: l.currency })));
     return base.map((r, i) => ({ ...r, id: ++n, stay: i === 0 && b.rate != null && !!b.price_mode, perPerson: i === 0 && b.rate != null && b.price_mode === 'person' }));
   });
   let nextId = rows.reduce((m, r) => Math.max(m, r.id), 0) + 1;
@@ -394,6 +401,7 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
       issuedOn: date, ref, kind: b.kind, billedTo: { name, contact, phone }, from_day: b.from_day, to_day: b.to_day, people: num(people), nights: num(nights), repeats: !!b.repeat_days,
       rooms: showRooms ? where : [], equipment: showEquip ? equip : [], rows: shown.rows.map(({ label, sub, qty, unit, currency }) => ({ label, sub, qty, unit, currency })),
       payments: shown.payments.map((p) => ({ paid_on: p.paid_on, receipt_no: p.receipt_no, amount: p.amount, currency: p.currency })), conversion: conv && shown.changed ? conv : undefined, note,
+      copy: (printed ?? 0) > 0,
     });
   };
   const rememberRate = () => { if (conv) { try { localStorage.setItem('magis-receipt-rate', String(rateNum)); } catch { /* the rate is only remembered for next time */ } } };
@@ -402,7 +410,8 @@ function ReceiptWindow({ data, booking: b, onClose }: { data: HostData; booking:
     setBusy(true);
     try {
       rememberRate();
-      await saveFile(`receipt_${ref.replace(/[^A-Za-z0-9-]+/g, '')}_${todayIso()}.pdf`, ['pdf'], await build(), t('احفظ وصل الاستلام', 'Save the receipt'));
+      const saved = await saveFile(`receipt_${ref.replace(/[^A-Za-z0-9-]+/g, '')}_${todayIso()}.pdf`, ['pdf'], await build(), t('احفظ وصل الاستلام', 'Save the receipt'));
+      if (saved !== null) await onPrinted?.();
       onClose();
     } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
   };
@@ -812,7 +821,7 @@ function BookingEditor({ data, start, onClose, refresh }: { data: HostData; star
           {b && pays.length > 0 && (
             <table className="t small"><tbody>
               {pays.map((p) => (
-                <tr key={p.id}><td>{p.receipt_no}</td><td>{fmtDate(p.paid_on)}</td><td className="n">{money(p.amount, p.currency)}</td>
+                <tr key={p.id}><td>{p.receipt_no}{p.kind === 'back' && <small className="muted"> · {t('مُعاد', 'given back')}</small>}</td><td>{fmtDate(p.paid_on)}</td><td className="n">{p.kind === 'back' ? '−' : ''}{money(p.amount, p.currency)}</td>
                   <td>{p.status === 'refused' ? t('مرفوضة', 'refused') : data.entered.includes(p.receipt_no) ? `✓ ${t('قيد', 'entered')}` : t('تنتظر المحاسب', 'waits for the accountant')}</td></tr>
               ))}
             </tbody></table>
@@ -1124,9 +1133,10 @@ function PaymentsTab({ data, refresh }: { data: HostData; refresh: () => Promise
   const [show, setShow] = useState<'todo' | 'all'>('todo');
   const rows = data.pays.map((p) => ({ p, b: data.bookings.find((x) => x.id === p.booking_id), state: p.status === 'refused' ? 'refused' : data.entered.includes(p.receipt_no) ? 'entered' : 'todo' as const }))
     .filter((r) => show === 'all' || r.state === 'todo');
+  // money received → an income; money given back after a cancellation (calendar step 4) → an expense
   const makeEntry = (p: (typeof data.pays)[number], b?: HostBooking) => nav.entry({
-    preset: true, type: 'Income', date: p.paid_on,
-    prefill: { amount: p.amount, currency: p.currency, explanation: `${b?.group_name ?? ''} · ${b?.code ?? ''}`.trim(), receipt: p.receipt_no },
+    preset: true, type: p.kind === 'back' ? 'Exp' : 'Income', date: p.paid_on,
+    prefill: { amount: p.amount, currency: p.currency, explanation: `${p.kind === 'back' ? 'Given back · مُعاد: ' : ''}${b?.group_name ?? ''} · ${b?.code ?? ''}`.trim(), receipt: p.receipt_no },
   });
   const refuse = async (id: number, on: boolean) => {
     try { await s.api.call('host.pay.refuse', { id, on }); await refresh(); } catch (e) { toast(errText(e), true); }
@@ -1142,7 +1152,7 @@ function PaymentsTab({ data, refresh }: { data: HostData; refresh: () => Promise
         <tbody>
           {rows.map(({ p, b, state }) => (
             <tr key={p.id}>
-              <td>{p.receipt_no}</td><td>{fmtDate(p.paid_on)}</td><td>{b?.group_name} <small className="muted">{b?.code}</small></td><td className="n">{money(p.amount, p.currency)}</td>
+              <td>{p.receipt_no}{p.kind === 'back' && <small className="muted"> · {t('مُعاد', 'given back')}</small>}</td><td>{fmtDate(p.paid_on)}</td><td>{b?.group_name} <small className="muted">{b?.code}</small></td><td className="n">{money(p.amount, p.currency)}</td>
               <td>{state === 'entered' ? `✓ ${t('قيد في السجل', 'entered')}` : state === 'refused' ? t('مرفوضة', 'refused') : t('تنتظر', 'waiting')}</td>
               <td>
                 {state === 'todo' && <>{writes && <button className="btn primary small" onClick={() => makeEntry(p, b)}>{t('اجعلها قيداً', 'Make the entry')}</button>} <button className="btn ghost small" onClick={() => void refuse(p.id, true)}>{t('ارفض', 'Refuse')}</button></>}

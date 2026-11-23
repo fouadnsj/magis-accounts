@@ -523,7 +523,7 @@ describe('migration 72: the starting kind Store', () => {
   };
   it('a centre without one gets "Store · مستودع" with no category', async () => {
     const db = await upTo71();
-    expect(await migrate(db)).toEqual([72, 73]);
+    expect(await migrate(db)).toEqual([72, 73, 74]);
     expect(await db.query("SELECT name, category_id, code, active FROM host_kind WHERE code = 'store'")).toEqual([{ name: 'Store · مستودع', category_id: null, code: 'store', active: 1 }]);
     expect((await db.query<{ n: number }>('SELECT COUNT(*) AS n FROM host_kind WHERE category_id IS NULL'))[0].n).toBe(1);
   });
@@ -534,7 +534,7 @@ describe('migration 72: the starting kind Store', () => {
       { sql: "INSERT INTO host_building (id, name) VALUES (1, 'Main')" },
       { sql: "INSERT INTO host_room (id, building_id, name, beds, kind, kind_id, bookable) VALUES (1, 1, 'Store 1', 0, 'other', 40, 0)" },
     ]);
-    expect(await migrate(db)).toEqual([72, 73]);
+    expect(await migrate(db)).toEqual([72, 73, 74]);
     expect(await db.query("SELECT id, name, category_id, code FROM host_kind WHERE code = 'store' OR name LIKE '%Store%'")).toEqual([{ id: 40, name: 'Store', category_id: null, code: 'store' }]);
     expect(await db.query('SELECT kind_id, bookable FROM host_room WHERE id = 1')).toEqual([{ kind_id: 40, bookable: 0 }]);
   });
@@ -558,7 +558,7 @@ describe('migrations 64–67 on a 0.12 database', () => {
       { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, receipt_no, at) VALUES (1, 40, 'USD', '2026-12-01', 'H2026-0001', 'x')" },
     ]);
     const before = await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id');
-    expect(await migrate(old)).toEqual([64, 65, 66, 67, 68, 69, 70, 71, 72, 73]);
+    expect(await migrate(old)).toEqual([64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74]);
     expect(await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id')).toEqual(before);
     expect(await old.query('SELECT id, origin, price_state, private, whole_centre, hold_until FROM host_booking ORDER BY id')).toEqual([
       { id: 1, origin: 'outside', price_state: 'priced', private: 0, whole_centre: 0, hold_until: null },

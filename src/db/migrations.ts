@@ -2419,4 +2419,18 @@ SELECT k.id, r.name,
 ALTER TABLE inv_item ADD COLUMN holder_ref TEXT;
 `,
   },
+  {
+    n: 74,
+    name: 'calendar step 4: money given back, and the receipts printed again (a "copy" mark)',
+    sql: `
+-- (Fouad, calendar baseline 2.1, section 7) A payment of a booking is a suggestion for the books, with its receipt number.
+-- When a booking is cancelled after money was received and a part (or all) is given back, what is given back is also a
+-- suggestion for the books (an expense), with its own number: kind 'back'. The payments already there are received ('in').
+ALTER TABLE host_pay ADD COLUMN kind TEXT NOT NULL DEFAULT 'in';
+-- A receipt printed again carries the mark "copy": how many times the receipt of each payment, and the receipt of the
+-- whole booking, were printed.
+ALTER TABLE host_pay ADD COLUMN printed INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE host_booking ADD COLUMN receipt_printed INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

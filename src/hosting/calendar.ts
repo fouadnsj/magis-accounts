@@ -30,6 +30,8 @@ export interface CalOrgKind { id: number; name: string; active: number; sort: nu
 export interface CalOrg { id: number; name: string; kind_id: number | null; note: string | null; active: number; created_by: string | null; created_at: string; updated_at: string | null }
 export interface CalPerson { id: number; org_id: number; name: string; phone: string | null; active: number; sort: number }
 export interface CalBooking extends HostBooking {
+  /** how many times the receipt of the whole booking was printed (update 74) */
+  receipt_printed?: number;
   origin: Origin;
   activity_kind_id: number | null;
   leader: string | null;
@@ -83,6 +85,8 @@ export interface CalData {
   /** "always in the room", read from the inventory (inventory baseline 1.1, §6): the items of each space whose category is
    * ticked "shown in the calendar". While a space has none, its typed `fixed` text is still shown (alwaysInRoom). */
   inRoom?: InRoom[];
+  /** the receipt numbers already made entries in the books (step 4) */
+  entered?: string[];
   /** what this person may see and do */
   rights: CalRights;
 }
@@ -380,11 +384,21 @@ export function calTotals(b: Shape & Pick<CalBooking, 'price_state' | 'price_mod
   for (const l of lines) t[l.currency === 'SYP' ? 'SYP' : 'USD'] += l.amount || 0;
   return { USD: r2(t.USD), SYP: r2(t.SYP) };
 }
-/** what was received, per currency (a refused payment does not count) */
-export function received(pays: Pick<HostPay, 'amount' | 'currency' | 'status'>[]): Totals {
+/** what was received, per currency (a refused payment does not count, nor money given back) */
+export function received(pays: Pick<HostPay, 'amount' | 'currency' | 'status' | 'kind'>[]): Totals {
   const t: Totals = { USD: 0, SYP: 0 };
-  for (const p of pays) if (p.status !== 'refused') t[p.currency] += p.amount;
+  for (const p of pays) if (p.status !== 'refused' && p.kind !== 'back') t[p.currency] += p.amount;
   return { USD: r2(t.USD), SYP: r2(t.SYP) };
+}
+/** what was given back after a cancellation, per currency */
+export function givenBack(pays: Pick<HostPay, 'amount' | 'currency' | 'status' | 'kind'>[]): Totals {
+  const t: Totals = { USD: 0, SYP: 0 };
+  for (const p of pays) if (p.status !== 'refused' && p.kind === 'back') t[p.currency] += p.amount;
+  return { USD: r2(t.USD), SYP: r2(t.SYP) };
+}
+/** received − given back − agreed total: what is still due (never below 0) */
+export function stillDue(total: Totals, got: Totals): Totals {
+  return { USD: Math.max(0, r2(total.USD - got.USD)), SYP: Math.max(0, r2(total.SYP - got.SYP)) };
 }
 /**
  * Cancelled after money was received: keep all, give all back, or keep a part (the amount kept is typed, per currency).
@@ -426,6 +440,7 @@ export function forViewer(d: CalData): CalData {
     persons: r.contacts ? d.persons : [],
     lines: priced ? d.lines : d.lines.map((l) => ({ ...l, amount: 0 })),
     pays: priced ? d.pays : [],
+    entered: priced ? d.entered : [],
   };
 }
 

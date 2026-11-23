@@ -6,12 +6,13 @@
 // The full windows (price, services, equipment, organisations) come in step 3; here a first booking window.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../state';
-import { Field, Modal, Seg, Tabs, biName, errText, parseAmount, promptBox, t, toast, todayIso } from './kit';
+import { Field, Modal, Seg, Tabs, biName, confirmBox, errText, parseAmount, promptBox, t, toast, todayIso } from './kit';
 import { m, tx, monthWord } from '../i18n';
 import { addDays, colorOf, type Currency } from '../hosting/host';
-import { calTotals, holdDate, holdPassed, inCalendar, mayChange, occurrences, received, seesPrices, sleepsIn, type CalBooking, type CalData, type CalOrg, type CalSpace, type Totals } from '../hosting/calendar';
+import { calTotals, givenBack, holdDate, holdPassed, inCalendar, mayChange, occurrences, received, seesPrices, sleepsIn, type CalBooking, type CalData, type CalOrg, type CalSpace, type Totals } from '../hosting/calendar';
 import { bandOf, hm, itemsBetween, listOf, monthGrid, nextDate, search, shutOf, spacesShown, todayFigures, weekOf, type DayItem, type ListKind } from '../hosting/calview';
 import { CalSettings, inRoomText } from './CalSettings';
+import { BookingReceipt, CancelWindow, METHOD, MoneyWindow, PayWindow, PrintWindow, useBookingSheet, usePayReceipt } from './CalPaper';
 
 type Screen = 'calendar' | 'settings';
 type View = 'day' | 'week' | 'month' | 'list';
@@ -103,6 +104,7 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
   const [open, setOpen] = useState<{ id: number; day?: string } | null>(null);
   const [win, setWin] = useState<{ booking: CalBooking | null; start?: NewStart } | null>(null);
   const [orgs, setOrgs] = useState(false);
+  const [print, setPrint] = useState(false);
   const r = data.rights;
   const canNew = r.programme || r.outside || r.whole;
   const step = (n: number) => setAnchor(view === 'day' ? addDays(anchor, n) : view === 'month' ? (() => { const x = new Date(`${anchor.slice(0, 7)}-01T00:00:00Z`); x.setUTCMonth(x.getUTCMonth() + n); return x.toISOString().slice(0, 10); })() : addDays(anchor, 7 * n));
@@ -130,6 +132,7 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
         </select>
         <input className="inp cal-search" type="search" placeholder={`🔍 ${L('بحث: اسم، جهة، مسؤول، هاتف، مكان…', 'Search: name, organisation, leader, phone, space…', 'Rechercher : nom, organisation, responsable, téléphone, espace…')}`} value={query} onChange={(e) => setQuery(e.target.value)} />
         {canNew && <button className="btn primary small" onClick={() => startNew({ from: view === 'list' ? today : anchor })}>＋ {L('جديد', 'New', 'Nouveau')}</button>}
+        <button className="btn ghost small cal-print-btn" onClick={() => setPrint(true)}>🖨 {L('طباعة', 'Print', 'Imprimer')}</button>
         {/* the register of organisations: at the end of the bar, away from "New" (Fouad's first test) */}
         {r.contacts && <button className="btn ghost small cal-orgs-btn" onClick={() => setOrgs(true)}>🏢 {L('الجهات', 'Organisations', 'Organisations')}</button>}
       </div>
@@ -149,10 +152,11 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
           </>
         )}
       {open && data.bookings.some((b) => b.id === open.id) && !win && (
-        <BookingSide data={data} b={data.bookings.find((b) => b.id === open.id)!} day={open.day} today={today} act={act} onClose={() => setOpen(null)} onChange={(b) => { setOpen(null); setWin({ booking: b }); }} />
+        <BookingSide data={data} b={data.bookings.find((b) => b.id === open.id)!} day={open.day} today={today} act={act} refresh={refresh} onClose={() => setOpen(null)} onChange={(b) => { setOpen(null); setWin({ booking: b }); }} />
       )}
       {win && <BookingWindow data={data} start={win} onClose={() => setWin(null)} refresh={refresh} />}
       {orgs && <OrgRegister data={data} refresh={refresh} onClose={() => setOrgs(false)} />}
+      {print && <PrintWindow data={data} anchor={anchor} onClose={() => setPrint(false)} />}
     </>
   );
 }
@@ -494,8 +498,12 @@ const minus = (x: Totals, y: Totals): Totals => ({ USD: Math.max(0, Math.round((
  * facts (days and hours, spaces, people); who (organisation, person, phone); money (free or price, paid, left) with the
  * services and the equipment; then the buttons in two groups: the whole booking, and only the date that was clicked.
  */
-function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: CalData; b: CalBooking; day?: string; today: string; act: (fn: () => Promise<unknown>) => Promise<void>; onClose: () => void; onChange: (b: CalBooking) => void }) {
+function BookingSide({ data, b, day, today, act, refresh, onClose, onChange }: { data: CalData; b: CalBooking; day?: string; today: string; act: (fn: () => Promise<unknown>) => Promise<void>; refresh: () => Promise<void>; onClose: () => void; onChange: (b: CalBooking) => void }) {
   const { s } = useApp();
+  // the windows of money and paper (step 4)
+  const [paper, setPaper] = useState<'pay' | 'cancel' | 'money' | 'receipt' | null>(null);
+  const printPay = usePayReceipt(data, refresh);
+  const printSheet = useBookingSheet(data);
   const r = data.rights;
   const may = mayChange(r, b);
   const c = colours(data, b);
@@ -509,8 +517,12 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
   const lines = data.lines.filter((l) => l.booking_id === b.id);
   const needs = data.needs.filter((n) => n.booking_id === b.id).map((n) => ({ n, e: data.equip.find((e) => e.id === n.equip_id) })).filter((x) => x.e);
   const total = calTotals(b, lines, data.dates);
-  const paid = received(data.pays.filter((p) => p.booking_id === b.id));
+  const pays = data.pays.filter((p) => p.booking_id === b.id);
+  const paid = received(pays);
+  const back = givenBack(pays);
   const left = minus(total, paid);
+  const entered = new Set(data.entered ?? []);
+  const anyBack = back.USD > 0 || back.SYP > 0;
   const passed = b.status === 'option' && holdPassed(b, today);
   const refused = (res: { ok: boolean }) => { if (!res.ok) toast(L('غير ممكن: المكان محجوز في ذلك الوقت', 'Not possible: the space is held at that time', 'Impossible : l’espace est pris à ce moment'), true); };
   const status = (st: 'option' | 'confirmed' | 'arrived' | 'left') => act(async () => refused(await s.api.call('cal.booking.status', { id: b.id, status: st })));
@@ -527,14 +539,14 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
     const reason = await promptBox(L('السبب', 'The reason', 'La raison'));
     if (reason?.trim()) await act(async () => refused(await s.api.call('cal.date.change', { booking_id: b.id, day: thisDay, action: 'move', to_day: to.trim(), time_from: tf, time_to: tt, reason })));
   };
-  const cancelAll = async () => {
-    const reason = await promptBox(L('سبب الإلغاء (يبقى الحجز محفوظاً)', 'Reason for cancelling (the booking is kept)', 'Raison de l’annulation (la réservation est gardée)'));
-    if (reason?.trim()) { await act(() => s.api.call('cal.booking.cancel', { id: b.id, reason })); onClose(); }
+  const cancelAll = () => setPaper('cancel');
+  const takeBack = async (id: number) => {
+    if (await confirmBox(L('سحب هذه الدفعة؟ (سُجّلت خطأً؛ تبقى ظاهرة مشطوبة)', 'Take back this payment? (recorded by mistake; it stays shown, struck through)', 'Retirer ce paiement ? (enregistré par erreur ; il reste visible, barré)'), true)) await act(() => s.api.call('cal.pay.cancel', { id }));
   };
   const priceText = b.price_state === 'free' ? L('مجاني', 'Free', 'Gratuit')
     : b.price_state === 'unset' ? L('السعر لم يُحدَّد بعد', 'Price not set yet', 'Prix pas encore fixé')
       : b.price_state === 'priced' && b.rate != null ? `${fmtMoney({ USD: b.currency === 'USD' ? b.rate : 0, SYP: b.currency === 'SYP' ? b.rate : 0 })} ${b.price_mode === 'person' ? L('للشخص في الليلة', 'per person per night', 'par personne et par nuit') : b.price_each ? L('لكل تاريخ', 'for each date', 'par date') : L('للحجز كله', 'for the whole booking', 'pour toute la réservation')}` : '';
-  const showMoney = (b.price_state != null && b.origin === 'outside') || lines.length > 0 || needs.length > 0;
+  const showMoney = (b.price_state != null && b.origin === 'outside') || lines.length > 0 || needs.length > 0 || (priced && pays.length > 0);
   const anyPaid = paid.USD > 0 || paid.SYP > 0;
   const dateButtons = may && series && thisDay && b.status !== 'cancelled';
   return (
@@ -582,6 +594,34 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
           )}
           {lines.length > 0 && <div className="cal-view-list"><span className="muted">{L('الخدمات', 'Services', 'Services')}:</span> {lines.map((l) => <span key={l.id}>{l.qty > 1 ? `${l.qty} × ` : ''}{biName(l.label)}{priced && l.amount ? <span className="muted cal-view-amt" dir="ltr">({fmtMoney({ USD: l.currency === 'USD' ? l.amount : 0, SYP: l.currency === 'SYP' ? l.amount : 0 })})</span> : null}</span>)}</div>}
           {needs.length > 0 && <div className="cal-view-list"><span className="muted">{L('التجهيزات', 'Equipment', 'Équipement')}:</span> {needs.map(({ n, e }) => <span key={n.equip_id}>{n.qty > 1 ? `${n.qty} × ` : ''}{biName(e!.name)}</span>)}</div>}
+          {priced && pays.length > 0 && (
+            <table className="t small cal-pays"><tbody>
+              {pays.map((p) => {
+                const inBooks = entered.has(p.receipt_no);
+                return (
+                  <tr key={p.id} className={p.status === 'refused' ? 'off' : ''}>
+                    <td dir="ltr">{p.paid_on.slice(8, 10)}/{p.paid_on.slice(5, 7)}</td>
+                    <td dir="ltr" className="muted">{p.receipt_no}</td>
+                    <td>{p.kind === 'back' ? L('مُعاد', 'Given back', 'Rendu') : METHOD[p.method]?.() ?? p.method}</td>
+                    <td className="n" dir="ltr">{p.kind === 'back' ? '−' : ''}{fmtMoney({ USD: p.currency === 'USD' ? p.amount : 0, SYP: p.currency === 'SYP' ? p.amount : 0 })}</td>
+                    <td className="small">{p.status === 'refused' ? L('مسحوبة', 'taken back', 'retiré') : inBooks ? `✓ ${L('في الدفاتر', 'in the books', 'dans les livres')}` : L('تنتظر القيد', 'waiting for the books', 'attend les livres')}</td>
+                    <td style={{ textAlign: 'end', whiteSpace: 'nowrap' }}>
+                      {p.kind !== 'back' && p.status !== 'refused' && <button className="btn ghost small" title={L('وصل الاستلام', 'The receipt', 'Le reçu')} onClick={() => void printPay(b, p.id)}>🖨{(p.printed ?? 0) > 0 ? ` ${L('نسخة', 'copy', 'copie')}` : ''}</button>}
+                      {r.money && p.kind !== 'back' && p.status !== 'refused' && !inBooks && b.status !== 'cancelled' && <button className="btn ghost small" title={L('سحب (سُجّلت خطأً)', 'Take back (a mistake)', 'Retirer (une erreur)')} onClick={() => void takeBack(p.id)}>✕</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody></table>
+          )}
+          {priced && b.status === 'cancelled' && (paid.USD > 0 || paid.SYP > 0) && (
+            <div className={b.cancel_money ? 'small' : 'small cal-red'}>
+              {b.cancel_money == null ? L('قُبض مال ولم يُقرَّر بعد ما يُعاد', 'Money was received: what is given back is not decided yet', 'De l’argent a été reçu : ce qui est rendu n’est pas encore décidé')
+                : `${L('نحتفظ بـ', 'Kept', 'Gardé')}: ${fmtMoney({ USD: b.kept_usd ?? 0, SYP: b.kept_syp ?? 0 })} · ${L('يُعاد', 'given back', 'rendu')}: ${anyBack ? fmtMoney(back) : '0'}`}
+              {r.money && <button className="btn small" style={{ marginInlineStart: 8 }} onClick={() => setPaper('money')}>{b.cancel_money == null ? L('قرّر', 'Decide', 'Décider') : L('غيّر', 'Change', 'Modifier')}</button>}
+            </div>
+          )}
+          {r.money && b.status !== 'cancelled' && <div><button className="btn small" onClick={() => setPaper('pay')}>＋ {L('دفعة مقبوضة', 'A payment received', 'Un paiement reçu')}</button></div>}
         </div>
       )}
 
@@ -596,8 +636,8 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
         </div>
       )}
 
+      <div className="cal-view-actions">
       {(may || (r.arrive && b.kind === 'stay')) && (
-        <div className="cal-view-actions">
           <div className="cal-view-group">
             <div className="cal-view-label">{L('الحجز كله', 'The whole booking', 'Toute la réservation')}</div>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
@@ -606,9 +646,10 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
               {r.arrive && b.kind === 'stay' && (b.status === 'confirmed' || b.status === 'option') && <button className="btn small" onClick={() => void status('arrived')}>{L('وصلوا', 'Mark arrived', 'Arrivés')}</button>}
               {r.arrive && b.kind === 'stay' && b.status === 'arrived' && <button className="btn small" onClick={() => void status('left')}>{L('غادروا', 'Mark left', 'Partis')}</button>}
               {may && b.status === 'cancelled' && <button className="btn small" onClick={() => void status('option')}>{L('أعِده «للتأكيد»', 'Put back "to confirm"', 'Remettre « à confirmer »')}</button>}
-              {may && b.status !== 'cancelled' && <button className="btn danger small" onClick={() => void cancelAll()}>{L('ألغِ الحجز', 'Cancel the booking', 'Annuler la réservation')}</button>}
+              {may && b.status !== 'cancelled' && <button className="btn danger small" onClick={() => cancelAll()}>{L('ألغِ الحجز', 'Cancel the booking', 'Annuler la réservation')}</button>}
             </div>
           </div>
+      )}
           {dateButtons && (
             <div className="cal-view-group cal-view-date">
               <div className="cal-view-label">{L('هذا التاريخ فقط', 'Only this date', 'Seulement cette date')} ({dayShort(thisDay!)})</div>
@@ -619,8 +660,20 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
               </div>
             </div>
           )}
-        </div>
-      )}
+          {(priced || r.contacts) && b.status !== 'cancelled' && (
+            <div className="cal-view-group">
+              <div className="cal-view-label">{L('أوراق', 'Paper', 'Papiers')}</div>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                {priced && b.origin === 'outside' && b.price_state !== 'free' && (total.USD > 0 || total.SYP > 0 || pays.length > 0) && <button className="btn small" onClick={() => setPaper('receipt')}>🧾 {L('وصل استلام للحجز كله', 'Receipt of the whole booking', 'Reçu de toute la réservation')}{(b.receipt_printed ?? 0) > 0 ? ` (${L('نسخة', 'copy', 'copie')})` : ''}</button>}
+                <button className="btn small" onClick={() => void printSheet(b)}>📄 {L('ورقة الحجز للمجموعة', 'Booking sheet for the group', 'Fiche de réservation')}</button>
+              </div>
+            </div>
+          )}
+      </div>
+      {paper === 'pay' && <PayWindow data={data} b={b} onClose={() => setPaper(null)} refresh={refresh} />}
+      {paper === 'cancel' && <CancelWindow data={data} b={b} onClose={() => setPaper(null)} onDone={async () => { setPaper(null); await refresh(); onClose(); }} />}
+      {paper === 'money' && <MoneyWindow data={data} b={b} onClose={() => setPaper(null)} refresh={refresh} />}
+      {paper === 'receipt' && <BookingReceipt data={data} b={b} onClose={() => setPaper(null)} refresh={refresh} />}
     </Modal>
   );
 }

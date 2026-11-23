@@ -42,7 +42,9 @@ Concept: `calendar-plan/CALENDAR-BASELINE.md` (2.1, final) §10 step 1. Rules in
   every tick. **The Accountant only sees the calendar** (Fouad, 23 November: there is no accountant role in the calendar;
   update 67): any role that kept the 0.12 calendar without managing users keeps only "Sees the calendar". Its 0.12 ticks
   are not changed. The Superior can change each tick.
-- **From the Excel file** `MAGIS-Calendar-spaces.xlsx`: the sheets Rooms and Organisations can be read (first a list of what
-  would be added, then added). The sheet Programme is not read yet.
+- The Excel file `MAGIS-Calendar-spaces.xlsx` is **not used** (Fouad, 23 November: not practical): the spaces will be typed
+  in the program. (A reading of its sheets exists, unused.)
+- Fouad confirmed (23 November): the Sunday warning only for outside hall bookings; closing a space over bookings lists them
+  first, then a second "save anyway".
 - The 0.12 calendar screen still works with its own rules until step 2 replaces it. Payments stay as in 0.12 (step 4).
 - To check: nothing to see yet in the program except the new ticks in Admin → roles. Step 2 is the laptop screen.

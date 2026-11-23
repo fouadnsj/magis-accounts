@@ -5,7 +5,7 @@ The complete concept, made from Fouad's decisions of 22 November and his four ro
 Every point is decided (the last three accepted on 24 November, §11). Nothing is built yet: building starts when Fouad says so.
 
 Files in this folder: summary `CALENDAR-SUMMARY.html` · clickable model `calendar-model.html` · a week in Homs
-`calendar-walkthrough.html` · spaces to fill `MAGIS-Calendar-spaces.xlsx` · first drawings `calendar-mockups.html`.
+`calendar-walkthrough.html` · first drawings `calendar-mockups.html` (the Excel `MAGIS-Calendar-spaces.xlsx` is no longer used, §12).
 
 ---
 
@@ -173,7 +173,7 @@ Done on copies first, with a list of what will change.
 ## 10. Steps (each tested in the side pane and committed; no installer until Fouad says "build")
 | # | Step |
 |---|---|
-| 1 | Foundation: areas, spaces and categories (import from the Excel), kinds lists, ours / outside, organisations with several persons, leader, private tick, weekly repeat with one date moved or cancelled, the "never twice" rule, holds with a date, closed spaces, closed periods, whole centre, activities outside the centre, free tick, price history, new rights; the 0.12 test data carried over |
+| 1 | Foundation (**built 23 November 2026**): areas, spaces and categories, kinds lists, ours / outside, organisations with several persons, leader, private tick, weekly repeat with one date moved or cancelled, the "never twice" rule, holds with a date, closed spaces, closed periods, whole centre, activities outside the centre, free tick, price history, new rights; the 0.12 test data carried over |
 | 2 | Laptop screen: bar, quick views, search, Today strip with its lists, week, day, month, list; drag to book |
 | 3 | The windows: activity, outside booking (price, services, equipment), organisation |
 | 4 | Money and paper: payments (also before confirming), cancelling with a part kept, receipt improvements, printed pages, Excel |
@@ -187,5 +187,12 @@ Done on copies first, with a list of what will change.
 1. The "free" tick and Reception: Reception's bookings are saved "price not set" (§6).
 2. Receipt improvements: all accepted (§7).
 3. Halls that join into one: not in the first version; added later as "linked spaces" if a centre has a movable wall.
-Still to come from Fouad, not blocking the building: `MAGIS-Calendar-spaces.xlsx` (Homs first), needed before the
-calendar is used in a centre.
+~~Still to come from Fouad: `MAGIS-Calendar-spaces.xlsx`~~ — replaced by §12.3.
+
+## 12. Decided after step 1 (23 November 2026)
+1. **Sunday warning**: only for an outside hall booking; our own activities and the guest stays never get it. (Yes.)
+2. **Closing a space over bookings already there**: the program lists them first; the Director closes only with a second
+   "save anyway"; the bookings are not moved by the program. (Yes.)
+3. **The Excel file of spaces is not practical: do not count on it.** The areas, spaces and lists are typed **in the
+   program**, in the calendar's settings. (The reading of the Excel made in step 1 stays in the program, unused.)
+4. **The Accountant only sees the calendar** (no accountant role); only the Superior has every tick at first. (Update 67.)

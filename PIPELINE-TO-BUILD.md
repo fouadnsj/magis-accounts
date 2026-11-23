@@ -1,6 +1,6 @@
 # Plan to reach "ready for the build" (set 24 November 2026; Fouad is away, the manager session coordinates)
 
-Rules from Fouad: each job goes to a FRESH session, model Opus (claude-opus-5-5), one writer at a time, each commits only its own
+Rules from Fouad: each job goes to a FRESH session, model Opus (claude-opus-5-5) for creative or risky work (J1 doors page, J2 reports with money); Sonnet (claude-sonnet-5-5) is fine for the lighter jobs (J3 guide/checklist, J4 test data, J5 final check); one writer at a time, each commits only its own
 files by path, no build / no installer / no tag (only when Fouad says "build"), never touch the real server or real data
 (rehearse on copies; test copy = test-servers/next-test, password test123), `tls/` never opened. After each job the manager:
 checks the commit + tests, `npm run build:server`, restarts the preview `magis-next-test`, notes the result here.
@@ -15,7 +15,7 @@ checks the commit + tests, `npm run build:server`, restarts the preview `magis-n
       leave the menu. Ready-made roles (Director, Accountant, Reception, Store keeper, Coordinator; ticks still editable).
 - [ ] J2 CALENDAR STEP 8 rest: reports by organisation and free use, optional reminders, guide, checklist.
 - [ ] J3 INVENTORY STEP 5 rest: guide, checklist (door/roles done in J1).
-- [ ] J4 WEBSITE CALENDAR DATA into the TEST COPY ONLY (never the real db): from a fresh export of the website (Fouad proposes; ask him where it is).
+- [ ] J4 TEST DATA (Fouad 24 Nov: "skip the website data, you can create data for test"): create realistic SAMPLE data in the TEST COPY ONLY (test-servers/next-test, never the real db): areas/spaces already typed by Fouad stay; add sample organisations, weekly activities, outside bookings with prices, a stay, holds, payments + one cancellation with a part kept, inventory items with photos placeholders, a problem reported. Clearly sample names (no real people). A script kept in `scripts/` that can be re-run on a fresh copy. Model: Sonnet is fine.
 - [ ] J5 Final check: all tests, rehearsal of all updates on copies of the six real databases, test checklist file, a short list for Fouad's last test. Then tell Fouad "ready for the build" and WAIT for his word "build".
 
 ## Notes

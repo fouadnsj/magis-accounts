@@ -12,6 +12,7 @@ import {
   calRights, calTotals, cancelMoney, checkCal, clashesOf, decide, forViewer, holdDate, holdPassed, matchName, occurrences, readOrgsSheet, readSpacesSheet, RESERVED, spacesOn, warningsOf,
   type CalBooking, type CalData, type CalDate, type World,
 } from '../src/hosting/calendar';
+import { spacesShown } from '../src/hosting/calview';
 import { nodeDb } from './nodeDb';
 
 const day = (n: number) => addDays('2027-03-01', n);
@@ -486,6 +487,59 @@ describe('step 3: the windows (services, price, organisations) on the test datab
   });
 });
 
+describe("Fouad's first test: a kind with no category, the starting kind Store", () => {
+  it('the kind Store has no category; a kind may be saved with no category; its spaces are never in a quick view', async () => {
+    let d = await cal();
+    const store = d.kinds.find((k) => k.code === 'store')!;
+    expect([store.name, store.category_id, store.sleeps]).toEqual(['Store · مستودع', null, 0]);
+    expect(d.kinds.filter((k) => /store|مستودع/i.test(k.name))).toHaveLength(1);
+    // a new kind with no category, and one where the category is left out (the usual one: Halls)
+    const none = (await runOp(director, 'cal.kind.save', { name: 'Storage room · غرفة تخزين', sleeps: false, category_id: null })) as { id: number };
+    const usual = (await runOp(director, 'cal.kind.save', { name: 'Studio · استوديو', sleeps: false })) as { id: number };
+    d = await cal();
+    expect(d.kinds.find((k) => k.id === none.id)?.category_id).toBeNull();
+    expect(d.kinds.find((k) => k.id === usual.id)?.category_id).toBe(1);
+    // a kind put back in a category, then out again
+    await runOp(director, 'cal.kind.save', { id: none.id, name: 'Storage room · غرفة تخزين', sleeps: false, category_id: 1 });
+    expect((await cal()).kinds.find((k) => k.id === none.id)?.category_id).toBe(1);
+    await runOp(director, 'cal.kind.save', { id: none.id, name: 'Storage room · غرفة تخزين', sleeps: false, category_id: null });
+    // a store space (even one that can be booked) is not in the Halls quick view; "Everything" shows a space that can be booked
+    const area = d.areas[0].id;
+    const sp = ((await runOp(director, 'cal.space.save', { building_id: area, name: 'Store by the hall', kind_id: store.id, bookable: true })) as { id: number }).id;
+    d = await cal();
+    expect(spacesShown(d, 1, null).some((x) => x.id === sp)).toBe(false);
+    expect(spacesShown(d, null, null).some((x) => x.id === sp)).toBe(true);
+    await runOp(director, 'cal.space.save', { id: sp, building_id: area, name: 'Store by the hall', kind_id: store.id, bookable: false });
+    expect(spacesShown(await cal(), null, null).some((x) => x.id === sp)).toBe(false);
+  });
+});
+
+describe('migration 72: the starting kind Store', () => {
+  const upTo71 = async () => {
+    const db = nodeDb();
+    await db.batch([{ sql: 'CREATE TABLE schema_migration (n INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)' }]);
+    for (const mg of MIGRATIONS.filter((x) => x.n <= 71)) await db.batch([...splitSql(mg.sql).map((sql) => ({ sql })), { sql: 'INSERT INTO schema_migration (n, name, applied_at) VALUES (?, ?, ?)', params: [mg.n, mg.name, 'x'] }]);
+    return db;
+  };
+  it('a centre without one gets "Store · مستودع" with no category', async () => {
+    const db = await upTo71();
+    expect(await migrate(db)).toEqual([72]);
+    expect(await db.query("SELECT name, category_id, code, active FROM host_kind WHERE code = 'store'")).toEqual([{ name: 'Store · مستودع', category_id: null, code: 'store', active: 1 }]);
+    expect((await db.query<{ n: number }>('SELECT COUNT(*) AS n FROM host_kind WHERE category_id IS NULL'))[0].n).toBe(1);
+  });
+  it('a kind "Store" typed by hand (in Halls) is used, its category taken away, no second kind; its spaces stay', async () => {
+    const db = await upTo71();
+    await db.batch([
+      { sql: "INSERT INTO host_kind (id, name, sleeps, sort, category_id) VALUES (40, 'Store', 0, 12, 1)" },
+      { sql: "INSERT INTO host_building (id, name) VALUES (1, 'Main')" },
+      { sql: "INSERT INTO host_room (id, building_id, name, beds, kind, kind_id, bookable) VALUES (1, 1, 'Store 1', 0, 'other', 40, 0)" },
+    ]);
+    expect(await migrate(db)).toEqual([72]);
+    expect(await db.query("SELECT id, name, category_id, code FROM host_kind WHERE code = 'store' OR name LIKE '%Store%'")).toEqual([{ id: 40, name: 'Store', category_id: null, code: 'store' }]);
+    expect(await db.query('SELECT kind_id, bookable FROM host_room WHERE id = 1')).toEqual([{ kind_id: 40, bookable: 0 }]);
+  });
+});
+
 // ------------------------------------------------------------------ the 0.12 data carried over
 
 describe('migrations 64–67 on a 0.12 database', () => {
@@ -504,7 +558,7 @@ describe('migrations 64–67 on a 0.12 database', () => {
       { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, receipt_no, at) VALUES (1, 40, 'USD', '2026-12-01', 'H2026-0001', 'x')" },
     ]);
     const before = await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id');
-    expect(await migrate(old)).toEqual([64, 65, 66, 67, 68, 69, 70, 71]);
+    expect(await migrate(old)).toEqual([64, 65, 66, 67, 68, 69, 70, 71, 72]);
     expect(await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id')).toEqual(before);
     expect(await old.query('SELECT id, origin, price_state, private, whole_centre, hold_until FROM host_booking ORDER BY id')).toEqual([
       { id: 1, origin: 'outside', price_state: 'priced', private: 0, whole_centre: 0, hold_until: null },

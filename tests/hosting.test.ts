@@ -488,7 +488,7 @@ describe('kinds of room, capacity, and what a hall holds (from the inventory)', 
 
   it('the kinds are a list: bedroom has beds, the others have a capacity; the list is edited by whoever keeps the calendar', async () => {
     const d = await host();
-    expect(d.kinds.map((k) => [k.name.split(' · ')[0], k.sleeps])).toEqual([['Bedroom', 1], ['Hall', 0], ['Classroom', 0], ['Meeting room', 0], ['Dining room', 0], ['Kitchen', 0], ['Library', 0], ['Chapel', 0], ['Outdoor', 0], ['Office', 0], ['Other', 0]]);
+    expect(d.kinds.map((k) => [k.name.split(' · ')[0], k.sleeps])).toEqual([['Bedroom', 1], ['Hall', 0], ['Classroom', 0], ['Meeting room', 0], ['Dining room', 0], ['Kitchen', 0], ['Library', 0], ['Chapel', 0], ['Outdoor', 0], ['Office', 0], ['Store', 0], ['Other', 0]]);
     // (the kitchen, library, chapel, outdoor and office came with the calendar, migration 64)
     // the rooms made before carry their kind
     expect(d.rooms.find((r) => r.id === r1)?.kind_id).toBe(1);

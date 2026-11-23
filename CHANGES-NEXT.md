@@ -145,5 +145,22 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - Not yet: problems reported and "with a staff member" from the HR list (step 3); printed pages and the donor report
   (step 4); the project of a purchase on the item page (with the donor report, step 4).
 
+## 8. The new Calendar — Fouad's first-test comments (TEST-COMMENTS-1.md, "Calendar" 1–4)
+- **A kind of space may have "No category (not in the calendar)".** The kind window offers it. The spaces of such a kind
+  never appear in the quick views (Halls, Rooms…). A new space of such a kind starts as "cannot be booked".
+- **A starting kind "Store · مستودع"** with no category in every centre (update 72). If a kind named Store / مستودع was
+  already typed (as in the test copy), that one is used and its category taken away: no second kind. The kind carries a
+  mark (`code = 'store'`) so the inventory's view "Stores" finds it even if it is renamed.
+- **The booking view, readable in one look:** a coloured head with the name and the state (Confirmed / To confirm + held
+  until, red when passed); one block of the big facts (days, hours, spaces, people); one block "who" (organisation,
+  leader, person, phone to call); one block money (free or price, agreed total, paid, left) with the services and the
+  equipment; the buttons in two groups: "The whole booking" (Change, Confirm, Cancel the booking) and "Only this date
+  (Wed 25)" (Move this date, Cancel this date only, This date and the following). Reception sees the services and the
+  equipment, never the amounts.
+- **"Organisations" moved to the end of the bar**, away from "New".
+- **Calendar ↔ Settings easy to see:** on the calendar a clear button "⚙ Calendar settings"; in the settings the title
+  "Calendar › Settings" (the word Calendar can be clicked) and a button at the top "Back to the calendar".
+- Update **72** rehearsed on copies only (the 0.12 Homs copies, Al-Ard, the test copy with its typed "Store").
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

@@ -9,7 +9,7 @@ import { useApp } from '../state';
 import { Field, Modal, Seg, Tabs, biName, errText, parseAmount, promptBox, t, toast, todayIso } from './kit';
 import { m, tx, monthWord } from '../i18n';
 import { addDays, colorOf, type Currency } from '../hosting/host';
-import { calTotals, holdDate, holdPassed, inCalendar, mayChange, occurrences, sleepsIn, type CalBooking, type CalData, type CalOrg, type CalSpace, type Totals } from '../hosting/calendar';
+import { calTotals, holdDate, holdPassed, inCalendar, mayChange, occurrences, received, seesPrices, sleepsIn, type CalBooking, type CalData, type CalOrg, type CalSpace, type Totals } from '../hosting/calendar';
 import { bandOf, hm, itemsBetween, listOf, monthGrid, nextDate, search, shutOf, spacesShown, todayFigures, weekOf, type DayItem, type ListKind } from '../hosting/calview';
 import { CalSettings, inRoomText } from './CalSettings';
 
@@ -69,12 +69,18 @@ export function Calendar() {
   const setup = data.rights.setup || data.rights.whole;
   return (
     <>
-      <div className="page-head">
-        <h1>{L('التقويم', 'Calendar', 'Calendrier')}</h1>
-        {setup && (screen === 'calendar'
-          ? <button className="btn" onClick={() => setScreen('settings')}>⚙ {t('الإعدادات', 'Settings')}</button>
-          : <button className="btn" onClick={() => setScreen('calendar')}>‹ {L('التقويم', 'Calendar', 'Calendrier')}</button>)}
-      </div>
+      {/* calendar ↔ settings, easy to see both ways (Fouad's first test, 23 November 2026) */}
+      {screen === 'settings' && setup ? (
+        <div className="page-head">
+          <h1><button className="linkish cal-crumb" onClick={() => setScreen('calendar')}>{L('التقويم', 'Calendar', 'Calendrier')}</button> <span className="muted">›</span> {L('الإعدادات', 'Settings', 'Réglages')}</h1>
+          <button className="btn primary cal-back" onClick={() => setScreen('calendar')}>{L('رجوع إلى التقويم', 'Back to the calendar', 'Retour au calendrier')}</button>
+        </div>
+      ) : (
+        <div className="page-head">
+          <h1>{L('التقويم', 'Calendar', 'Calendrier')}</h1>
+          {setup && <button className="btn cal-settings-btn" onClick={() => setScreen('settings')}><span aria-hidden>⚙</span> {L('إعدادات التقويم', 'Calendar settings', 'Réglages du calendrier')}</button>}
+        </div>
+      )}
       {screen === 'settings' && setup ? <CalSettings data={data} refresh={load} /> : <Board data={data} refresh={load} />}
     </>
   );
@@ -123,8 +129,9 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
           {data.areas.filter((a) => a.active && data.spaces.some((x) => x.building_id === a.id && inCalendar(x))).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
         <input className="inp cal-search" type="search" placeholder={`🔍 ${L('بحث: اسم، جهة، مسؤول، هاتف، مكان…', 'Search: name, organisation, leader, phone, space…', 'Rechercher : nom, organisation, responsable, téléphone, espace…')}`} value={query} onChange={(e) => setQuery(e.target.value)} />
-        {r.contacts && <button className="btn small" onClick={() => setOrgs(true)}>{L('الجهات', 'Organisations', 'Organisations')}</button>}
         {canNew && <button className="btn primary small" onClick={() => startNew({ from: view === 'list' ? today : anchor })}>＋ {L('جديد', 'New', 'Nouveau')}</button>}
+        {/* the register of organisations: at the end of the bar, away from "New" (Fouad's first test) */}
+        {r.contacts && <button className="btn ghost small cal-orgs-btn" onClick={() => setOrgs(true)}>🏢 {L('الجهات', 'Organisations', 'Organisations')}</button>}
       </div>
       <div className="cal-quick">
         <button className={quick == null ? 'on' : ''} onClick={() => setQuick(null)}>{L('الكل', 'Everything', 'Tout')}</button>
@@ -465,26 +472,46 @@ const whereText = (d: CalData, b: CalBooking) => b.whole_centre ? L('كل أما
 
 // ---------------------------------------------------------------- a booking, seen in its side window
 
-function whenText(b: CalBooking) {
+/** the days of a booking, in words (the hours are apart: hoursText) */
+function daysText(b: CalBooking) {
   if (b.kind === 'stay') return `${fmtDay(b.from_day)} → ${fmtDay(b.to_day)}`;
-  const h = b.time_from && b.time_to ? ` · ${b.time_from}–${b.time_to}` : ` · ${L('اليوم كله', 'the whole day', 'toute la journée')}`;
   if (b.repeat_days) {
     const days = REPEAT_ORDER.filter((x) => b.repeat_days!.split(',').map(Number).includes(x)).map((x) => { const w = WD[(x + 6) % 7]; return L(w[0], w[1], w[2]); }).join(L('، ', ', ', ', '));
-    return `${L('كل أسبوع', 'Every week', 'Chaque semaine')}: ${days} · ${fmtShort(b.from_day)} → ${fmtShort(b.to_day)} ${b.to_day.slice(0, 4)}${h}`;
+    return `${L('كل أسبوع', 'Every week', 'Chaque semaine')}: ${days} · ${fmtShort(b.from_day)} → ${fmtShort(b.to_day)} ${b.to_day.slice(0, 4)}`;
   }
-  return `${fmtDay(b.from_day)}${b.to_day !== b.from_day ? ` → ${fmtDay(b.to_day)}` : ''}${h}`;
+  return `${fmtDay(b.from_day)}${b.to_day !== b.from_day ? ` → ${fmtDay(b.to_day)}` : ''}`;
 }
+function hoursText(b: CalBooking) {
+  if (b.kind === 'stay') { const n = Math.max(1, Math.round((Date.parse(`${b.to_day}T00:00:00Z`) - Date.parse(`${b.from_day}T00:00:00Z`)) / 86400000)); return `${n} ${L('ليلة', n === 1 ? 'night' : 'nights', n === 1 ? 'nuit' : 'nuits')}`; }
+  return b.time_from && b.time_to ? `${b.time_from} – ${b.time_to}` : L('اليوم كله', 'The whole day', 'Toute la journée');
+}
+/** a short day for the buttons: "Wed 25" */
+const dayShort = (d: string) => `${wdName(d)} ${Number(d.slice(8, 10))}`;
+const minus = (x: Totals, y: Totals): Totals => ({ USD: Math.max(0, Math.round((x.USD - y.USD) * 100) / 100), SYP: Math.max(0, Math.round((x.SYP - y.SYP) * 100) / 100) });
 
+/**
+ * A booking, seen in one look (Fouad's first test, 23 November 2026): a coloured head with the name and the state; the big
+ * facts (days and hours, spaces, people); who (organisation, person, phone); money (free or price, paid, left) with the
+ * services and the equipment; then the buttons in two groups: the whole booking, and only the date that was clicked.
+ */
 function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: CalData; b: CalBooking; day?: string; today: string; act: (fn: () => Promise<unknown>) => Promise<void>; onClose: () => void; onChange: (b: CalBooking) => void }) {
   const { s } = useApp();
   const r = data.rights;
   const may = mayChange(r, b);
   const c = colours(data, b);
+  const priced = seesPrices(r);
   const org = data.orgs.find((o) => o.id === b.org_id);
   const dates = data.dates.filter((x) => x.booking_id === b.id && !x.undone);
   const occ = occurrences(b, data.dates);
   const series = occ.length > 1 && b.kind === 'event';
   const thisDay = day && occ.some((o) => o.day === day && !o.moved) ? day : null;
+  const held = data.allocs.filter((a) => a.booking_id === b.id).map((a) => data.spaces.find((x) => x.id === a.room_id)).filter((x): x is CalSpace => !!x);
+  const lines = data.lines.filter((l) => l.booking_id === b.id);
+  const needs = data.needs.filter((n) => n.booking_id === b.id).map((n) => ({ n, e: data.equip.find((e) => e.id === n.equip_id) })).filter((x) => x.e);
+  const total = calTotals(b, lines, data.dates);
+  const paid = received(data.pays.filter((p) => p.booking_id === b.id));
+  const left = minus(total, paid);
+  const passed = b.status === 'option' && holdPassed(b, today);
   const refused = (res: { ok: boolean }) => { if (!res.ok) toast(L('غير ممكن: المكان محجوز في ذلك الوقت', 'Not possible: the space is held at that time', 'Impossible : l’espace est pris à ce moment'), true); };
   const status = (st: 'option' | 'confirmed' | 'arrived' | 'left') => act(async () => refused(await s.api.call('cal.booking.status', { id: b.id, status: st })));
   const cancelDate = async (following: boolean) => {
@@ -504,43 +531,96 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
     const reason = await promptBox(L('سبب الإلغاء (يبقى الحجز محفوظاً)', 'Reason for cancelling (the booking is kept)', 'Raison de l’annulation (la réservation est gardée)'));
     if (reason?.trim()) { await act(() => s.api.call('cal.booking.cancel', { id: b.id, reason })); onClose(); }
   };
+  const priceText = b.price_state === 'free' ? L('مجاني', 'Free', 'Gratuit')
+    : b.price_state === 'unset' ? L('السعر لم يُحدَّد بعد', 'Price not set yet', 'Prix pas encore fixé')
+      : b.price_state === 'priced' && b.rate != null ? `${fmtMoney({ USD: b.currency === 'USD' ? b.rate : 0, SYP: b.currency === 'SYP' ? b.rate : 0 })} ${b.price_mode === 'person' ? L('للشخص في الليلة', 'per person per night', 'par personne et par nuit') : b.price_each ? L('لكل تاريخ', 'for each date', 'par date') : L('للحجز كله', 'for the whole booking', 'pour toute la réservation')}` : '';
+  const showMoney = (b.price_state != null && b.origin === 'outside') || lines.length > 0 || needs.length > 0;
+  const anyPaid = paid.USD > 0 || paid.SYP > 0;
+  const dateButtons = may && series && thisDay && b.status !== 'cancelled';
   return (
-    <Modal title={<span><span className="cal-dot" style={{ background: c.bg }} /> {label(b)}</span>} onClose={onClose} narrow>
-      <div className="cal-tags">
-        <span>{kindText(data, b)}</span><span>{b.origin === 'ours' ? L('نشاطنا', 'Our activity', 'Notre activité') : L('حجز خارجي', 'Outside booking', 'Réservation extérieure')}</span>
-        <span className={b.status === 'option' ? 'warn' : ''}>{STATUS[b.status]()}</span>{!!b.private && <span>{L('خاص', 'private', 'privé')}</span>}
+    <Modal title={kindText(data, b)} onClose={onClose} narrow>
+      <div className="cal-view-head" style={{ background: c.bg, color: c.fg }}>
+        <div className="cal-view-name" dir="auto">{b.origin === 'outside' ? '◆ ' : ''}{b.group_name}</div>
+        {b.subject && <div className="cal-view-subject" dir="auto">{b.subject}</div>}
+        <div className="cal-view-badges">
+          <span className={`cal-view-badge st-${b.status}${passed ? ' passed' : ''}`}>
+            {STATUS[b.status]()}{b.status === 'option' && ` · ${L('محجوز حتى', 'held until', 'retenu jusqu’au')} ${fmtDay(holdDate(b))}`}
+          </span>
+          <span className="cal-view-badge plain">{b.origin === 'ours' ? L('نشاطنا', 'Our activity', 'Notre activité') : L('حجز خارجي', 'Outside booking', 'Réservation extérieure')}</span>
+          {!!b.private && <span className="cal-view-badge plain">🔒 {L('خاص', 'Private', 'Privé')}</span>}
+        </div>
+        {passed && <div className="cal-view-alert">{L('انتهى موعد الحجز المؤقت: اتصلوا بهم', 'The hold has passed: call them', 'La date de retenue est passée : appelez-les')}</div>}
       </div>
-      <dl className="cal-dl">
-        {b.status === 'option' && <><dt>{L('محجوز حتى', 'Held until', 'Retenu jusqu’au')}</dt><dd className={holdPassed(b, today) ? 'cal-red' : ''}>{fmtDay(holdDate(b))}{holdPassed(b, today) ? ` · ${L('انتهى الموعد: اتصلوا بهم', 'the date has passed: call them', 'la date est passée : appelez-les')}` : ''}</dd></>}
-        <dt>{L('متى', 'When', 'Quand')}</dt><dd>{whenText(b)}</dd>
-        <dt>{L('أين', 'Where', 'Où')}</dt><dd>{whereText(data, b) || '—'}{data.allocs.filter((a) => a.booking_id === b.id).map((a) => data.spaces.find((x) => x.id === a.room_id)).filter((x): x is CalSpace => !!x && !!inRoomText(data, x)).map((x) => <div key={x.id} className="small muted">🎛 {x.name}: {inRoomText(data, x)}</div>)}</dd>
-        {b.leader && <><dt>{L('المسؤول', 'Leader', 'Responsable')}</dt><dd>{b.leader}</dd></>}
-        {org && <><dt>{L('الجهة', 'Organisation', 'Organisation')}</dt><dd>{org.name}{org.note && <div className="small muted">{org.note}</div>}</dd></>}
-        {b.contact && <><dt>{L('الشخص', 'Person', 'Personne')}</dt><dd>{b.contact}{b.phone && <> · <a href={`tel:${b.phone.replace(/\s/g, '')}`} dir="ltr">{b.phone}</a></>}</dd></>}
-        {b.people > 0 && <><dt>{L('العدد', 'People', 'Personnes')}</dt><dd>{b.people}</dd></>}
-        {b.note && <><dt>{L('ملاحظة', 'Note', 'Note')}</dt><dd>{b.note}</dd></>}
-        {dates.length > 0 && <><dt>{L('تواريخ متغيّرة', 'Dates changed', 'Dates changées')}</dt><dd>{dates.map((x) => (
-          <div key={x.id} className="small">{fmtDay(x.day)}: {x.action === 'move' ? `${L('نُقل إلى', 'moved to', 'déplacé au')} ${fmtDay(x.to_day ?? x.day)}${x.time_from ? ` ${x.time_from}–${x.time_to}` : ''}` : x.action === 'cancel_from' ? L('أُلغي هو وما بعده', 'cancelled, and the following', 'annulé, et les suivants') : x.taken ? L('لم يُحفظ: المكان كان محجوزاً', 'left out: the space was taken', 'laissé de côté : l’espace était pris') : L('أُلغي', 'cancelled', 'annulé')}{x.reason && !x.taken ? ` (${x.reason})` : ''}
-            {may && <button className="btn ghost small" onClick={() => void act(async () => refused(await s.api.call('cal.date.undo', { id: x.id })))}>{L('أعِده', 'Put back', 'Remettre')}</button>}</div>
-        ))}</dd></>}
-        {b.status === 'cancelled' && b.cancel_reason && <><dt>{L('سبب الإلغاء', 'Why cancelled', 'Pourquoi annulé')}</dt><dd>{b.cancel_reason}</dd></>}
-      </dl>
-      <div className="row" style={{ gap: 6, marginTop: 12 }}>
-        {may && b.status !== 'cancelled' && <button className="btn primary small" onClick={() => onChange(b)}>{L('عدّل', 'Change', 'Modifier')}</button>}
-        {may && b.status === 'option' && <button className="btn small" onClick={() => void status('confirmed')}>{L('أكّد', 'Confirm', 'Confirmer')}</button>}
-        {r.arrive && b.kind === 'stay' && (b.status === 'confirmed' || b.status === 'option') && <button className="btn small" onClick={() => void status('arrived')}>{L('وصلوا', 'Mark arrived', 'Arrivés')}</button>}
-        {r.arrive && b.kind === 'stay' && b.status === 'arrived' && <button className="btn small" onClick={() => void status('left')}>{L('غادروا', 'Mark left', 'Partis')}</button>}
-        {may && b.status === 'cancelled' && <button className="btn small" onClick={() => void status('option')}>{L('أعِده «للتأكيد»', 'Put back "to confirm"', 'Remettre « à confirmer »')}</button>}
+
+      <div className="cal-view-block cal-view-facts">
+        <div className="cal-view-big"><span className="ic">📅</span><span>{daysText(b)}</span></div>
+        <div className="cal-view-big"><span className="ic">🕘</span><span dir="ltr">{hoursText(b)}</span></div>
+        <div className="cal-view-big"><span className="ic">📍</span><span>{whereText(data, b) || '—'}</span></div>
+        {held.filter((x) => !!inRoomText(data, x)).map((x) => <div key={x.id} className="small muted cal-view-sub">🎛 {x.name}: {inRoomText(data, x)}</div>)}
+        {b.people > 0 && <div className="cal-view-big"><span className="ic">👥</span><span>{b.people} {L('شخصاً', 'people', 'personnes')}</span></div>}
       </div>
-      {may && series && thisDay && b.status !== 'cancelled' && (
-        <div className="row" style={{ gap: 6, marginTop: 8 }}>
-          <span className="small muted">{fmtDay(thisDay)}:</span>
-          <button className="btn small" onClick={() => void moveDate()}>{L('انقل هذا التاريخ', 'Move this date', 'Déplacer cette date')}</button>
-          <button className="btn small" onClick={() => void cancelDate(false)}>{L('ألغِ هذا التاريخ فقط', 'Cancel this date only', 'Annuler cette date seulement')}</button>
-          {thisDay !== b.from_day && <button className="btn small" onClick={() => void cancelDate(true)}>{L('ألغِ هذا التاريخ وما بعده', 'This date and the following', 'Cette date et les suivantes')}</button>}
+
+      {(org || b.leader || b.contact || b.phone) && (
+        <div className="cal-view-block">
+          <div className="cal-view-label">{L('مَن', 'Who', 'Qui')}</div>
+          {org && <div><b>{org.name}</b>{org.note && <div className="small muted">{org.note}</div>}</div>}
+          {b.leader && <div>{L('المسؤول', 'Leader', 'Responsable')}: {b.leader}</div>}
+          {(b.contact || b.phone) && <div>{b.contact}{b.phone && <> {b.contact ? '· ' : ''}<a className="cal-view-phone" href={`tel:${b.phone.replace(/\s/g, '')}`} dir="ltr">📞 {b.phone}</a></>}</div>}
         </div>
       )}
-      {may && b.status !== 'cancelled' && <div style={{ marginTop: 10 }}><button className="btn danger small" onClick={() => void cancelAll()}>{L('ألغِ الحجز', 'Cancel the booking', 'Annuler la réservation')}</button></div>}
+
+      {showMoney && (
+        <div className="cal-view-block">
+          <div className="cal-view-label">{priced ? L('المال', 'Money', 'Argent') : L('الخدمات والتجهيزات', 'Services and equipment', 'Services et équipement')}</div>
+          {priced && b.origin === 'outside' && b.price_state != null && (
+            <table className="cal-view-money"><tbody>
+              <tr><td>{L('السعر', 'Price', 'Prix')}</td><td className={b.price_state === 'unset' ? 'warn' : ''}>{priceText}</td></tr>
+              {(total.USD > 0 || total.SYP > 0) && <tr><td>{L('المجموع المتفق عليه', 'Agreed total', 'Total convenu')}</td><td dir="ltr"><b>{fmtMoney(total)}</b></td></tr>}
+              {(total.USD > 0 || total.SYP > 0 || anyPaid) && <tr><td>{L('مدفوع', 'Paid', 'Payé')}</td><td dir="ltr">{fmtMoney(paid)}</td></tr>}
+              {(total.USD > 0 || total.SYP > 0) && <tr><td>{L('الباقي', 'Left to pay', 'Reste à payer')}</td><td dir="ltr" className={left.USD > 0 || left.SYP > 0 ? 'cal-red' : ''}><b>{fmtMoney(left)}</b></td></tr>}
+            </tbody></table>
+          )}
+          {lines.length > 0 && <div className="cal-view-list"><span className="muted">{L('الخدمات', 'Services', 'Services')}:</span> {lines.map((l) => <span key={l.id}>{l.qty > 1 ? `${l.qty} × ` : ''}{biName(l.label)}{priced && l.amount ? <span className="muted cal-view-amt" dir="ltr">({fmtMoney({ USD: l.currency === 'USD' ? l.amount : 0, SYP: l.currency === 'SYP' ? l.amount : 0 })})</span> : null}</span>)}</div>}
+          {needs.length > 0 && <div className="cal-view-list"><span className="muted">{L('التجهيزات', 'Equipment', 'Équipement')}:</span> {needs.map(({ n, e }) => <span key={n.equip_id}>{n.qty > 1 ? `${n.qty} × ` : ''}{biName(e!.name)}</span>)}</div>}
+        </div>
+      )}
+
+      {(b.note || dates.length > 0 || (b.status === 'cancelled' && b.cancel_reason)) && (
+        <div className="cal-view-block">
+          {b.note && <div><span className="muted">{L('ملاحظة', 'Note', 'Note')}:</span> {b.note}</div>}
+          {b.status === 'cancelled' && b.cancel_reason && <div><span className="muted">{L('سبب الإلغاء', 'Why cancelled', 'Pourquoi annulé')}:</span> {b.cancel_reason}</div>}
+          {dates.length > 0 && <div><div className="muted">{L('تواريخ متغيّرة', 'Dates changed', 'Dates changées')}:</div>{dates.map((x) => (
+            <div key={x.id} className="small">{fmtDay(x.day)}: {x.action === 'move' ? `${L('نُقل إلى', 'moved to', 'déplacé au')} ${fmtDay(x.to_day ?? x.day)}${x.time_from ? ` ${x.time_from}–${x.time_to}` : ''}` : x.action === 'cancel_from' ? L('أُلغي هو وما بعده', 'cancelled, and the following', 'annulé, et les suivants') : x.taken ? L('لم يُحفظ: المكان كان محجوزاً', 'left out: the space was taken', 'laissé de côté : l’espace était pris') : L('أُلغي', 'cancelled', 'annulé')}{x.reason && !x.taken ? ` (${x.reason})` : ''}
+              {may && <button className="btn ghost small" onClick={() => void act(async () => refused(await s.api.call('cal.date.undo', { id: x.id })))}>{L('أعِده', 'Put back', 'Remettre')}</button>}</div>
+          ))}</div>}
+        </div>
+      )}
+
+      {(may || (r.arrive && b.kind === 'stay')) && (
+        <div className="cal-view-actions">
+          <div className="cal-view-group">
+            <div className="cal-view-label">{L('الحجز كله', 'The whole booking', 'Toute la réservation')}</div>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {may && b.status !== 'cancelled' && <button className="btn primary small" onClick={() => onChange(b)}>✎ {L('عدّل', 'Change', 'Modifier')}</button>}
+              {may && b.status === 'option' && <button className="btn small" onClick={() => void status('confirmed')}>✓ {L('أكّد', 'Confirm', 'Confirmer')}</button>}
+              {r.arrive && b.kind === 'stay' && (b.status === 'confirmed' || b.status === 'option') && <button className="btn small" onClick={() => void status('arrived')}>{L('وصلوا', 'Mark arrived', 'Arrivés')}</button>}
+              {r.arrive && b.kind === 'stay' && b.status === 'arrived' && <button className="btn small" onClick={() => void status('left')}>{L('غادروا', 'Mark left', 'Partis')}</button>}
+              {may && b.status === 'cancelled' && <button className="btn small" onClick={() => void status('option')}>{L('أعِده «للتأكيد»', 'Put back "to confirm"', 'Remettre « à confirmer »')}</button>}
+              {may && b.status !== 'cancelled' && <button className="btn danger small" onClick={() => void cancelAll()}>{L('ألغِ الحجز', 'Cancel the booking', 'Annuler la réservation')}</button>}
+            </div>
+          </div>
+          {dateButtons && (
+            <div className="cal-view-group cal-view-date">
+              <div className="cal-view-label">{L('هذا التاريخ فقط', 'Only this date', 'Seulement cette date')} ({dayShort(thisDay!)})</div>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                <button className="btn small" onClick={() => void moveDate()}>{L('انقل هذا التاريخ', 'Move this date', 'Déplacer cette date')}</button>
+                <button className="btn small" onClick={() => void cancelDate(false)}>{L('ألغِ هذا التاريخ فقط', 'Cancel this date only', 'Annuler cette date seulement')}</button>
+                {thisDay !== b.from_day && <button className="btn small" onClick={() => void cancelDate(true)}>{L('ألغِ هذا التاريخ وما بعده', 'This date and the following', 'Cette date et les suivantes')}</button>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   );
 }

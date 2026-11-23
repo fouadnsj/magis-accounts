@@ -2,6 +2,7 @@
 // the accountant entering on a phone. Modelled on the communities' phone screens: a month card,
 // the four big actions, the money to confirm, this month's entries, all records, a bottom bar.
 // The computer window (Shell) does not change; the same entry form is used.
+import { ReportButton } from './InvProblem';
 import { useMemo, useState } from 'react';
 import { useApp, useIcons, useNames } from '../state';
 import { holdersMonth } from '../domain/reports';
@@ -72,6 +73,7 @@ export function PhoneShell({ onComputer, onToggleLang, onCloseDb, onDatabases, o
           </span>
         </div>
         <span className="cty-topbtns">
+          <ReportButton compact className="cty-signout" />
           <button className="cty-signout" title={t('الدليل', 'Guide')} onClick={() => setGuide(true)}><GuideSun size={18} /> {t('الدليل', 'Guide')}</button>
           <LangPick onChange={onToggleLang} compact />
           <button className="cty-signout" onClick={logout}>⏻ {t('خروج', 'Sign out')}</button>

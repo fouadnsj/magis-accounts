@@ -11,6 +11,7 @@ import {
   CONDITIONS, nextCodes, prefixFor, QR_FIELDS,
   isSourceLine, type InvEntry, type InvCategory, type InvOriginRow, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
 } from './inv';
+import { cleanReport, spaceOfWhere, type InvProblem, type ProblemResult, type ProblemSpace } from './problems';
 import { INV_AREA, invRights, splitLabels, splitProblem, withoutValues, type InRoom, type InvReady, type MapArea, type MapKind, type MapSpace } from './map';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', "Non autorisé pour cet utilisateur"));
@@ -48,6 +49,14 @@ async function load(c: OpCtx): Promise<InvData> {
     rights,
   }, rights.values);
 }
+
+/** problems may be reported in a centre's database whose inventory section is on (by everyone: no tick) */
+export async function problemsAvailable(db: OpCtx['db']): Promise<boolean> {
+  return (await getMeta(db, 'kind')) == null && (await getMeta(db, 'sec_inventory')) !== '0';
+}
+const anyone = () => undefined;
+const problemsOn = async (c: OpCtx) => { if (!(await problemsAvailable(c.db))) throw refuse(); };
+export const problemSpaces = (db: OpCtx['db']) => db.query<ProblemSpace>("SELECT r.id, CASE WHEN b.name = ? THEN r.name ELSE b.name || ' · ' || r.name END AS name FROM host_room r JOIN host_building b ON b.id = r.building_id WHERE r.active = 1 AND b.active = 1 ORDER BY b.sort, r.sort, r.name", [INV_AREA]);
 
 const maxOf = async (c: OpCtx, sql: string) => (await one<{ n: number }>(c.db, sql))?.n ?? 0;
 
@@ -491,6 +500,90 @@ export const INV_OPS = {
     },
   },
 
+  // ---------------------------------------------------------------- problems reported (step 3)
+
+  /** the spaces a problem may be about: names only (whoever reports does not look at the inventory) */
+  'inv.problem.spaces': { check: anyone, run: async (c: OpCtx) => { await problemsOn(c); return problemSpaces(c.db); } },
+
+  /** anyone of the centre reports a problem: what, where, a photo. `key` is the phone's own number: never made twice. */
+  'inv.problem.report': {
+    check: anyone,
+    run: async (c: OpCtx, a: { what?: string; where?: string; space_id?: number | null; photo?: { base64: string; mime: string } | null; key?: string }) => {
+      await problemsOn(c);
+      const key = txt(a.key);
+      if (key) {
+        const had = await one<{ id: number }>(c.db, 'SELECT id FROM inv_problem WHERE client_key = ?', [key]);
+        if (had) return { id: had.id, already: true };
+      }
+      const r = cleanReport(a);
+      if (!r) throw new UserError(m('اكتب ما المشكلة', 'Write what is wrong', 'Écrivez ce qui ne va pas'));
+      const spaces = await problemSpaces(c.db);
+      const space = a.space_id != null && spaces.some((x) => x.id === Number(a.space_id)) ? Number(a.space_id) : spaceOfWhere(r.where, spaces);
+      const id = (await maxOf(c, 'SELECT COALESCE(MAX(id), 0) AS n FROM inv_problem')) + 1;
+      let file: string | null = null;
+      let mime: string | null = null;
+      if (a.photo?.base64) {
+        const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as Record<string, string>)[String(a.photo.mime)];
+        if (!ext) throw new UserError(m('الصورة: JPEG أو PNG أو WebP', 'The photo must be JPEG, PNG or WebP', 'La photo doit être JPEG, PNG ou WebP'));
+        const bin = atob(String(a.photo.base64));
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        if (!bytes.length || bytes.length > 8 * 1024 * 1024) throw new UserError(m('الصورة أكبر من 8 م.ب', 'The photo is larger than 8 MB', 'La photo dépasse 8 Mo'));
+        file = `inventory/problems/P-${id}.${ext}`;
+        mime = String(a.photo.mime);
+        await c.files.docWrite(file, bytes);
+      }
+      await c.db.batch([
+        { sql: 'INSERT INTO inv_problem (id, client_key, what, where_text, space_id, photo_file, photo_mime, reported_by, reporter_id, reported_at) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [id, key, r.what, r.where, space, file, mime, c.who, c.profile.id ?? null, nowIso()] },
+        auditStmt(c.who, 'add', 'inv_problem', String(id), null, { what: r.what, where: r.where }),
+      ]);
+      return { id };
+    },
+  },
+
+  /** the keeper sees every report; anyone else sees their own (to see "seen by the keeper" and the new state) */
+  'inv.problem.list': {
+    check: anyone,
+    run: async (c: OpCtx) => { await problemsOn(c); return { problems: await problemsFor(c.db, c.profile) }; },
+  },
+
+  /** the photo of a problem: for the keeper and for the person who reported it */
+  'inv.problem.photo': {
+    check: anyone,
+    run: async (c: OpCtx, a: { id: number }) => {
+      await problemsOn(c);
+      const p = await one<{ photo_file: string | null; photo_mime: string | null; reporter_id: number | null }>(c.db, 'SELECT photo_file, photo_mime, reporter_id FROM inv_problem WHERE id = ?', [Number(a.id)]);
+      if (!p?.photo_file || !p.photo_mime || !(has(c.profile, 'inventory.manage') || (p.reporter_id != null && p.reporter_id === c.profile.id))) throw new UserError(m('الصورة غير موجودة', 'Photo not found', 'Photo introuvable'));
+      const bytes = await c.files.docRead(p.photo_file);
+      let s = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { mime: p.photo_mime, base64: btoa(s) };
+    },
+  },
+
+  /** the keeper has seen it: sets the state of the item concerned (or "nothing wrong") and says so to the reporter */
+  'inv.problem.answer': {
+    check: (c: OpCtx) => { manage(c); },
+    run: async (c: OpCtx, a: { id: number; result: ProblemResult; item_id?: number | null; note?: string | null }) => {
+      await problemsOn(c);
+      const p = await one<{ id: number; what: string }>(c.db, 'SELECT id, what FROM inv_problem WHERE id = ?', [Number(a.id)]);
+      if (!p) throw new UserError(m('البلاغ غير موجود', 'Report not found', 'Signalement introuvable'));
+      if (!['good', 'repair', 'broken', 'nothing'].includes(String(a.result))) throw new UserError(m('اختر الحالة', 'Choose the state', 'Choisissez l’état'));
+      const stmts: Stmt[] = [];
+      if (a.item_id != null) {
+        const x = await itemOf(c, Number(a.item_id));
+        if (a.result !== 'nothing' && x.condition !== a.result) {
+          stmts.push({ sql: 'UPDATE inv_item SET condition = ?, updated_at = ? WHERE id = ?', params: [a.result, nowIso(), x.id] },
+            moveStmt(x.id, a.result === 'good' ? 'repaired' : a.result === 'broken' ? 'broken' : 'repair', c.who, { place_id: x.place_id, holder: x.holder, note: `problem ${p.id}` }));
+        }
+      }
+      stmts.push({ sql: "UPDATE inv_problem SET status = 'seen', item_id = ?, result = ?, seen_by = ?, seen_at = ?, seen_note = ? WHERE id = ?", params: [a.item_id ?? null, a.result, c.who, nowIso(), txt(a.note), p.id] },
+        auditStmt(c.who, 'update', 'inv_problem', String(p.id), null, { result: a.result, item: a.item_id ?? null }));
+      await c.db.batch(stmts);
+      return { ok: true };
+    },
+  },
+
   /** what the QR labels hold besides the label itself */
   'inv.qr': {
     check: manage,
@@ -626,7 +719,7 @@ export const INV_OPS = {
   },
 } as const;
 
-export const INV_READ_ONLY = ['inv.get', 'inv.photo.get'];
+export const INV_READ_ONLY = ['inv.get', 'inv.photo.get', 'inv.problem.spaces', 'inv.problem.list', 'inv.problem.photo'];
 
 /** what the main data call carries (for those who see the inventory) */
 export async function invLite(c: OpCtx, shared?: { rows: Trx[]; lists: Lists }) {
@@ -647,10 +740,29 @@ export async function invLite(c: OpCtx, shared?: { rows: Trx[]; lists: Lists }) 
   return { sources, done, ...(entries ? { entries } : {}) };
 }
 
-/** What one centre's inventory comes to, for the Coordinator (reads only: never the items themselves). */
+/** the keeper sees every report (those waiting, and the answered of the last 90 days); anyone else sees their own */
+export async function problemsFor(db: OpCtx['db'], profile: OpCtx['profile']): Promise<InvProblem[]> {
+  const keeper = has(profile, 'inventory.manage');
+  const rows = await db.query<InvProblem & { photo_file: string | null; reporter_id: number | null }>(
+    `SELECT p.id, p.what, p.where_text, p.space_id, p.photo_file, p.reported_by, p.reporter_id, p.reported_at, p.status, p.item_id, i.code AS item_code, i.name AS item_name,
+            p.result, p.seen_by, p.seen_at, p.seen_note
+       FROM inv_problem p LEFT JOIN inv_item i ON i.id = p.item_id
+      WHERE ${keeper ? "(p.status = 'new' OR p.seen_at >= date('now', '-90 day'))" : "p.reporter_id = ? AND p.reported_at >= date('now', '-90 day')"}
+      ORDER BY p.id DESC`, keeper ? [] : [profile.id ?? -1]);
+  return rows.map(({ photo_file, reporter_id, ...p }): InvProblem => ({ ...p, has_photo: !!photo_file, mine: reporter_id != null && reporter_id === (profile.id ?? -1) }));
+}
+
+/** For every screen: may this person report a problem here, and (the keeper) how many wait for them. null: not in this database. */
+export async function problemsLite(c: OpCtx): Promise<{ on: true; open: number } | null> {
+  if (!(await problemsAvailable(c.db))) return null;
+  const open = has(c.profile, 'inventory.manage') ? (await one<{ n: number }>(c.db, "SELECT COUNT(*) AS n FROM inv_problem WHERE status = 'new'"))?.n ?? 0 : 0;
+  return { on: true, open };
+}
+
+/** What one centre's inventory comes to, for the Coordinator (reads only: never the items themselves, and never the values: Fouad, 24 November 2026). */
 export async function inventorySummary(db: OpCtx['db']) {
   const q = async <T,>(sql: string) => (await one<T>(db, sql))!;
-  const live = await q<{ n: number; units: number; value: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(qty), 0) AS units, COALESCE(SUM(qty * COALESCE(value_usd, 0)), 0) AS value FROM inv_item WHERE status = 'in_use'");
+  const live = await q<{ n: number; units: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(qty), 0) AS units FROM inv_item WHERE status = 'in_use'");
   const attention = await q<{ n: number }>("SELECT COUNT(*) AS n FROM inv_item WHERE status = 'in_use' AND condition <> 'good'");
   const noSerial = await q<{ n: number }>("SELECT COUNT(*) AS n FROM inv_item WHERE status = 'in_use' AND (serial IS NULL OR serial = '') AND category_id IN (SELECT id FROM inv_category WHERE serial = 1)");
   const uncounted = await q<{ n: number }>("SELECT COUNT(*) AS n FROM inv_item WHERE status = 'in_use' AND (counted_on IS NULL OR counted_on < date('now', '-1 year'))");
@@ -664,7 +776,7 @@ export async function inventorySummary(db: OpCtx['db']) {
         AND (t.line_id IN (SELECT ref FROM inv_source WHERE kind = 'line') OR t.heading_id IN (SELECT ref FROM inv_source WHERE kind = 'heading')
              OR t.line_id IN (SELECT id FROM budget_line WHERE heading_id IN (SELECT ref FROM inv_source WHERE kind = 'heading')))`);
   return {
-    items: live.n, units: live.units, valueUsd: Math.round(live.value * 100) / 100, attention: attention.n, noSerial: noSerial.n, uncounted: uncounted.n,
+    items: live.n, units: live.units, attention: attention.n, noSerial: noSerial.n, uncounted: uncounted.n,
     lastCount: last.d, lines: lines.n, toRegister: toRegister.n,
   };
 }

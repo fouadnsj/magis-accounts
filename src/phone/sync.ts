@@ -4,6 +4,7 @@
 import { allPhotos, allRows, kvSet, putPhoto, putRow, type Entry, type Msg, type Pack } from './store';
 import { invCounts, invPhotos } from './Count';
 import { invNews, putInvNews } from './Record';
+import { problemNews, putProblemNews } from './Problem';
 import { hostNews, putHostNews } from './Calendar';
 
 export class Unlinked extends Error { constructor(public msg: Msg) { super(msg.en); } }
@@ -104,6 +105,16 @@ export async function sync(key: string): Promise<{ pack: Pack; result: SyncResul
   }
   if (news.length) await putInvNews(news.filter((x) => x.state !== 'sent' || Date.now() - Date.parse(x.made_at) < 24 * 3600e3));
   invSent += newSent;
+  // the problems reported on the phone, one by one (the server says which it already had)
+  const reports = await problemNews();
+  let reportSent = 0;
+  for (const x of reports) {
+    if (x.state !== 'waiting') continue;
+    try { await call('/api/phone/inv-problem', { key: x.key, what: x.what, where: x.where, photo: x.photo }, key); x.state = 'sent'; x.photo = null; x.error = null; reportSent++; }
+    catch (e) { if (e instanceof Refused) { x.state = 'fix'; x.error = e.msg; continue; } await putProblemNews(reports); throw e; }
+  }
+  if (reports.length) await putProblemNews(reports.filter((x) => x.state !== 'sent'));
+  invSent += reportSent;
   // the bookings made on the phone: each is made on the server as "to confirm"; the server says which it already had
   const hosts = await hostNews();
   let hostChanged = false;
@@ -119,7 +130,7 @@ export async function sync(key: string): Promise<{ pack: Pack; result: SyncResul
     pack = await call<Pack>('/api/phone/pack', {}, key); await kvSet('pack', pack);
   }
   // the pack again, so that the counts just sent show on the phone
-  if (invSent && pack.inv) { pack = await call<Pack>('/api/phone/pack', {}, key); await kvSet('pack', pack); }
+  if (invSent && (pack.inv || pack.problem)) { pack = await call<Pack>('/api/phone/pack', {}, key); await kvSet('pack', pack); }
   return { pack, result: res };
 }
 

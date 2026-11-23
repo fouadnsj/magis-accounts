@@ -66,6 +66,8 @@ export interface Data {
   inv: InvLite | null;
   /** the hosting section: null when it is off or this person does not see it */
   host: { on: boolean; review: number; toEnter: number; inventoryOn: boolean } | null;
+  /** problems reported: the button for everyone; `open` = those waiting for the keeper */
+  problems: { on: true; open: number } | null;
 }
 
 interface Ctx {
@@ -121,6 +123,7 @@ async function loadData(s: Session, background = false): Promise<Data> {
     attachments: p.attachments ?? [],
     inv: p.inv ?? null,
     host: p.host ?? null,
+    problems: p.problems ?? null,
   };
 }
 

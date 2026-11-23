@@ -29,6 +29,8 @@ export interface Pack {
   curs?: { code: string; label: string }[];
   /** the inventory, for the one who keeps it (21 November 2026): the places and the items to count */
   inv?: { categories: { id: number; name: string; serial: number }[]; origins: { id: number; name: string }[]; names: string[]; places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
+  /** problems reported (inventory step 3): the spaces to say where, and this person's own reports with the keeper's answer */
+  problem?: { spaces: { id: number; name: string }[]; mine: { id: number; what: string; where_text: string | null; reported_at: string; status: 'new' | 'seen'; result: 'good' | 'repair' | 'broken' | 'nothing' | null; item_name: string | null; seen_note: string | null }[] };
   /** the calendar of rooms (22 November 2026): no amount; `book`: this person may make bookings */
   host?: {
     book: boolean;

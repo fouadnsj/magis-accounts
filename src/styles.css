@@ -1160,3 +1160,6 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .inv-quick .inv-dot { white-space: nowrap; }
 .inv-quick select { max-width: 170px; }
 .inv-quick input.need { min-width: 120px; }
+/* a window opened from the menu (the report button) must not take the menu's white text */
+.modal { color: var(--ink); }
+.modal textarea { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; }

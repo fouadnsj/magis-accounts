@@ -47,7 +47,7 @@ import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
-import { mayPhone, pairPhone, phoneHostBook, phoneHostStatus, phoneInvCount, phoneInvNew, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phonePush, validUntil, type PhoneEntry } from './phone';
+import { mayPhone, pairPhone, phoneHostBook, phoneHostStatus, phoneInvCount, phoneInvNew, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phoneProblem, phonePush, validUntil, type PhoneEntry } from './phone';
 import { inventorySummary } from '../src/inventory/ops';
 import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
 
@@ -2492,7 +2492,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
     if (url === '/api/phone/where' && method === 'GET') return send(res, 200, phoneWhere());
-    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session' || url === '/api/phone/inv-count' || url === '/api/phone/inv-photo' || url === '/api/phone/inv-new' || url === '/api/phone/host-book' || url === '/api/phone/host-status') {
+    if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session' || url === '/api/phone/inv-count' || url === '/api/phone/inv-photo' || url === '/api/phone/inv-new' || url === '/api/phone/inv-problem' || url === '/api/phone/host-book' || url === '/api/phone/host-status') {
       if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
       // the key: "database:phone:secret"
       const [slug, pid, key] = (/^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '').split(':');
@@ -2533,6 +2533,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const body = (await readBody(req, 24 * 1024 * 1024)) as { key?: string; item?: Record<string, unknown>; photo?: { base64: string; mime: string } | null };
         const r = await phoneInvNew(ctx, { key: String(body.key ?? ''), item: body.item ?? {}, photo: body.photo ?? null });
         if (!r.already) pc.version++;
+        return send(res, 200, r);
+      }
+      if (url === '/api/phone/inv-problem') {
+        const body = (await readBody(req, 24 * 1024 * 1024)) as { key?: string; what?: string; where?: string; photo?: { base64: string; mime: string } | null };
+        const r = await phoneProblem(ctx, { key: String(body.key ?? ''), what: body.what, where: body.where, photo: body.photo ?? null });
+        if (!r.already) { pc.version++; log(`phone ${pc.slug}: ${owner.name} (${phone.name}) reported a problem`); }
         return send(res, 200, r);
       }
       if (url === '/api/phone/host-book') {

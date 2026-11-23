@@ -2433,4 +2433,32 @@ ALTER TABLE host_pay ADD COLUMN printed INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE host_booking ADD COLUMN receipt_printed INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    n: 75,
+    name: 'inventory step 3: problems reported (what, where, a photo; seen by the keeper with the new state)',
+    sql: `
+-- (Fouad, inventory baseline 1.1, sections 3 and 10) Anyone of the centre may report a problem: what is wrong, where, a
+-- photo. It goes to the keeper's list; the keeper sets the state of the item (or "nothing wrong") and the person then sees
+-- "seen by the keeper" with the new state. client_key is the phone's own number for the report: never made twice.
+CREATE TABLE inv_problem (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_key  TEXT UNIQUE,
+  what        TEXT NOT NULL,
+  where_text  TEXT,
+  space_id    INTEGER REFERENCES host_room(id),
+  photo_file  TEXT,
+  photo_mime  TEXT,
+  reported_by TEXT NOT NULL,
+  reporter_id INTEGER,
+  reported_at TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'seen')),
+  item_id     INTEGER REFERENCES inv_item(id),
+  result      TEXT CHECK (result IN ('good', 'repair', 'broken', 'nothing')),
+  seen_by     TEXT,
+  seen_at     TEXT,
+  seen_note   TEXT
+);
+CREATE INDEX inv_problem_status ON inv_problem (status, reported_at);
+`,
+  },
 ];

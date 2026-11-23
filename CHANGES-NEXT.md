@@ -1,6 +1,6 @@
 # For the next build (after 0.12.1) — list made 24 November 2026
 
-Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Ten new database updates: 64 to 73** (the
+Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Twelve new database updates: 64 to 75** (the
 calendar's foundation, §3, the "can be booked" tick, §4, and the inventory's step 1, §5). They only add: nothing of 0.12.1 is changed or removed (rehearsed on copies of the 0.12 test data).
 
 ## 1. Lists → Budget: choose the list a database follows
@@ -216,6 +216,25 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - Update **74**: `host_pay.kind` ('in' / 'back'), `host_pay.printed`, `host_booking.receipt_printed`. Rehearsed on copies
   only (Al-Ard, the 0.12 Homs copies, the test copy): nothing changed, integrity ok. The 0.12 hosting page keeps working
   and its receipt window is shared (moving the pages to one drawing helper: `src/io/pdfCanvas.ts`).
+
+## 10. The new Inventory — step 3 "Problems reported" (update 75)
+- **One button, "⚠ Report a problem · أبلغ عن مشكلة",** for anyone of the centre (no tick): what is wrong, where (the space
+  names are suggested; a name typed exactly as a space is linked to it), a photo if they can. It is in the laptop menu (and
+  in the light phone window, small), in the new inventory's bar, and in the full phone app (not in the calendar-only phones).
+  The window also shows **My reports**.
+- **It goes to the keeper's list:** the menu "New inventory" carries a number, the home has a tile **"problems reported"**
+  and a list (photo, what, where, who, when, state). The keeper opens one, may choose **the item concerned**, and sets the
+  state: **Needs repair / Broken / Nothing wrong / Fine (repaired)**, with a word for the person if wanted. The item's state
+  and its history are updated (nothing changes for "Nothing wrong").
+- **The person then sees "seen by the keeper"** with the new state (and the item and the word), in My reports on the laptop
+  and on the phone. Reports are kept 90 days on the screens.
+- **On the phone** a report is kept with no connection and sent with the next sync, never twice (its own number). The phone's
+  pack carries the spaces and the person's own reports with the answers.
+- **Fouad's answers to the old questions:** (1) the starting ticks stay as they are since update 70 (valuable: IT and
+  Audio-visual; shown in the calendar: Audio-visual only), applied once to databases that had none, and editable in the
+  inventory's settings: nothing overwrites a centre's choice afterwards; (2) the area keeps its name "Inventory places ·
+  أماكن الجرد"; (3) **the Coordinator's inventory page no longer shows any value** (nor does the server send it).
+- Update **75** rehearsed on copies only (the first-test copies and the 0.12 copies): nothing else changed.
 
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

@@ -161,13 +161,13 @@ describe('the inventory', () => {
     expect(mayPhone(sup.profile)).toBe(true);
   });
 
-  it('the Coordinator sees totals: items, value, purchases not registered, no serial, not counted', async () => {
+  it('the Coordinator sees totals: items, purchases not registered, no serial, not counted — and no value', async () => {
     const x = await inventorySummary(db);
     expect(x.items).toBeGreaterThan(0);
     expect(x.toRegister).toBe(1); // the table
     expect(x.lines).toBe(1);
     expect(x.noSerial).toBeGreaterThanOrEqual(0);
-    expect(x.valueUsd).toBeGreaterThan(0);
+    expect(Object.keys(x).some((k) => /value/i.test(k))).toBe(false);
   });
 
   it('labels: a QR that holds the label, on a PDF of A4 pages', async () => {

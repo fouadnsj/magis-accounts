@@ -24,6 +24,7 @@ import { Guide } from './Guide';
 import { GuideCtx, GuideSun } from '../guide/GuideView';
 import { draftFor, draftKey } from './draft';
 import { PhoneShell } from './Phone';
+import { ReportButton } from './InvProblem';
 
 /** A phone-sized screen (the phone window opens by itself there). */
 function useNarrow() {
@@ -151,7 +152,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
           {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
           {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
           {can('inventory.view') && d.inv && item('inventory', t('الجرد', 'Inventory'), toInventory ? <span className="badge">{toInventory}</span> : null)}
-          {can('inventory.view') && d.inv && item('invmap', t('الجرد الجديد', 'New inventory'))}
+          {can('inventory.view') && d.inv && item('invmap', t('الجرد الجديد', 'New inventory'), d.problems?.open ? <span className="badge">{d.problems.open}</span> : null)}
           {d.host?.on && item('hosting', t('الإقامة والتقويم', 'Calendar'), d.host.review + d.host.toEnter ? <span className="badge">{d.host.review + d.host.toEnter}</span> : null)}
           {can('cal.view') && item('calendar', t('التقويم الجديد', 'New calendar'))}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
@@ -159,6 +160,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
           {(can('lists.manage') || can('lists.donors') || can('budget.view') || can('inventory.view')) && item('guide', <><GuideSun light /> {t('الدليل', 'Guide')}</>)}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
+          <ReportButton />
           <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
           <LangPick onChange={onToggleLang} />
           {lookOwn && <button onClick={() => setLookOpen(true)}>🎨 {t('لوني', 'My colour')}</button>}

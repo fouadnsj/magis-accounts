@@ -289,7 +289,7 @@ export interface Waiting { at: string; count: number; groups: WaitingGroup[] }
 export const waitingApi = { get: () => get<Waiting>('/api/coordinator/waiting') };
 
 /** the inventory of each centre, as totals (the Coordinator's view: nothing can be changed there) */
-export interface CentreInventory { slug: string; organisation: string; centre: string | null; items: number; units: number; valueUsd: number; attention: number; noSerial: number; uncounted: number; lastCount: string | null; lines: number; toRegister: number }
+export interface CentreInventory { slug: string; organisation: string; centre: string | null; items: number; units: number; attention: number; noSerial: number; uncounted: number; lastCount: string | null; lines: number; toRegister: number }
 export const inventoryApi = { get: () => get<{ centres: CentreInventory[] }>('/api/coordinator/inventory') };
 
 // ---- A database brought from a file (Fouad, 2026-11-12): looked at first, then created under its own name

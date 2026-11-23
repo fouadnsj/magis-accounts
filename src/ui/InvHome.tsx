@@ -18,11 +18,13 @@ import type { CalData } from '../hosting/calendar';
 import { hm, itemsBetween } from '../hosting/calview';
 import { COND_LABEL, ItemModal, MOVE_LABEL, Photos, RegisterTab, SettingsTab, labelsOf, useEntries } from './Inventory';
 import { QuickAddRoom, ReadyLists } from './InvQuick';
+import { ProblemsView, ReportButton } from './InvProblem';
+import type { InvProblem } from '../inventory/problems';
 
 const L = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
 /** an amount in dollars, with its sign */
 const fmtUsd = (n: number | null | undefined) => (n == null ? '' : Math.abs(n) < 0.005 ? '$0' : `$${fmtNum(n)}`);
-type View = 'map' | 'stores' | 'place' | 'category' | 'all' | 'staff' | 'register' | 'attention' | 'left';
+type View = 'map' | 'stores' | 'place' | 'category' | 'all' | 'staff' | 'register' | 'attention' | 'left' | 'problems';
 type Screen = { k: 'home' } | { k: 'space'; id: number } | { k: 'item'; id: number } | { k: 'quick'; spaceId: number | null } | { k: 'settings' };
 
 // ---------------------------------------------------------------- photos (fetched once, kept while the page is open)
@@ -59,6 +61,7 @@ export function InventoryHome() {
   const [view, setView] = useState<View>('map');
   const [q, setQ] = useState('');
   // the people of the centre in MAGIS HR, for "with a staff member" (on a server, for the keeper)
+  const [problems, setProblems] = useState<InvProblem[] | null>(null);
   const [people, setPeople] = useState<HrPick[]>([]);
   useEffect(() => {
     if (s.mode !== 'server' || !can('inventory.manage')) return;
@@ -67,6 +70,7 @@ export function InventoryHome() {
   const load = useCallback(async () => {
     try { setInv(await s.api.call('inv.get')); } catch (e) { toast(errText(e), true); }
     if (can('cal.view')) { try { setCal(await s.api.call('cal.get')); } catch { setCal(null); } }
+    try { setProblems((await s.api.call('inv.problem.list')).problems); } catch { setProblems([]); }
   }, [s, can]);
   useEffect(() => { void load(); }, [load, d.inv]);
   const refresh = async () => { await reload(); await load(); };
@@ -95,15 +99,15 @@ export function InventoryHome() {
       {screen.k === 'quick' && keep && <QuickAddRoom key={screen.spaceId ?? 0} inv={inv} space={screen.spaceId != null ? inv.spaces.find((x) => x.id === screen.spaceId) ?? null : null} back={() => (screen.spaceId != null ? go({ k: 'space', id: screen.spaceId }) : home())} refresh={refresh} />}
       {screen.k === 'space' && <SpacePage inv={inv} cal={cal} spaceId={screen.id} go={go} back={home} refresh={refresh} people={people} />}
       {screen.k === 'item' && <ItemPage inv={inv} cal={cal} itemId={screen.id} go={go} back={home} refresh={refresh} people={people} />}
-      {screen.k === 'home' && <Home inv={inv} view={view} setView={setView} q={q} setQ={setQ} go={go} pending={pending.length} refresh={refresh} pendingRows={pending} people={people} />}
+      {screen.k === 'home' && <Home inv={inv} view={view} setView={setView} q={q} setQ={setQ} go={go} pending={pending.length} refresh={refresh} pendingRows={pending} people={people} problems={problems} />}
     </>
   );
 }
 
 // ---------------------------------------------------------------- home: figures, quick views, the map
 
-function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, people }: {
-  inv: InvData; view: View; setView: (v: View) => void; q: string; setQ: (s: string) => void; go: (x: Screen) => void; pending: number; pendingRows: ReturnType<typeof pendingEntries>; refresh: () => Promise<void>; people: HrPick[];
+function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, people, problems }: {
+  inv: InvData; view: View; setView: (v: View) => void; q: string; setQ: (s: string) => void; go: (x: Screen) => void; pending: number; pendingRows: ReturnType<typeof pendingEntries>; refresh: () => Promise<void>; people: HrPick[]; problems: InvProblem[] | null;
 }) {
   const r = inv.rights;
   const [open, setOpen] = useState(false);
@@ -111,6 +115,7 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
   const map = useMemo(() => invMap(inv, { values: r.values }), [inv, r.values]);
   const stores = useMemo(() => invMap(inv, { values: r.values, only: (x) => isStore(x, inv.kinds) }), [inv, r.values]);
   const left = withSomeoneWhoLeft(inv.items, people);
+  const waitingProblems = (problems ?? []).filter((x) => x.status === 'new').length;
   const attention = live.filter((i) => i.condition !== 'good').length;
   const staff = live.filter((i) => i.holder).length;
   const asks = live.filter((i) => itemAsks(i, inv.categories, inv.photos).length).length;
@@ -131,6 +136,7 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
         {tile(attention, L('تحتاج إصلاحاً أو معطّلة', 'to repair or broken', 'à réparer ou cassés'), 'attention', attention > 0)}
         {tile(staff, L('مع الموظفين', 'with staff', 'chez le personnel'), 'staff')}
         {r.keep && asks > 0 && tile(asks, L('ينقصها صورة أو رقم تسلسلي', 'without a photo or a serial', 'sans photo ni n° de série'), 'attention', true)}
+        {r.keep && tile(waitingProblems, L('مشاكل مُبلَّغ عنها', 'problems reported', 'problèmes signalés'), 'problems', waitingProblems > 0)}
         {r.keep && left.length > 0 && tile(left.length, L('مع شخص غادر المركز: استرجعها', 'with someone who left: take them back', 'chez quelqu’un qui est parti : à reprendre'), 'left', true)}
       </div>
       <div className="cal-bar row" style={{ marginBottom: 8 }}>
@@ -140,11 +146,13 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
           ))}
         </div>
         <input className="inp cal-search" placeholder={L('بحث: رمز، اسم، رقم تسلسلي، شخص…', 'Search: label, name, serial, person…', 'Chercher : étiquette, nom, n° de série, personne…')} value={q} onChange={(e) => setQ(e.target.value)} />
+        <ReportButton className="btn" />
         {r.keep && <button className="btn" onClick={() => go({ k: 'quick', spaceId: null })}>⚡ {L('تسجيل سريع', 'Quick add', 'Ajout rapide')}</button>}
         {r.keep && <button className="btn primary" onClick={() => setOpen(true)}>＋ {L('غرض', 'Item', 'Objet')}</button>}
       </div>
       {found ? <ItemTable inv={inv} items={found} go={go} />
         : view === 'map' ? <MapView inv={inv} map={map} go={go} />
+        : view === 'problems' && r.keep ? <ProblemsView inv={inv} problems={problems} refresh={refresh} openItem={(id) => go({ k: 'item', id })} />
         : view === 'stores' ? <StoresView inv={inv} map={stores} go={go} />
         : view === 'left' ? (left.length ? <ItemTable inv={inv} items={left.map((x) => x.item)} go={go} withHolder people={people} /> : <p className="muted">—</p>)
         : view === 'register' && r.keep ? <RegisterTab inv={inv} manage pending={pendingRows} refresh={refresh} />

@@ -12,7 +12,8 @@ import { type Db, one } from '../src/db/db';
 import { auditStmt, blankTrx, closedMonths, getMeta, loadLists, loadTrx, UserError } from '../src/db/repo';
 import { has, listProfiles, loadProfile, type Profile } from '../src/auth';
 import { runOp, type OpCtx } from '../src/ops';
-import { inventoryPack } from '../src/inventory/ops';
+import { inventoryPack, problemSpaces, problemsAvailable, problemsFor } from '../src/inventory/ops';
+import type { InvProblem, ProblemSpace } from '../src/inventory/problems';
 import { sectionOn } from '../src/hosting/ops';
 import type { HostAlloc, HostBooking, HostBuilding, HostRoom } from '../src/hosting/host';
 import { holders } from '../src/domain/reports';
@@ -34,6 +35,9 @@ export const validUntil = (p: Pick<PhoneRow, 'created_at' | 'last_sync'>) => new
 
 /** may this person record from a phone at all? (somebody who writes in a book) */
 export const mayPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0) || has(p, 'inventory.manage') || has(p, 'hosting.view') || has(p, 'hosting.book') || has(p, 'hosting.prices') || has(p, 'hosting.keep');
+
+/** the full phone app (not the calendar-only phones): who writes in a book or keeps the inventory. They may report a problem from it. */
+export const fullPhone = (p: Profile) => has(p, 'register.edit') || has(p, 'register.main') || (has(p, 'book.own') && p.books.length > 0) || has(p, 'inventory.manage');
 
 /** Pairs a phone for the person signed in on it. The key is given once, here. */
 export async function pairPhone(db: Db, profile: Profile, name: string): Promise<{ id: string; key: string }> {
@@ -89,6 +93,8 @@ export interface PhonePack {
   kind?: 'community';
   curs?: { code: string; label: string }[];
   /** the inventory, for the one who keeps it: the places and the items to count (21 November 2026) */
+  /** problems reported (inventory step 3): the spaces to say where, and this person's own reports with their answer */
+  problem?: { spaces: ProblemSpace[]; mine: InvProblem[] };
   inv?: { categories: { id: number; name: string; serial: number }[]; origins: { id: number; name: string }[]; names: string[]; places: { id: number; name: string }[]; items: { id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }[] };
   /** the calendar of rooms (22 November 2026): never an amount; `book`: this person may make bookings */
   host?: HostPack;
@@ -168,6 +174,7 @@ export async function phonePack(db: Db, profile: Profile, phone: PhoneRow): Prom
     rate: lists.settings.usd_rate,
     tolerance: lists.settings.exchange_tolerance,
     ...(has(profile, 'inventory.manage') ? { inv: await inventoryPack(db) } : {}),
+    ...(fullPhone(profile) && (await problemsAvailable(db)) ? { problem: { spaces: await problemSpaces(db), mine: (await problemsFor(db, profile)).filter((x) => x.mine) } } : {}),
     ...((await hostPack(db, profile)) ? { host: await hostPack(db, profile) } : {}),
   };
 }
@@ -304,6 +311,15 @@ export async function phoneHostStatus(ctx: OpCtx, a: { id: number; status: strin
   const status = ['confirmed', 'option', 'cancelled'].includes(String(a.status)) ? String(a.status) : 'option';
   await runOp(ctx, 'host.booking.status', { id: Number(a.id), status, reason: a.reason ?? null });
   return { ok: true };
+}
+
+/** A problem reported on the phone (perhaps with no connection): made like on the computer; the phone's own number makes sure it is never made twice. */
+export async function phoneProblem(ctx: OpCtx, a: { key: string; what?: string; where?: string; photo?: { base64: string; mime: string } | null }): Promise<{ ok: true; id: number; already?: boolean }> {
+  const key = String(a.key ?? '');
+  if (!ID.test(key)) throw new UserError(m('بلاغ بلا رقم', 'A report without its number', 'Un signalement sans son numéro'));
+  if (!fullPhone(ctx.profile)) throw new UserError(m('غير مسموح من هذا الهاتف', 'Not allowed from this phone', 'Non autorisé depuis ce téléphone'));
+  const r = (await runOp(ctx, 'inv.problem.report', { what: a.what, where: a.where, photo: a.photo ?? null, key })) as { id: number; already?: boolean };
+  return { ok: true, id: r.id, ...(r.already ? { already: true } : {}) };
 }
 
 /** A photo of an item taken on the phone. */

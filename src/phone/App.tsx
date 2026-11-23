@@ -6,6 +6,7 @@ import { allPhotos, allRows, delPhoto, delRow, gDel, gGet, gSet, kvGet, kvSet, l
 import { api, balance, check, hostChange, hostConfirm, Offline, openFull, Refused, sync, Unlinked } from './sync';
 import { Count, invCounts, invPhotos } from './Count';
 import { Record as RecordItems, invNews } from './Record';
+import { Problem, problemNews } from './Problem';
 import { CalendarPage, HostReview, hostNews } from './Calendar';
 
 type Lang = 'ar' | 'en' | 'fr';
@@ -327,6 +328,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
   const [form, setForm] = useState<{ type: Kind; row?: Entry } | null>(null);
   const [counting, setCounting] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [calendar, setCalendar] = useState(false);
   /** the bookings just sent to the centre, shown in a window to confirm or change */
   const [hostRev, setHostRev] = useState<number[] | null>(null);
@@ -335,7 +337,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
   const [menu, setMenu] = useState(false);
   const [net, setNet] = useState<Net>({ state: 'idle' });
   const running = useRef(false);
-  const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); setInvWaiting((await invCounts()).filter((c) => !c.sent).length + (await invPhotos()).filter((p) => !p.sent).length + (await invNews()).filter((x) => x.state !== 'sent').length); setHostWaiting((await hostNews()).filter((x) => x.state !== 'sent').length); }, []);
+  const load = useCallback(async () => { setRows(await allRows()); setPhotos(await allPhotos()); setInvWaiting((await invCounts()).filter((c) => !c.sent).length + (await invPhotos()).filter((p) => !p.sent).length + (await invNews()).filter((x) => x.state !== 'sent').length + (await problemNews()).filter((x) => x.state !== 'sent').length); setHostWaiting((await hostNews()).filter((x) => x.state !== 'sent').length); }, []);
   useEffect(() => { void load(); }, [load]);
   // what waits in each database of this phone (shown on the switch, so nothing is forgotten in the other one)
   useEffect(() => { void (async () => { const w: Record<string, number> = {}; for (const x of links) w[x.ns] = await waitingOf(x.ns); setWaitBy(w); })(); }, [links, rows, menu]);
@@ -384,6 +386,7 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
   if (hostRev && pack.host) return <HostReview pack={pack} ids={hostRev} tr={t} onConfirm={async (id) => { await hostConfirm(keyOf, id); const p = await sync(keyOf); setPack(p.pack); }} onChange={async (id, b) => { await hostChange(keyOf, id, b); const p = await sync(keyOf); setPack(p.pack); }} onClose={() => setHostRev(null)} />;
   if (calendar && pack.host) return <CalendarPage pack={pack} tr={t} onClose={async (saved) => { setCalendar(false); await load(); if (saved) void doSync(true); }} />;
   if (counting && pack.inv) return <Count pack={pack} tr={t} onClose={async (saved) => { setCounting(false); await load(); if (saved) void doSync(true); }} />;
+  if (reporting && pack.problem) return <Problem pack={pack} tr={t} lang={lang} onClose={async (saved) => { setReporting(false); await load(); if (saved) void doSync(true); }} />;
   if (recording && pack.inv) return <RecordItems pack={pack} tr={t} lang={lang} onClose={async (saved) => { setRecording(false); await load(); if (saved) void doSync(true); }} />;
   if (form) return <RowForm pack={pack} type={form.type} row={form.row} bookId={bookId} photos={photos.filter((p) => p.trxId === form.row?.id)} onClose={async (saved) => { setForm(null); await load(); if (saved) { setTab('waiting'); void doSync(true); } }} />;
   return (
@@ -440,6 +443,9 @@ function Home({ pack, setPack, keyOf, lang: l, setLang, onLock, onUnlink, links,
 
       {pack.host && (
         <button className="ph-big trf" onClick={() => setCalendar(true)}><span>📅 {t('التقويم والحجوزات', 'Calendar and bookings', 'Calendrier et réservations')}{hostWaiting ? ` · ${hostWaiting} ${t('ينتظر', 'waiting', 'en attente')}` : ''}</span></button>
+      )}
+      {pack.problem && (
+        <button className="ph-big trf" onClick={() => setReporting(true)}><span>⚠ {t('أبلغ عن مشكلة', 'Report a problem', 'Signaler un problème')}{pack.problem.mine.some((x) => x.status === 'seen' && x.result) ? ' ✓' : ''}</span></button>
       )}
       {pack.inv && (
         <button className="ph-big inc" onClick={() => setRecording(true)}><span>➕ {t('تسجيل الأغراض', 'Record items', 'Enregistrer des objets')}</span></button>

@@ -41,7 +41,7 @@ import { HR_PAY_OPS, HR_PAY_READ_ONLY } from './hr/payOps';
 import { HR_RUN_OPS, HR_RUN_READ_ONLY } from './hr/runOps';
 import { HR_SESSION_OPS, HR_SESSION_READ_ONLY } from './hr/sessions';
 import { HR_STAGE4_OPS, HR_STAGE4_READ_ONLY } from './hr/stage4';
-import { INV_OPS, INV_READ_ONLY, invLite } from './inventory/ops';
+import { INV_OPS, INV_READ_ONLY, invLite, problemsLite } from './inventory/ops';
 import { HOST_OPS, HOST_READ_ONLY, hostLite } from './hosting/ops';
 import { CAL_OPS, CAL_READ_ONLY } from './hosting/calops';
 import type { InvLite } from './inventory/inv';
@@ -193,6 +193,8 @@ export interface DataPayload {
   /** the inventory's lines and the purchases already listed (only for those who see the inventory) */
   inv?: InvLite | null;
   host?: { on: boolean; review: number; toEnter: number; inventoryOn: boolean } | null;
+  /** problems reported (inventory step 3): null when this database has no inventory */
+  problems?: { on: true; open: number } | null;
 }
 
 export interface CashCountRow {
@@ -393,6 +395,7 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
     grantsBookId: Number(await getMeta(db, 'grants_book_id')) || null,
     inv: await invLite(c, { rows: allRows, lists }),
     host: await hostLite(c),
+    problems: await problemsLite(c),
   };
 }
 

@@ -18,9 +18,6 @@ calendar's foundation, §3, the "can be booked" tick, §4, and the inventory's s
 - The guide's sentence on expenses says the same (Arabic, English, French).
 - To check: *New entry → Expense*: no Project field; choose a heading and a line and save; *Reports → By project* shows it in the line's project.
 
-## Not in the installer (tools only)
-- `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".
-
 ## 3. The new Calendar — step 1 "Foundation" (data and rules only, no new screen yet)
 Concept: `calendar-plan/CALENDAR-BASELINE.md` (2.1, final) §10 step 1. Rules in `src/hosting/calendar.ts`, operations
 `cal.*` in `src/hosting/calops.ts`, tests in `tests/calendar.test.ts`.
@@ -105,3 +102,25 @@ Concept: `inventory-plan/INVENTORY-BASELINE.md` (1.1, final) §9 step 1. Rules i
   unchanged.
 - To check (with step 2's screens): the map, a store in "Inventory places", moving part of a group.
 
+## 6. The new Calendar — step 3 "The windows"
+- **The booking window** (our activity, outside booking, whole centre) now has, in order: who · where · when ·
+  **equipment needed** (from the list taken from the inventory, with how many; a warning if bookings at the same time ask
+  for more than the inventory holds) · **services** (meals, coffee break…: how many; the amounts only for the Director and
+  the Coordinator) · **price** (Director, Coordinator: the **"free" tick, ticked by default**; untick for an amount in USD or
+  SYP, **per person per night** for a stay, **for the whole booking**, or **for each date** of a booking that repeats or
+  lasts several days; the agreed total shown at once; every change kept in the history) · status, private, note.
+  Reception does not see the price: its bookings are saved "price not set", and the window says so; when the Director or
+  the Coordinator opens such a booking, a line asks them to decide free or a price.
+- **The organisation window**: name, kind, note, **several persons in charge** with their phones (a person is switched
+  off, never removed), switched off rather than deleted; opened from the booking window (✎ and ＋) or from the
+  **Organisations** register in the bar (search by name, person or phone; how many bookings each).
+- **Always in the room** is read from the inventory (inventory step 1), or the text typed in the settings while the
+  inventory has nothing for that space: shown in the booking window under the chosen spaces, in a booking's window and as
+  a tip on the spaces of the week and the day.
+- Settings → Lists: the **services** and the **equipment** a booking can ask for (names taken from the inventory).
+- "For each date" also for a booking of several days in a row (not only weekly).
+- Tried in the side pane on the copy: an organisation with two persons; a hall booking at 50 USD with a service at
+  20 USD (total 70 USD), saved and opened again with its price.
+
+## Not in the installer (tools only)
+- `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

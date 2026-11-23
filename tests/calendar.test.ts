@@ -449,6 +449,43 @@ describe('step 1 on a test database', () => {
   });
 });
 
+describe('step 3: the windows (services, price, organisations) on the test database', () => {
+  it('the lists of services and equipment are kept by the Director', async () => {
+    await expect(runOp(coordinator, 'cal.service.save', { name: 'Coffee break · استراحة قهوة' })).rejects.toThrow();
+    const sv = (await runOp(director, 'cal.service.save', { name: 'Coffee break · استراحة قهوة' })) as { id: number };
+    expect((await cal()).services.find((x) => x.id === sv.id)?.active).toBe(1);
+    await expect(runOp(reception, 'cal.equip.options', undefined)).rejects.toThrow();
+  });
+  it('Reception books with services (how many), never an amount; the Coordinator sets the amounts and a price for each date', async () => {
+    const sv = (await cal()).services.find((x) => x.name.startsWith('Coffee break'))!;
+    const a = { origin: 'outside', org_id: org, people: 20, from_day: day(196), to_day: day(198), time_from: '09:00', time_to: '12:00', spaces: [hallB] };
+    const r = await save(reception, { ...a, lines: [{ service_id: sv.id, qty: 20, amount: 500 }], free: false, rate: 99 }); // Monday to Wednesday
+    expect(r.saved).toBe(true);
+    let b = (await cal()).bookings.find((x) => x.id === r.id)!;
+    expect(b.price_state).toBe('unset');
+    let line = (await cal()).lines.find((l) => l.booking_id === r.id)!;
+    expect([line.label, line.qty, line.amount]).toEqual([sv.name, 20, 0]);
+    // the Coordinator: 30 USD for each of the three dates, and the coffee break 40 USD
+    await save(coordinator, { ...a, id: r.id, free: false, price_mode: 'group', price_each: true, rate: 30, currency: 'USD', lines: [{ id: line.id, service_id: sv.id, qty: 20, amount: 40, currency: 'USD' }] });
+    b = (await cal()).bookings.find((x) => x.id === r.id)!;
+    line = (await cal()).lines.find((l) => l.booking_id === r.id)!;
+    expect([b.price_state, b.price_mode, b.price_each, b.rate, line.amount]).toEqual(['priced', 'group', 1, 30, 40]);
+    const d = await cal();
+    expect(calTotals(b, d.lines.filter((l) => l.booking_id === b.id), d.dates)).toEqual({ USD: 130, SYP: 0 });
+    // one day only: "each date" is not kept
+    await save(coordinator, { ...a, id: r.id, to_day: day(196), free: false, price_mode: 'group', price_each: true, rate: 30, currency: 'USD', lines: [{ id: line.id, service_id: sv.id, qty: 20, amount: 40, currency: 'USD' }] });
+    expect((await cal()).bookings.find((x) => x.id === r.id)?.price_each).toBe(0);
+  });
+  it('an organisation with several persons: a person changed or switched off, never removed; the booking keeps its person', async () => {
+    const o = (await runOp(coordinator, 'cal.org.save', { name: 'Test parish', kind_id: 2, persons: [{ name: 'Person D', phone: '0944' }, { name: 'Person E', phone: '0955' }] })) as { id: number };
+    const ps = (await cal()).persons.filter((p) => p.org_id === o.id);
+    await runOp(coordinator, 'cal.org.save', { id: o.id, name: 'Test parish', kind_id: 2, note: 'Sunday mornings', persons: [{ id: ps[0].id, name: 'Person D', phone: '0944 000', active: true }, { id: ps[1].id, name: 'Person E', phone: '0955', active: false }, { name: 'Person F', phone: '0966' }] });
+    const after = (await cal()).persons.filter((p) => p.org_id === o.id);
+    expect(after.map((p) => [p.name, p.phone, p.active])).toEqual([['Person D', '0944 000', 1], ['Person E', '0955', 0], ['Person F', '0966', 1]]);
+    await expect(runOp(team, 'cal.org.save', { name: 'X' })).rejects.toThrow();
+  });
+});
+
 // ------------------------------------------------------------------ the 0.12 data carried over
 
 describe('migrations 64–67 on a 0.12 database', () => {

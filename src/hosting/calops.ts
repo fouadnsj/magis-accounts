@@ -6,7 +6,7 @@ import { nowIso, one, type Stmt } from '../db/db';
 import { auditStmt, UserError } from '../db/repo';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
-import { addDays, isDay, nextCode, type Currency, type HostAlloc, type HostBuilding, type HostEquip, type HostLine, type HostNeed, type HostPay } from './host';
+import { addDays, isDay, nextCode, type Currency, type HostAlloc, type HostBuilding, type HostEquip, type HostLine, type HostNeed, type HostPay, type HostService } from './host';
 import {
   calRights, cancelMoney, decide, forViewer, isHour, mayChange, occurrences, priceSign, readOrgsSheet, readSpacesSheet, received, seesPrices, spaceProblem, warningsOf, checkCal, clashesOf,
   HOLD_DAYS, type CalActivityKind, type CalBooking, type CalCategory, type CalData, type CalDate, type CalKind, type CalOrg, type CalOrgKind, type CalPerson, type CalRights,
@@ -57,6 +57,7 @@ export async function loadCalAll(c: OpCtx): Promise<CalData> {
     needs: await q<HostNeed>('SELECT * FROM host_need'),
     lines: await q<HostLine>('SELECT * FROM host_line ORDER BY id'),
     pays: await q<HostPay>('SELECT * FROM host_pay ORDER BY paid_on, id'),
+    services: await q<HostService>('SELECT * FROM host_service ORDER BY sort, name'),
     inRoom: await inRoomRows(c.db),
     rights: rightsOf(c),
   };
@@ -244,7 +245,8 @@ async function saveBooking(c: OpCtx, a: CalSaveInput) {
     if (a.free === false) {
       priceState = 'priced';
       mode = a.price_mode === 'person' ? 'person' : 'group';
-      each = mode === 'group' && a.price_each && repeat ? 1 : 0;
+      // for each date: a booking that repeats every week or lasts several days
+      each = mode === 'group' && a.price_each && kind === 'event' && (repeat || toDay > fromDay) ? 1 : 0;
       rate = money(a.rate);
       currency = cur(a.currency);
       if (rate == null) throw err('اكتب السعر أو علّم «مجاني»', 'Write the price, or tick "free"', 'Écrivez le prix ou cochez « gratuit »');
@@ -493,7 +495,7 @@ async function saveOrg(c: OpCtx, a: { id?: number; name: string; kind_id?: numbe
 
 // ------------------------------------------------------------------ lists (editable in the program)
 
-const listSave = (table: 'cal_category' | 'cal_activity_kind' | 'cal_org_kind', withColor = false) => async (c: OpCtx, a: { id?: number; name: string; active?: boolean; color?: string | null }) => {
+const listSave = (table: 'cal_category' | 'cal_activity_kind' | 'cal_org_kind' | 'host_service', withColor = false) => async (c: OpCtx, a: { id?: number; name: string; active?: boolean; color?: string | null }) => {
   const name = txt(a.name);
   if (!name) throw err('اكتب الاسم', 'Write the name', 'Écrivez le nom');
   if (await one(c.db, `SELECT 1 FROM ${table} WHERE name = ? AND id <> ?`, [name, a.id ?? -1])) throw err('الاسم موجود', 'That name exists', 'Ce nom existe déjà');
@@ -629,11 +631,16 @@ export const CAL_OPS = {
   'cal.category.save': { check: need('setup'), run: listSave('cal_category') },
   'cal.akind.save': { check: need('setup'), run: listSave('cal_activity_kind', true) },
   'cal.okind.save': { check: need('setup'), run: listSave('cal_org_kind') },
+  /** the services sold with a booking (meals, coffee break, heating…) */
+  'cal.service.save': { check: need('setup'), run: listSave('host_service') },
+  /** the equipment a booking may ask for: a name the inventory holds (switched off, never deleted) */
+  'cal.equip.save': { check: need('setup'), run: (c: OpCtx, a: { id?: number; name?: string; active?: boolean }) => HOST_OPS['host.equip.save'].run(c, a) },
+  'cal.equip.options': { check: need('setup'), run: (c: OpCtx) => HOST_OPS['host.equip.options'].run(c) },
   'cal.import.spaces': { check: need('setup'), run: (c: OpCtx, a: { rows: unknown[][]; dry?: boolean }) => importSpaces(c, a) },
   'cal.import.orgs': { check: need('orgs'), run: (c: OpCtx, a: { rows: unknown[][]; dry?: boolean }) => importOrgs(c, a) },
 } as const;
 
-export const CAL_READ_ONLY = ['cal.get', 'cal.history'];
+export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options'];
 
 /** for the tests and the coming screens: who sees the amounts */
 export const calSeesPrices = (c: OpCtx) => seesPrices(rightsOf(c));

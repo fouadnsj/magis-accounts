@@ -6,12 +6,12 @@
 // The full windows (price, services, equipment, organisations) come in step 3; here a first booking window.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../state';
-import { Field, Modal, Seg, Tabs, biName, errText, promptBox, t, toast, todayIso } from './kit';
+import { Field, Modal, Seg, Tabs, biName, errText, parseAmount, promptBox, t, toast, todayIso } from './kit';
 import { m, tx, monthWord } from '../i18n';
-import { addDays, colorOf } from '../hosting/host';
-import { holdDate, holdPassed, inCalendar, mayChange, occurrences, sleepsIn, type CalBooking, type CalData, type CalSpace } from '../hosting/calendar';
+import { addDays, colorOf, type Currency } from '../hosting/host';
+import { calTotals, holdDate, holdPassed, inCalendar, mayChange, occurrences, sleepsIn, type CalBooking, type CalData, type CalOrg, type CalSpace, type Totals } from '../hosting/calendar';
 import { bandOf, hm, itemsBetween, listOf, monthGrid, nextDate, search, shutOf, spacesShown, todayFigures, weekOf, type DayItem, type ListKind } from '../hosting/calview';
-import { CalSettings } from './CalSettings';
+import { CalSettings, inRoomText } from './CalSettings';
 
 type Screen = 'calendar' | 'settings';
 type View = 'day' | 'week' | 'month' | 'list';
@@ -96,6 +96,7 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<{ id: number; day?: string } | null>(null);
   const [win, setWin] = useState<{ booking: CalBooking | null; start?: NewStart } | null>(null);
+  const [orgs, setOrgs] = useState(false);
   const r = data.rights;
   const canNew = r.programme || r.outside || r.whole;
   const step = (n: number) => setAnchor(view === 'day' ? addDays(anchor, n) : view === 'month' ? (() => { const x = new Date(`${anchor.slice(0, 7)}-01T00:00:00Z`); x.setUTCMonth(x.getUTCMonth() + n); return x.toISOString().slice(0, 10); })() : addDays(anchor, 7 * n));
@@ -119,9 +120,10 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
         ]} />
         <select className="inp cal-area-pick" value={area ?? ''} onChange={(e) => setArea(e.target.value ? Number(e.target.value) : null)}>
           <option value="">{L('كل المناطق', 'Every area', 'Toutes les zones')}</option>
-          {data.areas.filter((a) => a.active).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {data.areas.filter((a) => a.active && data.spaces.some((x) => x.building_id === a.id && inCalendar(x))).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
         <input className="inp cal-search" type="search" placeholder={`🔍 ${L('بحث: اسم، جهة، مسؤول، هاتف، مكان…', 'Search: name, organisation, leader, phone, space…', 'Rechercher : nom, organisation, responsable, téléphone, espace…')}`} value={query} onChange={(e) => setQuery(e.target.value)} />
+        {r.contacts && <button className="btn small" onClick={() => setOrgs(true)}>{L('الجهات', 'Organisations', 'Organisations')}</button>}
         {canNew && <button className="btn primary small" onClick={() => startNew({ from: view === 'list' ? today : anchor })}>＋ {L('جديد', 'New', 'Nouveau')}</button>}
       </div>
       <div className="cal-quick">
@@ -143,6 +145,7 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
         <BookingSide data={data} b={data.bookings.find((b) => b.id === open.id)!} day={open.day} today={today} act={act} onClose={() => setOpen(null)} onChange={(b) => { setOpen(null); setWin({ booking: b }); }} />
       )}
       {win && <BookingWindow data={data} start={win} onClose={() => setWin(null)} refresh={refresh} />}
+      {orgs && <OrgRegister data={data} refresh={refresh} onClose={() => setOrgs(false)} />}
     </>
   );
 }
@@ -262,7 +265,7 @@ function WeekView({ data, spaces, days, today, onOpen, onNew }: { data: CalData;
                 const r = rows.indexOf(sp);
                 return (
                   <tr key={sp.id}>
-                    <th className="cal-sp" style={{ borderInlineStartColor: colorOf(data.areas, sp.building_id) }}>{sp.name}<div className="small muted">{sleepsIn(sp, data.kinds) ? (sp.beds ? `${sp.beds} ${L('سرير', 'beds', 'lits')}` : '') : sp.capacity ? `${sp.capacity} ${L('شخص', 'people', 'pers.')}` : ''}</div></th>
+                    <th className="cal-sp" title={inRoomText(data, sp) || undefined} style={{ borderInlineStartColor: colorOf(data.areas, sp.building_id) }}>{sp.name}<div className="small muted">{sleepsIn(sp, data.kinds) ? (sp.beds ? `${sp.beds} ${L('سرير', 'beds', 'lits')}` : '') : sp.capacity ? `${sp.capacity} ${L('شخص', 'people', 'pers.')}` : ''}</div></th>
                     {days.map((d, c) => {
                       const here = (items.get(d) ?? []).filter((it) => it.spaces.includes(sp.id));
                       const shut = shutOf(data, sp.id, d);
@@ -357,7 +360,7 @@ function DayView({ data, spaces, day, today, onOpen, onNew }: { data: CalData; s
               const selected = drag.box && r >= drag.box.r0 && r <= drag.box.r1;
               return (
                 <div key={sp.id} className="cal-dayrow">
-                  <div className="cal-sp" style={{ borderInlineStartColor: colorOf(data.areas, sp.building_id) }}>{sp.name}</div>
+                  <div className="cal-sp" title={inRoomText(data, sp) || undefined} style={{ borderInlineStartColor: colorOf(data.areas, sp.building_id) }}>{sp.name}</div>
                   <div className={`cal-line${shut ? ' shut' : ''}`}
                     onMouseDown={(e) => { if (!onNew || shut || e.button !== 0) return; e.preventDefault(); drag.start(r, minuteAt(e.currentTarget, e.clientX)); }}
                     onMouseMove={(e) => drag.dragging && drag.move(r, minuteAt(e.currentTarget, e.clientX))}>
@@ -510,7 +513,7 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
       <dl className="cal-dl">
         {b.status === 'option' && <><dt>{L('محجوز حتى', 'Held until', 'Retenu jusqu’au')}</dt><dd className={holdPassed(b, today) ? 'cal-red' : ''}>{fmtDay(holdDate(b))}{holdPassed(b, today) ? ` · ${L('انتهى الموعد: اتصلوا بهم', 'the date has passed: call them', 'la date est passée : appelez-les')}` : ''}</dd></>}
         <dt>{L('متى', 'When', 'Quand')}</dt><dd>{whenText(b)}</dd>
-        <dt>{L('أين', 'Where', 'Où')}</dt><dd>{whereText(data, b) || '—'}</dd>
+        <dt>{L('أين', 'Where', 'Où')}</dt><dd>{whereText(data, b) || '—'}{data.allocs.filter((a) => a.booking_id === b.id).map((a) => data.spaces.find((x) => x.id === a.room_id)).filter((x): x is CalSpace => !!x && !!inRoomText(data, x)).map((x) => <div key={x.id} className="small muted">🎛 {x.name}: {inRoomText(data, x)}</div>)}</dd>
         {b.leader && <><dt>{L('المسؤول', 'Leader', 'Responsable')}</dt><dd>{b.leader}</dd></>}
         {org && <><dt>{L('الجهة', 'Organisation', 'Organisation')}</dt><dd>{org.name}{org.note && <div className="small muted">{org.note}</div>}</dd></>}
         {b.contact && <><dt>{L('الشخص', 'Person', 'Personne')}</dt><dd>{b.contact}{b.phone && <> · <a href={`tel:${b.phone.replace(/\s/g, '')}`} dir="ltr">{b.phone}</a></>}</dd></>}
@@ -542,20 +545,28 @@ function BookingSide({ data, b, day, today, act, onClose, onChange }: { data: Ca
   );
 }
 
-// ---------------------------------------------------------------- the booking window (first version; price, services and equipment in step 3)
+// ---------------------------------------------------------------- the booking window (step 3: our activity, or an outside booking with its equipment, services and price)
 
 type Who = 'ours' | 'outside' | 'whole';
 type Where = 'spaces' | 'outside';
 type When = 'once' | 'days' | 'weekly';
+interface LineForm { id?: number; service_id: number | null; label: string; qty: string; amount: string; currency: Currency }
 interface Form {
   who: Who; stay: boolean; title: string; leader: string; activity_kind_id: number | null; subject: string;
   org_id: number | null; person_id: number | null; people: string;
   where: Where; place: string; spaces: number[];
   when: When; from: string; to: string; repeat: number[]; t1: string; t2: string; allDay: boolean;
+  needs: { equip_id: number; qty: string }[];
+  lines: LineForm[];
+  /** the "free" tick (ticked by default); untick for an amount */
+  free: boolean; pmode: 'person' | 'group'; each: boolean; rate: string; currency: Currency;
   status: 'option' | 'confirmed'; hold: string; private: boolean; note: string;
 }
 const HOUR_LIST = Array.from({ length: (23 - 7) * 4 + 1 }, (_, i) => hm(7 * 60 + i * 15));
 const QUICK_HOURS: [string, string, () => string][] = [['09:00', '13:00', () => L('صباحاً', 'Morning', 'Matin')], ['14:00', '18:00', () => L('بعد الظهر', 'Afternoon', 'Après-midi')], ['18:00', '22:00', () => L('مساءً', 'Evening', 'Soir')]];
+const numText = (n: number | null | undefined) => (n == null || n === 0 ? '' : String(n));
+const amountOf = (x: string) => { const n = parseAmount(x); return Number.isFinite(n) ? n : 0; };
+const fmtMoney = (t: Totals) => [t.USD ? `${t.USD.toLocaleString('en', { maximumFractionDigits: 2 })} USD` : '', t.SYP ? `${Math.round(t.SYP).toLocaleString('en')} SYP` : ''].filter(Boolean).join(' + ') || '0';
 
 function formOf(d: CalData, b: CalBooking | null, start: NewStart | undefined, today: string): Form {
   const r = d.rights;
@@ -565,7 +576,11 @@ function formOf(d: CalData, b: CalBooking | null, start: NewStart | undefined, t
       org_id: b.org_id, person_id: b.person_id, people: b.people ? String(b.people) : '',
       where: b.outside_place ? 'outside' : 'spaces', place: b.outside_place ?? '', spaces: d.allocs.filter((a) => a.booking_id === b.id).map((a) => a.room_id),
       when: b.repeat_days ? 'weekly' : b.to_day !== b.from_day && b.kind === 'event' ? 'days' : 'once', from: b.from_day, to: b.to_day, repeat: (b.repeat_days ?? '').split(',').filter(Boolean).map(Number),
-      t1: b.time_from ?? '10:00', t2: b.time_to ?? '12:00', allDay: !b.time_from, status: b.status === 'confirmed' ? 'confirmed' : 'option', hold: b.hold_until ?? holdDate(b), private: !!b.private, note: b.note ?? '',
+      t1: b.time_from ?? '10:00', t2: b.time_to ?? '12:00', allDay: !b.time_from,
+      needs: d.needs.filter((n) => n.booking_id === b.id).map((n) => ({ equip_id: n.equip_id, qty: String(n.qty) })),
+      lines: d.lines.filter((l) => l.booking_id === b.id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: String(l.qty), amount: numText(l.amount), currency: l.currency })),
+      free: b.price_state !== 'priced', pmode: b.price_mode === 'person' ? 'person' : b.price_mode === 'group' ? 'group' : b.kind === 'stay' ? 'person' : 'group', each: !!b.price_each, rate: numText(b.rate), currency: b.currency,
+      status: b.status === 'confirmed' ? 'confirmed' : 'option', hold: b.hold_until ?? holdDate(b), private: !!b.private, note: b.note ?? '',
     };
   }
   const st = start ?? {};
@@ -578,7 +593,9 @@ function formOf(d: CalData, b: CalBooking | null, start: NewStart | undefined, t
     who, stay, title: '', leader: '', activity_kind_id: d.activityKinds.find((k) => k.active)?.id ?? null, subject: '', org_id: null, person_id: null, people: '',
     where: 'spaces', place: '', spaces: st.spaces ?? [],
     when: multi ? 'days' : 'once', from, to: stay ? (to > from ? to : addDays(from, 1)) : to, repeat: [((new Date(`${from}T00:00:00Z`).getUTCDay()))],
-    t1: st.t1 ?? '10:00', t2: st.t2 ?? '12:00', allDay: false, status: 'option', hold: addDays(today, 7), private: false, note: '',
+    t1: st.t1 ?? '10:00', t2: st.t2 ?? '12:00', allDay: false, needs: [], lines: [],
+    free: true, pmode: stay ? 'person' : 'group', each: false, rate: '', currency: 'USD',
+    status: 'option', hold: addDays(today, 7), private: false, note: '',
   };
 }
 
@@ -594,9 +611,10 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
   const [busy, setBusy] = useState(false);
   // the person agreed to save a weekly series without its taken dates (kept if a warning comes next)
   const [skipOk, setSkipOk] = useState(false);
-  const [newOrg, setNewOrg] = useState<{ name: string; kind_id: number | null; person: string; phone: string } | null>(null);
+  const [orgWin, setOrgWin] = useState<{ org: CalOrg | null } | null>(null);
   const set = (x: Partial<Form>) => { setF({ ...f, ...x }); setRes(null); setSkipOk(false); };
   const isStay = f.who === 'outside' && f.stay;
+  const outside = f.who === 'outside';
   const persons = data.persons.filter((p) => p.org_id === f.org_id && (p.active || p.id === f.person_id));
   const choosable = (sp: CalSpace) => inCalendar(sp) && (!isStay || sleepsIn(sp, data.kinds)) && (f.who !== 'outside' || !!sp.rentable);
   const whoOptions = [
@@ -604,34 +622,30 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
     r.outside && { value: 'outside' as Who, label: L('حجز خارجي', 'Outside booking', 'Réservation extérieure') },
     r.whole && { value: 'whole' as Who, label: L('المركز كله', 'Whole centre', 'Tout le centre') },
   ].filter(Boolean) as { value: Who; label: string }[];
-
-  const addOrg = async () => {
-    if (!newOrg?.name.trim()) return;
-    try {
-      const x = await s.api.call('cal.org.save', { name: newOrg.name, kind_id: newOrg.kind_id, persons: newOrg.person.trim() ? [{ name: newOrg.person, phone: newOrg.phone }] : [] });
-      await refresh();
-      const fresh = await s.api.call('cal.get');
-      const p = fresh.persons.find((q) => q.org_id === x.id);
-      set({ org_id: x.id, person_id: p?.id ?? null });
-      setNewOrg(null);
-    } catch (e) { toast(errText(e), true); }
-  };
+  const timed = !isStay && f.who !== 'whole' && !f.allDay;
+  const toDay = f.when === 'once' && !isStay ? f.from : f.to;
+  const repeatDays = f.when === 'weekly' && !isStay ? f.repeat : null;
+  const several = !isStay && (f.when === 'weekly' || toDay > f.from);
+  // the price as it will be counted (Director, Coordinator): free, per person per night, the whole booking, each date
+  const totals = useMemo(() => {
+    const probe = { ...(old ?? {}), id: old?.id ?? -1, kind: isStay ? 'stay' : 'event', status: 'option', from_day: f.from, to_day: toDay, repeat_days: repeatDays?.join(',') || null, time_from: null, time_to: null, people: Number(f.people) || 0,
+      price_state: f.free ? 'free' : 'priced', price_mode: f.pmode, price_each: f.each && several ? 1 : 0, rate: amountOf(f.rate), currency: f.currency } as CalBooking;
+    return { total: calTotals(probe, f.lines.map((l) => ({ amount: amountOf(l.amount), currency: l.currency })), old ? data.dates : []), dates: occurrences(probe, old ? data.dates : []).length };
+  }, [f, old, isStay, toDay, repeatDays, several, data.dates]);
 
   const save = async (extra: { force?: boolean; without_taken?: boolean } = {}) => {
     setBusy(true);
     try {
-      const timed = !isStay && f.who !== 'whole' && !f.allDay;
-      const to = f.when === 'once' && !isStay ? f.from : f.to;
-      // what this window does not show yet is carried as it is (price, services, equipment: step 3)
-      const lines = old ? data.lines.filter((l) => l.booking_id === old.id).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: l.qty, amount: l.amount, currency: l.currency })) : [];
-      const needs = old ? data.needs.filter((n) => n.booking_id === old.id).map((n) => ({ equip_id: n.equip_id, qty: n.qty })) : [];
-      const price = old ? { free: old.price_state !== 'priced', price_mode: old.price_mode, price_each: !!old.price_each, rate: old.rate, currency: old.currency } : {};
+      const lines = f.lines.filter((l) => l.label.trim() || l.service_id != null).map((l) => ({ id: l.id, service_id: l.service_id, label: l.label, qty: Number(l.qty) || 1, amount: amountOf(l.amount), currency: l.currency }));
+      const needs = f.needs.filter((n) => Number(n.qty) > 0).map((n) => ({ equip_id: n.equip_id, qty: Number(n.qty) }));
+      // the price: only the Director and the Coordinator send it; Reception's bookings stay "price not set"
+      const price = outside && r.prices ? { free: f.free, price_mode: f.pmode, price_each: f.each && several, rate: f.free ? null : amountOf(f.rate), currency: f.currency } : {};
       const x = (await s.api.call('cal.booking.save', {
-        id: old?.id, origin: f.who === 'outside' ? 'outside' : 'ours', kind: isStay ? 'stay' : 'event', whole_centre: f.who === 'whole',
+        id: old?.id, origin: outside ? 'outside' : 'ours', kind: isStay ? 'stay' : 'event', whole_centre: f.who === 'whole',
         title: f.title, leader: f.leader, activity_kind_id: f.activity_kind_id, subject: f.subject, org_id: f.org_id, person_id: f.person_id, people: Number(f.people) || 0,
         outside_place: f.who === 'ours' && f.where === 'outside' ? f.place : null, spaces: f.who === 'whole' || (f.who === 'ours' && f.where === 'outside') ? [] : f.spaces,
-        from_day: f.from, to_day: to, repeat_days: f.when === 'weekly' && !isStay ? f.repeat : null, time_from: timed ? f.t1 : null, time_to: timed ? f.t2 : null,
-        status: f.status, hold_until: f.status === 'option' ? f.hold : null, private: f.private, note: f.note, lines, needs, ...price, ...extra, without_taken: extra.without_taken || skipOk,
+        from_day: f.from, to_day: toDay, repeat_days: repeatDays, time_from: timed ? f.t1 : null, time_to: timed ? f.t2 : null,
+        status: f.status, hold_until: f.status === 'option' ? f.hold : null, private: f.private, note: f.note, lines: outside ? lines : [], needs, ...price, ...extra, without_taken: extra.without_taken || skipOk,
       })) as SaveResult;
       if (x.saved) {
         await refresh();
@@ -643,16 +657,21 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
   const warnText = (w: NonNullable<SaveResult['warnings']>[number]) => w.kind === 'sunday' ? L('يوم أحد: عادة لا حجوزات للقاعات.', 'Sunday: usually no hall bookings.', 'Dimanche : d’habitude pas de réservation de salle.')
     : w.kind === 'period' ? `${L('فترة إغلاق', 'Closed period', 'Période de fermeture')} (${w.name}): ${w.days?.length} ${L('يوم', 'day(s)', 'jour(s)')}.`
       : w.kind === 'capacity' ? `${L('عدد الأشخاص أكبر مما يتسع له المكان', 'More people than the space holds', 'Plus de personnes que l’espace n’en contient')}: ${w.people} / ${w.holds}.`
-        : `${L('لا يكفي', 'Not enough', 'Pas assez de')} ${data.equip.find((e) => e.id === w.equip_id)?.name ?? ''} ${w.day ? fmtDay(w.day) : ''}: ${w.wanted} / ${w.have}.`;
+        : `${L('لا يكفي', 'Not enough', 'Pas assez de')} ${data.equip.find((e) => e.id === w.equip_id)?.name ?? ''} ${w.day ? fmtDay(w.day) : ''}: ${w.wanted} ${L('مطلوب في ذلك الوقت', 'asked at that time', 'demandés à ce moment')}, ${w.have} ${L('في الجرد', 'in the inventory', 'dans l’inventaire')}.`;
+  let n = 0;
+  const num = () => ++n;
+  const equipList = data.equip.filter((e) => e.active || f.needs.some((x) => x.equip_id === e.id));
+  const services = data.services.filter((x) => x.active);
+  const title = old ? (f.who === 'ours' ? L('نشاطنا', 'Our activity', 'Notre activité') : f.who === 'whole' ? L('المركز كله', 'Whole centre', 'Tout le centre') : L('حجز خارجي', 'Outside booking', 'Réservation extérieure')) : L('حجز جديد', 'New booking', 'Nouvelle réservation');
 
   return (
-    <Modal title={old ? L('تعديل', 'Change', 'Modifier') : L('حجز جديد', 'New booking', 'Nouvelle réservation')} onClose={onClose}>
+    <Modal title={title} onClose={onClose}>
       <div className="cal-win">
         <section>
-          <h4>1. {L('من', 'Who', 'Qui')}</h4>
+          <h4>{num()}. {L('من', 'Who', 'Qui')}</h4>
           {!old && whoOptions.length > 1 && <Seg value={f.who} onChange={(v) => set({ who: v, stay: v === 'outside' ? f.stay : false })} options={whoOptions} />}
-          {f.who === 'outside' && <div style={{ marginTop: 6 }}><Seg value={f.stay ? 'stay' : 'hall'} onChange={(v) => set({ stay: v === 'stay', spaces: [], when: 'once', to: v === 'stay' ? addDays(f.from, 1) : f.from })} options={[{ value: 'hall', label: L('حجز قاعة', 'Hall booking', 'Réservation de salle') }, { value: 'stay', label: L('إقامة', 'Guest stay', 'Séjour') }]} /></div>}
-          {f.who !== 'outside' ? (
+          {outside && <div style={{ marginTop: 6 }}><Seg value={f.stay ? 'stay' : 'hall'} onChange={(v) => set({ stay: v === 'stay', spaces: [], when: 'once', to: v === 'stay' ? addDays(f.from, 1) : f.from, pmode: v === 'stay' ? 'person' : 'group' })} options={[{ value: 'hall', label: L('حجز قاعة', 'Hall booking', 'Réservation de salle') }, { value: 'stay', label: L('إقامة', 'Guest stay', 'Séjour') }]} /></div>}
+          {!outside ? (
             <div className="cal-grid2">
               <Field label={L('نوع النشاط', 'Kind of activity', 'Type d’activité')}>
                 <select className="inp" value={f.activity_kind_id ?? ''} onChange={(e) => set({ activity_kind_id: Number(e.target.value) || null })}>{data.activityKinds.filter((k) => k.active || k.id === f.activity_kind_id).map((k) => <option key={k.id} value={k.id}>{biName(k.name)}</option>)}</select>
@@ -669,8 +688,10 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
                     <option value="">…</option>
                     {data.orgs.filter((o) => o.active || o.id === f.org_id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                   </select>
-                  {r.orgs && <button className="btn small" title={L('جهة جديدة', 'New organisation', 'Nouvelle organisation')} onClick={() => setNewOrg({ name: '', kind_id: null, person: '', phone: '' })}>＋</button>}
+                  {r.orgs && f.org_id != null && <button className="btn small" title={L('الجهة وأشخاصها', 'The organisation and its persons', 'L’organisation et ses responsables')} onClick={() => setOrgWin({ org: data.orgs.find((o) => o.id === f.org_id) ?? null })}>✎</button>}
+                  {r.orgs && <button className="btn small" title={L('جهة جديدة', 'New organisation', 'Nouvelle organisation')} onClick={() => setOrgWin({ org: null })}>＋</button>}
                 </div>
+                {f.org_id != null && data.orgs.find((o) => o.id === f.org_id)?.note && <div className="small muted">{data.orgs.find((o) => o.id === f.org_id)!.note}</div>}
               </Field>
               <Field label={L('الشخص المسؤول لهذا الحجز', 'Person in charge for this booking', 'Responsable pour cette réservation')}>
                 <select className="inp" value={f.person_id ?? ''} onChange={(e) => set({ person_id: Number(e.target.value) || null })}>
@@ -682,56 +703,52 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
               <Field label={L('عدد الأشخاص', 'People', 'Personnes')}><input className="inp" inputMode="numeric" dir="ltr" value={f.people} onChange={(e) => set({ people: e.target.value.replace(/\D/g, '') })} /></Field>
             </div>
           )}
-          {newOrg && (
-            <div className="panel cal-neworg">
-              <b>{L('جهة جديدة', 'New organisation', 'Nouvelle organisation')}</b>
-              <div className="cal-grid2">
-                <Field label={L('الاسم', 'Name', 'Nom')}><input className="inp" autoFocus value={newOrg.name} onChange={(e) => setNewOrg({ ...newOrg, name: e.target.value })} /></Field>
-                <Field label={L('النوع', 'Kind', 'Type')}><select className="inp" value={newOrg.kind_id ?? ''} onChange={(e) => setNewOrg({ ...newOrg, kind_id: Number(e.target.value) || null })}><option value="">—</option>{data.orgKinds.filter((k) => k.active).map((k) => <option key={k.id} value={k.id}>{biName(k.name)}</option>)}</select></Field>
-                <Field label={L('الشخص المسؤول', 'Person in charge', 'Responsable')}><input className="inp" value={newOrg.person} onChange={(e) => setNewOrg({ ...newOrg, person: e.target.value })} /></Field>
-                <Field label={L('الهاتف', 'Phone', 'Téléphone')}><input className="inp" dir="ltr" value={newOrg.phone} onChange={(e) => setNewOrg({ ...newOrg, phone: e.target.value })} /></Field>
-              </div>
-              <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn small" onClick={() => setNewOrg(null)}>{t('إلغاء', 'Cancel')}</button><button className="btn small primary" onClick={() => void addOrg()}>{L('سجّل الجهة', 'Register it', 'L’inscrire')}</button></div>
-            </div>
-          )}
         </section>
 
         {f.who !== 'whole' && (
           <section>
-            <h4>2. {L('أين', 'Where', 'Où')}</h4>
+            <h4>{num()}. {L('أين', 'Where', 'Où')}</h4>
             {f.who === 'ours' && <Seg value={f.where} onChange={(v) => set({ where: v })} options={[{ value: 'spaces', label: L('في المركز', 'In the centre', 'Au centre') }, { value: 'outside', label: L('خارج المركز', 'Outside the centre', 'Hors du centre') }]} />}
             {f.who === 'ours' && f.where === 'outside'
               ? <Field label={L('المكان', 'The place', 'Le lieu')}><input className="inp" placeholder={L('رحلة، مخيّم في الأرض…', 'a trip, a camp at Al-Ard…', 'une sortie, un camp à Al-Ard…')} value={f.place} onChange={(e) => set({ place: e.target.value })} /></Field>
               : (
-                <div className="cal-pick">
-                  {data.areas.filter((a) => a.active).map((a) => {
-                    const list = data.spaces.filter((x) => x.building_id === a.id && inCalendar(x) && (!isStay || sleepsIn(x, data.kinds)));
-                    if (!list.length) return null;
-                    return (
-                      <div key={a.id}>
-                        <div className="small"><i className="cal-dot" style={{ background: colorOf(data.areas, a.id) }} /> <b>{a.name}</b></div>
-                        <div className="cal-chips">
-                          {list.map((x) => {
-                            const ok = choosable(x);
-                            const on = f.spaces.includes(x.id);
-                            return (
-                              <label key={x.id} className={`cal-pickone${on ? ' on' : ''}${ok ? '' : ' off'}`} title={ok ? undefined : L('لنشاطاتنا فقط', 'Ours only', 'Pour nous seulement')}>
-                                <input type="checkbox" disabled={!ok} checked={on} onChange={(e) => set({ spaces: e.target.checked ? [...f.spaces, x.id] : f.spaces.filter((y) => y !== x.id) })} /> {x.name}
-                                <span className="muted small"> {sleepsIn(x, data.kinds) ? (x.beds ? `${x.beds}🛏` : '') : x.capacity ? `${x.capacity}👤` : ''}</span>
-                              </label>
-                            );
-                          })}
+                <>
+                  <div className="cal-pick">
+                    {data.areas.filter((a) => a.active).map((a) => {
+                      const list = data.spaces.filter((x) => x.building_id === a.id && inCalendar(x) && (!isStay || sleepsIn(x, data.kinds)));
+                      if (!list.length) return null;
+                      return (
+                        <div key={a.id}>
+                          <div className="small"><i className="cal-dot" style={{ background: colorOf(data.areas, a.id) }} /> <b>{a.name}</b></div>
+                          <div className="cal-chips">
+                            {list.map((x) => {
+                              const ok = choosable(x);
+                              const on = f.spaces.includes(x.id);
+                              const inside = inRoomText(data, x);
+                              return (
+                                <label key={x.id} className={`cal-pickone${on ? ' on' : ''}${ok ? '' : ' off'}`} title={ok ? inside || undefined : L('لنشاطاتنا فقط', 'Ours only', 'Pour nous seulement')}>
+                                  <input type="checkbox" disabled={!ok} checked={on} onChange={(e) => set({ spaces: e.target.checked ? [...f.spaces, x.id] : f.spaces.filter((y) => y !== x.id) })} /> {x.name}
+                                  <span className="muted small"> {sleepsIn(x, data.kinds) ? (x.beds ? `${x.beds}🛏` : '') : x.capacity ? `${x.capacity}👤` : ''}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                  {f.spaces.some((id) => { const x = data.spaces.find((q) => q.id === id); return x && inRoomText(data, x); }) && (
+                    <div className="small muted" style={{ marginTop: 4 }}>
+                      {f.spaces.map((id) => data.spaces.find((q) => q.id === id)).filter((x): x is CalSpace => !!x && !!inRoomText(data, x)).map((x) => <div key={x.id}>🎛 <b>{x.name}</b>: {inRoomText(data, x)}</div>)}
+                    </div>
+                  )}
+                </>
               )}
           </section>
         )}
 
         <section>
-          <h4>{f.who === 'whole' ? '2' : '3'}. {L('متى', 'When', 'Quand')}</h4>
+          <h4>{num()}. {L('متى', 'When', 'Quand')}</h4>
           {isStay ? (
             <div className="cal-grid2">
               <Field label={L('يصلون في', 'Arrive on', 'Arrivée le')}><input className="inp" type="date" value={f.from} onChange={(e) => set({ from: e.target.value, to: f.to <= e.target.value ? addDays(e.target.value, 1) : f.to })} /></Field>
@@ -766,15 +783,77 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
           )}
         </section>
 
+        {f.who !== 'whole' && (
+          <section>
+            <h4>{num()}. {L('التجهيزات المطلوبة', 'Equipment needed', 'Équipement demandé')}</h4>
+            {!equipList.length && <p className="small muted">{L('لا تجهيزات في القائمة بعد (الإعدادات ← القوائم).', 'No equipment on the list yet (Settings → Lists).', 'Pas encore d’équipement dans la liste (Réglages → Listes).')}</p>}
+            {f.needs.map((x, i) => (
+              <div key={i} className="row cal-line-row">
+                <select className="inp" value={x.equip_id} onChange={(e) => set({ needs: f.needs.map((y, j) => (j === i ? { ...y, equip_id: Number(e.target.value) } : y)) })}>
+                  {equipList.map((e) => <option key={e.id} value={e.id}>{e.name} ({e.total} {L('في الجرد', 'in the inventory', 'dans l’inventaire')})</option>)}
+                </select>
+                <input className="inp cal-qty" inputMode="numeric" dir="ltr" value={x.qty} onChange={(e) => set({ needs: f.needs.map((y, j) => (j === i ? { ...y, qty: e.target.value.replace(/\D/g, '') } : y)) })} />
+                <button className="btn ghost small" aria-label="remove" onClick={() => set({ needs: f.needs.filter((_, j) => j !== i) })}>✕</button>
+              </div>
+            ))}
+            {equipList.length > 0 && <button className="btn small" onClick={() => set({ needs: [...f.needs, { equip_id: equipList.find((e) => !f.needs.some((y) => y.equip_id === e.id))?.id ?? equipList[0].id, qty: '1' }] })}>＋ {L('تجهيز', 'Equipment', 'Équipement')}</button>}
+          </section>
+        )}
+
+        {outside && (
+          <section>
+            <h4>{num()}. {L('الخدمات', 'Services', 'Services')}</h4>
+            {f.lines.map((l, i) => (
+              <div key={i} className="row cal-line-row">
+                <select className="inp" value={l.service_id ?? ''} onChange={(e) => { const id = Number(e.target.value) || null; set({ lines: f.lines.map((y, j) => (j === i ? { ...y, service_id: id, label: data.services.find((q) => q.id === id)?.name ?? y.label } : y)) }); }}>
+                  <option value="">—</option>
+                  {data.services.filter((q) => q.active || q.id === l.service_id).map((q) => <option key={q.id} value={q.id}>{biName(q.name)}</option>)}
+                </select>
+                <span className="small muted">{L('كم', 'How many', 'Combien')}</span>
+                <input className="inp cal-qty" inputMode="numeric" dir="ltr" value={l.qty} onChange={(e) => set({ lines: f.lines.map((y, j) => (j === i ? { ...y, qty: e.target.value.replace(/[^\d.]/g, '') } : y)) })} />
+                {r.prices && <>
+                  <span className="small muted">{L('المبلغ', 'Amount', 'Montant')}</span>
+                  <input className="inp cal-amount" inputMode="decimal" dir="ltr" value={l.amount} onChange={(e) => set({ lines: f.lines.map((y, j) => (j === i ? { ...y, amount: e.target.value } : y)) })} />
+                  <select className="inp cal-cur" value={l.currency} onChange={(e) => set({ lines: f.lines.map((y, j) => (j === i ? { ...y, currency: e.target.value as Currency } : y)) })}><option>USD</option><option>SYP</option></select>
+                </>}
+                <button className="btn ghost small" aria-label="remove" onClick={() => set({ lines: f.lines.filter((_, j) => j !== i) })}>✕</button>
+              </div>
+            ))}
+            {services.length > 0 && <button className="btn small" onClick={() => set({ lines: [...f.lines, { service_id: services[0].id, label: services[0].name, qty: f.people || '1', amount: '', currency: f.currency }] })}>＋ {L('خدمة', 'Service', 'Service')}</button>}
+            {!r.prices && f.lines.length > 0 && <p className="small muted">{L('المبالغ يكتبها المدير أو المنسّق.', 'The amounts are typed by the Director or the Coordinator.', 'Les montants sont saisis par le Directeur ou le Coordinateur.')}</p>}
+          </section>
+        )}
+
+        {outside && r.prices && (
+          <section>
+            <h4>{num()}. {L('السعر', 'Price', 'Prix')}</h4>
+            {old?.price_state === 'unset' && f.free && <div className="alert warn small">{L('السعر غير محدد بعد (حجز من الاستقبال): قرّر مجاناً أو بسعر.', 'The price is not set yet (made by Reception): decide free or a price.', 'Le prix n’est pas encore fixé (fait par l’accueil) : décidez gratuit ou un prix.')}</div>}
+            <label className="cal-check"><input type="checkbox" checked={f.free} onChange={(e) => set({ free: e.target.checked })} /> <b>{L('مجاني', 'Free', 'Gratuit')}</b> <span className="small muted">{L('(يُحسب في التقرير استعمالاً مجانياً لأماكننا)', '(counted in the report as free use of our spaces)', '(compté dans le rapport comme usage gratuit de nos espaces)')}</span></label>
+            {!f.free && (
+              <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                <input className="inp cal-amount" inputMode="decimal" dir="ltr" placeholder="0" value={f.rate} onChange={(e) => set({ rate: e.target.value })} />
+                <select className="inp cal-cur" value={f.currency} onChange={(e) => set({ currency: e.target.value as Currency })}><option>USD</option><option>SYP</option></select>
+                <Seg value={isStay ? (f.pmode === 'person' ? 'person' : 'whole') : f.each && several ? 'each' : 'whole'} onChange={(v) => set({ pmode: v === 'person' ? 'person' : 'group', each: v === 'each' })} options={[
+                  ...(isStay ? [{ value: 'person', label: L('للشخص في الليلة', 'per person per night', 'par personne et par nuit') }] : []),
+                  { value: 'whole', label: L('للحجز كله', 'for the whole booking', 'pour toute la réservation') },
+                  ...(several ? [{ value: 'each', label: L('لكل تاريخ', 'each date', 'chaque date') }] : []),
+                ]} />
+              </div>
+            )}
+            <div className="cal-total">{L('المجموع المتفق عليه (السعر + الخدمات)', 'Agreed total (price + services)', 'Total convenu (prix + services)')}: <b dir="ltr">{fmtMoney(totals.total)}</b>{!f.free && (f.each || (isStay && f.pmode === 'person')) && <span className="small muted"> · {totals.dates} {isStay ? L('ليلة', 'night(s)', 'nuit(s)') : L('تاريخ', 'date(s)', 'date(s)')}</span>}</div>
+            {old && <p className="small muted">{L('كل تغيير في السعر يُحفظ في السجل.', 'Every change of price is kept in the history.', 'Chaque changement de prix est gardé dans l’historique.')}</p>}
+          </section>
+        )}
+        {outside && !r.prices && <p className="small muted">{L('السعر: يحدده المدير أو المنسّق (يُحفظ هذا الحجز «السعر غير محدد»).', 'Price: decided by the Director or the Coordinator (this booking is saved "price not set").', 'Prix : décidé par le Directeur ou le Coordinateur (cette réservation est enregistrée « prix non fixé »).')}</p>}
+
         <section>
-          <h4>{f.who === 'whole' ? '3' : '4'}. {L('الحالة', 'Status', 'Statut')}</h4>
+          <h4>{num()}. {L('الحالة', 'Status', 'Statut')}</h4>
           <div className="row" style={{ gap: 8 }}>
             <Seg value={f.status} onChange={(v) => set({ status: v })} options={[{ value: 'option', label: L('للتأكيد', 'To confirm', 'À confirmer') }, { value: 'confirmed', label: L('مؤكَّد', 'Confirmed', 'Confirmé') }]} />
             {f.status === 'option' && <label className="small">{L('محجوز حتى', 'Held until', 'Retenu jusqu’au')} <input className="inp" type="date" value={f.hold} onChange={(e) => set({ hold: e.target.value })} /></label>}
             <label className="small cal-check"><input type="checkbox" checked={f.private} onChange={(e) => set({ private: e.target.checked })} /> {L('خاص (يظهر «محجوز» فقط على الهواتف والشاشة وللفريق)', 'Private (shows only "Reserved" on phones, the TV and to the Team)', 'Privé (seulement « Réservé » sur les téléphones, l’écran et pour l’équipe)')}</label>
           </div>
           <Field label={L('ملاحظة', 'Note', 'Note')}><input className="inp" value={f.note} onChange={(e) => set({ note: e.target.value })} /></Field>
-          {f.who === 'outside' && <p className="small muted">{L('السعر والخدمات والتجهيزات: في الخطوة 3.', 'Price, services and equipment: in step 3.', 'Prix, services et équipement : à l’étape 3.')}</p>}
         </section>
       </div>
 
@@ -799,7 +878,98 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" disabled={busy} onClick={() => void save()}>{t('حفظ', 'Save')}</button>
       </div>
+      {orgWin && <OrgWindow data={data} org={orgWin.org} onClose={() => setOrgWin(null)} onSaved={async (id) => {
+        await refresh();
+        const fresh = await s.api.call('cal.get');
+        const p = fresh.persons.find((q) => q.org_id === id && q.active && (orgWin.org == null || q.id === f.person_id)) ?? fresh.persons.find((q) => q.org_id === id && q.active);
+        set({ org_id: id, person_id: p?.id ?? null });
+      }} />}
     </Modal>
   );
 }
 
+// ---------------------------------------------------------------- the organisation window, and the register
+
+interface PersonForm { id?: number; name: string; phone: string; active: boolean }
+export function OrgWindow({ data, org, onClose, onSaved }: { data: CalData; org: CalOrg | null; onClose: () => void; onSaved: (id: number) => Promise<void> | void }) {
+  const { s } = useApp();
+  const [name, setName] = useState(org?.name ?? '');
+  const [kind, setKind] = useState<number | null>(org?.kind_id ?? null);
+  const [note, setNote] = useState(org?.note ?? '');
+  const [active, setActive] = useState(org ? !!org.active : true);
+  const [persons, setPersons] = useState<PersonForm[]>(() => (org ? data.persons.filter((p) => p.org_id === org.id).map((p) => ({ id: p.id, name: p.name, phone: p.phone ?? '', active: !!p.active })) : [{ name: '', phone: '', active: true }]));
+  const [busy, setBusy] = useState(false);
+  const used = org ? data.bookings.filter((b) => b.org_id === org.id).length : 0;
+  const save = async () => {
+    if (!name.trim()) { toast(L('اكتب اسم الجهة', 'Write the name of the organisation', 'Écrivez le nom de l’organisation'), true); return; }
+    setBusy(true);
+    try {
+      const x = await s.api.call('cal.org.save', { id: org?.id, name, kind_id: kind, note, active, persons: persons.filter((p) => p.id != null || p.name.trim()).map((p) => ({ id: p.id, name: p.name, phone: p.phone, active: p.active })) });
+      await onSaved(x.id);
+      onClose();
+    } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
+  };
+  return (
+    <Modal title={org ? L('الجهة', 'Organisation', 'Organisation') : L('جهة جديدة', 'New organisation', 'Nouvelle organisation')} onClose={onClose} narrow>
+      <div className="cal-form">
+        <Field label={L('الاسم', 'Name', 'Nom')}><input className="inp" autoFocus value={name} onChange={(e) => setName(e.target.value)} /></Field>
+        <Field label={L('النوع', 'Kind', 'Type')}>
+          <select className="inp" value={kind ?? ''} onChange={(e) => setKind(Number(e.target.value) || null)}><option value="">—</option>{data.orgKinds.filter((k) => k.active || k.id === kind).map((k) => <option key={k.id} value={k.id}>{biName(k.name)}</option>)}</select>
+        </Field>
+        <Field label={L('ملاحظة', 'Note', 'Note')}><input className="inp" placeholder={L('تدفع كل شهر، تفضّل القاعة 2…', 'pays each month, prefers Hall 2…', 'paie chaque mois, préfère la salle 2…')} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <div>
+          <b className="small">{L('الأشخاص المسؤولون', 'Persons in charge', 'Responsables')}</b>
+          {persons.map((p, i) => (
+            <div key={i} className="row cal-line-row" style={{ opacity: p.active ? 1 : 0.5 }}>
+              <input className="inp" placeholder={L('الاسم', 'Name', 'Nom')} value={p.name} onChange={(e) => setPersons(persons.map((q, j) => (j === i ? { ...q, name: e.target.value } : q)))} />
+              <input className="inp cal-phone" dir="ltr" placeholder={L('الهاتف', 'Phone', 'Téléphone')} value={p.phone} onChange={(e) => setPersons(persons.map((q, j) => (j === i ? { ...q, phone: e.target.value } : q)))} />
+              {p.id != null
+                ? <label className="small cal-check" title={L('الشخص لا يُحذف: يُوقف', 'A person is never removed: switched off', 'Une personne n’est jamais supprimée : désactivée')}><input type="checkbox" checked={p.active} onChange={(e) => setPersons(persons.map((q, j) => (j === i ? { ...q, active: e.target.checked } : q)))} /> {L('فعّال', 'active', 'actif')}</label>
+                : <button className="btn ghost small" aria-label="remove" onClick={() => setPersons(persons.filter((_, j) => j !== i))}>✕</button>}
+            </div>
+          ))}
+          <button className="btn small" onClick={() => setPersons([...persons, { name: '', phone: '', active: true }])}>＋ {L('شخص', 'Person', 'Personne')}</button>
+        </div>
+        {org && <label className="small cal-check"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {L('في القائمة (أزل العلامة لإخفائها، ولا تُحذف)', 'On the list (untick to hide it; it is never deleted)', 'Dans la liste (décochez pour la cacher ; jamais supprimée)')}</label>}
+        {org && <p className="small muted">{used} {L('حجز لهذه الجهة', 'booking(s) for this organisation', 'réservation(s) pour cette organisation')}</p>}
+      </div>
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={busy} onClick={() => void save()}>{t('حفظ', 'Save')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** the register of the organisations: search, their persons, how many bookings; add or change one */
+export function OrgRegister({ data, refresh, onClose }: { data: CalData; refresh: () => Promise<void>; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [win, setWin] = useState<{ org: CalOrg | null } | null>(null);
+  const kindName = (id: number | null) => biName(data.orgKinds.find((k) => k.id === id)?.name ?? '');
+  const k = q.trim().toLowerCase();
+  const rows = data.orgs.filter((o) => !k || o.name.toLowerCase().includes(k) || (o.note ?? '').toLowerCase().includes(k) || data.persons.some((p) => p.org_id === o.id && `${p.name} ${p.phone ?? ''}`.toLowerCase().includes(k)));
+  return (
+    <Modal title={L('الجهات', 'Organisations', 'Organisations')} onClose={onClose}>
+      <div className="row" style={{ marginBottom: 8 }}>
+        <input className="inp" style={{ flex: 1 }} type="search" placeholder={`🔍 ${L('اسم، شخص، هاتف…', 'name, person, phone…', 'nom, personne, téléphone…')}`} value={q} onChange={(e) => setQ(e.target.value)} />
+        {data.rights.orgs && <button className="btn primary small" onClick={() => setWin({ org: null })}>＋ {L('جهة', 'Organisation', 'Organisation')}</button>}
+      </div>
+      <table className="t small">
+        <thead><tr><th>{L('الجهة', 'Organisation', 'Organisation')}</th><th>{L('النوع', 'Kind', 'Type')}</th><th>{L('الأشخاص', 'Persons', 'Responsables')}</th><th className="n">{L('حجوزات', 'Bookings', 'Réservations')}</th><th /></tr></thead>
+        <tbody>
+          {rows.map((o) => (
+            <tr key={o.id} className={o.active ? '' : 'off'}>
+              <td><b>{o.name}</b>{o.note && <div className="muted">{o.note}</div>}</td>
+              <td>{kindName(o.kind_id)}</td>
+              <td>{data.persons.filter((p) => p.org_id === o.id && p.active).map((p) => <div key={p.id}>{p.name}{p.phone && <> · <a href={`tel:${p.phone.replace(/\s/g, '')}`} dir="ltr">{p.phone}</a></>}</div>)}</td>
+              <td className="n">{data.bookings.filter((b) => b.org_id === o.id && b.status !== 'cancelled').length}</td>
+              <td>{data.rights.orgs && <button className="btn ghost small" onClick={() => setWin({ org: o })}>{L('عدّل', 'Edit', 'Modifier')}</button>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!rows.length && <p className="muted">{L('لا شيء.', 'Nothing.', 'Rien.')}</p>}
+      {win && <OrgWindow data={data} org={win.org} onClose={() => setWin(null)} onSaved={refresh} />}
+    </Modal>
+  );
+}

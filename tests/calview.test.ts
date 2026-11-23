@@ -15,7 +15,7 @@ const data = (bookings: CalBooking[], allocs: [number, number][]): CalData => ({
   kinds: [{ id: 1, name: 'Bedroom', sleeps: 1, active: 1, sort: 1, category_id: 2 }, { id: 2, name: 'Hall', sleeps: 0, active: 1, sort: 2, category_id: 1 }],
   orgs: [{ id: 1, name: 'Test choir', kind_id: null, note: 'pays monthly', active: 1, created_by: null, created_at: 'x', updated_at: null }],
   persons: [{ id: 1, org_id: 1, name: 'Person A', phone: '0911 222', active: 1, sort: 1 }],
-  bookings, allocs: allocs.map(([b, r]) => ({ booking_id: b, room_id: r, beds: null })), dates: [], closed: [], periods: [], equip: [], needs: [], lines: [], pays: [], rights: calRights(['cal.view', 'cal.contacts']),
+  bookings, allocs: allocs.map(([b, r]) => ({ booking_id: b, room_id: r, beds: null })), dates: [], closed: [], periods: [], equip: [], needs: [], lines: [], pays: [], services: [], rights: calRights(['cal.view', 'cal.contacts']),
 });
 
 describe('the laptop screen', () => {

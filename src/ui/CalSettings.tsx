@@ -2,11 +2,12 @@
 // in the program). Three tabs: the areas and their spaces; the lists (kinds of space and their categories, kinds of
 // activity, kinds of organisation); the closings (closed periods of the centre, spaces closed for repairs).
 // Nothing is deleted: a line is switched off, a closing is cancelled with a reason.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../state';
 import { Field, Modal, Tabs, biName, confirmBox, errText, fmtDate, promptBox, t, toast } from './kit';
 import { colorOf, PALETTE } from '../hosting/host';
 import { categoryOf, inCalendar, sleepsIn, type CalData, type CalSpace } from '../hosting/calendar';
+import { alwaysInRoom } from '../inventory/map';
 
 type Tab = 'spaces' | 'lists' | 'closings';
 
@@ -32,6 +33,11 @@ const useAct = (refresh: () => Promise<void>) => async (fn: () => Promise<unknow
   try { await fn(); await refresh(); return true; } catch (e) { toast(errText(e), true); return false; }
 };
 export const kindLabel = (d: CalData, s: Pick<CalSpace, 'kind_id'>) => biName(d.kinds.find((k) => k.id === s.kind_id)?.name ?? '');
+/** "always in the room": the inventory's items of that space shown in the calendar, or the text typed here */
+export function inRoomText(d: CalData, sp: CalSpace): string {
+  const x = alwaysInRoom(sp, d.inRoom ?? []);
+  return x.items.length ? x.items.map((i) => (i.qty > 1 ? `${i.qty} ${i.name}` : i.name)).join(' · ') : x.typed ?? '';
+}
 export const catLabel = (d: CalData, id: number | null) => biName(d.categories.find((c) => c.id === id)?.name ?? '');
 
 // ---------------------------------------------------------------- areas and spaces
@@ -81,7 +87,7 @@ function SpacesTab({ data, refresh }: { data: CalData; refresh: () => Promise<vo
                       <td className="n">{sleepsIn(sp, data.kinds) ? (sp.beds ? `${sp.beds} ${t('سرير', 'beds')}` : '—') : sp.capacity ? `${sp.capacity} ${t('شخصاً', 'people')}` : '—'}</td>
                       <td>{sp.bookable !== 0 ? t('نعم', 'Yes') : t('الجرد فقط', 'Inventory only')}</td>
                       <td>{sp.bookable === 0 ? '' : sp.rentable ? t('نعم', 'Yes') : t('لنا فقط', 'Ours only')}</td>
-                      <td className="muted">{sp.fixed ?? ''}</td>
+                      <td className="muted">{inRoomText(data, sp)}</td>
                       <td><button className="btn ghost small" onClick={() => open(sp)}>{t('عدّل', 'Edit')}</button></td>
                     </tr>
                   ))}
@@ -135,7 +141,7 @@ function SpaceWindow({ data, form: start, onClose, refresh }: { data: CalData; f
             {data.categories.filter((c) => c.active || c.id === f.category_id).map((c) => <option key={c.id} value={c.id}>{biName(c.name)}</option>)}
           </select>
         </Field>
-        <Field label={t('ما هو دائماً فيه', 'What is always in it')}><input className="inp" placeholder={t('جهاز عرض، 40 كرسياً…', 'projector, 40 chairs…')} value={f.fixed} onChange={(e) => setF({ ...f, fixed: e.target.value })} /></Field>
+        <Field label={t('ما هو دائماً فيه (يُقرأ من الجرد حين تُسجَّل أغراضه فيه)', 'What is always in it (read from the inventory once its items are listed there)')}><input className="inp" placeholder={t('جهاز عرض، 40 كرسياً…', 'projector, 40 chairs…')} value={f.fixed} onChange={(e) => setF({ ...f, fixed: e.target.value })} /></Field>
         <Field label={t('ملاحظة', 'Note')}><input className="inp" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
         <label className="small cal-check"><input type="checkbox" checked={f.bookable} onChange={(e) => setF({ ...f, bookable: e.target.checked })} /> {t('يُحجز: يظهر في التقويم (المخزن والمكتب لا يُحجزان: يظهران في الجرد فقط)', 'Can be booked: shown in the calendar (a store or an office cannot be booked: they are only in the inventory)')}</label>
         {f.bookable && <label className="small cal-check"><input type="checkbox" checked={f.rentable} onChange={(e) => setF({ ...f, rentable: e.target.checked })} /> {t('قابل للتأجير: يمكن أن تحجزه جهة خارجية', 'Rentable: an outside group may book it')}</label>}
@@ -156,7 +162,7 @@ function ListsTab({ data, refresh }: { data: CalData; refresh: () => Promise<voi
   const act = useAct(refresh);
   const [kindForm, setKindForm] = useState<{ id?: number; name: string; sleeps: boolean; category_id: number | null; active: boolean; used: boolean } | null>(null);
   const nameHint = t('الاسم (عربي · English)، مثال: ملعب · Playground', 'Name (Arabic · English), e.g. ملعب · Playground');
-  const simple = (op: 'cal.category.save' | 'cal.okind.save' | 'cal.akind.save', title: string, rows: { id: number; name: string; active: number; color?: string | null }[], withColor = false, count?: (id: number) => number) => (
+  const simple = (op: 'cal.category.save' | 'cal.okind.save' | 'cal.akind.save' | 'cal.service.save', title: string, rows: { id: number; name: string; active: number; color?: string | null }[], withColor = false, count?: (id: number) => number) => (
     <div className="panel">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h3 style={{ margin: 0 }}>{title}</h3>
@@ -204,6 +210,8 @@ function ListsTab({ data, refresh }: { data: CalData; refresh: () => Promise<voi
       {simple('cal.category.save', t('الفئات (العروض السريعة)', 'Categories (quick views)'), data.categories, false, (id) => data.kinds.filter((k) => k.category_id === id).length)}
       {simple('cal.akind.save', t('أنواع نشاطاتنا', 'Kinds of our activities'), data.activityKinds, true)}
       {simple('cal.okind.save', t('أنواع الجهات', 'Kinds of organisation'), data.orgKinds)}
+      {simple('cal.service.save', t('الخدمات (وجبات، استراحة قهوة، تدفئة…)', 'Services (meals, coffee break, heating…)'), data.services)}
+      <EquipList data={data} refresh={refresh} />
       {kindForm && (
         <Modal title={kindForm.id ? t('نوع مكان', 'Kind of space') : t('نوع جديد', 'New kind of space')} onClose={() => setKindForm(null)} narrow>
           <div className="cal-form">
@@ -333,5 +341,36 @@ function ClosingsTab({ data, refresh }: { data: CalData; refresh: () => Promise<
         </Modal>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------- the equipment a booking may ask for
+
+/** chosen from the names the inventory holds; how many exist is counted from the inventory (in use, in good condition) */
+function EquipList({ data, refresh }: { data: CalData; refresh: () => Promise<void> }) {
+  const { s } = useApp();
+  const act = useAct(refresh);
+  const [names, setNames] = useState<{ name: string; total: number; good: number }[]>([]);
+  const [pick, setPick] = useState('');
+  useEffect(() => { void s.api.call('cal.equip.options').then(setNames).catch(() => setNames([])); }, [s, data.equip.length]);
+  return (
+    <div className="panel">
+      <h3 style={{ margin: 0 }}>{t('التجهيزات التي يمكن طلبها', 'Equipment a booking can ask for')}</h3>
+      <p className="small muted">{t('تُختار من أسماء الأغراض في الجرد. إن طلبت حجوزات في الوقت نفسه أكثر مما في الجرد، ينبّه البرنامج.', 'Chosen from the names of the items in the inventory. When bookings at the same time ask for more than the inventory holds, the program warns.')}</p>
+      <table className="t small"><tbody>
+        {data.equip.map((e) => (
+          <tr key={e.id} className={e.active ? '' : 'off'}><td>{e.name}</td><td className="n">{e.total} {t('في الجرد', 'in the inventory')}</td>
+            <td style={{ textAlign: 'end' }}><button className="btn ghost small" onClick={() => void act(() => s.api.call('cal.equip.save', { id: e.id, active: !e.active }))}>{e.active ? t('أوقف', 'Switch off') : t('أعد', 'Switch on')}</button></td></tr>
+        ))}
+      </tbody></table>
+      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+        <select className="inp" style={{ width: 'auto' }} value={pick} onChange={(e) => setPick(e.target.value)}>
+          <option value="">{t('اختر غرضاً من الجرد…', 'Choose an item of the inventory…')}</option>
+          {names.filter((x) => !data.equip.some((e) => e.name.toLowerCase() === x.name.trim().toLowerCase())).map((x) => <option key={x.name} value={x.name}>{x.name} ({x.good})</option>)}
+        </select>
+        <button className="btn small" disabled={!pick} onClick={() => void act(async () => { await s.api.call('cal.equip.save', { name: pick }); setPick(''); })}>＋ {t('أضف', 'Add')}</button>
+      </div>
+      {!names.length && <p className="small muted">{t('الجرد فارغ: سجّل الأغراض فيه أولاً.', 'The inventory is empty: list the items there first.')}</p>}
+    </div>
   );
 }

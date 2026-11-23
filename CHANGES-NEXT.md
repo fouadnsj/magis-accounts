@@ -122,5 +122,28 @@ Concept: `inventory-plan/INVENTORY-BASELINE.md` (1.1, final) §9 step 1. Rules i
 - Tried in the side pane on the copy: an organisation with two persons; a hall booking at 50 USD with a service at
   20 USD (total 70 USD), saved and opened again with its price.
 
+## 7. The new Inventory — step 2 "The screens"
+A door **"New inventory · الجرد الجديد"** in the menu for whoever looks at the inventory (the real door comes in step 5;
+the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database update.
+- **Home = the map of the centre**: each area (with its colour) and a card per space: the photo of something in it, how
+  many items, the value (only for who sees the values), the last count, what needs attention, "not booked" for a store.
+- **Figures on top**: items and units, value (with the values tick), purchases to register (keeper), to repair or
+  broken, with staff, valuable items still without a photo or serial (keeper). A figure opens its list.
+- **Quick views**: Map · By place · By category · All items · With staff; a search (label, name, serial, person; an old
+  label finds every part of a split group). "+ Item" for the keeper.
+- **A space**: the photos of what is in it, then the list; Items, Value, Last count, Attention, "Always in the room" (from
+  the inventory, else the typed text) and the calendar's bookings of the week in that space (for who sees the calendar).
+  Buttons for the keeper: **Count this space** (every item seen today) and **Move items…** (how many of each; part of a
+  group splits: A stays, B moves). The **sheet for the door** comes with the printed pages (step 4).
+- **An item**: photos (add / remove for the keeper), details, value (with the tick), origin, the other parts of its group,
+  the **history** (with the group's history before it was split), the link to the **books** (date, bill, supplier,
+  heading › line; the entry's amount with the values tick) and to the **calendar** (the bookings to come, 60 days, that
+  ask for equipment of that name). Buttons: Move, Change (the item window of 0.12), Label.
+- Who only looks (no values tick) sees no amount anywhere, no "+ Item", no purchases to register.
+- Tried in the side pane on a copy of the 0.12 test data (Homs): the map with "Inventory places", Store 1's page, moving
+  1 of 2 coolers (HOM-0001-A stays, HOM-0001-B moves), the item page with its history, and Rima (Reception) without values.
+- Not yet: problems reported and "with a staff member" from the HR list (step 3); printed pages and the donor report
+  (step 4); the project of a purchase on the item page (with the donor report, step 4).
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

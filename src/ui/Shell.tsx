@@ -19,6 +19,7 @@ import { Files } from './Files';
 import { Admin } from './Admin';
 import { Hosting } from './Hosting';
 import { Calendar } from './Calendar';
+import { InventoryHome } from './InvHome';
 import { Guide } from './Guide';
 import { GuideCtx, GuideSun } from '../guide/GuideView';
 import { draftFor, draftKey } from './draft';
@@ -40,7 +41,7 @@ function useNarrow() {
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
 
-export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'inventory' | 'hosting' | 'calendar' | 'lists' | 'files' | 'admin' | 'guide';
+export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'inventory' | 'invmap' | 'hosting' | 'calendar' | 'lists' | 'files' | 'admin' | 'guide';
 
 interface Nav {
   go: (p: Page, opts?: { review?: boolean; book?: number }) => void;
@@ -150,6 +151,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
           {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
           {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
           {can('inventory.view') && d.inv && item('inventory', t('الجرد', 'Inventory'), toInventory ? <span className="badge">{toInventory}</span> : null)}
+          {can('inventory.view') && d.inv && item('invmap', t('الجرد الجديد', 'New inventory'))}
           {d.host?.on && item('hosting', t('الإقامة والتقويم', 'Calendar'), d.host.review + d.host.toEnter ? <span className="badge">{d.host.review + d.host.toEnter}</span> : null)}
           {can('cal.view') && item('calendar', t('التقويم الجديد', 'New calendar'))}
           {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
@@ -174,6 +176,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
           {page === 'budget' && can('budget.view') && <BudgetPage />}
           {page === 'grants' && can('lists.donors') && <Grants />}
           {page === 'inventory' && can('inventory.view') && <Inventory />}
+          {page === 'invmap' && can('inventory.view') && d.inv && <InventoryHome />}
           {page === 'hosting' && d.host?.on && <Hosting />}
           {page === 'calendar' && can('cal.view') && <Calendar />}
           {page === 'lists' && <ListsPage />}

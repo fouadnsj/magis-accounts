@@ -17,22 +17,22 @@ import type { Trx } from '../domain/types';
 
 type Tab = 'items' | 'register' | 'quick' | 'count' | 'settings';
 
-const COND_LABEL: Record<InvCondition, () => string> = { good: () => t('جيد', 'Good'), repair: () => t('يحتاج إصلاحاً', 'Needs repair'), broken: () => t('معطّل', 'Broken') };
+export const COND_LABEL: Record<InvCondition, () => string> = { good: () => t('جيد', 'Good'), repair: () => t('يحتاج إصلاحاً', 'Needs repair'), broken: () => t('معطّل', 'Broken') };
 const originName = (inv: InvData, i: Pick<InvItem, 'origin_id' | 'origin'>) => inv.origins.find((o) => o.id === i.origin_id)?.name ?? i.origin;
 /** the labels of items: the QR holds the label and what the settings add */
-const labelsOf = (inv: InvData, list: InvItem[]) => {
+export const labelsOf = (inv: InvData, list: InvItem[]) => {
   const cat = new Map(inv.categories.map((c) => [c.id, c.name.split(' · ')[0]]));
   const place = new Map(inv.places.map((p) => [p.id, p.name]));
   return list.filter(inUse).map((i) => ({ code: i.code, qr: qrText(i, inv.qr, { category: i.category_id ? cat.get(i.category_id) : null, place: i.place_id ? place.get(i.place_id) : null }) }));
 };
-const MOVE_LABEL: Record<string, () => string> = {
+export const MOVE_LABEL: Record<string, () => string> = {
   added: () => t('أُضيف', 'Added'), moved: () => t('نُقل', 'Moved'), given: () => t('سُلّم لشخص', 'Given to'), returned: () => t('أُرجع', 'Returned'),
   repair: () => t('يحتاج إصلاحاً', 'Needs repair'), repaired: () => t('أُصلح', 'Repaired'), broken: () => t('تعطّل', 'Broken'), counted: () => t('عُدّ', 'Counted'),
-  disposed: () => t('أُخرج', 'Taken out'), lost: () => t('فُقد', 'Lost'),
+  disposed: () => t('أُخرج', 'Taken out'), lost: () => t('فُقد', 'Lost'), split: () => t('قُسّمت المجموعة', 'Group split'),
 };
 
 /** the purchases the inventory works with (a keeper who does not see every book gets those on inventory lines from the server) */
-function useEntries() {
+export function useEntries() {
   const { d } = useApp();
   return useMemo(() => invEntries(d), [d.rows, d.comp, d.inv]); // eslint-disable-line react-hooks/exhaustive-deps
 }
@@ -189,7 +189,7 @@ const fromItem = (i: InvItem): Form => ({
 });
 const num = (s: string) => { const n = Number(s.replace(',', '.')); return s.trim() === '' || !Number.isFinite(n) ? null : n; };
 
-function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item: InvItem | null; manage: boolean; onClose: () => void; refresh: () => Promise<void> }) {
+export function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item: InvItem | null; manage: boolean; onClose: () => void; refresh: () => Promise<void> }) {
   const { s } = useApp();
   const er = useEntries();
   const [f, setF] = useState<Form>(item ? fromItem(item) : blank());
@@ -274,7 +274,7 @@ function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item
 }
 
 /** the photos of an item: small pictures, taken here or chosen; opened one at a time */
-function Photos({ item, inv, manage, refresh }: { item: InvItem; inv: InvData; manage: boolean; refresh: () => Promise<void> }) {
+export function Photos({ item, inv, manage, refresh }: { item: InvItem; inv: InvData; manage: boolean; refresh: () => Promise<void> }) {
   const { s } = useApp();
   const mine = inv.photos.filter((p) => p.item_id === item.id);
   const [pics, setPics] = useState<Record<string, string>>({});
@@ -322,7 +322,7 @@ function Photos({ item, inv, manage, refresh }: { item: InvItem; inv: InvData; m
 
 // ---------------------------------------------------------------- the purchases still to register
 
-function RegisterTab({ inv, manage, pending, refresh }: { inv: InvData; manage: boolean; pending: Trx[]; refresh: () => Promise<void> }) {
+export function RegisterTab({ inv, manage, pending, refresh }: { inv: InvData; manage: boolean; pending: Trx[]; refresh: () => Promise<void> }) {
   const { s, d } = useApp();
   const er = useEntries();
   const [entry, setEntry] = useState<Trx | null>(null);

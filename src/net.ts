@@ -144,6 +144,9 @@ export async function hello(): Promise<Hello | null> {
   }
 }
 
+/** the people of this centre in MAGIS HR (names only; left = the day they left), for "with a staff member" in the inventory */
+export const invHrPeople = () => get<{ ref: string; name: string; name_ar: string | null; left: string | null }[]>('/api/inv/hr-people');
+
 export const serverProfiles = (db: string) => get<LoginPerson[]>(`/api/profiles?db=${encodeURIComponent(db)}`);
 
 export const serverLogin = (db: string, profileId: number, password: string) =>

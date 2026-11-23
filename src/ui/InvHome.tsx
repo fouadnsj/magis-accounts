@@ -11,17 +11,19 @@ import { m, tx } from '../i18n';
 import { saveFile } from '../platform';
 import { labelsPdf } from '../io/invLabels';
 import { inUse, itemTotal, pendingEntries, type InvData, type InvItem } from '../inventory/inv';
-import { INV_AREA, findByLabel, groupOf, inRoomOf, invMap, itemAsks, spaceOfPlace, type MapCard, type MapSpace } from '../inventory/map';
+import { INV_AREA, findByLabel, groupOf, inRoomOf, invMap, isStore, itemAsks, spaceOfPlace, withSomeoneWhoLeft, type HrPick, type MapCard, type MapSpace } from '../inventory/map';
+import { invHrPeople } from '../net';
 import { addDays } from '../hosting/host';
 import type { CalData } from '../hosting/calendar';
 import { hm, itemsBetween } from '../hosting/calview';
-import { COND_LABEL, ItemModal, MOVE_LABEL, Photos, RegisterTab, labelsOf, useEntries } from './Inventory';
+import { COND_LABEL, ItemModal, MOVE_LABEL, Photos, RegisterTab, SettingsTab, labelsOf, useEntries } from './Inventory';
+import { QuickAddRoom, ReadyLists } from './InvQuick';
 
 const L = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
 /** an amount in dollars, with its sign */
 const fmtUsd = (n: number | null | undefined) => (n == null ? '' : Math.abs(n) < 0.005 ? '$0' : `$${fmtNum(n)}`);
-type View = 'map' | 'place' | 'category' | 'all' | 'staff' | 'register' | 'attention';
-type Screen = { k: 'home' } | { k: 'space'; id: number } | { k: 'item'; id: number };
+type View = 'map' | 'stores' | 'place' | 'category' | 'all' | 'staff' | 'register' | 'attention' | 'left';
+type Screen = { k: 'home' } | { k: 'space'; id: number } | { k: 'item'; id: number } | { k: 'quick'; spaceId: number | null } | { k: 'settings' };
 
 // ---------------------------------------------------------------- photos (fetched once, kept while the page is open)
 
@@ -56,6 +58,12 @@ export function InventoryHome() {
   const [screen, setScreen] = useState<Screen>({ k: 'home' });
   const [view, setView] = useState<View>('map');
   const [q, setQ] = useState('');
+  // the people of the centre in MAGIS HR, for "with a staff member" (on a server, for the keeper)
+  const [people, setPeople] = useState<HrPick[]>([]);
+  useEffect(() => {
+    if (s.mode !== 'server' || !can('inventory.manage')) return;
+    invHrPeople().then((x) => setPeople(Array.isArray(x) ? x : [])).catch(() => setPeople([]));
+  }, [s, can]);
   const load = useCallback(async () => {
     try { setInv(await s.api.call('inv.get')); } catch (e) { toast(errText(e), true); }
     if (can('cal.view')) { try { setCal(await s.api.call('cal.get')); } catch { setCal(null); } }
@@ -68,25 +76,41 @@ export function InventoryHome() {
   if (!inv) return <p className="muted">…</p>;
   const go = (x: Screen) => { setScreen(x); window.scrollTo(0, 0); };
   const home = () => go({ k: 'home' });
+  const keep = inv.rights.keep;
   return (
     <>
-      <div className="page-head"><h1>{L('الجرد', 'Inventory', 'Inventaire')}</h1></div>
-      {screen.k === 'space' && <SpacePage inv={inv} cal={cal} spaceId={screen.id} go={go} back={home} refresh={refresh} />}
-      {screen.k === 'item' && <ItemPage inv={inv} cal={cal} itemId={screen.id} go={go} back={home} refresh={refresh} />}
-      {screen.k === 'home' && <Home inv={inv} view={view} setView={setView} q={q} setQ={setQ} go={go} pending={pending.length} refresh={refresh} pendingRows={pending} />}
+      {/* the inventory ↔ its settings, easy to see both ways (Fouad's first test, 23 November 2026), as in the calendar */}
+      {screen.k === 'settings' && keep ? (
+        <div className="page-head">
+          <h1><button className="linkish cal-crumb" onClick={home}>{L('الجرد', 'Inventory', 'Inventaire')}</button> <span className="muted">›</span> {L('الإعدادات', 'Settings', 'Réglages')}</h1>
+          <button className="btn primary cal-back" onClick={home}>{L('رجوع إلى الجرد', 'Back to the inventory', 'Retour à l’inventaire')}</button>
+        </div>
+      ) : (
+        <div className="page-head">
+          <h1>{screen.k === 'home' ? L('الجرد', 'Inventory', 'Inventaire') : <button className="linkish cal-crumb" onClick={home}>{L('الجرد', 'Inventory', 'Inventaire')}</button>}</h1>
+          {keep && <button className="btn cal-settings-btn" onClick={() => go({ k: 'settings' })}><span aria-hidden>⚙</span> {L('إعدادات الجرد', 'Inventory settings', 'Réglages de l’inventaire')}</button>}
+        </div>
+      )}
+      {screen.k === 'settings' && keep && <><ReadyLists inv={inv} refresh={refresh} /><SettingsTab inv={inv} refresh={refresh} /></>}
+      {screen.k === 'quick' && keep && <QuickAddRoom key={screen.spaceId ?? 0} inv={inv} space={screen.spaceId != null ? inv.spaces.find((x) => x.id === screen.spaceId) ?? null : null} back={() => (screen.spaceId != null ? go({ k: 'space', id: screen.spaceId }) : home())} refresh={refresh} />}
+      {screen.k === 'space' && <SpacePage inv={inv} cal={cal} spaceId={screen.id} go={go} back={home} refresh={refresh} people={people} />}
+      {screen.k === 'item' && <ItemPage inv={inv} cal={cal} itemId={screen.id} go={go} back={home} refresh={refresh} people={people} />}
+      {screen.k === 'home' && <Home inv={inv} view={view} setView={setView} q={q} setQ={setQ} go={go} pending={pending.length} refresh={refresh} pendingRows={pending} people={people} />}
     </>
   );
 }
 
 // ---------------------------------------------------------------- home: figures, quick views, the map
 
-function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh }: {
-  inv: InvData; view: View; setView: (v: View) => void; q: string; setQ: (s: string) => void; go: (x: Screen) => void; pending: number; pendingRows: ReturnType<typeof pendingEntries>; refresh: () => Promise<void>;
+function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, people }: {
+  inv: InvData; view: View; setView: (v: View) => void; q: string; setQ: (s: string) => void; go: (x: Screen) => void; pending: number; pendingRows: ReturnType<typeof pendingEntries>; refresh: () => Promise<void>; people: HrPick[];
 }) {
   const r = inv.rights;
   const [open, setOpen] = useState(false);
   const live = inv.items.filter(inUse);
   const map = useMemo(() => invMap(inv, { values: r.values }), [inv, r.values]);
+  const stores = useMemo(() => invMap(inv, { values: r.values, only: (x) => isStore(x, inv.kinds) }), [inv, r.values]);
+  const left = withSomeoneWhoLeft(inv.items, people);
   const attention = live.filter((i) => i.condition !== 'good').length;
   const staff = live.filter((i) => i.holder).length;
   const asks = live.filter((i) => itemAsks(i, inv.categories, inv.photos).length).length;
@@ -107,21 +131,25 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh }
         {tile(attention, L('تحتاج إصلاحاً أو معطّلة', 'to repair or broken', 'à réparer ou cassés'), 'attention', attention > 0)}
         {tile(staff, L('مع الموظفين', 'with staff', 'chez le personnel'), 'staff')}
         {r.keep && asks > 0 && tile(asks, L('ينقصها صورة أو رقم تسلسلي', 'without a photo or a serial', 'sans photo ni n° de série'), 'attention', true)}
+        {r.keep && left.length > 0 && tile(left.length, L('مع شخص غادر المركز: استرجعها', 'with someone who left: take them back', 'chez quelqu’un qui est parti : à reprendre'), 'left', true)}
       </div>
       <div className="cal-bar row" style={{ marginBottom: 8 }}>
         <div className="cal-quick" style={{ margin: 0 }}>
-          {([['map', L('الخريطة', 'Map', 'Plan')], ['place', L('حسب المكان', 'By place', 'Par lieu')], ['category', L('حسب الصنف', 'By category', 'Par catégorie')], ['all', L('كل الأغراض', 'All items', 'Tous les objets')], ['staff', L('مع الموظفين', 'With staff', 'Chez le personnel')]] as [View, string][]).map(([v, label]) => (
+          {([['map', L('الخريطة', 'Map', 'Plan')], ['stores', L('المستودعات', 'Stores', 'Réserves')], ['place', L('حسب المكان', 'By place', 'Par lieu')], ['category', L('حسب الصنف', 'By category', 'Par catégorie')], ['all', L('كل الأغراض', 'All items', 'Tous les objets')], ['staff', L('مع الموظفين', 'With staff', 'Chez le personnel')]] as [View, string][]).map(([v, label]) => (
             <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{label}</button>
           ))}
         </div>
         <input className="inp cal-search" placeholder={L('بحث: رمز، اسم، رقم تسلسلي، شخص…', 'Search: label, name, serial, person…', 'Chercher : étiquette, nom, n° de série, personne…')} value={q} onChange={(e) => setQ(e.target.value)} />
+        {r.keep && <button className="btn" onClick={() => go({ k: 'quick', spaceId: null })}>⚡ {L('تسجيل سريع', 'Quick add', 'Ajout rapide')}</button>}
         {r.keep && <button className="btn primary" onClick={() => setOpen(true)}>＋ {L('غرض', 'Item', 'Objet')}</button>}
       </div>
       {found ? <ItemTable inv={inv} items={found} go={go} />
         : view === 'map' ? <MapView inv={inv} map={map} go={go} />
+        : view === 'stores' ? <StoresView inv={inv} map={stores} go={go} />
+        : view === 'left' ? (left.length ? <ItemTable inv={inv} items={left.map((x) => x.item)} go={go} withHolder people={people} /> : <p className="muted">—</p>)
         : view === 'register' && r.keep ? <RegisterTab inv={inv} manage pending={pendingRows} refresh={refresh} />
-        : <ListView inv={inv} view={view} go={go} />}
-      {open && <ItemModal inv={inv} item={null} manage onClose={() => setOpen(false)} refresh={refresh} />}
+        : <ListView inv={inv} view={view} go={go} people={people} />}
+      {open && <ItemModal inv={inv} item={null} manage onClose={() => setOpen(false)} refresh={refresh} people={people} />}
     </>
   );
 }
@@ -154,6 +182,28 @@ function MapView({ inv, map, go }: { inv: InvData; map: ReturnType<typeof invMap
   );
 }
 
+/** the stores (Fouad's first test, comment 3): only the spaces whose kind is "Store", each with what is in it */
+function StoresView({ inv, map, go }: { inv: InvData; map: ReturnType<typeof invMap>; go: (x: Screen) => void }) {
+  const r = inv.rights;
+  const cards = map.areas.flatMap((x) => x.spaces);
+  if (!cards.length) return <p className="muted">{L('لا مستودع بعد: اختر النوع «مستودع» لمكان (في صفحة المكان إن كان في الجرد فقط، أو في إعدادات التقويم).', 'No store yet: give a space the kind "Store" (on the space\'s page if it is only in the inventory, or in the calendar\'s settings).', 'Pas encore de réserve : donnez à un espace le type « Réserve » (sur la page de l’espace s’il est seulement dans l’inventaire, ou dans les réglages du calendrier).')}</p>;
+  const live = inv.items.filter(inUse);
+  return (
+    <>
+      <div className="inv-cards" style={{ marginBottom: 12 }}>{cards.map((c) => <SpaceCard key={c.space.id} c={c} inv={inv} onOpen={() => go({ k: 'space', id: c.space.id })} />)}</div>
+      {cards.map((c) => {
+        const items = live.filter((i) => c.space.place_id != null && i.place_id === c.space.place_id);
+        return (
+          <section key={c.space.id} className="inv-area">
+            <div className="inv-ah"><button className="linkish" onClick={() => go({ k: 'space', id: c.space.id })}>{c.label}</button><small>{items.length} {L('غرضاً', 'items', 'objets')} · {c.units} {L('قطعة', 'units', 'unités')}{r.values && c.value != null ? ` · ${fmtUsd(c.value)}` : ''}</small></div>
+            {items.length ? <ItemTable inv={inv} items={items} go={go} hidePlace /> : <p className="small muted">{L('فارغ', 'Empty', 'Vide')}</p>}
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
 function SpaceCard({ c, inv, onOpen }: { c: MapCard; inv: InvData; onOpen: () => void }) {
   const counted = c.lastCount ? `${L('عُدّ', 'counted', 'compté')} ${fmtDate(c.lastCount)}` : c.items ? L('لم يُعدّ', 'not counted', 'pas compté') : '';
   return (
@@ -174,11 +224,11 @@ function SpaceCard({ c, inv, onOpen }: { c: MapCard; inv: InvData; onOpen: () =>
 
 // ---------------------------------------------------------------- the lists (quick views)
 
-function ListView({ inv, view, go }: { inv: InvData; view: View; go: (x: Screen) => void }) {
+function ListView({ inv, view, go, people }: { inv: InvData; view: View; go: (x: Screen) => void; people: HrPick[] }) {
   const live = inv.items.filter(inUse);
   if (view === 'staff') {
     const list = live.filter((i) => i.holder);
-    return list.length ? <ItemTable inv={inv} items={list} go={go} withHolder /> : <p className="muted">{L('لا شيء مع الموظفين الآن.', 'Nothing is with a staff member now.', 'Rien chez le personnel en ce moment.')}</p>;
+    return list.length ? <ItemTable inv={inv} items={list} go={go} withHolder people={people} /> : <p className="muted">{L('لا شيء مع الموظفين الآن.', 'Nothing is with a staff member now.', 'Rien chez le personnel en ce moment.')}</p>;
   }
   if (view === 'attention') {
     const list = live.filter((i) => i.condition !== 'good' || itemAsks(i, inv.categories, inv.photos).length);
@@ -211,7 +261,8 @@ export function placeText(inv: InvData, placeId: number | null): string {
   return a && a.name !== INV_AREA ? `${biName(a.name)} · ${sp.name}` : sp.name;
 }
 
-function ItemTable({ inv, items, go, withHolder, withOut, withAsks, hidePlace }: { inv: InvData; items: InvItem[]; go: (x: Screen) => void; withHolder?: boolean; withOut?: boolean; withAsks?: boolean; hidePlace?: boolean }) {
+function ItemTable({ inv, items, go, withHolder, withOut, withAsks, hidePlace, people }: { inv: InvData; items: InvItem[]; go: (x: Screen) => void; withHolder?: boolean; withOut?: boolean; withAsks?: boolean; hidePlace?: boolean; people?: HrPick[] }) {
+  const person = new Map((people ?? []).map((p) => [p.ref, p]));
   const cat = new Map(inv.categories.map((c) => [c.id, biName(c.name)]));
   const first = new Map<number, string>();
   for (const p of inv.photos) if (!first.has(p.item_id)) first.set(p.item_id, p.id);
@@ -235,7 +286,7 @@ function ItemTable({ inv, items, go, withHolder, withOut, withAsks, hidePlace }:
             {!hidePlace && <td>{placeText(inv, i.place_id)}</td>}
             <td>{i.qty > 1 ? `×${i.qty}` : '1'}</td>
             <td className={i.condition === 'good' ? '' : 'bad'}>{COND_LABEL[i.condition]()}</td>
-            {withHolder && <td>{i.holder}</td>}{withHolder && <td>{fmtDate(lastHolder(i))}</td>}
+            {withHolder && <td>{i.holder}<HolderMark i={i} person={i.holder_ref ? person.get(i.holder_ref) : undefined} /></td>}{withHolder && <td>{fmtDate(lastHolder(i))}</td>}
             {withAsks && <td className="small">{asks.map((a) => (a === 'photo' ? L('صورة', 'photo', 'photo') : L('رقم تسلسلي', 'serial', 'n° de série'))).join(' · ')}</td>}
             {inv.rights.values && <td className="num">{i.value_usd != null ? fmtUsd(itemTotal(i)) : ''}</td>}
           </tr>
@@ -244,6 +295,13 @@ function ItemTable({ inv, items, go, withHolder, withOut, withAsks, hidePlace }:
     </table></div>
   );
 }
+/** beside a holder's name: chosen from HR, or the reminder that they left the centre */
+function HolderMark({ i, person }: { i: InvItem; person: HrPick | undefined }) {
+  if (!i.holder) return null;
+  if (person?.left != null) return <span className="inv-dot e" style={{ marginInlineStart: 6 }}>{L('غادر', 'left', 'parti')}{person.left ? ` ${fmtDate(person.left)}` : ''}</span>;
+  if (person) return <span className="muted small" title={L('من الموارد البشرية', 'from MAGIS HR', 'des RH MAGIS')}> · HR</span>;
+  return null;
+}
 function MiniThumb({ id }: { id: string | undefined }) {
   const src = usePhoto(id);
   return src ? <img src={src} alt="" className="inv-mini" /> : null;
@@ -251,11 +309,12 @@ function MiniThumb({ id }: { id: string | undefined }) {
 
 // ---------------------------------------------------------------- a space
 
-function SpacePage({ inv, cal, spaceId, go, back, refresh }: { inv: InvData; cal: CalData | null; spaceId: number; go: (x: Screen) => void; back: () => void; refresh: () => Promise<void> }) {
+function SpacePage({ inv, cal, spaceId, go, back, refresh, people }: { inv: InvData; cal: CalData | null; spaceId: number; go: (x: Screen) => void; back: () => void; refresh: () => Promise<void>; people: HrPick[] }) {
   const { s } = useApp();
   const r = inv.rights;
   const sp = inv.spaces.find((x) => x.id === spaceId);
   const [moving, setMoving] = useState(false);
+  const [adding, setAdding] = useState(false);
   if (!sp) return <p className="muted">{L('المكان غير موجود', 'Space not found', 'Espace introuvable')} · <button className="btn small" onClick={back}>‹</button></p>;
   const area = inv.areas.find((a) => a.id === sp.building_id);
   const here = inv.items.filter((i) => inUse(i) && sp.place_id != null && i.place_id === sp.place_id);
@@ -280,6 +339,8 @@ function SpacePage({ inv, cal, spaceId, go, back, refresh }: { inv: InvData; cal
         <span className="muted">{area ? biName(area.name) : ''}{sp.floor ? ` · ${sp.floor}` : ''}</span>
         {!sp.bookable && <span className="inv-dot b">{L('لا يُحجز: في الجرد فقط', 'not booked: inventory only', 'pas réservé : inventaire seulement')}</span>}
         <span style={{ flex: 1 }} />
+        {r.keep && sp.place_id != null && <button className="btn primary" onClick={() => go({ k: 'quick', spaceId: sp.id })}>⚡ {L('تسجيل سريع', 'Quick add', 'Ajout rapide')}</button>}
+        {r.keep && sp.place_id != null && <button className="btn" onClick={() => setAdding(true)}>＋ {L('غرض', 'Item', 'Objet')}</button>}
         {r.keep && <button className="btn" disabled={!here.length} onClick={() => void count()}>✔ {L('عُدّ هذا المكان', 'Count this space', 'Compter cet espace')}</button>}
         {r.keep && <button className="btn" disabled={!here.length} onClick={() => setMoving(true)}>↪ {L('انقل أغراضاً…', 'Move items…', 'Déplacer des objets…')}</button>}
       </div>
@@ -296,6 +357,12 @@ function SpacePage({ inv, cal, spaceId, go, back, refresh }: { inv: InvData; cal
           {here.length > 0 && <div style={{ marginTop: 12 }}><ItemTable inv={inv} items={here} go={go} hidePlace /></div>}
         </div>
         <ul className="inv-facts">
+          <li><span>{L('النوع', 'Kind', 'Type')}</span>{r.keep && !sp.bookable ? (
+            <select value={sp.kind_id ?? ''} onChange={async (e) => { try { await s.api.call('inv.space.kind', { space_id: sp.id, kind_id: Number(e.target.value) }); await refresh(); } catch (x) { toast(errText(x), true); } }}>
+              {sp.kind_id == null && <option value="">—</option>}
+              {inv.kinds.filter((k) => k.active || k.id === sp.kind_id).map((k) => <option key={k.id} value={k.id}>{biName(k.name)}</option>)}
+            </select>
+          ) : biName(inv.kinds.find((k) => k.id === sp.kind_id)?.name ?? '—')}</li>
           <li><span>{L('الأغراض', 'Items', 'Objets')}</span>{here.length} · {here.reduce((n, i) => n + i.qty, 0)} {L('قطعة', 'units', 'unités')}</li>
           {r.values && <li><span>{L('القيمة', 'Value', 'Valeur')}</span>{fmtUsd(here.reduce((n, i) => n + itemTotal(i), 0))}</li>}
           <li><span>{L('آخر عدّ', 'Last count', 'Dernier comptage')}</span>{lastCount ? fmtDate(lastCount) : L('لم يُعدّ', 'not counted', 'pas compté')}</li>
@@ -305,6 +372,7 @@ function SpacePage({ inv, cal, spaceId, go, back, refresh }: { inv: InvData; cal
         </ul>
       </div>
       {moving && <MoveModal inv={inv} items={here} from={sp} onClose={() => setMoving(false)} refresh={refresh} />}
+      {adding && <ItemModal inv={inv} item={null} manage onClose={() => setAdding(false)} refresh={refresh} people={people} start={{ place_id: sp.place_id }} />}
     </>
   );
 }
@@ -359,7 +427,7 @@ function MoveModal({ inv, items, from, onClose, refresh }: { inv: InvData; items
 
 // ---------------------------------------------------------------- an item
 
-function ItemPage({ inv, cal, itemId, go, back, refresh }: { inv: InvData; cal: CalData | null; itemId: number; go: (x: Screen) => void; back: () => void; refresh: () => Promise<void> }) {
+function ItemPage({ inv, cal, itemId, go, back, refresh, people }: { inv: InvData; cal: CalData | null; itemId: number; go: (x: Screen) => void; back: () => void; refresh: () => Promise<void>; people: HrPick[] }) {
   const { d } = useApp();
   const er = useEntries();
   const r = inv.rights;
@@ -405,13 +473,14 @@ function ItemPage({ inv, cal, itemId, go, back, refresh }: { inv: InvData; cal: 
         <button className="btn" onClick={() => void label()}>🏷 {L('ملصق', 'Label', 'Étiquette')}</button>
       </div>
       {!inUse(item) && <p className="bad small">{item.status === 'lost' ? L('مفقود', 'Lost', 'Perdu') : L('أُخرج من الجرد', 'Taken out of the inventory', 'Sorti de l’inventaire')} · {fmtDate(item.disposed_on)} · {item.disposed_why}</p>}
+      {r.keep && withSomeoneWhoLeft([item], people).map(({ person }) => <p key={person.ref} className="small bad">⚠ {L(`${item.holder} غادر المركز${person.left ? ` (${fmtDate(person.left)})` : ''}: استرجع الغرض.`, `${item.holder} left the centre${person.left ? ` (${fmtDate(person.left)})` : ''}: take the item back.`, `${item.holder} a quitté le centre${person.left ? ` (${fmtDate(person.left)})` : ''} : reprenez l’objet.`)}</p>)}
       {r.keep && asks.length > 0 && <p className="small" style={{ color: 'var(--warn)' }}>⚠ {L('غرض ثمين: ينقصه', 'Valuable item, still missing:', 'Objet de valeur, il manque :')} {asks.map((a) => (a === 'photo' ? L('صورة', 'a photo', 'une photo') : L('رقم تسلسلي', 'the serial number', 'le n° de série'))).join(' · ')}</p>}
       <div className="inv-two">
         <div>
           <Photos item={item} inv={inv} manage={r.keep && inUse(item)} refresh={refresh} />
           <ul className="inv-facts" style={{ marginTop: 12 }}>
             <li><span>{L('المكان', 'Space', 'Espace')}</span>{placeText(inv, item.place_id) || '—'}</li>
-            {item.holder && <li><span>{L('مع', 'With', 'Chez')}</span>{item.holder}</li>}
+            {item.holder && <li><span>{L('مع', 'With', 'Chez')}</span><div>{item.holder}<HolderMark i={item} person={item.holder_ref ? people.find((p) => p.ref === item.holder_ref) : undefined} /></div></li>}
             {(item.brand || item.model) && <li><span>{L('الماركة · الطراز', 'Brand · model', 'Marque · modèle')}</span>{[item.brand, item.model].filter(Boolean).join(' ')}</li>}
             {item.serial && <li><span>{L('الرقم التسلسلي', 'Serial', 'N° de série')}</span><span className="mono">{item.serial}</span></li>}
             <li><span>{L('الحالة', 'State', 'État')}</span><span className={item.condition === 'good' ? '' : 'bad'}>{COND_LABEL[item.condition]()}</span></li>
@@ -447,7 +516,7 @@ function ItemPage({ inv, cal, itemId, go, back, refresh }: { inv: InvData; cal: 
           ))}</ul>
         </div>
       </div>
-      {edit && <ItemModal inv={inv} item={item} manage={r.keep} onClose={() => setEdit(false)} refresh={refresh} />}
+      {edit && <ItemModal inv={inv} item={item} manage={r.keep} onClose={() => setEdit(false)} refresh={refresh} people={people} />}
       {moving && <MoveModal inv={inv} items={[item]} from={sp} onClose={() => setMoving(false)} refresh={refresh} />}
     </>
   );

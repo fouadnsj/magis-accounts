@@ -1,6 +1,6 @@
 # For the next build (after 0.12.1) — list made 24 November 2026
 
-Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Eight new database updates: 64 to 71** (the
+Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Ten new database updates: 64 to 73** (the
 calendar's foundation, §3, the "can be booked" tick, §4, and the inventory's step 1, §5). They only add: nothing of 0.12.1 is changed or removed (rehearsed on copies of the 0.12 test data).
 
 ## 1. Lists → Budget: choose the list a database follows
@@ -161,6 +161,37 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - **Calendar ↔ Settings easy to see:** on the calendar a clear button "⚙ Calendar settings"; in the settings the title
   "Calendar › Settings" (the word Calendar can be clicked) and a button at the top "Back to the calendar".
 - Update **72** rehearsed on copies only (the 0.12 Homs copies, Al-Ard, the test copy with its typed "Store").
+
+## 9. The new Inventory — Fouad's first-test comments (TEST-COMMENTS-1.md, "Inventory" 1–4, and the Settings ↔ map)
+- **Quick add by room, with a ready list.** The table of the 0.12 Quick add (Enter = the next row, the common names, the
+  origin, blank numbered labels, the Excel template) is now in the new inventory:
+  - on each **space page**, "⚡ Quick add": the space is already chosen, and the table opens with the **usual items of that
+    kind of space** already in rows (a bedroom: bed, cupboard, desk, chair, fan, heater…), the number empty. Type the
+    numbers and record once; a row left empty or at 0 is skipped;
+  - on the **map's home**, "⚡ Quick add": the space is chosen on each row.
+
+  The category ticks apply: "serial number" shows the serial box (highlighted), and "valuable" marks the row 📷🏷 (a
+  photo and a label to add later).
+- **The ready lists** are edited in the inventory's Settings, kind by kind (add, remove, order, category). They start
+  (update **73**) only from the common names already in the program, put by kind, with their category (Furniture,
+  Appliances, Audio-visual, IT). The kinds of space themselves stay in the calendar's settings. The kind of a space that
+  is only in the inventory (a store, an office) can be chosen on its page.
+- **The serial number only where needed:** in "Register a purchase", in Quick add and in the item window, the serial box
+  shows (highlighted) only when the category has the tick "serial number". An item that already has a serial number
+  still shows it.
+- **The quick view "Stores · المستودعات"** beside Map / By place…: only the spaces whose kind is the store kind. The kind
+  is found by its mark, not its name, so Fouad's typed "Store" counts. Each store is shown with what is in it.
+- **The person who has an item comes from MAGIS HR:** "With a person" offers the people of the centre in HR (names only,
+  from the server); a name not in HR can still be typed. The item remembers which HR person it is (update 73,
+  `inv_item.holder_ref`). **When that person leaves in HR**, the keeper sees a red tile "with someone who left: take
+  them back", and the item page and the "With staff" list say "left" with the date. (On a laptop that is not connected
+  to a server there is no HR list: the name is typed, as before.)
+- **Inventory ↔ Settings easy to see,** as in the calendar: a button "⚙ Inventory settings"; in the settings the title
+  "Inventory › Settings" (Inventory can be clicked) and a button at the top "Back to the inventory". The categories in
+  the settings now also have the ticks "Valuable" and "In calendar".
+- Update **73** rehearsed on copies only: the 0.12 Homs copies, the real-data copies and the first-test copy (with
+  Fouad's typed "Store", space 101). Nothing that was there changed; each centre got 51 ready rows; a community, the
+  country and HR got none.
 
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

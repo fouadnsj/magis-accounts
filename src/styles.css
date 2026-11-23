@@ -1144,3 +1144,12 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 @media (max-width: 760px) { .inv-two, .inv-links { grid-template-columns: 1fr; } }
 .mono { font-family: ui-monospace, Menlo, Consolas, monospace; direction: ltr; unicode-bidi: embed; }
 .inv-two .mono, table.t td.mono { white-space: nowrap; }
+/* the serial number box, only where it is needed (Fouad's first test, 23 November 2026) */
+.field.need > span { color: var(--warn); font-weight: 600; }
+.field.need input, input.inp.need { background: #fff4e0; border-color: #e0b26a; }
+.inv-quick td { vertical-align: middle; }
+.inv-quick input.inp { min-width: 0; }
+.inv-quick input[data-col="name"] { min-width: 150px; }
+.inv-quick .inv-dot { white-space: nowrap; }
+.inv-quick select { max-width: 170px; }
+.inv-quick input.need { min-width: 120px; }

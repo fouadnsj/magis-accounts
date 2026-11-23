@@ -13,6 +13,7 @@ import {
   blankLabelCodes, COMMON_ITEMS, CONDITIONS, inUse, invEntries, itemTotal, pendingEntries, QR_FIELDS, qrText, tableToImport,
   type InvCondition, type InvData, type InvImportRow, type InvItem,
 } from '../inventory/inv';
+import { holderRefOf, type HrPick } from '../inventory/map';
 import type { Trx } from '../domain/types';
 
 type Tab = 'items' | 'register' | 'quick' | 'count' | 'settings';
@@ -189,10 +190,10 @@ const fromItem = (i: InvItem): Form => ({
 });
 const num = (s: string) => { const n = Number(s.replace(',', '.')); return s.trim() === '' || !Number.isFinite(n) ? null : n; };
 
-export function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvData; item: InvItem | null; manage: boolean; onClose: () => void; refresh: () => Promise<void> }) {
+export function ItemModal({ inv, item, manage, onClose, refresh, people, start }: { inv: InvData; item: InvItem | null; manage: boolean; onClose: () => void; refresh: () => Promise<void>; /** the people of the centre in MAGIS HR (on a server) */ people?: HrPick[]; /** a new item: its space already chosen */ start?: { place_id: number | null } }) {
   const { s } = useApp();
   const er = useEntries();
-  const [f, setF] = useState<Form>(item ? fromItem(item) : blank());
+  const [f, setF] = useState<Form>(item ? fromItem(item) : { ...blank(), place_id: start?.place_id ?? null });
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
   const ro = !manage || (item != null && !inUse(item));
@@ -206,7 +207,9 @@ export function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvDat
     try { await fn(); await refresh(); if (done) toast(done); onClose(); } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
   };
   const payload = () => ({
-    name: f.name, category_id: f.category_id, place_id: f.place_id, qty: Number(f.qty), brand: f.brand, model: f.model, serial: f.serial, condition: f.condition, holder: f.holder,
+    name: f.name, category_id: f.category_id, place_id: f.place_id, qty: Number(f.qty), brand: f.brand, model: f.model, serial: serialExpected || item?.serial ? f.serial : '', condition: f.condition, holder: f.holder,
+    // the person of HR (null: typed by hand); without the list of HR (not on a server) the item keeps what it had
+    ...(people?.length ? { holder_ref: holderRefOf(f.holder, people) } : {}),
     origin_id: f.origin_id, acquired_on: f.acquired_on || null, value_usd: num(f.value), value_note: f.value_note, note: f.note,
   });
   const save = () => run(() => (item ? s.api.call('inv.item.save', { id: item.id, ...payload() }) : s.api.call('inv.item.add', payload())), t('حُفظ', 'Saved'));
@@ -228,12 +231,17 @@ export function ItemModal({ inv, item, manage, onClose, refresh }: { inv: InvDat
         <Field label={t('الصنف', 'Category')}><Select value={f.category_id} options={catOptions(inv)} onChange={(v) => set('category_id', v)} disabled={ro} /></Field>
         <Field label={t('الماركة', 'Brand')}><input className="inp" disabled={ro} value={f.brand} onChange={(e) => set('brand', e.target.value)} /></Field>
         <Field label={t('الطراز', 'Model')}><input className="inp" disabled={ro} value={f.model} onChange={(e) => set('model', e.target.value)} /></Field>
-        <Field label={serialExpected ? t('الرقم التسلسلي (مطلوب لهذا الصنف)', 'Serial number (expected for this category)') : t('الرقم التسلسلي', 'Serial number')} bad={serialExpected && !f.serial.trim() && Number(f.qty) === 1}>
+        {/* the serial number only where it is needed: a category with the tick (Fouad's first test, comment 2) */}
+        {(serialExpected || !!item?.serial) && <Field className={serialExpected ? 'need' : ''} label={serialExpected ? t('الرقم التسلسلي (مطلوب لهذا الصنف)', 'Serial number (expected for this category)') : t('الرقم التسلسلي', 'Serial number')} bad={serialExpected && !f.serial.trim() && Number(f.qty) === 1}>
           <input className="inp" style={{ direction: 'ltr' }} disabled={ro} value={f.serial} onChange={(e) => set('serial', e.target.value)} />
-        </Field>
+        </Field>}
         <Field label={t('العدد', 'Quantity')}><input className="inp" type="number" min={1} disabled={ro} value={f.qty} onChange={(e) => set('qty', e.target.value)} /></Field>
         <Field label={t('المكان', 'Place')}><Select value={f.place_id} options={placeOptions(inv)} onChange={(v) => set('place_id', v)} disabled={ro} /></Field>
-        <Field label={t('عند شخص (إن وُجد)', 'With a person (if any)')}><input className="inp" disabled={ro} value={f.holder} onChange={(e) => set('holder', e.target.value)} /></Field>
+        <Field label={t('عند شخص (إن وُجد)', 'With a person (if any)')}>
+          <input className="inp" disabled={ro} list={people?.length ? 'inv-hr-people' : undefined} value={f.holder} onChange={(e) => set('holder', e.target.value)} placeholder={people?.length ? t('اختر من الموارد البشرية…', 'Choose from HR…') : ''} />
+          {people?.length ? <datalist id="inv-hr-people">{people.filter((p) => p.left == null).map((p) => <option key={p.ref} value={p.name}>{p.name_ar ?? ''}</option>)}</datalist> : null}
+          {people?.length && f.holder.trim() ? <span className="small muted">{holderRefOf(f.holder, people) ? `✓ ${t('من الموارد البشرية', 'from HR')}` : t('مكتوب باليد (ليس في الموارد البشرية)', 'typed by hand (not in HR)')}</span> : null}
+        </Field>
         <Field label={t('الحالة', 'State')}>
           <select value={f.condition} disabled={ro} onChange={(e) => set('condition', e.target.value as InvCondition)}>{CONDITIONS.map((c) => <option key={c} value={c}>{COND_LABEL[c]()}</option>)}</select>
         </Field>
@@ -390,7 +398,7 @@ function RegisterModal({ inv, entry, onClose, refresh }: { inv: InvData; entry: 
   const save = async () => {
     setBusy(true);
     try {
-      await s.api.call('inv.register', { trx_id: entry.id, items: lines.map((l) => ({ name: l.name, category_id: l.category_id, place_id: l.place_id, qty: Number(l.qty), serial: l.serial, brand: l.brand, model: l.model, value_usd: unit(l) })) });
+      await s.api.call('inv.register', { trx_id: entry.id, items: lines.map((l) => ({ name: l.name, category_id: l.category_id, place_id: l.place_id, qty: Number(l.qty), serial: l.category_id != null && serialCat.has(l.category_id) ? l.serial : '', brand: l.brand, model: l.model, value_usd: unit(l) })) });
       await refresh();
       toast(t('سُجّل في الجرد ✓', 'Registered in the inventory ✓'));
       onClose();
@@ -406,7 +414,7 @@ function RegisterModal({ inv, entry, onClose, refresh }: { inv: InvData; entry: 
             <Field label={t('الصنف', 'Category')}><Select value={l.category_id} options={catOptions(inv)} onChange={(v) => set(i, { category_id: v })} /></Field>
             <Field label={t('العدد', 'Quantity')}><input className="inp" type="number" min={1} value={l.qty} onChange={(e) => set(i, { qty: e.target.value })} /></Field>
             <Field label={t('المكان', 'Place')}><Select value={l.place_id} options={placeOptions(inv)} onChange={(v) => set(i, { place_id: v })} /></Field>
-            <Field label={t('الرقم التسلسلي (حاسوب واحد لكل سطر)', 'Serial number (one row per laptop)')}><input className="inp" style={{ direction: 'ltr' }} value={l.serial} onChange={(e) => set(i, { serial: e.target.value })} /></Field>
+            {l.category_id != null && serialCat.has(l.category_id) && <Field className="need" bad={!l.serial.trim() && Number(l.qty) === 1} label={t('الرقم التسلسلي (حاسوب واحد لكل سطر)', 'Serial number (one row per laptop)')}><input className="inp" style={{ direction: 'ltr' }} value={l.serial} onChange={(e) => set(i, { serial: e.target.value })} /></Field>}
             <Field label={t('قيمة الوحدة $', 'Unit value $')}><input className="inp" inputMode="decimal" value={l.edited ? l.value : String(unit(l))} onChange={(e) => set(i, { value: e.target.value, edited: true })} /></Field>
           </div>
           {lines.length > 1 && <button className="btn ghost small" onClick={() => setLines((xs) => xs.filter((_, k) => k !== i))}>✕ {t('أزل السطر', 'Remove this row')}</button>}
@@ -427,6 +435,21 @@ function RegisterModal({ inv, entry, onClose, refresh }: { inv: InvData; entry: 
 
 // ---------------------------------------------------------------- quick add (a table, like Excel)
 
+/** blank numbered labels, stuck on the valuable items while walking room by room (the Quick add) */
+export async function blankLabels(inv: InvData) {
+  const n = Number(await promptBox(t('كم ملصقاً فارغاً تطبع؟ (للأغراض الغالية)', 'How many blank labels to print? (for the valuable items)'), '48'));
+  if (!(n >= 1 && n <= 960)) return;
+  try {
+    const codes = blankLabelCodes(inv.items.map((i) => i.code), inv.prefix, n);
+    await saveFile(`blank-labels_${codes[0]}-${codes[codes.length - 1]}.pdf`, ['pdf'], await labelsPdf(codes.map((c) => ({ code: c, qr: c })), inv.prefix), t('احفظ الملصقات الفارغة', 'Save the blank labels'));
+    toast(`${codes[0]} → ${codes[codes.length - 1]}`);
+  } catch (e) { toast(errText(e), true); }
+}
+/** the Excel table to fill on paper or on a computer, then import */
+export async function invTemplate(inv: InvData) {
+  try { await saveFile('inventory-template.xlsx', ['xlsx'], await inventoryTemplate(inv.categories.filter((c) => c.active), inv.places.filter((p) => p.active)), t('احفظ القالب', 'Save the template')); } catch (e) { toast(errText(e), true); }
+}
+
 interface Quick { name: string; category_id: number | null; place_id: number | null; qty: string; serial: string; value: string }
 const quickRow = (from?: Quick): Quick => ({ name: '', category_id: from?.category_id ?? null, place_id: from?.place_id ?? null, qty: '1', serial: '', value: '' });
 
@@ -443,24 +466,14 @@ function QuickAdd({ inv, refresh }: { inv: InvData; refresh: () => Promise<void>
   const save = async () => {
     setBusy(true);
     try {
-      const r = await s.api.call('inv.item.many', { origin_id: origin, items: filled.map((x) => ({ name: x.name, category_id: x.category_id, place_id: x.place_id, qty: Number(x.qty) || 1, serial: x.serial, value_usd: num(x.value) })) });
+      const r = await s.api.call('inv.item.many', { origin_id: origin, items: filled.map((x) => ({ name: x.name, category_id: x.category_id, place_id: x.place_id, qty: Number(x.qty) || 1, serial: x.category_id != null && serialCat.has(x.category_id) ? x.serial : '', value_usd: num(x.value) })) });
       await refresh();
       toast(`${r.ids.length} ${t('غرضاً سُجّل ✓', 'items recorded ✓')}`);
       setRows(Array.from({ length: 8 }, () => quickRow(filled[filled.length - 1])));
     } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
   };
-  const blanks = async () => {
-    const n = Number(await promptBox(t('كم ملصقاً فارغاً تطبع؟ (للأغراض الغالية)', 'How many blank labels to print? (for the valuable items)'), '48'));
-    if (!(n >= 1 && n <= 960)) return;
-    try {
-      const codes = blankLabelCodes(inv.items.map((i) => i.code), inv.prefix, n);
-      await saveFile(`blank-labels_${codes[0]}-${codes[codes.length - 1]}.pdf`, ['pdf'], await labelsPdf(codes.map((c) => ({ code: c, qr: c })), inv.prefix), t('احفظ الملصقات الفارغة', 'Save the blank labels'));
-      toast(`${codes[0]} → ${codes[codes.length - 1]}`);
-    } catch (e) { toast(errText(e), true); }
-  };
-  const template = async () => {
-    try { await saveFile('inventory-template.xlsx', ['xlsx'], await inventoryTemplate(inv.categories.filter((c) => c.active), inv.places.filter((p) => p.active)), t('احفظ القالب', 'Save the template')); } catch (e) { toast(errText(e), true); }
-  };
+  const blanks = () => blankLabels(inv);
+  const template = () => invTemplate(inv);
   return (
     <>
       <p className="muted small" style={{ marginTop: 0 }}>{t('سطر لكل غرض، أو سطر لكل مجموعة (20 كرسياً = العدد 20). Enter في آخر خانة يفتح سطراً جديداً بالصنف والمكان نفسيهما. الملصق للأغراض الغالية فقط، والقيمة تُكتب لاحقاً.', 'One line per object, or one line per group (20 chairs = Qty 20). Enter in the last box opens the next row with the same category and place. Labels only for the valuable ones; the value can be written later.')}</p>
@@ -481,7 +494,7 @@ function QuickAdd({ inv, refresh }: { inv: InvData; refresh: () => Promise<void>
               <td><Select value={r.category_id} options={catOptions(inv)} onChange={(v) => set(i, { category_id: v })} /></td>
               <td><Select value={r.place_id} options={placeOptions(inv)} onChange={(v) => set(i, { place_id: v })} /></td>
               <td><input className="inp" style={{ width: 60 }} inputMode="numeric" value={r.qty} onChange={(e) => set(i, { qty: e.target.value.replace(/\D/g, '') })} /></td>
-              <td><input className="inp" style={{ direction: 'ltr', background: r.category_id != null && serialCat.has(r.category_id) && !r.serial ? '#fff4e0' : undefined }} value={r.serial} onChange={(e) => set(i, { serial: e.target.value })} /></td>
+              <td>{r.category_id != null && serialCat.has(r.category_id) && <input className="inp" style={{ direction: 'ltr', background: !r.serial ? '#fff4e0' : undefined }} value={r.serial} onChange={(e) => set(i, { serial: e.target.value })} />}</td>
               <td><input className="inp" style={{ width: 90 }} inputMode="decimal" value={r.value} onChange={(e) => set(i, { value: e.target.value })}
                 onKeyDown={(e) => { if (e.key === 'Enter' && i === rows.length - 1) { setRows((xs) => [...xs, quickRow(r)]); setTimeout(() => (e.currentTarget.closest('tbody')?.lastElementChild?.querySelector('input') as HTMLInputElement | null)?.focus(), 30); } }} /></td>
             </tr>
@@ -556,7 +569,7 @@ function CountTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<void>
 
 // ---------------------------------------------------------------- settings
 
-function SettingsTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<void> }) {
+export function SettingsTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<void> }) {
   const { s, d } = useApp();
   const [preview, setPreview] = useState<{ rows: InvImportRow[]; unknown: string[]; name: string } | null>(null);
   const act = async (fn: () => Promise<unknown>, ok?: string) => { try { await fn(); await refresh(); if (ok) toast(ok); } catch (e) { toast(errText(e), true); } };
@@ -601,6 +614,8 @@ function SettingsTab({ inv, refresh }: { inv: InvData; refresh: () => Promise<vo
             <div key={c.id} className="row small" style={{ opacity: c.active ? 1 : 0.5 }}>
               <span style={{ flex: 1 }}>{c.name}</span>
               <label title={t('رقم تسلسلي مطلوب', 'Serial number expected')}><input type="checkbox" checked={!!c.serial} onChange={(e) => void act(() => s.api.call('inv.list.save', { table: 'category', id: c.id, name: c.name, serial: e.target.checked, active: !!c.active }))} /> S/N</label>
+              <label title={t('غرض ثمين: تُطلب له صورة وملصق', 'Valuable: a photo and a label are asked for')}><input type="checkbox" checked={!!c.valuable} onChange={(e) => void act(() => s.api.call('inv.list.save', { table: 'category', id: c.id, name: c.name, serial: !!c.serial, valuable: e.target.checked, active: !!c.active }))} /> {t('ثمين', 'Valuable')}</label>
+              <label title={t('يظهر في التقويم «دائماً في المكان»', 'Shown in the calendar as "always in the room"')}><input type="checkbox" checked={!!c.in_calendar} onChange={(e) => void act(() => s.api.call('inv.list.save', { table: 'category', id: c.id, name: c.name, serial: !!c.serial, in_calendar: e.target.checked, active: !!c.active }))} /> {t('في التقويم', 'In calendar')}</label>
               <button className="btn ghost small" onClick={() => void rename('category', c.id, c.name, c.serial, c.active)}>✎</button>
               <button className="btn ghost small" onClick={() => void act(() => s.api.call('inv.list.save', { table: 'category', id: c.id, name: c.name, serial: !!c.serial, active: !c.active }))}>{c.active ? '⏻' : '↺'}</button>
             </div>

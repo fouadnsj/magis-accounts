@@ -2380,4 +2380,43 @@ INSERT INTO host_kind (name, sleeps, active, sort, category_id, code)
    WHERE NOT EXISTS (SELECT 1 FROM host_kind WHERE code = 'store');
 `,
   },
+  {
+    n: 73,
+    name: 'inventory: a ready list of items for each kind of space (Quick add); the person who has an item chosen from MAGIS HR',
+    sql: `
+-- (Fouad, first test, 23 November 2026, inventory comment 1) Quick add by room: the table opens with the usual items of the
+-- kind of space (a bedroom: bed, cupboard...), the keeper types how many. The lists start from the common names of the
+-- inventory (only those), put by kind, with their category; the centre changes them in the inventory's settings. Centres only.
+CREATE TABLE inv_ready (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind_id     INTEGER NOT NULL REFERENCES host_kind(id),
+  name        TEXT NOT NULL,
+  category_id INTEGER REFERENCES inv_category(id),
+  sort        INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (kind_id, name)
+);
+WITH r(kind, name, cat, sort) AS (VALUES
+  ('Bedroom · غرفة نوم', 'Bed', 'F', 1), ('Bedroom · غرفة نوم', 'Cupboard', 'F', 2), ('Bedroom · غرفة نوم', 'Desk', 'F', 3), ('Bedroom · غرفة نوم', 'Chair', 'F', 4), ('Bedroom · غرفة نوم', 'Fan', 'A', 5), ('Bedroom · غرفة نوم', 'Heater', 'A', 6),
+  ('Hall · قاعة', 'Chair', 'F', 1), ('Hall · قاعة', 'Table', 'F', 2), ('Hall · قاعة', 'Whiteboard', 'F', 3), ('Hall · قاعة', 'Projector', 'V', 4), ('Hall · قاعة', 'Screen', 'V', 5), ('Hall · قاعة', 'Microphone', 'V', 6), ('Hall · قاعة', 'Fan', 'A', 7), ('Hall · قاعة', 'Heater', 'A', 8),
+  ('Classroom · صف', 'Chair', 'F', 1), ('Classroom · صف', 'Table', 'F', 2), ('Classroom · صف', 'Whiteboard', 'F', 3), ('Classroom · صف', 'Fan', 'A', 4), ('Classroom · صف', 'Heater', 'A', 5),
+  ('Meeting room · قاعة اجتماعات', 'Chair', 'F', 1), ('Meeting room · قاعة اجتماعات', 'Table', 'F', 2), ('Meeting room · قاعة اجتماعات', 'Whiteboard', 'F', 3), ('Meeting room · قاعة اجتماعات', 'Screen', 'V', 4), ('Meeting room · قاعة اجتماعات', 'Fan', 'A', 5), ('Meeting room · قاعة اجتماعات', 'Heater', 'A', 6),
+  ('Dining room · قاعة طعام', 'Chair', 'F', 1), ('Dining room · قاعة طعام', 'Table', 'F', 2), ('Dining room · قاعة طعام', 'Fridge', 'A', 3), ('Dining room · قاعة طعام', 'Fan', 'A', 4), ('Dining room · قاعة طعام', 'Heater', 'A', 5),
+  ('Kitchen · مطبخ', 'Fridge', 'A', 1), ('Kitchen · مطبخ', 'Table', 'F', 2), ('Kitchen · مطبخ', 'Shelf', 'F', 3), ('Kitchen · مطبخ', 'Cupboard', 'F', 4),
+  ('Library · مكتبة', 'Shelf', 'F', 1), ('Library · مكتبة', 'Table', 'F', 2), ('Library · مكتبة', 'Chair', 'F', 3), ('Library · مكتبة', 'Desk', 'F', 4),
+  ('Chapel · كنيسة', 'Chair', 'F', 1), ('Chapel · كنيسة', 'Microphone', 'V', 2), ('Chapel · كنيسة', 'Fan', 'A', 3), ('Chapel · كنيسة', 'Heater', 'A', 4),
+  ('Outdoor · ساحة خارجية', 'Chair', 'F', 1), ('Outdoor · ساحة خارجية', 'Table', 'F', 2),
+  ('Office · مكتب', 'Desk', 'F', 1), ('Office · مكتب', 'Chair', 'F', 2), ('Office · مكتب', 'Cupboard', 'F', 3), ('Office · مكتب', 'Shelf', 'F', 4), ('Office · مكتب', 'Laptop', 'I', 5), ('Office · مكتب', 'Printer', 'I', 6),
+  ('#store', 'Shelf', 'F', 1))
+INSERT INTO inv_ready (kind_id, name, category_id, sort)
+SELECT k.id, r.name,
+       (SELECT c.id FROM inv_category c WHERE c.name = CASE r.cat WHEN 'F' THEN 'Furniture · أثاث' WHEN 'A' THEN 'Appliances · أجهزة كهربائية' WHEN 'V' THEN 'Audio-visual · صوت وصورة' ELSE 'IT equipment · معدات معلوماتية' END),
+       r.sort
+  FROM r JOIN host_kind k ON (k.name = r.kind OR (r.kind = '#store' AND k.code = 'store'))
+ WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('community', 'country', 'hr'));
+-- (inventory comment 4; baseline section 3) The person who has an item is chosen from the people of the centre in MAGIS HR
+-- (typed only if not there): the item keeps the name and which person of HR it is ("<HR database>:<person>"), so the
+-- keeper is reminded when that person leaves.
+ALTER TABLE inv_item ADD COLUMN holder_ref TEXT;
+`,
+  },
 ];

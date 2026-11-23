@@ -4,7 +4,7 @@
 // entry; of a gift or an old item, an estimate. No depreciation. Nothing is deleted: an item leaves (disposed, lost).
 // Pure functions here (shared by the server operations, the screens and the tests).
 import type { Lists, Trx } from '../domain/types';
-import type { InvRights, MapArea, MapSpace } from './map';
+import type { InvReady, InvRights, MapArea, MapKind, MapSpace } from './map';
 
 export interface InvCategory { id: number; name: string; serial: number; /** a photo and a label are asked for its items */ valuable: number; /** its items are "always in the room" in the calendar */ in_calendar: number; active: number; sort: number }
 export interface InvOriginRow { id: number; name: string; bought: number; active: number; sort: number }
@@ -45,6 +45,8 @@ export interface InvItem {
   updated_at: string | null;
   /** the item this part of a group was split from */
   split_from?: number | null;
+  /** the person of MAGIS HR who has it ("<HR database>:<person>"); null: nobody, or a name typed by hand */
+  holder_ref?: string | null;
 }
 
 export interface InvMove { id: number; item_id: number; on_date: string; kind: string; place_id: number | null; holder: string | null; note: string | null; who: string | null; at: string }
@@ -69,6 +71,9 @@ export interface InvData {
   /** the map of the centre (the calendar's areas and spaces; each space is a place of the inventory) */
   areas: MapArea[];
   spaces: MapSpace[];
+  /** the kinds of space (the calendar's list) and the usual items of each kind (Quick add) */
+  kinds: MapKind[];
+  ready: InvReady[];
   /** what this person may do (values: false = every amount is left out) */
   rights: InvRights;
 }
@@ -128,6 +133,12 @@ export const COMMON_ITEMS: { ar: string; en: string; fr: string }[] = [
   { ar: 'حاسوب', en: 'Laptop', fr: 'Ordinateur' }, { ar: 'طابعة', en: 'Printer', fr: 'Imprimante' }, { ar: 'جهاز عرض', en: 'Projector', fr: 'Projecteur' }, { ar: 'شاشة', en: 'Screen', fr: 'Écran' },
   { ar: 'مروحة', en: 'Fan', fr: 'Ventilateur' }, { ar: 'مدفأة', en: 'Heater', fr: 'Chauffage' }, { ar: 'براد', en: 'Fridge', fr: 'Réfrigérateur' }, { ar: 'ميكروفون', en: 'Microphone', fr: 'Micro' },
 ];
+/** A common name in the language of the screen (Bed → سرير); a name of the centre's own stays as it is written. */
+export function commonName(name: string, lang: 'ar' | 'en' | 'fr' | 'both'): string {
+  const n = name.trim().toLowerCase();
+  const c = COMMON_ITEMS.find((x) => x.en.toLowerCase() === n || x.ar === name.trim() || x.fr.toLowerCase() === n);
+  return c ? c[lang === 'both' ? 'en' : lang] : name;
+}
 
 export const CONDITIONS: InvCondition[] = ['good', 'repair', 'broken'];
 export const ORIGINS: InvOrigin[] = ['bought', 'gift', 'old'];

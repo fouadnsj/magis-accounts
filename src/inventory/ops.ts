@@ -11,7 +11,7 @@ import {
   CONDITIONS, nextCodes, prefixFor, QR_FIELDS,
   isSourceLine, type InvEntry, type InvCategory, type InvOriginRow, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
 } from './inv';
-import { INV_AREA, invRights, splitLabels, splitProblem, withoutValues, type InRoom, type MapArea, type MapSpace } from './map';
+import { INV_AREA, invRights, splitLabels, splitProblem, withoutValues, type InRoom, type InvReady, type MapArea, type MapKind, type MapSpace } from './map';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', "Non autorisé pour cet utilisateur"));
 const view = (c: OpCtx) => { if (!invRights(c.profile.perms).look) throw refuse(); };
@@ -42,7 +42,9 @@ async function load(c: OpCtx): Promise<InvData> {
     prefix: await prefixOf(c),
     qr: qrOf(await getMeta(c.db, 'inv_qr')),
     areas: await c.db.query<MapArea>('SELECT id, name, color, active, sort FROM host_building ORDER BY sort, name'),
-    spaces: await c.db.query<MapSpace>('SELECT id, building_id, name, floor, active, sort, place_id, bookable, fixed FROM host_room ORDER BY building_id, sort, name'),
+    spaces: await c.db.query<MapSpace>('SELECT id, building_id, name, floor, active, sort, place_id, bookable, fixed, kind_id FROM host_room ORDER BY building_id, sort, name'),
+    kinds: await c.db.query<MapKind>('SELECT id, name, code, active, sort FROM host_kind ORDER BY sort, name'),
+    ready: await c.db.query<InvReady>('SELECT id, kind_id, name, category_id, sort FROM inv_ready ORDER BY kind_id, sort, id'),
     rights,
   }, rights.values);
 }
@@ -99,6 +101,8 @@ export interface ItemInput {
   serial?: string | null;
   condition?: string;
   holder?: string | null;
+  /** the person of MAGIS HR ("<HR database>:<person>"), when the name was chosen from HR */
+  holder_ref?: string | null;
   /** where it comes from: one of the centre's origins (not "bought": that is made by a purchase entry) */
   origin_id?: number | null;
   acquired_on?: string | null;
@@ -185,9 +189,9 @@ async function addItems(c: OpCtx, inputs: ItemInput[], trxId: string | null): Pr
     const id = base + i + 1;
     ids.push(id);
     stmts.push(
-      { sql: `INSERT INTO inv_item (id, code, name, category_id, place_id, qty, brand, model, serial, condition, status, holder, origin, origin_id, acquired_on, trx_id, party_id, value_usd, value_note, note, created_at, created_by)
-              VALUES (?,?,?,?,?,?,?,?,?,?,'in_use',?,?,?,?,?,?,?,?,?,?,?)`,
-        params: [id, code, v.name, a.category_id ?? null, a.place_id ?? null, v.qty, txt(a.brand), txt(a.model), serial, v.condition, txt(a.holder), og.cls, og.id,
+      { sql: `INSERT INTO inv_item (id, code, name, category_id, place_id, qty, brand, model, serial, condition, status, holder, holder_ref, origin, origin_id, acquired_on, trx_id, party_id, value_usd, value_note, note, created_at, created_by)
+              VALUES (?,?,?,?,?,?,?,?,?,?,'in_use',?,?,?,?,?,?,?,?,?,?,?,?)`,
+        params: [id, code, v.name, a.category_id ?? null, a.place_id ?? null, v.qty, txt(a.brand), txt(a.model), serial, v.condition, txt(a.holder), txt(a.holder) ? txt(a.holder_ref) : null, og.cls, og.id,
           trxId ? (entry?.date ?? v.acquired) : v.acquired, trxId, a.party_id ?? entry?.party_id ?? null, v.value, txt(a.value_note), txt(a.note), nowIso(), c.who] },
       moveStmt(id, 'added', c.who, { place_id: a.place_id, holder: txt(a.holder), note: trxId ? 'purchase' : 'origin' }),
       auditStmt(c.who, 'add', 'inv_item', String(id), null, { code, name: v.name, qty: v.qty, trx: trxId }),
@@ -242,6 +246,9 @@ export const INV_OPS = {
       ];
       const place = a.place_id ?? null;
       const holder = txt(a.holder);
+      // the person of HR: given with the name; a name typed by hand has none (an older screen that sends no ref keeps it)
+      const ref = !holder ? null : a.holder_ref === undefined ? (holder === x.holder ? x.holder_ref ?? null : null) : txt(a.holder_ref);
+      if (ref !== (x.holder_ref ?? null)) stmts.push({ sql: 'UPDATE inv_item SET holder_ref = ? WHERE id = ?', params: [ref, x.id] });
       if (place !== x.place_id || holder !== x.holder) {
         stmts.push({ sql: 'UPDATE inv_item SET place_id = ?, holder = ? WHERE id = ?', params: [place, holder, x.id] },
           moveStmt(x.id, holder !== x.holder && holder ? 'given' : holder !== x.holder ? 'returned' : 'moved', c.who, { place_id: place, holder }));
@@ -307,7 +314,7 @@ export const INV_OPS = {
       const date = a.date && isDay(a.date) ? a.date : today();
       const st = a.status === 'lost' ? 'lost' : 'disposed';
       await c.db.batch([
-        { sql: 'UPDATE inv_item SET status = ?, disposed_on = ?, disposed_why = ?, holder = NULL, updated_at = ? WHERE id = ?', params: [st, date, txt(a.why), nowIso(), x.id] },
+        { sql: 'UPDATE inv_item SET status = ?, disposed_on = ?, disposed_why = ?, holder = NULL, holder_ref = NULL, updated_at = ? WHERE id = ?', params: [st, date, txt(a.why), nowIso(), x.id] },
         moveStmt(x.id, st, c.who, { date, note: txt(a.why) }),
         auditStmt(c.who, st, 'inv_item', String(x.id), { status: x.status }, { status: st, why: txt(a.why) }),
       ]);
@@ -442,6 +449,48 @@ export const INV_OPS = {
       return { id };
     },
   },
+  /** the usual items of a kind of space (Quick add by room): the whole list of that kind, in its order */
+  'inv.ready.save': {
+    check: manage,
+    run: async (c: OpCtx, a: { kind_id: number; items: { name: string; category_id?: number | null }[] }) => {
+      const kind = await one<{ id: number; name: string }>(c.db, 'SELECT id, name FROM host_kind WHERE id = ?', [Number(a.kind_id)]);
+      if (!kind) throw new UserError(m('نوع المكان غير موجود', 'That kind of space does not exist', 'Ce type d’espace n’existe pas'));
+      const seen = new Set<string>();
+      const items: { name: string; category_id: number | null }[] = [];
+      for (const x of (Array.isArray(a.items) ? a.items : []).slice(0, 200)) {
+        const name = txt(x?.name);
+        if (!name || seen.has(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
+        const cat = x.category_id != null ? Number(x.category_id) : null;
+        if (cat != null && !(await one(c.db, 'SELECT 1 FROM inv_category WHERE id = ?', [cat]))) throw new UserError(m('الصنف غير موجود', 'Category not found', 'Catégorie introuvable'));
+        items.push({ name, category_id: cat });
+      }
+      await c.db.batch([
+        { sql: 'DELETE FROM inv_ready WHERE kind_id = ?', params: [kind.id] },
+        ...items.map((x, i) => ({ sql: 'INSERT INTO inv_ready (kind_id, name, category_id, sort) VALUES (?,?,?,?)', params: [kind.id, x.name, x.category_id, i + 1] })),
+        auditStmt(c.who, 'update', 'inv_ready', String(kind.id), null, { kind: kind.name, items: items.map((x) => x.name) }),
+      ]);
+      return { ok: true, n: items.length };
+    },
+  },
+
+  /** the kind of a space that is only in the inventory (a store, an office); a space of the calendar: its settings */
+  'inv.space.kind': {
+    check: manage,
+    run: async (c: OpCtx, a: { space_id: number; kind_id: number }) => {
+      const sp = await one<{ id: number; name: string; bookable: number; kind_id: number | null }>(c.db, 'SELECT id, name, bookable, kind_id FROM host_room WHERE id = ?', [Number(a.space_id)]);
+      if (!sp) throw new UserError(m('المكان غير موجود', 'Space not found', 'Espace introuvable'));
+      if (sp.bookable) throw new UserError(m('هذا المكان في التقويم: غيّره في إعدادات التقويم', 'This space is in the calendar: change it in the calendar\'s settings', 'Cet espace est dans le calendrier : modifiez-le dans les réglages du calendrier'));
+      const kind = await one<{ id: number; sleeps: number }>(c.db, 'SELECT id, sleeps FROM host_kind WHERE id = ?', [Number(a.kind_id)]);
+      if (!kind) throw new UserError(m('نوع المكان غير موجود', 'That kind of space does not exist', 'Ce type d’espace n’existe pas'));
+      await c.db.batch([
+        { sql: 'UPDATE host_room SET kind_id = ?, kind = ? WHERE id = ?', params: [kind.id, kind.sleeps ? 'bedroom' : 'other', sp.id] },
+        auditStmt(c.who, 'update', 'host_room', String(sp.id), { kind_id: sp.kind_id }, { kind_id: kind.id }),
+      ]);
+      return { ok: true };
+    },
+  },
+
   /** what the QR labels hold besides the label itself */
   'inv.qr': {
     check: manage,

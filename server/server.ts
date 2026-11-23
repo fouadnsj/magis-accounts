@@ -1901,6 +1901,22 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       }
       return send(res, 200, out);
     }
+    // ---- the inventory (Fouad, first test, 23 November 2026; baseline section 3): the person who has an item is chosen
+    // from the people of the centre in MAGIS HR. Names only (and the day someone left, for the keeper's reminder), never
+    // anything else of a person. The centre is the one HR copied its lists from (hr_list kind 'centre', source = this db).
+    if (url === '/api/inv/hr-people' && method === 'GET') {
+      if (!found || !has(found[1].profile, 'inventory.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      const out: { ref: string; name: string; name_ar: string | null; left: string | null }[] = [];
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || (await getMeta(x.handle.db, 'kind')) !== 'hr') continue;
+        const names = (await x.handle.db.query<{ name: string }>("SELECT name FROM hr_list WHERE kind = 'centre' AND source = ?", [found[2].slug])).map((r) => r.name);
+        if (!names.length) continue;
+        const rows = await x.handle.db.query<{ id: number; name: string; first_name_ar: string | null; last_name_ar: string | null; ended: string | null; active: number }>(
+          `SELECT id, name, first_name_ar, last_name_ar, ended, active FROM hr_person WHERE centre IN (${names.map(() => '?').join(',')}) ORDER BY name`, names);
+        for (const p of rows) out.push({ ref: `${x.slug}:${p.id}`, name: p.name, name_ar: [p.first_name_ar, p.last_name_ar].filter(Boolean).join(' ') || null, left: p.active ? null : p.ended ?? '' });
+      }
+      return send(res, 200, out);
+    }
     // ---- HR: the lists of a centre copied into HR (Fouad, 30 October 2026; 2 November: by the lines' identity, and by
     // itself when the centre's budget changed). Names and codes only, never amounts: the centre, its projects with
     // their donor, its lines with each line's project. A line renamed or recoded keeps its people; a line merged into

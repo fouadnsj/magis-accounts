@@ -47,7 +47,8 @@ import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
-import { calPhoneOf, calPhonePack, claimLink } from './calphone';
+import { calPhoneOf, calPhonePack, claimLink, tvPack } from './calphone';
+import { TV_HTML, TV_JS } from './tv-page';
 import { mayPhone, pairPhone, phoneHostBook, phoneHostStatus, phoneInvCount, phoneInvNew, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phoneProblem, phonePush, validUntil, type PhoneEntry } from './phone';
 import { inventorySummary } from '../src/inventory/ops';
 import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
@@ -2523,6 +2524,35 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return send(res, 200, await calPhonePack(pc.handle.db, phone, today));
     }
+    // ---- the TV at the entrance (calendar step 7): the same link code and key as a calendar phone, but it receives only today's
+    // plain screen (src/hosting/caltv.ts): group names, "Reserved" for the private, no prices, no contacts. Read only.
+    if (url === '/api/tv/link' && method === 'POST') {
+      const f = failures.get(ip);
+      if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes', fr: 'Trop de tentatives — attendez 5 minutes' });
+      const body = (await readBody(req)) as { code?: string };
+      for (const pc of centres.values()) {
+        if ((config.inactive ?? []).includes(pc.slug) || config.copies?.[pc.slug]) continue;
+        const got = await claimLink(pc.handle.db, String(body.code ?? ''));
+        if (!got) continue;
+        failures.delete(ip);
+        log(`TV ${pc.slug}: "${got.name}" linked from ${ip}`);
+        return send(res, 200, { key: `${pc.slug}:${got.id}:${got.key}` });
+      }
+      const n = f && f.until > 0 && f.until <= Date.now() ? 1 : (f?.n ?? 0) + 1;
+      failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
+      throw new HttpError(403, { ar: 'رمز الربط غير صحيح أو انتهت مدته: اطلب رمزاً جديداً في المركز', en: 'The link code is not right, or it has run out: ask for a new one at the centre', fr: 'Le code de liaison n’est pas juste, ou il a expiré : demandez-en un nouveau au centre' });
+    }
+    if (url === '/api/tv/screen' && method === 'POST') {
+      const [slug, pid, key] = (/^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '').split(':');
+      const pc = slug ? centres.get(slug) : undefined;
+      const unlinked = new HttpError(401, { ar: 'هذه الشاشة غير مربوطة: اطلب رمز ربط جديداً من المركز', en: 'This screen is not linked: ask the centre for a new link code', fr: 'Cet écran n’est pas relié : demandez un nouveau code de liaison au centre' });
+      if (!pc || !pid || !key || (config.inactive ?? []).includes(pc.slug) || config.copies?.[pc.slug]) throw unlinked;
+      let phone;
+      try { phone = await calPhoneOf(pc.handle.db, pid, key); } catch (e) { throw new HttpError(401, (e as { msg: Msg }).msg); }
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return send(res, 200, await tvPack(pc.handle.db, phone, today));
+    }
     // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
     if (url === '/api/phone/where' && method === 'GET') return send(res, 200, phoneWhere());
     if (url === '/api/phone/pack' || url === '/api/phone/push' || url === '/api/phone/photo' || url === '/api/phone/session' || url === '/api/phone/inv-count' || url === '/api/phone/inv-photo' || url === '/api/phone/inv-new' || url === '/api/phone/inv-problem' || url === '/api/phone/host-book' || url === '/api/phone/host-status') {
@@ -2725,6 +2755,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
   const handler = (viaHttps: boolean, main = true) => async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const [url, qs] = (req.url ?? '/').split('?');
     try {
+      // the TV at the entrance: its page and its small script (the script is a file of its own: the page may not run inline code)
+      if (main && (req.method === 'GET' || req.method === 'HEAD') && (url === '/tv' || url === '/tv/' || url === '/tv.js')) {
+        res.writeHead(200, { ...SEC_HEADERS, 'Content-Type': url === '/tv.js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(url === '/tv.js' ? TV_JS : TV_HTML);
+        return;
+      }
       if (phoneRoutes(req, res, url, qs, main)) return;
       if (url.startsWith('/api/')) await api(req, res, url, new URLSearchParams(qs ?? ''), viaHttps);
       else serveStatic(req, res);

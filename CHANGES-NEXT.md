@@ -295,5 +295,24 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - Tried in the side pane: the tile appears; with a hall activity today at 15:00 the list shows "Hall A · before 15:00 · 12 people ·
   Morning class". The phone card uses the same function (tested in `tests/calview.test.ts`); not looked at on a phone screen.
 
+## 14. The new Calendar — step 7 "TV screen, plain version" (no database update)
+- **A page for the TV in the centre: `/tv`** on the centre's server (the https address of the computers), for any browser, nothing to
+  install. It shows **today's halls, hall by hall, from 08:00 to 22:00**: each group as a block with its hours and the number of
+  people, a red line for now, a clock, the day, the name of the house, a gold band in a closed period (holidays), "Closed · مغلق" on
+  a hall closed for repairs, a dashed paler block for "to confirm". Under it: our activities outside the centre (what and where) and
+  the groups staying in the house (names only). It refreshes itself **every minute**; with no connection it keeps the last screen
+  and says so. Bedrooms are not rows (they are in "In the house").
+- **What it never shows:** prices, payments, contacts, phones, notes, leaders, history. A booking marked **private** shows only
+  "Reserved · محجوز". The server makes the small screen itself (`src/hosting/caltv.ts`, cut like a Team phone whatever role the TV
+  was given), so the TV receives nothing else. Outside bookings appear under the organisation's name, as on the phone.
+- **Linking:** the same way as a calendar phone: in the calendar settings the Director adds a "phone" (for example "Entrance TV",
+  role Team), gets a link code, types it once on the TV's page `/tv`. The TV keeps its key in the browser (no 4 digits: it must
+  start by itself after a power cut). The manager can cut it off like a phone; the TV then returns to the link screen.
+- Server: `/api/tv/link` and `/api/tv/screen` (`server/calphone.ts`, `server/tv-page.ts`); wrong codes count in the same limit.
+- Tried in the side pane on a **new empty test database** (not a copy of real data): link code typed, the screen drawn with two
+  halls, a private talk shown as Reserved, a used code refused. Not tried: a real TV, an old TV browser, the day change at midnight,
+  the red "now" line (tried at night only), many groups in one hall at the same hour (blocks may overlap).
+- The real design (logo, photos, gentle animation) is step 9, later.
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

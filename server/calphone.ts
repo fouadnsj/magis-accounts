@@ -10,6 +10,7 @@ import { m } from '../src/i18n';
 import { loadCalRaw } from '../src/hosting/calops';
 import { phoneCut, windowOf, shaHex, normCode, isPhoneRole, type CalPhonePack, type PhoneRole } from '../src/hosting/calphone';
 import type { CalRights } from '../src/hosting/calendar';
+import { tvScreen, type TvScreen } from '../src/hosting/caltv';
 
 export interface CalPhoneRow { id: string; name: string; role: PhoneRole; key_hash: string | null; revoked_at: string | null }
 
@@ -47,4 +48,13 @@ export async function calPhonePack(db: Db, p: CalPhoneRow, today: string): Promi
   await db.batch([{ sql: 'UPDATE cal_phone SET last_sync = ? WHERE id = ?', params: [asOf, p.id] }]);
   const w = windowOf(today);
   return { phone: { id: p.id, name: p.name, role: p.role }, organisation: (await getMeta(db, 'organisation')) ?? '', asOf, from: w.from, to: w.to, data: phoneCut(all, p.role, today) };
+}
+
+/** the TV's screen (calendar step 7): the TV is a calendar phone, but whatever role it was given it is cut like a Team phone (no contacts) and receives only today's screen */
+export async function tvPack(db: Db, p: CalPhoneRow, today: string): Promise<TvScreen> {
+  const rights = { view: true, contacts: false, programme: false, outside: false, orgs: false, arrive: false, prices: false, money: false, whole: false, setup: false, history: false } as CalRights;
+  const all = await loadCalRaw(db, rights);
+  const asOf = nowIso();
+  await db.batch([{ sql: 'UPDATE cal_phone SET last_sync = ? WHERE id = ?', params: [asOf, p.id] }]);
+  return tvScreen(phoneCut(all, 'team', today), today, (await getMeta(db, 'organisation')) ?? '', asOf);
 }

@@ -174,7 +174,7 @@ Done on copies first, with a list of what will change.
 | # | Step |
 |---|---|
 | 1 | Foundation (**built 23 November 2026**): areas, spaces and categories, kinds lists, ours / outside, organisations with several persons, leader, private tick, weekly repeat with one date moved or cancelled, the "never twice" rule, holds with a date, closed spaces, closed periods, whole centre, activities outside the centre, free tick, price history, new rights; the 0.12 test data carried over |
-| 2 | Laptop screen: bar, quick views, search, Today strip with its lists, week, day, month, list; drag to book |
+| 2 | **First the settings screen** (areas and colours, spaces, kinds and categories, kinds of activity and of organisation, closed periods; §12.5); then the laptop screen: bar, quick views, search, Today strip with its lists, week, day, month, list; drag to book |
 | 3 | The windows: activity, outside booking (price, services, equipment), organisation |
 | 4 | Money and paper: payments (also before confirming), cancelling with a part kept, receipt improvements, printed pages, Excel |
 | 5 | Calendar phone (name, role, short code, last view kept) |
@@ -196,3 +196,6 @@ Done on copies first, with a list of what will change.
 3. **The Excel file of spaces is not practical: do not count on it.** The areas, spaces and lists are typed **in the
    program**, in the calendar's settings. (The reading of the Excel made in step 1 stays in the program, unused.)
 4. **The Accountant only sees the calendar** (no accountant role); only the Superior has every tick at first. (Update 67.)
+5. **Step 2 starts with the settings screen** where the spaces and lists are typed (areas and their colours, spaces, kinds
+   and categories, kinds of activity and of organisation, closed periods), so the calendar can be tried with the real
+   Homs spaces. (Yes, 23 November.)

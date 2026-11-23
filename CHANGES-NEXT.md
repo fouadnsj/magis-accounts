@@ -47,4 +47,4 @@ Concept: `calendar-plan/CALENDAR-BASELINE.md` (2.1, final) §10 step 1. Rules in
 - Fouad confirmed (23 November): the Sunday warning only for outside hall bookings; closing a space over bookings lists them
   first, then a second "save anyway".
 - The 0.12 calendar screen still works with its own rules until step 2 replaces it. Payments stay as in 0.12 (step 4).
-- To check: nothing to see yet in the program except the new ticks in Admin → roles. Step 2 is the laptop screen.
+- To check: nothing to see yet in the program except the new ticks in Admin → roles. Step 2 starts with the settings screen (spaces and lists typed in the program), then the laptop screen.

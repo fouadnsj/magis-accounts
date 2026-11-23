@@ -47,4 +47,27 @@ Concept: `calendar-plan/CALENDAR-BASELINE.md` (2.1, final) §10 step 1. Rules in
 - Fouad confirmed (23 November): the Sunday warning only for outside hall bookings; closing a space over bookings lists them
   first, then a second "save anyway".
 - The 0.12 calendar screen still works with its own rules until step 2 replaces it. Payments stay as in 0.12 (step 4).
-- To check: nothing to see yet in the program except the new ticks in Admin → roles. Step 2 starts with the settings screen (spaces and lists typed in the program), then the laptop screen.
+- To check: the new ticks in Admin → roles.
+
+## 4. The new Calendar — step 2 "Laptop screen"
+A door **"New calendar · التقويم الجديد"** in the menu for whoever has a calendar tick (the real door comes in step 8; the
+0.12 calendar stays where it was). Files: `src/ui/Calendar.tsx`, `src/ui/CalSettings.tsx`, `src/hosting/calview.ts`.
+- **Settings** (⚙, for the Director): areas and their colours; spaces (kind, capacity or beds, floor, rentable or ours
+  only, what is always in it, note, own category); kinds of space and their categories; kinds of activity (colours);
+  kinds of organisation; closed periods; spaces closed for repairs (bookings already there are listed first).
+- **The bar**: ‹ Today ›, Day / Week / Month / List, the area, the search, + New. **Quick views**: Everything and each
+  category (Halls, Rooms…), kept per person.
+- **The Today strip**: arrive today, leave today, halls in use now, rooms free tonight, to confirm (held dates passed in
+  red); each tile opens its list with its buttons (mark arrived / left, book a free room, confirm).
+- **Week** (spaces by area, an area can be folded; stays as bars across the nights; a line "outside the centre"), **Day**
+  (08:00–22:00 by hours, a red line for now), **Month** (all the day's events in its box, how busy it is), **List**
+  (upcoming, in the house, to confirm, past). Closed periods as a band, closed spaces hatched. Week from Monday, digits 0–9.
+- **Drag to book**: over days and spaces (week), over hours and spaces (day), over days (month) → the booking window with
+  everything selected filled in. A booking's window shows it, with Change, Confirm, Arrived / Left, Move this date, Cancel
+  this date (or this date and the following), Put back, Cancel the booking (with the reason).
+- **The booking window, first version**: our activity / outside booking / whole centre; who (kind, title, leader; or the
+  organisation, a new one in the window, and the person for this booking); where (spaces by area, or outside the centre);
+  when (one day, several days, every week on chosen days; hours in 15-minute steps with morning / afternoon / evening);
+  status with the date held, private, note. A space already held: not possible (a weekly series: "Save without these
+  dates"); warnings: "Save anyway". **Price, services and equipment come in step 3** (what a booking already has is kept).
+- Tried in the side pane on a copy of the 0.12 test data.

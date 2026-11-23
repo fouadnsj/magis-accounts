@@ -1,6 +1,6 @@
 # For the next build (after 0.12.1) — list made 24 November 2026
 
-Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Three new database updates: 64, 65, 66** (the
+Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Four new database updates: 64, 65, 66, 67** (the
 calendar's foundation, §3). They only add: nothing of 0.12.1 is changed or removed (rehearsed on copies of the 0.12 test data).
 
 ## 1. Lists → Budget: choose the list a database follows
@@ -24,7 +24,7 @@ calendar's foundation, §3). They only add: nothing of 0.12.1 is changed or remo
 ## 3. The new Calendar — step 1 "Foundation" (data and rules only, no new screen yet)
 Concept: `calendar-plan/CALENDAR-BASELINE.md` (2.1, final) §10 step 1. Rules in `src/hosting/calendar.ts`, operations
 `cal.*` in `src/hosting/calops.ts`, tests in `tests/calendar.test.ts`.
-- **Database updates 64–66.** A 0.12 building is now an **area**, a room a **space** (floor, rentable or ours only, what is
+- **Database updates 64–67.** A 0.12 building is now an **area**, a room a **space** (floor, rentable or ours only, what is
   always in it, note). **Categories** Halls and Rooms (more can be added, e.g. Playground); new kinds of space: kitchen,
   library, chapel, outdoor, office. Lists: kinds of activity (7, with colours), kinds of organisation (8).
   **Organisations** with several persons in charge. Bookings are **ours** or **outside**; leader, private tick, whole
@@ -38,8 +38,10 @@ Concept: `calendar-plan/CALENDAR-BASELINE.md` (2.1, final) §10 step 1. Rules in
   "Reserved" and no phone; no amount without the prices or money tick.
 - **New ticks** (Admin → roles, group "Calendar"): see, contacts, our programme, outside bookings, organisations,
   arrived/left, prices, money, whole centre and repairs, spaces and lists, history. Carried over from 0.12: whoever saw the
-  0.12 calendar sees; whoever booked gets the Reception ticks; the prices tick gets prices and money; whoever kept the
-  calendar (the Superior and the Accountant) gets every tick. The Superior can change each tick.
+  0.12 calendar sees; whoever booked gets the Reception ticks; the prices tick gets prices and money; the Superior gets
+  every tick. **The Accountant only sees the calendar** (Fouad, 23 November: there is no accountant role in the calendar;
+  update 67): any role that kept the 0.12 calendar without managing users keeps only "Sees the calendar". Its 0.12 ticks
+  are not changed. The Superior can change each tick.
 - **From the Excel file** `MAGIS-Calendar-spaces.xlsx`: the sheets Rooms and Organisations can be read (first a list of what
   would be added, then added). The sheet Programme is not read yet.
 - The 0.12 calendar screen still works with its own rules until step 2 replaces it. Payments stay as in 0.12 (step 4).

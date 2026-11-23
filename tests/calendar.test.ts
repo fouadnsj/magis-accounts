@@ -435,7 +435,7 @@ describe('step 1 on a test database', () => {
 
 // ------------------------------------------------------------------ the 0.12 data carried over
 
-describe('migrations 64–66 on a 0.12 database', () => {
+describe('migrations 64–67 on a 0.12 database', () => {
   it('the rooms, bookings, services, payments and ticks of 0.12 stay as they were; the new columns are filled', async () => {
     const old = nodeDb();
     await old.batch([{ sql: 'CREATE TABLE schema_migration (n INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)' }]);
@@ -451,7 +451,7 @@ describe('migrations 64–66 on a 0.12 database', () => {
       { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, receipt_no, at) VALUES (1, 40, 'USD', '2026-12-01', 'H2026-0001', 'x')" },
     ]);
     const before = await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id');
-    expect(await migrate(old)).toEqual([64, 65, 66]);
+    expect(await migrate(old)).toEqual([64, 65, 66, 67]);
     expect(await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id')).toEqual(before);
     expect(await old.query('SELECT id, origin, price_state, private, whole_centre, hold_until FROM host_booking ORDER BY id')).toEqual([
       { id: 1, origin: 'outside', price_state: 'priced', private: 0, whole_centre: 0, hold_until: null },
@@ -466,6 +466,9 @@ describe('migrations 64–66 on a 0.12 database', () => {
     expect(await ticks('Prices')).toEqual(['cal.arrive', 'cal.contacts', 'cal.money', 'cal.orgs', 'cal.outside', 'cal.prices', 'cal.view']);
     expect((await ticks(1)).length).toBe(11); // the Superior
     expect(await ticks(3)).toEqual([]); // a book holder
+    // the Accountant kept the 0.12 calendar, but the calendar has no accountant role: it only sees (update 67)
+    expect(await ticks(2)).toEqual(['cal.view']);
+    expect(JSON.parse((await old.query<{ perms: string }>('SELECT perms FROM access_profile WHERE id = 2'))[0].perms)).toContain('hosting.keep');
     // the 0.12 weekly event keeps its dates in the new rules
     const b = (await old.query<CalBooking>('SELECT * FROM host_booking WHERE id = 2'))[0];
     expect(occurrences(b).map((o) => o.day)).toEqual(['2026-12-01', '2026-12-08', '2026-12-15', '2026-12-22', '2026-12-29']);

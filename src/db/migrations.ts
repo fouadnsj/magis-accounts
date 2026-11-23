@@ -2273,4 +2273,23 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"cal.setup"]') WHERE (pe
 UPDATE access_profile SET perms = replace(perms, ']', ',"cal.history"]') WHERE (perms LIKE '%"hosting.keep"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"cal.history"%';
 `,
   },
+  {
+    n: 67,
+    name: 'calendar: the Accountant only sees the calendar (no accountant role in the calendar)',
+    sql: `
+-- (Fouad, 2026-11-23) Update 66 gave every calendar tick to whoever kept the 0.12 calendar, and in a centre that was the
+-- Accountant too. The calendar has no accountant role: only the Superior keeps every tick; a role that kept the 0.12
+-- calendar without managing users (the Accountant) keeps only "Sees the calendar". Its 0.12 ticks are not changed.
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.contacts"', ''), '"cal.contacts",', ''), '"cal.contacts"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.programme"', ''), '"cal.programme",', ''), '"cal.programme"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.outside"', ''), '"cal.outside",', ''), '"cal.outside"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.orgs"', ''), '"cal.orgs",', ''), '"cal.orgs"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.arrive"', ''), '"cal.arrive",', ''), '"cal.arrive"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.prices"', ''), '"cal.prices",', ''), '"cal.prices"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.money"', ''), '"cal.money",', ''), '"cal.money"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.whole"', ''), '"cal.whole",', ''), '"cal.whole"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.setup"', ''), '"cal.setup",', ''), '"cal.setup"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.history"', ''), '"cal.history",', ''), '"cal.history"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
+`,
+  },
 ];

@@ -47,6 +47,7 @@ import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
+import { calPhoneOf, calPhonePack, claimLink } from './calphone';
 import { mayPhone, pairPhone, phoneHostBook, phoneHostStatus, phoneInvCount, phoneInvNew, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phoneProblem, phonePush, validUntil, type PhoneEntry } from './phone';
 import { inventorySummary } from '../src/inventory/ops';
 import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
@@ -2489,6 +2490,38 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         s.as = undefined;
       }
       return send(res, 200, { ok: true });
+    }
+    // ---- the calendar phones (calendar step 5): server/calphone.ts. A link code typed on the phone gives it its key (once);
+    // after that it asks for its pack with the key, never with a session. Read only: nothing is written from it.
+    if (url === '/api/calphone/link' && method === 'POST') {
+      const f = failures.get(ip);
+      if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes', fr: 'Trop de tentatives — attendez 5 minutes' });
+      const body = (await readBody(req)) as { code?: string };
+      for (const pc of centres.values()) {
+        if ((config.inactive ?? []).includes(pc.slug) || config.copies?.[pc.slug]) continue;
+        const got = await claimLink(pc.handle.db, String(body.code ?? ''));
+        if (!got) continue;
+        failures.delete(ip);
+        log(`calendar phone ${pc.slug}: "${got.name}" (${got.role}) linked from ${ip}`);
+        const d = new Date();
+        const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const phone = await calPhoneOf(pc.handle.db, got.id, got.key);
+        return send(res, 200, { key: `${pc.slug}:${got.id}:${got.key}`, pack: await calPhonePack(pc.handle.db, phone, today) });
+      }
+      const n = f && f.until > 0 && f.until <= Date.now() ? 1 : (f?.n ?? 0) + 1;
+      failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
+      throw new HttpError(403, { ar: 'رمز الربط غير صحيح أو انتهت مدته: اطلب رمزاً جديداً في المركز', en: 'The link code is not right, or it has run out: ask for a new one at the centre', fr: 'Le code de liaison n’est pas juste, ou il a expiré : demandez-en un nouveau au centre' });
+    }
+    if (url === '/api/calphone/pack' && method === 'POST') {
+      const [slug, pid, key] = (/^Bearer (.+)$/.exec(String(req.headers.authorization ?? ''))?.[1] ?? '').split(':');
+      const pc = slug ? centres.get(slug) : undefined;
+      const unlinked = new HttpError(401, { ar: 'هذا الهاتف غير مربوط: اطلب رمز ربط جديداً من المركز', en: 'This phone is not linked: ask the centre for a new link code', fr: 'Ce téléphone n’est pas relié : demandez un nouveau code de liaison au centre' });
+      if (!pc || !pid || !key || (config.inactive ?? []).includes(pc.slug) || config.copies?.[pc.slug]) throw unlinked;
+      let phone;
+      try { phone = await calPhoneOf(pc.handle.db, pid, key); } catch (e) { throw new HttpError(401, (e as { msg: Msg }).msg); }
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return send(res, 200, await calPhonePack(pc.handle.db, phone, today));
     }
     // ---- the phones (Fouad, 2026-11-13): server/phone.ts. A phone speaks with its key, never with a session.
     if (url === '/api/phone/where' && method === 'GET') return send(res, 200, phoneWhere());

@@ -8,23 +8,30 @@ import { Field, Modal, Tabs, biName, confirmBox, errText, fmtDate, promptBox, t,
 import { colorOf, PALETTE } from '../hosting/host';
 import { categoryOf, inCalendar, sleepsIn, type CalData, type CalSpace } from '../hosting/calendar';
 import { alwaysInRoom } from '../inventory/map';
+import { phoneWhere } from '../net';
+import { PHONE_ROLES, ROLE_NAME, type CalPhoneInfo, type PhoneRole } from '../hosting/calphone';
 
-type Tab = 'spaces' | 'lists' | 'closings';
+type Tab = 'spaces' | 'lists' | 'closings' | 'phones';
 
 interface SpaceForm { id?: number; building_id: number; name: string; kind_id: number | null; floor: string; capacity: string; beds: string; rentable: boolean; bookable: boolean; fixed: string; note: string; category_id: number | null; active: boolean }
 
 export function CalSettings({ data, refresh }: { data: CalData; refresh: () => Promise<void> }) {
+  const { s, can } = useApp();
   const [tab, setTab] = useState<Tab>('spaces');
+  // the calendar phones are linked by the Director (set-up) or whoever manages the users; only on a server
+  const phones = s.mode === 'server' && (data.rights.setup || can('users.manage'));
   return (
     <>
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'spaces', label: t('المناطق والأماكن', 'Areas and spaces') },
         { value: 'lists', label: t('القوائم', 'Lists') },
         { value: 'closings', label: t('الإغلاق', 'Closings') },
+        ...(phones ? [{ value: 'phones' as Tab, label: t('هواتف التقويم', 'Calendar phones') }] : []),
       ]} />
       {tab === 'spaces' && <SpacesTab data={data} refresh={refresh} />}
       {tab === 'lists' && <ListsTab data={data} refresh={refresh} />}
       {tab === 'closings' && <ClosingsTab data={data} refresh={refresh} />}
+      {tab === 'phones' && phones && <PhonesTab />}
     </>
   );
 }
@@ -378,6 +385,77 @@ function EquipList({ data, refresh }: { data: CalData; refresh: () => Promise<vo
         <button className="btn small" disabled={!pick} onClick={() => void act(async () => { await s.api.call('cal.equip.save', { name: pick }); setPick(''); })}>＋ {t('أضف', 'Add')}</button>
       </div>
       {!names.length && <p className="small muted">{t('الجرد فارغ: سجّل الأغراض فيه أولاً.', 'The inventory is empty: list the items there first.')}</p>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- the calendar phones (step 5)
+function PhonesTab() {
+  const { s } = useApp();
+  const [list, setList] = useState<CalPhoneInfo[] | null>(null);
+  const [where, setWhere] = useState<string[]>([]);
+  const [form, setForm] = useState<{ id?: string; name: string; role: PhoneRole } | null>(null);
+  const [made, setMade] = useState<{ name: string; code: string } | null>(null);
+  const load = async () => { try { setList(await s.api.call('cal.phone.list')); } catch { setList([]); } };
+  useEffect(() => { void load(); phoneWhere().then((w) => setWhere(w.app), () => setWhere([])); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const role = (r: PhoneRole) => t(ROLE_NAME[r].ar, ROLE_NAME[r].en);
+  const save = async () => {
+    if (!form) return;
+    try {
+      if (form.id) { await s.api.call('cal.phone.edit', { id: form.id, name: form.name, role: form.role }); setForm(null); }
+      else { const r = await s.api.call('cal.phone.add', { name: form.name, role: form.role }); setMade({ name: form.name, code: r.code }); setForm(null); }
+      await load();
+    } catch (e) { toast(errText(e), true); }
+  };
+  const cut = async (p: CalPhoneInfo) => {
+    if (!(await confirmBox(t(`إيقاف الهاتف «${p.name}»؟ لا يرى التقويم بعدها، ويُربط هاتف جديد برمز جديد إن لزم.`, `Cut off the phone "${p.name}"? It sees nothing after that; a new link code links it again if needed.`), true))) return;
+    try { await s.api.call('cal.phone.cut', { id: p.id }); await load(); toast(t('أُوقف', 'Cut off')); } catch (e) { toast(errText(e), true); }
+  };
+  if (!list) return null;
+  const state = (p: CalPhoneInfo) => p.revoked_at ? t(`أوقفه ${p.revoked_by ?? ''}`, `cut off by ${p.revoked_by ?? ''}`) : p.waiting ? t('ينتظر الربط (الرمز يعمل مرة واحدة)', 'waiting to be linked (the code works once)') : !p.linked_at ? t('انتهى رمز الربط: اربطه من جديد', 'the link code ran out: link it again') : p.last_sync ? p.last_sync.slice(0, 16).replace('T', ' ') : '—';
+  return (
+    <div className="panel">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h3 style={{ margin: 0 }}>📱 {t('هواتف التقويم', 'Calendar phones')}</h3>
+        <button className="btn small" onClick={() => setForm({ name: '', role: 'team' })}>＋ {t('اربط هاتفاً', 'Link a phone')}</button>
+      </div>
+      <p className="small muted">{t('هاتف للقراءة فقط: اليوم والأسبوع والأماكن، شهر للخلف و6 أشهر للأمام. لا يستلم أسعاراً ولا دفعات؛ والأسماء وأرقام الهواتف فقط على هاتف الاستقبال والمنسّق والمدير.', 'A read-only phone: Today, Week and Spaces, 1 month back and 6 months ahead. It never receives prices or payments; the contacts (person and phone) only reach Reception, Coordinator and Director phones.')}</p>
+      {where.length > 0 && <p className="small">{t('على الهاتف، وهو على شبكة المركز: افتح', "On the phone, on the centre's network, open")} {where.map((a) => <b key={a} className="ltr" style={{ marginInlineEnd: 8 }}>{a}#calendar</b>)}</p>}
+      <table className="t small">
+        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{t('الدور', 'Role')}</th><th>{t('رُبط', 'Linked')}</th><th>{t('آخر تحديث', 'Last update')}</th><th /></tr></thead>
+        <tbody>
+          {list.map((p) => (
+            <tr key={p.id} className={p.revoked_at ? 'off' : ''}>
+              <td><b>{p.name}</b></td><td>{role(p.role)}</td><td dir="ltr">{p.linked_at ? p.linked_at.slice(0, 10) : '—'}</td><td>{state(p)}</td>
+              <td style={{ textAlign: 'end' }}>{!p.revoked_at && <><button className="btn ghost small" onClick={() => setForm({ id: p.id, name: p.name, role: p.role })}>{t('عدّل', 'Edit')}</button><button className="btn ghost small" onClick={() => void cut(p)}>{t('أوقف', 'Cut off')}</button></>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {!list.length && <p className="small muted">{t('لا هاتف مربوط بعد.', 'No phone is linked yet.')}</p>}
+      {form && (
+        <Modal title={form.id ? t('هاتف التقويم', 'Calendar phone') : t('اربط هاتفاً', 'Link a phone')} onClose={() => setForm(null)} narrow>
+          <div className="cal-form">
+            <Field label={t('الاسم', 'Name')}><input className="inp" autoFocus placeholder={t('هاتف الاستقبال', 'Reception phone')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+            <Field label={t('الدور', 'Role')}>
+              <select className="inp" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as PhoneRole })}>
+                {PHONE_ROLES.map((r) => <option key={r} value={r}>{role(r)}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}>
+            <button className="btn" onClick={() => setForm(null)}>{t('إلغاء', 'Cancel')}</button>
+            <button className="btn primary" onClick={() => void save()}>{form.id ? t('حفظ', 'Save') : t('أعطني رمز الربط', 'Give me the link code')}</button>
+          </div>
+        </Modal>
+      )}
+      {made && (
+        <Modal title={t('رمز الربط', 'Link code')} onClose={() => setMade(null)} narrow>
+          <p>{t(`للهاتف «${made.name}». يعمل مرة واحدة ولمدة 30 دقيقة. اكتبه على الهاتف ثم اختر رمزاً من 4 أرقام.`, `For the phone "${made.name}". It works once, for 30 minutes. Type it on the phone, then choose a code of 4 digits.`)}</p>
+          <div className="ltr" style={{ fontSize: 34, fontWeight: 700, letterSpacing: 4, textAlign: 'center', margin: '14px 0' }}>{made.code}</div>
+          <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" onClick={() => setMade(null)}>{t('تم', 'Done')}</button></div>
+        </Modal>
+      )}
     </div>
   );
 }

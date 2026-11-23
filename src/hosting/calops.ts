@@ -2,7 +2,7 @@
 // persons, dates moved or cancelled, holds, spaces closed for repairs, closed periods, the whole centre, the free tick and
 // the price history, cancelling with a part kept, the lists, and the spaces from the Excel file. Rules: calendar.ts.
 // The 0.12 hosting operations (ops.ts) stay as they are until the new screens replace them.
-import { nowIso, one, type Stmt } from '../db/db';
+import { nowIso, one, type Db, type Stmt } from '../db/db';
 import { auditStmt, UserError } from '../db/repo';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
@@ -13,6 +13,7 @@ import {
   type CalSpace, type CancelMoney, type ClosedPeriod, type Clash, type Origin, type PriceHist, type Probe, type SpaceClosed, type World,
 } from './calendar';
 import { HOST_OPS } from './ops';
+import { isPhoneRole, LINK_MINUTES, newLinkCode, normCode, shaHex, type CalPhoneInfo } from './calphone';
 import { inRoomRows } from '../inventory/ops';
 
 const err = (ar: string, en: string, fr: string) => new UserError(m(ar, en, fr));
@@ -32,18 +33,21 @@ const colorOk = (x: unknown) => (x == null || x === '' ? null : /^#[0-9a-fA-F]{6
 
 // ------------------------------------------------------------------ reading
 
-async function equipOf(c: OpCtx): Promise<HostEquip[]> {
+async function equipOf(c: { db: Db }): Promise<HostEquip[]> {
   return c.db.query<HostEquip>("SELECT e.*, COALESCE((SELECT SUM(i.qty) FROM inv_item i WHERE lower(trim(i.name)) = lower(trim(e.name)) AND i.status = 'in_use' AND i.condition = 'good'), 0) AS total FROM host_equip e ORDER BY e.sort, e.name");
 }
 
 /** the receipt numbers already made entries in the books (an income for money received, an expense for money given back) */
-async function enteredOf(c: OpCtx): Promise<string[]> {
+async function enteredOf(c: { db: Db }): Promise<string[]> {
   return (await c.db.query<{ receipt: string }>('SELECT DISTINCT receipt FROM trx WHERE receipt IS NOT NULL AND receipt IN (SELECT receipt_no FROM host_pay)')).map((x) => x.receipt);
 }
 
 /** everything the calendar holds, before it is cut to what this person may see */
-export async function loadCalAll(c: OpCtx): Promise<CalData> {
-  const q = <T>(sql: string) => c.db.query<T>(sql);
+export const loadCalAll = (c: OpCtx): Promise<CalData> => loadCalRaw(c.db, rightsOf(c));
+/** the same for the calendar phones (they have no account): the rights come from the phone's role */
+export async function loadCalRaw(db: Db, rights: CalRights): Promise<CalData> {
+  const c = { db };
+  const q = <T>(sql: string) => db.query<T>(sql);
   return {
     areas: await q<HostBuilding>('SELECT * FROM host_building ORDER BY sort, name'),
     spaces: await q<CalSpace>('SELECT * FROM host_room ORDER BY building_id, sort, name'),
@@ -63,9 +67,9 @@ export async function loadCalAll(c: OpCtx): Promise<CalData> {
     lines: await q<HostLine>('SELECT * FROM host_line ORDER BY id'),
     pays: await q<HostPay>('SELECT * FROM host_pay ORDER BY paid_on, id'),
     services: await q<HostService>('SELECT * FROM host_service ORDER BY sort, name'),
-    inRoom: await inRoomRows(c.db),
+    inRoom: await inRoomRows(db),
     entered: await enteredOf(c),
-    rights: rightsOf(c),
+    rights,
   };
 }
 export const loadCal = async (c: OpCtx) => forViewer(await loadCalAll(c));
@@ -665,6 +669,60 @@ async function cancelPay(c: OpCtx, a: { id: number }) {
   return { ok: true as const };
 }
 
+
+// ------------------------------------------------------------------ the calendar phones (step 5)
+
+/** the Director (calendar set-up) or whoever manages the users links and cuts the calendar phones */
+const managesPhones = (c: OpCtx) => { if (!rightsOf(c).setup && !c.profile.perms.includes('users.manage')) throw refuse(); };
+
+async function phoneList(c: OpCtx): Promise<CalPhoneInfo[]> {
+  const rows = await c.db.query<CalPhoneInfo & { link_hash: string | null }>('SELECT id, name, role, created_by, created_at, linked_at, last_sync, revoked_at, revoked_by, link_until, link_hash FROM cal_phone ORDER BY revoked_at IS NOT NULL, COALESCE(last_sync, linked_at, created_at) DESC');
+  const now = nowIso();
+  return rows.map(({ link_hash, ...r }) => ({ ...r, waiting: !!link_hash && !r.revoked_at && (r.link_until ?? '') > now }));
+}
+
+/** a phone to link: a name, a role; the link code is shown once to the manager and works for a short time */
+async function phoneAdd(c: OpCtx, a: { name: string; role: string }): Promise<{ id: string; code: string; until: string }> {
+  const name = String(a.name ?? '').trim().slice(0, 60);
+  if (!name) throw err('اكتب اسم الهاتف', 'Write the name of the phone', 'Écrivez le nom du téléphone');
+  if (!isPhoneRole(a.role)) throw err('اختر دور الهاتف', 'Choose the role of the phone', 'Choisissez le rôle du téléphone');
+  const id = Array.from(crypto.getRandomValues(new Uint8Array(9)), (x) => x.toString(16).padStart(2, '0')).join('');
+  const code = newLinkCode();
+  const until = new Date(Date.now() + LINK_MINUTES * 60_000).toISOString();
+  await c.db.batch([
+    { sql: 'INSERT INTO cal_phone (id, name, role, link_hash, link_until, created_by, created_at) VALUES (?,?,?,?,?,?,?)', params: [id, name, a.role, await shaHex(normCode(code)), until, c.who, nowIso()] },
+    auditStmt(c.who, 'cal-phone-add', 'cal_phone', id, null, { name, role: a.role }),
+  ]);
+  return { id, code, until };
+}
+
+async function phoneEdit(c: OpCtx, a: { id: string; name?: string; role?: string }) {
+  const p = await one<{ id: string; name: string; role: string; revoked_at: string | null }>(c.db, 'SELECT id, name, role, revoked_at FROM cal_phone WHERE id = ?', [a.id]);
+  if (!p) throw err('الهاتف غير موجود', 'This phone does not exist', "Ce téléphone n'existe pas");
+  if (p.revoked_at) throw err('أُوقف هذا الهاتف', 'This phone is cut off', 'Ce téléphone est coupé');
+  const name = a.name == null ? p.name : String(a.name).trim().slice(0, 60);
+  const role = a.role == null ? p.role : a.role;
+  if (!name) throw err('اكتب اسم الهاتف', 'Write the name of the phone', 'Écrivez le nom du téléphone');
+  if (!isPhoneRole(role)) throw err('اختر دور الهاتف', 'Choose the role of the phone', 'Choisissez le rôle du téléphone');
+  await c.db.batch([
+    { sql: 'UPDATE cal_phone SET name = ?, role = ? WHERE id = ?', params: [name, role, p.id] },
+    auditStmt(c.who, 'cal-phone-edit', 'cal_phone', p.id, { name: p.name, role: p.role }, { name, role }),
+  ]);
+  return { ok: true };
+}
+
+/** cut off at once and for good (its link code too); to use a phone again, link it again as a new one */
+async function phoneCut(c: OpCtx, a: { id: string }) {
+  const p = await one<{ id: string; name: string; revoked_at: string | null }>(c.db, 'SELECT id, name, revoked_at FROM cal_phone WHERE id = ?', [a.id]);
+  if (!p) throw err('الهاتف غير موجود', 'This phone does not exist', "Ce téléphone n'existe pas");
+  if (p.revoked_at) return { ok: true };
+  await c.db.batch([
+    { sql: 'UPDATE cal_phone SET revoked_at = ?, revoked_by = ?, link_hash = NULL WHERE id = ?', params: [nowIso(), c.who, p.id] },
+    auditStmt(c.who, 'cal-phone-cut', 'cal_phone', p.id, null, { name: p.name }),
+  ]);
+  return { ok: true };
+}
+
 export const CAL_OPS = {
   'cal.get': { check: need('view'), run: (c: OpCtx) => loadCal(c) },
   'cal.history': { check: need('history'), run: (c: OpCtx, a: { booking_id?: number }) => history(c, a) },
@@ -706,6 +764,10 @@ export const CAL_OPS = {
       return { before: row.n };
     },
   },
+  'cal.phone.add': { check: managesPhones, run: (c: OpCtx, a: Parameters<typeof phoneAdd>[1]) => phoneAdd(c, a) },
+  'cal.phone.list': { check: managesPhones, run: (c: OpCtx) => phoneList(c) },
+  'cal.phone.edit': { check: managesPhones, run: (c: OpCtx, a: Parameters<typeof phoneEdit>[1]) => phoneEdit(c, a) },
+  'cal.phone.cut': { check: managesPhones, run: (c: OpCtx, a: { id: string }) => phoneCut(c, a) },
   'cal.date.change': { check: anyChange, run: (c: OpCtx, a: Parameters<typeof dateChange>[1]) => dateChange(c, a) },
   'cal.date.undo': { check: anyChange, run: (c: OpCtx, a: { id: number }) => dateUndo(c, a) },
 
@@ -731,7 +793,7 @@ export const CAL_OPS = {
   'cal.import.orgs': { check: need('orgs'), run: (c: OpCtx, a: { rows: unknown[][]; dry?: boolean }) => importOrgs(c, a) },
 } as const;
 
-export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options'];
+export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options', 'cal.phone.list'];
 
 /** for the tests and the coming screens: who sees the amounts */
 export const calSeesPrices = (c: OpCtx) => seesPrices(rightsOf(c));

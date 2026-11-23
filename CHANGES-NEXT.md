@@ -253,5 +253,33 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - Words: "Receipt" (never invoice), "prepare" the pages.
 - Tried in the side pane (the windows, the buttons); the pages drawn from sample data and looked at. No database update.
 
+## 12. The new Calendar — step 5 "Calendar phone" (update 76)
+- **A calendar phone is not the full phone app.** It has no account and no sign-in: a manager at the centre (the Director, who has
+  "Sets up spaces and lists", or whoever manages the users) opens Calendar → Settings → **Calendar phones** → "Link a phone",
+  gives it a **name** and a **role** (Team, Reception, Coordinator, Director) and gets a **link code** (XXXX-XXXX). The code works
+  **once** and for **30 minutes**; the server keeps only its hash.
+- **On the phone:** open the phone page with `#calendar` at the end (`https://…/phone.html#calendar`; the start page says so),
+  type the link code, then choose a **code of 4 digits** (typed twice). The server never knows that code: it locks the phone's
+  key on the phone. Five wrong codes make the phone wait 30 seconds; "I forgot the code" forgets the phone (a new link code is
+  needed). It locks again after 5 minutes out of sight. It then opens **straight on Today**.
+- **Screens (read only):** Today (arriving, leaving, rooms free tonight, the day's activities and the guests), Week (Monday to
+  Sunday), Spaces (each space free, used or closed, for a day). Tapping a booking shows it. The **last view is kept** (and the
+  day, until the next morning). Arabic, English, French; digits 0–9.
+- **What it keeps:** 1 month back and 6 months ahead (from the day it was updated), with the closed periods and the spaces closed
+  for repairs. It says **"Updated 2026-11-23 22:09, from … to …"**. With no connection it shows what it kept and says so; the
+  ↻ button updates it.
+- **What it never receives:** prices, payments, price history, services, who cancelled and why (the server cuts them in
+  `src/hosting/calphone.ts`; tested). **Contacts** (person in charge, phone, organisations) only on Reception, Coordinator and
+  Director phones. A booking marked **private** shows only "Reserved · محجوز" on every phone.
+- **The manager** sees each phone (name, role, linked on, last update), can rename it, change its role, or **cut it off** at once
+  and for good (a phone cut off is told so on its next update and forgets the calendar it kept). Everything is in the history.
+- Update **76**: one new table, `cal_phone` (id, name, role, link code hash and its end, key hash, who and when, last update, cut off).
+  Rehearsed on copies only (the 0.12 and first-test copies): nothing else changed, integrity ok.
+- Server: `/api/calphone/link` and `/api/calphone/pack` (`server/calphone.ts`); wrong link codes count in the same limit as
+  the sign-in (8 tries, then 5 minutes).
+- Tried in the side pane: link code made, the phone linked with it (once), Today / Week / Spaces, a booking opened with the contact
+  on a Reception phone, locked on opening, a wrong code refused, the last view kept, then cut off: the phone is told and returns to
+  the linking screen. Not tried: a real phone, the Arabic screen of the phone, the home-screen icon, an offline start.
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

@@ -137,3 +137,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 .ph-md.off { border: 0; background: none; }
 .ph-md.today { outline: 2px solid var(--gold); }
 .ph-md small { font-size: 11px; opacity: 0.85; min-height: 13px; }
+/* The calendar phone (calendar step 5): rows of the day, the week and the spaces */
+.ph-cal-row { display: flex; gap: 10px; align-items: flex-start; text-align: start; font: inherit; width: 100%; border: 0; border-top: 1px solid var(--line); background: none; padding: 8px 0; color: var(--ink); }
+.ph-cal-row:first-of-type { border-top: 0; }
+.ph-cal-when { flex: 0 0 92px; white-space: nowrap; font-weight: 700; font-size: 15px; color: var(--navy); }
+.ph-cal-what { display: flex; flex-direction: column; min-width: 0; }
+.ph-cal-what small { color: var(--muted); font-size: 14px; }
+.ph-cal-row.option .ph-cal-what b { font-style: italic; }
+.ph-cal-row.left { opacity: 0.6; }
+.ph-cal-day.today { outline: 2px solid var(--gold); }
+.ph-cal-dh { font-size: 16px; }
+.ph-cal-figs { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 15px; color: var(--muted); }
+.ph-cal-figs b { color: var(--ink); }
+.ph-chips button:disabled { opacity: 0.35; }

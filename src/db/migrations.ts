@@ -2461,4 +2461,27 @@ CREATE TABLE inv_problem (
 CREATE INDEX inv_problem_status ON inv_problem (status, reported_at);
 `,
   },
+  {
+    n: 76,
+    name: 'calendar step 5: the calendar phones (a name, a role, a one-time link code, cut off by a manager)',
+    sql: `
+-- (Fouad, calendar baseline 2.1, sections 3 and 4) A calendar phone is linked once at the centre by a manager, who gives it
+-- a name and a role (team, reception, coordinator, director). The manager gets a link code that works once, for a short
+-- time. The phone then holds a long key (the server keeps only its hash). Read only: it never receives prices or payments.
+CREATE TABLE cal_phone (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('team', 'reception', 'coordinator', 'director')),
+  link_hash  TEXT,
+  link_until TEXT,
+  key_hash   TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  linked_at  TEXT,
+  last_sync  TEXT,
+  revoked_at TEXT,
+  revoked_by TEXT
+);
+`,
+  },
 ];

@@ -8,6 +8,7 @@ import { Count, invCounts, invPhotos } from './Count';
 import { Record as RecordItems, invNews } from './Record';
 import { Problem, problemNews } from './Problem';
 import { CalendarPage, HostReview, hostNews } from './Calendar';
+import { CalPhone } from './CalPhone';
 
 type Lang = 'ar' | 'en' | 'fr';
 let lang: Lang = ((): Lang => {
@@ -59,7 +60,30 @@ const HOUSES: [string, () => string][] = [
 /** a database linked to this phone (21 November 2026: a phone may hold several): ns = its name here ('' = the older first link, until it is opened once) */
 export interface LinkEntry { ns: string; org: string; user: string; link: Link }
 
+/**
+ * Two kinds of phone share this page: the full app (a person who writes in a book) and the calendar phone (calendar step 5:
+ * linked by a manager with a link code, read only). The calendar phone is the page opened as /phone.html#calendar, or a
+ * phone that already holds a calendar link and no full link.
+ */
 export function App() {
+  const [, redraw] = useState(0);
+  const [mode, setMode] = useState<'?' | 'cal' | 'full'>('?');
+  useEffect(() => {
+    void (async () => {
+      const wantsCal = location.hash === '#calendar';
+      const hasCal = !!(await gGet('calphone-link'));
+      const hasFull = !!((await gGet('links')) ?? (await gGet('link')));
+      setMode(hasFull && !wantsCal ? 'full' : wantsCal || hasCal ? 'cal' : 'full');
+    })();
+  }, []);
+  useEffect(() => { document.documentElement.lang = lang; document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr'; });
+  const setLang = (l: Lang) => { lang = l; try { localStorage.setItem('phone-lang', l); } catch { /* */ } redraw((n) => n + 1); };
+  if (mode === '?') return <div className="ph-center">…</div>;
+  if (mode === 'cal') return <CalPhone lang={lang} t={t} tm={tm} langPick={<LangPick lang={lang} setLang={setLang} />} installHint={<InstallHint />} />;
+  return <FullApp />;
+}
+
+function FullApp() {
   const [, redraw] = useState(0);
   const [links, setLinks] = useState<LinkEntry[] | undefined>(undefined); // undefined: still reading the phone's storage
   const [cur, setCur] = useState(''); // the active link

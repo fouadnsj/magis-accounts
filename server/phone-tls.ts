@@ -199,6 +199,12 @@ export function startPage(o: { lang: string | null; acceptLanguage: string; host
 </ol>
 </div>
 
+<h2>${t('هاتف التقويم', 'A calendar phone', 'Un téléphone du calendrier')}</h2>
+<div class="box">
+<p>${t('هاتف التقويم يقرأ التقويم فقط، بلا اسم مستخدم. بعد الخطوتين 1 و2، افتح الصفحة بالعنوان نفسه وأضف في آخره', 'A calendar phone only reads the calendar, with no user name. After steps 1 and 2, open the page with the same address and add at its end', 'Un téléphone du calendrier ne fait que lire le calendrier, sans nom d\'utilisateur. Après les étapes 1 et 2, ouvrez la page avec la même adresse et ajoutez à la fin')} <b class="ltr">#calendar</b>.</p>
+<p>${t('اكتب رمز الربط الذي أعطاك إياه المسؤول (يعمل مرة واحدة)، ثم اختر رمزاً من 4 أرقام لهذا الهاتف.', 'Type the link code the person in charge gave you (it works once), then choose a code of 4 digits for this phone.', 'Tapez le code de liaison que le responsable vous a donné (il ne sert qu\'une fois), puis choisissez un code de 4 chiffres pour ce téléphone.')}</p>
+</div>
+
 <h2>4 · ${t('كل يوم', 'Every day', 'Chaque jour')}</h2>
 <ul>
 <li>${t('اكتب نفقاتك وإيراداتك حتى بلا اتصال، مع صورة الإيصال.', 'Write your expenses and income even with no connection, with the photo of the receipt.', 'Notez vos dépenses et recettes même sans connexion, avec la photo du reçu.')}</li>

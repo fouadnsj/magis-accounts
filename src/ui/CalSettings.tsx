@@ -6,11 +6,11 @@ import { useState } from 'react';
 import { useApp } from '../state';
 import { Field, Modal, Tabs, biName, confirmBox, errText, fmtDate, promptBox, t, toast } from './kit';
 import { colorOf, PALETTE } from '../hosting/host';
-import { categoryOf, sleepsIn, type CalData, type CalSpace } from '../hosting/calendar';
+import { categoryOf, inCalendar, sleepsIn, type CalData, type CalSpace } from '../hosting/calendar';
 
 type Tab = 'spaces' | 'lists' | 'closings';
 
-interface SpaceForm { id?: number; building_id: number; name: string; kind_id: number | null; floor: string; capacity: string; beds: string; rentable: boolean; fixed: string; note: string; category_id: number | null; active: boolean }
+interface SpaceForm { id?: number; building_id: number; name: string; kind_id: number | null; floor: string; capacity: string; beds: string; rentable: boolean; bookable: boolean; fixed: string; note: string; category_id: number | null; active: boolean }
 
 export function CalSettings({ data, refresh }: { data: CalData; refresh: () => Promise<void> }) {
   const [tab, setTab] = useState<Tab>('spaces');
@@ -46,7 +46,7 @@ function SpacesTab({ data, refresh }: { data: CalData; refresh: () => Promise<vo
   };
   const areaSave = (id: number, x: { name: string; active: boolean; color?: string | null }) => act(() => s.api.call('cal.area.save', { id, ...x }));
   const firstKind = data.kinds.find((k) => k.active && !k.sleeps)?.id ?? data.kinds[0]?.id ?? null;
-  const open = (sp: CalSpace) => setForm({ id: sp.id, building_id: sp.building_id, name: sp.name, kind_id: sp.kind_id, floor: sp.floor ?? '', capacity: sp.capacity ? String(sp.capacity) : '', beds: sp.beds ? String(sp.beds) : '', rentable: !!sp.rentable, fixed: sp.fixed ?? '', note: sp.note ?? '', category_id: sp.category_id, active: !!sp.active });
+  const open = (sp: CalSpace) => setForm({ id: sp.id, building_id: sp.building_id, name: sp.name, kind_id: sp.kind_id, floor: sp.floor ?? '', capacity: sp.capacity ? String(sp.capacity) : '', beds: sp.beds ? String(sp.beds) : '', rentable: !!sp.rentable, bookable: sp.bookable !== 0, fixed: sp.fixed ?? '', note: sp.note ?? '', category_id: sp.category_id, active: !!sp.active });
   return (
     <div className="panel">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -66,11 +66,11 @@ function SpacesTab({ data, refresh }: { data: CalData; refresh: () => Promise<vo
               <button className="btn ghost small" onClick={async () => { const n = await promptBox(t('اسم المنطقة', 'Name of the area'), a.name); if (n?.trim()) await areaSave(a.id, { name: n, active: !!a.active }); }}>{t('اسم', 'Rename')}</button>
               <button className="btn ghost small" onClick={() => void areaSave(a.id, { name: a.name, active: !a.active })}>{a.active ? t('أوقف', 'Switch off') : t('أعد', 'Switch on')}</button>
               <span style={{ flex: 1 }} />
-              <button className="btn small" onClick={() => setForm({ building_id: a.id, name: '', kind_id: firstKind, floor: '', capacity: '', beds: '', rentable: true, fixed: '', note: '', category_id: null, active: true })}>＋ {t('مكان', 'Space')}</button>
+              <button className="btn small" onClick={() => setForm({ building_id: a.id, name: '', kind_id: firstKind, floor: '', capacity: '', beds: '', rentable: true, bookable: true, fixed: '', note: '', category_id: null, active: true })}>＋ {t('مكان', 'Space')}</button>
             </div>
             {list.length > 0 && (
               <table className="t small" style={{ marginTop: 6 }}>
-                <thead><tr><th>{t('المكان', 'Space')}</th><th>{t('النوع', 'Kind')}</th><th>{t('الفئة', 'Category')}</th><th>{t('الطابق', 'Floor')}</th><th className="n">{t('السعة / الأسرّة', 'Capacity / beds')}</th><th>{t('للتأجير', 'Rentable')}</th><th>{t('دائماً فيه', 'Always in it')}</th><th /></tr></thead>
+                <thead><tr><th>{t('المكان', 'Space')}</th><th>{t('النوع', 'Kind')}</th><th>{t('الفئة', 'Category')}</th><th>{t('الطابق', 'Floor')}</th><th className="n">{t('السعة / الأسرّة', 'Capacity / beds')}</th><th>{t('يُحجز', 'Can be booked')}</th><th>{t('للتأجير', 'Rentable')}</th><th>{t('دائماً فيه', 'Always in it')}</th><th /></tr></thead>
                 <tbody>
                   {list.map((sp) => (
                     <tr key={sp.id} className={sp.active ? '' : 'off'}>
@@ -79,7 +79,8 @@ function SpacesTab({ data, refresh }: { data: CalData; refresh: () => Promise<vo
                       <td>{catLabel(data, categoryOf(sp, data.kinds))}</td>
                       <td>{sp.floor ?? ''}</td>
                       <td className="n">{sleepsIn(sp, data.kinds) ? (sp.beds ? `${sp.beds} ${t('سرير', 'beds')}` : '—') : sp.capacity ? `${sp.capacity} ${t('شخصاً', 'people')}` : '—'}</td>
-                      <td>{sp.rentable ? t('نعم', 'Yes') : t('لنا فقط', 'Ours only')}</td>
+                      <td>{sp.bookable !== 0 ? t('نعم', 'Yes') : t('الجرد فقط', 'Inventory only')}</td>
+                      <td>{sp.bookable === 0 ? '' : sp.rentable ? t('نعم', 'Yes') : t('لنا فقط', 'Ours only')}</td>
                       <td className="muted">{sp.fixed ?? ''}</td>
                       <td><button className="btn ghost small" onClick={() => open(sp)}>{t('عدّل', 'Edit')}</button></td>
                     </tr>
@@ -107,7 +108,7 @@ function SpaceWindow({ data, form: start, onClose, refresh }: { data: CalData; f
     if (!f.name.trim()) { toast(t('اكتب اسم المكان', 'Write the name of the space'), true); return; }
     setBusy(true);
     try {
-      await s.api.call('cal.space.save', { id: f.id, building_id: f.building_id, name: f.name, kind_id: f.kind_id, beds: Number(f.beds) || 0, capacity: Number(f.capacity) || 0, floor: f.floor, rentable: f.rentable, fixed: f.fixed, note: f.note, category_id: f.category_id, active: f.active });
+      await s.api.call('cal.space.save', { id: f.id, building_id: f.building_id, name: f.name, kind_id: f.kind_id, beds: Number(f.beds) || 0, capacity: Number(f.capacity) || 0, floor: f.floor, rentable: f.rentable, bookable: f.bookable, fixed: f.fixed, note: f.note, category_id: f.category_id, active: f.active });
       await refresh();
       onClose();
     } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
@@ -136,7 +137,8 @@ function SpaceWindow({ data, form: start, onClose, refresh }: { data: CalData; f
         </Field>
         <Field label={t('ما هو دائماً فيه', 'What is always in it')}><input className="inp" placeholder={t('جهاز عرض، 40 كرسياً…', 'projector, 40 chairs…')} value={f.fixed} onChange={(e) => setF({ ...f, fixed: e.target.value })} /></Field>
         <Field label={t('ملاحظة', 'Note')}><input className="inp" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
-        <label className="small cal-check"><input type="checkbox" checked={f.rentable} onChange={(e) => setF({ ...f, rentable: e.target.checked })} /> {t('قابل للتأجير: يمكن أن تحجزه جهة خارجية', 'Rentable: an outside group may book it')}</label>
+        <label className="small cal-check"><input type="checkbox" checked={f.bookable} onChange={(e) => setF({ ...f, bookable: e.target.checked })} /> {t('يُحجز: يظهر في التقويم (المخزن والمكتب لا يُحجزان: يظهران في الجرد فقط)', 'Can be booked: shown in the calendar (a store or an office cannot be booked: they are only in the inventory)')}</label>
+        {f.bookable && <label className="small cal-check"><input type="checkbox" checked={f.rentable} onChange={(e) => setF({ ...f, rentable: e.target.checked })} /> {t('قابل للتأجير: يمكن أن تحجزه جهة خارجية', 'Rentable: an outside group may book it')}</label>}
         {f.id != null && <label className="small cal-check"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> {t('قيد الاستعمال (أزل العلامة لإيقافه، ولا يُحذف)', 'In use (untick to switch it off; it is never deleted)')}</label>}
       </div>
       <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}>
@@ -308,7 +310,7 @@ function ClosingsTab({ data, refresh }: { data: CalData; refresh: () => Promise<
             <Field label={t('المكان', 'Space')}>
               <select className="inp" value={repair.room_id ?? ''} onChange={(e) => setRepair({ ...repair, room_id: Number(e.target.value) || null, hit: undefined })}>
                 <option value="">…</option>
-                {data.areas.map((a) => <optgroup key={a.id} label={a.name}>{data.spaces.filter((x) => x.building_id === a.id && x.active).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>)}
+                {data.areas.map((a) => <optgroup key={a.id} label={a.name}>{data.spaces.filter((x) => x.building_id === a.id && inCalendar(x)).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>)}
               </select>
             </Field>
             <Field label={t('من', 'From')}><input className="inp" type="date" value={repair.from_day} onChange={(e) => setRepair({ ...repair, from_day: e.target.value, hit: undefined })} /></Field>

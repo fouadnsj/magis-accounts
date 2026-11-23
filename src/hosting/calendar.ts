@@ -23,7 +23,7 @@ export type CancelMoney = 'all' | 'none' | 'part';
 export interface CalCategory { id: number; name: string; active: number; sort: number }
 export interface CalKind extends HostKind { category_id: number | null }
 /** a space: a hall, a classroom, a kitchen, a bedroom… (a 0.12 room) */
-export interface CalSpace extends HostRoom { floor: string | null; rentable: number; fixed: string | null; note: string | null; category_id: number | null }
+export interface CalSpace extends HostRoom { floor: string | null; rentable: number; fixed: string | null; note: string | null; category_id: number | null; /** 0: shown only in the inventory (a store, an office), never in the calendar */ bookable: number }
 export interface CalActivityKind { id: number; name: string; color: string | null; active: number; sort: number }
 export interface CalOrgKind { id: number; name: string; active: number; sort: number }
 export interface CalOrg { id: number; name: string; kind_id: number | null; note: string | null; active: number; created_by: string | null; created_at: string; updated_at: string | null }
@@ -183,9 +183,11 @@ export const closedOn = (closed: SpaceClosed[], spaceId: number, day: string) =>
 /** the closed period of the centre that covers this day, if any */
 export const periodOn = (periods: ClosedPeriod[], day: string) => periods.find((p) => !p.cancelled && day >= p.from_day && day <= p.to_day) ?? null;
 
-/** the spaces a booking holds on a day: the whole centre holds every space in use (but one closed for repairs), an activity outside the centre none */
-export function spacesOn(b: Pick<CalBooking, 'id'> & Partial<Pick<CalBooking, 'whole_centre' | 'outside_place'>>, day: string, w: { allocs: Pick<HostAlloc, 'booking_id' | 'room_id'>[]; spaces: Pick<CalSpace, 'id' | 'active'>[]; closed: SpaceClosed[] }, mine?: number[]): number[] {
-  if (b.whole_centre) return w.spaces.filter((s) => s.active && !closedOn(w.closed, s.id, day)).map((s) => s.id);
+/** a space of the calendar: in use, and one that can be booked (a store or an office is only in the inventory) */
+export const inCalendar = (s: Pick<CalSpace, 'active'> & Partial<Pick<CalSpace, 'bookable'>>) => !!s.active && s.bookable !== 0;
+/** the spaces a booking holds on a day: the whole centre holds every space of the calendar (but one closed for repairs), an activity outside the centre none */
+export function spacesOn(b: Pick<CalBooking, 'id'> & Partial<Pick<CalBooking, 'whole_centre' | 'outside_place'>>, day: string, w: { allocs: Pick<HostAlloc, 'booking_id' | 'room_id'>[]; spaces: (Pick<CalSpace, 'id' | 'active'> & Partial<Pick<CalSpace, 'bookable'>>)[]; closed: SpaceClosed[] }, mine?: number[]): number[] {
+  if (b.whole_centre) return w.spaces.filter((s) => inCalendar(s) && !closedOn(w.closed, s.id, day)).map((s) => s.id);
   return mine ?? w.allocs.filter((a) => a.booking_id === b.id).map((a) => a.room_id);
 }
 
@@ -195,7 +197,7 @@ export interface World {
   bookings: (Shape & Pick<CalBooking, 'group_name'> & Partial<Pick<CalBooking, 'outside_place' | 'origin'>>)[];
   allocs: Pick<HostAlloc, 'booking_id' | 'room_id'>[];
   dates: CalDate[];
-  spaces: Pick<CalSpace, 'id' | 'active'>[];
+  spaces: (Pick<CalSpace, 'id' | 'active'> & Partial<Pick<CalSpace, 'bookable'>>)[];
   closed: SpaceClosed[];
 }
 /** a booking being saved: its shape, the spaces chosen, and the date changes it already has */
@@ -343,11 +345,12 @@ export function checkCal(b: CalInput): string | null {
   if (b.origin === 'ours' && !b.activity_kind_id && !b.whole_centre) return 'activity_kind';
   return null;
 }
-/** an outside booking only in rentable spaces; a stay only in bedrooms */
-export function spaceProblem(b: Pick<CalInput, 'origin' | 'kind' | 'spaces'>, spaces: Pick<CalSpace, 'id' | 'rentable' | 'active' | 'kind' | 'kind_id'>[], kinds: Pick<CalKind, 'id' | 'sleeps'>[]): { code: 'missing' | 'not_rentable' | 'not_bedroom'; space_id: number } | null {
+/** a space that can be booked; an outside booking only in rentable spaces; a stay only in bedrooms */
+export function spaceProblem(b: Pick<CalInput, 'origin' | 'kind' | 'spaces'>, spaces: (Pick<CalSpace, 'id' | 'rentable' | 'active' | 'kind' | 'kind_id'> & Partial<Pick<CalSpace, 'bookable'>>)[], kinds: Pick<CalKind, 'id' | 'sleeps'>[]): { code: 'missing' | 'not_bookable' | 'not_rentable' | 'not_bedroom'; space_id: number } | null {
   for (const id of b.spaces) {
     const s = spaces.find((x) => x.id === id);
     if (!s || !s.active) return { code: 'missing', space_id: id };
+    if (s.bookable === 0) return { code: 'not_bookable', space_id: id };
     if (b.origin === 'outside' && !s.rentable) return { code: 'not_rentable', space_id: id };
     if (b.kind === 'stay' && !sleepsIn(s, kinds)) return { code: 'not_bedroom', space_id: id };
   }

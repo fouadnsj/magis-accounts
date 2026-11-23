@@ -9,7 +9,7 @@ import { MIGRATIONS } from '../src/db/migrations';
 import { withImplied, type Perm } from '../src/perms';
 import { addDays } from '../src/hosting/host';
 import {
-  calRights, calTotals, cancelMoney, checkCal, clashesOf, decide, forViewer, holdDate, holdPassed, matchName, occurrences, readOrgsSheet, readSpacesSheet, RESERVED, warningsOf,
+  calRights, calTotals, cancelMoney, checkCal, clashesOf, decide, forViewer, holdDate, holdPassed, matchName, occurrences, readOrgsSheet, readSpacesSheet, RESERVED, spacesOn, warningsOf,
   type CalBooking, type CalData, type CalDate, type World,
 } from '../src/hosting/calendar';
 import { nodeDb } from './nodeDb';
@@ -345,6 +345,22 @@ describe('step 1 on a test database', () => {
     expect((await save(reception, { ...a, force: true })).saved).toBe(true);
   });
 
+  it('a space that cannot be booked (a store, an office) is only in the inventory: never booked, never held by the whole centre', async () => {
+    const d = await cal();
+    const main = d.spaces.find((x) => x.id === hallA)!.building_id;
+    const store = ((await runOp(director, 'cal.space.save', { building_id: main, name: 'Store', kind_id: d.kinds.find((k) => k.name.startsWith('Other'))!.id, bookable: false })) as { id: number }).id;
+    expect((await cal()).spaces.find((x) => x.id === store)).toMatchObject({ bookable: 0, active: 1 });
+    await expect(save(coordinator, { origin: 'ours', title: 'Sorting', activity_kind_id: workshop, from_day: day(45), spaces: [store] })).rejects.toThrow(/only in the inventory/);
+    // the whole centre does not hold it
+    const w = (await cal()).spaces;
+    expect(spacesOn({ id: 0, whole_centre: 1 }, day(45), { allocs: [], spaces: w, closed: [] })).not.toContain(store);
+    // a space with bookings to come stays bookable until they are moved or cancelled
+    await expect(runOp(director, 'cal.space.save', { id: hallB, building_id: main, name: 'Hall B', kind_id: d.spaces.find((x) => x.id === hallB)!.kind_id, capacity: 30, bookable: false })).rejects.toThrow(/bookings to come/);
+    // ticked again: it can be booked
+    await runOp(director, 'cal.space.save', { id: store, building_id: main, name: 'Store', kind_id: d.kinds.find((k) => k.name.startsWith('Other'))!.id, bookable: true });
+    expect((await save(coordinator, { origin: 'ours', title: 'Sorting', activity_kind_id: workshop, from_day: day(45), spaces: [store] })).saved).toBe(true);
+  });
+
   it('an outside group only in rentable spaces; a stay only in bedrooms', async () => {
     await expect(save(reception, { origin: 'outside', org_id: org, from_day: day(50), spaces: [office] })).rejects.toThrow(/rentable/);
     await expect(save(reception, { origin: 'outside', kind: 'stay', org_id: org, from_day: day(50), to_day: day(52), spaces: [hallB] })).rejects.toThrow(/bedroom/);
@@ -451,7 +467,7 @@ describe('migrations 64–67 on a 0.12 database', () => {
       { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, receipt_no, at) VALUES (1, 40, 'USD', '2026-12-01', 'H2026-0001', 'x')" },
     ]);
     const before = await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id');
-    expect(await migrate(old)).toEqual([64, 65, 66, 67]);
+    expect(await migrate(old)).toEqual([64, 65, 66, 67, 68]);
     expect(await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id')).toEqual(before);
     expect(await old.query('SELECT id, origin, price_state, private, whole_centre, hold_until FROM host_booking ORDER BY id')).toEqual([
       { id: 1, origin: 'outside', price_state: 'priced', private: 0, whole_centre: 0, hold_until: null },
@@ -460,7 +476,7 @@ describe('migrations 64–67 on a 0.12 database', () => {
     expect((await old.query<{ n: number }>('SELECT COUNT(*) AS n FROM host_pay'))[0].n).toBe(1);
     expect((await old.query<{ n: number }>('SELECT COUNT(*) AS n FROM host_line'))[0].n).toBe(1);
     expect(await old.query('SELECT booking_id, price_state, price_mode, rate FROM cal_price_hist')).toEqual([{ booking_id: 1, price_state: 'priced', price_mode: 'person', rate: 10 }]);
-    expect(await old.query('SELECT id, rentable, category_id FROM host_room ORDER BY id')).toEqual([{ id: 1, rentable: 1, category_id: null }, { id: 2, rentable: 1, category_id: null }]);
+    expect(await old.query('SELECT id, rentable, bookable, category_id FROM host_room ORDER BY id')).toEqual([{ id: 1, rentable: 1, bookable: 1, category_id: null }, { id: 2, rentable: 1, bookable: 1, category_id: null }]);
     const ticks = async (name: string | number) => (JSON.parse((await old.query<{ perms: string }>(`SELECT perms FROM access_profile WHERE ${typeof name === 'number' ? 'id' : 'name'} = ?`, [name]))[0].perms) as string[]).filter((p) => p.startsWith('cal.')).sort();
     expect(await ticks('Desk')).toEqual(['cal.arrive', 'cal.contacts', 'cal.orgs', 'cal.outside', 'cal.view']);
     expect(await ticks('Prices')).toEqual(['cal.arrive', 'cal.contacts', 'cal.money', 'cal.orgs', 'cal.outside', 'cal.prices', 'cal.view']);

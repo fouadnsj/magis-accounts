@@ -1,7 +1,7 @@
 # For the next build (after 0.12.1) — list made 24 November 2026
 
-Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Four new database updates: 64, 65, 66, 67** (the
-calendar's foundation, §3). They only add: nothing of 0.12.1 is changed or removed (rehearsed on copies of the 0.12 test data).
+Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Five new database updates: 64 to 68** (the
+calendar's foundation, §3, and the "can be booked" tick, §4). They only add: nothing of 0.12.1 is changed or removed (rehearsed on copies of the 0.12 test data).
 
 ## 1. Lists → Budget: choose the list a database follows
 - A database that has **not taken from any list yet** (an imported file, for example the ready Al-Ard database) now shows
@@ -70,4 +70,9 @@ A door **"New calendar · التقويم الجديد"** in the menu for whoever
   when (one day, several days, every week on chosen days; hours in 15-minute steps with morning / afternoon / evening);
   status with the date held, private, note. A space already held: not possible (a weekly series: "Save without these
   dates"); warnings: "Save anyway". **Price, services and equipment come in step 3** (what a booking already has is kept).
+- **"Can be booked"** (database update 68; inventory baseline 1.1 rule 2, Fouad's yes): a tick on each space in the
+  settings. A space that cannot be booked (a store, an office, a storage room) is shown only in the inventory, never in
+  the calendar: not in its views, not in the booking window, not held by the whole centre, not in the Today counts.
+  Every space already there can be booked. A space with bookings to come cannot be unticked until they are moved or
+  cancelled.
 - Tried in the side pane on a copy of the 0.12 test data.

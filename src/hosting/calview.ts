@@ -1,7 +1,7 @@
 // What the calendar's laptop screen shows (baseline 2.1 §8, step 2): the bookings of a day or a week, the Today strip, the
 // lists (upcoming, in the house, to confirm, past) and the search. Pure functions, tested in tests/calview.test.ts.
 import { addDays } from './host';
-import { categoryOf, closedOn, holdPassed, occurrences, periodOn, sleepsIn, spacesOn, type CalBooking, type CalData, type CalSpace, type Occurrence } from './calendar';
+import { categoryOf, closedOn, holdPassed, inCalendar, occurrences, periodOn, sleepsIn, spacesOn, type CalBooking, type CalData, type CalSpace, type Occurrence } from './calendar';
 
 /** the Monday of a day's week (the week starts on Monday in every language) */
 export const mondayOf = (d: string) => addDays(d, -((new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7));
@@ -38,7 +38,7 @@ export function itemsBetween(d: Pick<CalData, 'bookings' | 'dates' | 'allocs' | 
 
 /** the spaces of a quick view: everything, or the spaces of one category (and of one area when chosen) */
 export function spacesShown(d: Pick<CalData, 'spaces' | 'kinds'>, category: number | null, area: number | null): CalSpace[] {
-  return d.spaces.filter((s) => s.active && (area == null || s.building_id === area) && (category == null || categoryOf(s, d.kinds) === category));
+  return d.spaces.filter((s) => inCalendar(s) && (area == null || s.building_id === area) && (category == null || categoryOf(s, d.kinds) === category));
 }
 
 // ------------------------------------------------------------------ the Today strip
@@ -58,11 +58,11 @@ export function todayFigures(d: CalData, today: string, nowMin: number): TodayFi
   const live = d.bookings.filter((b) => b.status !== 'cancelled');
   const stays = live.filter((b) => b.kind === 'stay');
   const items = itemsBetween(d, today, today).get(today) ?? [];
-  const halls = new Map(d.spaces.filter((s) => s.active && !sleepsIn(s, d.kinds)).map((s) => [s.id, s]));
+  const halls = new Map(d.spaces.filter((s) => inCalendar(s) && !sleepsIn(s, d.kinds)).map((s) => [s.id, s]));
   const inUse: TodayFigures['inUse'] = [];
   for (const it of items) if (it.occ.from <= nowMin && nowMin < it.occ.to) for (const id of it.spaces) { const s = halls.get(id); if (s) inUse.push({ space: s, b: it.b, occ: it.occ }); }
   const heldTonight = new Set(items.flatMap((it) => it.spaces));
-  const freeTonight = d.spaces.filter((s) => s.active && sleepsIn(s, d.kinds) && !heldTonight.has(s.id) && !closedOn(d.closed, s.id, today));
+  const freeTonight = d.spaces.filter((s) => inCalendar(s) && sleepsIn(s, d.kinds) && !heldTonight.has(s.id) && !closedOn(d.closed, s.id, today));
   const toConfirm = live.filter((b) => b.status === 'option' && b.to_day >= today).sort((x, y) => x.from_day.localeCompare(y.from_day));
   return {
     arrive: stays.filter((b) => b.from_day === today && b.status !== 'left'),

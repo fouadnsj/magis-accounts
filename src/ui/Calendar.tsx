@@ -9,7 +9,7 @@ import { useApp } from '../state';
 import { Field, Modal, Seg, Tabs, biName, errText, promptBox, t, toast, todayIso } from './kit';
 import { m, tx, monthWord } from '../i18n';
 import { addDays, colorOf } from '../hosting/host';
-import { holdDate, holdPassed, mayChange, occurrences, sleepsIn, type CalBooking, type CalData, type CalSpace } from '../hosting/calendar';
+import { holdDate, holdPassed, inCalendar, mayChange, occurrences, sleepsIn, type CalBooking, type CalData, type CalSpace } from '../hosting/calendar';
 import { bandOf, hm, itemsBetween, listOf, monthGrid, nextDate, search, shutOf, spacesShown, todayFigures, weekOf, type DayItem, type ListKind } from '../hosting/calview';
 import { CalSettings } from './CalSettings';
 
@@ -598,7 +598,7 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
   const set = (x: Partial<Form>) => { setF({ ...f, ...x }); setRes(null); setSkipOk(false); };
   const isStay = f.who === 'outside' && f.stay;
   const persons = data.persons.filter((p) => p.org_id === f.org_id && (p.active || p.id === f.person_id));
-  const choosable = (sp: CalSpace) => sp.active && (!isStay || sleepsIn(sp, data.kinds)) && (f.who !== 'outside' || !!sp.rentable);
+  const choosable = (sp: CalSpace) => inCalendar(sp) && (!isStay || sleepsIn(sp, data.kinds)) && (f.who !== 'outside' || !!sp.rentable);
   const whoOptions = [
     r.programme && { value: 'ours' as Who, label: L('نشاطنا', 'Our activity', 'Notre activité') },
     r.outside && { value: 'outside' as Who, label: L('حجز خارجي', 'Outside booking', 'Réservation extérieure') },
@@ -705,7 +705,7 @@ function BookingWindow({ data, start, onClose, refresh }: { data: CalData; start
               : (
                 <div className="cal-pick">
                   {data.areas.filter((a) => a.active).map((a) => {
-                    const list = data.spaces.filter((x) => x.building_id === a.id && x.active && (!isStay || sleepsIn(x, data.kinds)));
+                    const list = data.spaces.filter((x) => x.building_id === a.id && inCalendar(x) && (!isStay || sleepsIn(x, data.kinds)));
                     if (!list.length) return null;
                     return (
                       <div key={a.id}>

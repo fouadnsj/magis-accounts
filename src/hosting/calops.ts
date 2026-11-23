@@ -153,7 +153,9 @@ function why(code: string): UserError {
   };
   return new UserError(t[code] ?? t.dates);
 }
-const spaceWhy = (code: string, name: string) => code === 'not_rentable'
+const spaceWhy = (code: string, name: string) => code === 'not_bookable'
+  ? err(`«${name}» لا يُحجز (يظهر في الجرد فقط)`, `"${name}" cannot be booked (it is only in the inventory)`, `« ${name} » ne se réserve pas (seulement dans l’inventaire)`)
+  : code === 'not_rentable'
   ? err(`«${name}» لنشاطاتنا فقط (غير قابل للتأجير)`, `"${name}" is for our activities only (not rentable)`, `« ${name} » est pour nos activités seulement (pas à louer)`)
   : code === 'not_bedroom'
     ? err(`«${name}» ليست غرفة نوم: الإقامة في غرف النوم فقط`, `"${name}" is not a bedroom: a stay is only in bedrooms`, `« ${name} » n’est pas une chambre : un séjour seulement dans les chambres`)
@@ -505,13 +507,20 @@ const listSave = (table: 'cal_category' | 'cal_activity_kind' | 'cal_org_kind', 
 };
 
 /** a space: the 0.12 room (it stays a place of the inventory) with its floor, rentable or ours only, what is always in it, a note, a category */
-async function saveSpace(c: OpCtx, a: Parameters<(typeof HOST_OPS)['host.room.save']['run']>[1] & { floor?: string | null; rentable?: boolean; fixed?: string | null; note?: string | null; category_id?: number | null }) {
+async function saveSpace(c: OpCtx, a: Parameters<(typeof HOST_OPS)['host.room.save']['run']>[1] & { floor?: string | null; rentable?: boolean; bookable?: boolean; fixed?: string | null; note?: string | null; category_id?: number | null }) {
+  // a space that holds bookings today or later stays bookable until they are moved or cancelled
+  if (a.id != null && a.bookable === false) {
+    const w = await world(c);
+    const day = today();
+    const held = w.bookings.filter((b) => b.status !== 'cancelled' && !b.whole_centre && w.allocs.some((x) => x.booking_id === b.id && x.room_id === Number(a.id)) && occurrences(b, w.dates).some((o) => o.day >= day));
+    if (held.length) throw err(`في هذا المكان حجوزات قادمة (${held.map((b) => b.group_name).join('، ')}): انقلها أو ألغها أولاً`, `This space has bookings to come (${held.map((b) => b.group_name).join(', ')}): move or cancel them first`, `Cet espace a des réservations à venir (${held.map((b) => b.group_name).join(', ')}) : déplacez-les ou annulez-les d’abord`);
+  }
   if (a.category_id != null && !(await one(c.db, 'SELECT 1 FROM cal_category WHERE id = ?', [Number(a.category_id)]))) throw err('الفئة غير موجودة', 'That category does not exist', 'Cette catégorie n’existe pas');
   const { id } = await HOST_OPS['host.room.save'].run(c, a);
   if (id == null) throw err('غير موجود', 'Not found', 'Introuvable');
   await c.db.batch([
-    { sql: 'UPDATE host_room SET floor = ?, rentable = ?, fixed = ?, note = ?, category_id = ? WHERE id = ?', params: [txt(a.floor), a.rentable === false ? 0 : 1, txt(a.fixed), txt(a.note), a.category_id ?? null, id] },
-    auditStmt(c.who, 'update', 'host_room', String(id), null, { floor: txt(a.floor), rentable: a.rentable !== false, fixed: txt(a.fixed), category: a.category_id ?? null }),
+    { sql: 'UPDATE host_room SET floor = ?, rentable = ?, bookable = ?, fixed = ?, note = ?, category_id = ? WHERE id = ?', params: [txt(a.floor), a.rentable === false ? 0 : 1, a.bookable === false ? 0 : 1, txt(a.fixed), txt(a.note), a.category_id ?? null, id] },
+    auditStmt(c.who, 'update', 'host_room', String(id), null, { floor: txt(a.floor), rentable: a.rentable !== false, bookable: a.bookable !== false, fixed: txt(a.fixed), category: a.category_id ?? null }),
   ]);
   return { id };
 }

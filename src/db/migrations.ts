@@ -2292,4 +2292,14 @@ UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.setup"',
 UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.history"', ''), '"cal.history",', ''), '"cal.history"', '') WHERE perms LIKE '%"hosting.keep"%' AND perms NOT LIKE '%"users.manage"%';
 `,
   },
+  {
+    n: 68,
+    name: 'calendar and inventory: a space "can be booked" (one map of the centre)',
+    sql: `
+-- (Fouad, 23 November 2026, inventory baseline 1.1 rule 2) The calendar and the inventory share one map: the areas and
+-- spaces. A space that cannot be booked (a store, an office, a storage room) is shown only in the inventory, never in the
+-- calendar. Every space already there can be booked.
+ALTER TABLE host_room ADD COLUMN bookable INTEGER NOT NULL DEFAULT 1;
+`,
+  },
 ];

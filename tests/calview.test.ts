@@ -9,7 +9,7 @@ const bk = (x: Partial<CalBooking> & { id: number }): CalBooking => ({
   created_at: '2027-02-27T10:00:00.000Z', updated_at: null, origin: 'outside', activity_kind_id: null, leader: null, org_id: null, person_id: null, subject: null, private: 0,
   whole_centre: 0, outside_place: null, hold_until: null, price_state: 'unset', price_each: 0, cancel_money: null, kept_usd: null, kept_syp: null, cancelled_by: null, cancelled_at: null, ...x,
 });
-const sp = (id: number, kind_id: number, x: Partial<CalSpace> = {}): CalSpace => ({ id, building_id: 1, name: `S${id}`, beds: kind_id === 1 ? 3 : 0, kind: kind_id === 1 ? 'bedroom' : 'hall', kind_id, capacity: 0, active: 1, sort: 0, place_id: null, floor: null, rentable: 1, fixed: null, note: null, category_id: null, ...x });
+const sp = (id: number, kind_id: number, x: Partial<CalSpace> = {}): CalSpace => ({ id, building_id: 1, name: `S${id}`, beds: kind_id === 1 ? 3 : 0, kind: kind_id === 1 ? 'bedroom' : 'hall', kind_id, capacity: 0, active: 1, sort: 0, place_id: null, floor: null, rentable: 1, bookable: 1, fixed: null, note: null, category_id: null, ...x });
 const data = (bookings: CalBooking[], allocs: [number, number][]): CalData => ({
   areas: [], spaces: [sp(1, 1), sp(2, 1), sp(3, 2, { name: 'Hall A' }), sp(4, 2, { category_id: 3 })], categories: [], activityKinds: [], orgKinds: [],
   kinds: [{ id: 1, name: 'Bedroom', sleeps: 1, active: 1, sort: 1, category_id: 2 }, { id: 2, name: 'Hall', sleeps: 0, active: 1, sort: 2, category_id: 1 }],
@@ -24,6 +24,12 @@ describe('the laptop screen', () => {
     expect(weekOf('2027-03-03')).toEqual(['2027-03-01', '2027-03-02', '2027-03-03', '2027-03-04', '2027-03-05', '2027-03-06', '2027-03-07']);
     const g = monthGrid('2027-03-15');
     expect([g[0], g[g.length - 1], g.length % 7]).toEqual(['2027-03-01', '2027-04-04', 0]);
+  });
+  it('a space that cannot be booked (a store) is never in the calendar: not in the views, not in the Today counts', () => {
+    const d = data([], []);
+    d.spaces.push(sp(5, 2, { name: 'Store', bookable: 0 }), sp(6, 1, { name: 'Old room', bookable: 0 }));
+    expect(spacesShown(d, null, null).map((s) => s.id)).toEqual([1, 2, 3, 4]);
+    expect(todayFigures(d, '2027-03-01', 600).freeTonight.map((s) => s.id)).toEqual([1, 2]);
   });
   it('the quick views: a category from the kind, or the space\'s own', () => {
     const d = data([], []);

@@ -1,6 +1,6 @@
 // What the calendar's laptop screen shows (step 2): weeks from Monday, the Today strip, the lists and the search.
 import { describe, expect, it } from 'vitest';
-import { itemsBetween, listOf, monthGrid, mondayOf, search, spacesShown, todayFigures, weekOf } from '../src/hosting/calview';
+import { itemsBetween, listOf, prepareOf, monthGrid, mondayOf, search, spacesShown, todayFigures, weekOf } from '../src/hosting/calview';
 import { calRights, type CalBooking, type CalData, type CalSpace } from '../src/hosting/calendar';
 
 const bk = (x: Partial<CalBooking> & { id: number }): CalBooking => ({
@@ -69,5 +69,33 @@ describe('the laptop screen', () => {
     expect(search(d, 'hall a', '2027-03-01').map((x) => x.b.id)).toEqual([1]);
     expect(search(d, 'rima', '2027-03-01')[0].next).toBe('2027-03-11');
     expect(search(d, 'choir rima', '2027-03-01')).toEqual([]);
+  });
+});
+
+describe('"To prepare today" (step 6)', () => {
+  const eq = [{ id: 1, name: 'Projector', active: 1, sort: 1, total: 2 }];
+  it('a hall before its first activity of the day (with what is asked), bedrooms for the arrivals, bedrooms ready again after a departure', () => {
+    const d = data([
+      bk({ id: 1, kind: 'stay', from_day: '2027-03-01', to_day: '2027-03-03', people: 3 }),
+      bk({ id: 2, kind: 'stay', from_day: '2027-02-27', to_day: '2027-03-01', status: 'arrived' }),
+      bk({ id: 3, time_from: '14:00', time_to: '16:00', people: 20 }),
+      bk({ id: 4, time_from: '09:00', time_to: '11:00', people: 8 }),
+      bk({ id: 5, from_day: '2027-03-02', to_day: '2027-03-02' }),
+    ], [[1, 1], [2, 2], [3, 3], [4, 3], [5, 3]]);
+    d.equip = eq; d.needs = [{ booking_id: 4, equip_id: 1, qty: 1 }, { booking_id: 3, equip_id: 1, qty: 2 }];
+    const t = prepareOf(d, '2027-03-01');
+    expect(t.map((x) => [x.kind, x.space.id, x.b.id])).toEqual([['hall', 3, 4], ['arrive', 1, 1], ['after', 2, 2]]);
+    expect(t[0]).toMatchObject({ at: 540, people: 8, equipment: [{ name: 'Projector', qty: 1 }] });
+    expect(prepareOf(d, '2027-03-02').map((x) => [x.kind, x.b.id])).toEqual([['hall', 5]]);
+    expect(prepareOf(d, '2027-03-03').map((x) => [x.kind, x.space.id])).toEqual([['after', 1]]);
+  });
+  it('nothing for a cancelled booking, a stay marked left, a closed hall or a space outside the calendar', () => {
+    const d = data([
+      bk({ id: 1, status: 'cancelled', time_from: '10:00', time_to: '11:00' }),
+      bk({ id: 2, kind: 'stay', from_day: '2027-03-01', to_day: '2027-03-02', status: 'left' }),
+      bk({ id: 3, time_from: '10:00', time_to: '11:00' }),
+    ], [[1, 3], [2, 1], [3, 4]]);
+    d.closed = [{ id: 1, room_id: 4, from_day: '2027-03-01', to_day: '2027-03-01', reason: 'paint', cancelled: 0, cancel_reason: null, who: null, at: 'x' }];
+    expect(prepareOf(d, '2027-03-01')).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { gDel, gGet, gSet, lockKey, openKey, type Link, type Msg } from './store';
 import { addDays } from '../hosting/host';
 import { inCalendar, type CalBooking, type CalData, type CalSpace } from '../hosting/calendar';
-import { hm, itemsBetween, mondayOf, shutOf, bandOf, todayFigures, type DayItem } from '../hosting/calview';
+import { hm, itemsBetween, prepareOf, mondayOf, shutOf, bandOf, todayFigures, type DayItem } from '../hosting/calview';
 import { ROLE_NAME, type CalPhonePack } from '../hosting/calphone';
 
 type Tr = (ar: string, en: string, fr: string) => string;
@@ -228,8 +228,9 @@ function TodayView({ t, d, day, today, items, row, dayLong, band, spaceName, nam
   const list = items.get(day) ?? [];
   const now = new Date();
   const fig = useMemo(() => todayFigures(d, day, day === today ? now.getHours() * 60 + now.getMinutes() : -1), [d, day]); // eslint-disable-line react-hooks/exhaustive-deps
+  const prep = useMemo(() => prepareOf(d, day), [d, day]);
   const stays = list.filter((x) => x.b.kind === 'stay'), events = list.filter((x) => x.b.kind !== 'stay');
-  void spaceName; void name;
+  void spaceName;
   return (
     <>
       <section className="ph-card">
@@ -241,6 +242,17 @@ function TodayView({ t, d, day, today, items, row, dayLong, band, spaceName, nam
           <span>🛏 {t('حرّة الليلة', 'Free tonight', 'Libres ce soir')} <b>{fig.freeTonight.length}</b></span>
         </div>
       </section>
+      {prep.length > 0 && (
+        <section className="ph-card">
+          <b>🧹 {t('للتحضير', 'To prepare', 'À préparer')}{day === today ? ` ${t('اليوم', 'today', 'aujourd’hui')}` : ''}</b>
+          {prep.map((x, i) => (
+            <div key={i} className="ph-cal-row">
+              <span className="ph-cal-when ltr">{x.kind === 'hall' ? hm(x.at ?? 0) : x.kind === 'arrive' ? '↘' : '↗'}</span>
+              <span className="ph-cal-what"><b>{name(x.space.name)}</b><small>{x.kind === 'hall' ? [x.b.group_name, x.people ? `${x.people} ${t('شخص', 'people', 'pers.')}` : '', ...x.equipment.map((e) => `${e.name} × ${e.qty}`)].filter(Boolean).join(' · ') : x.kind === 'arrive' ? `${t('تجهيز لوصول', 'for the arrival of', 'pour l’arrivée de')} ${x.b.group_name}${x.people ? ` · ${x.people}` : ''}` : t('جاهزة من جديد بعد المغادرة', 'ready again after the group leaves', 'de nouveau prête après le départ')}</small></span>
+            </div>
+          ))}
+        </section>
+      )}
       {events.length > 0 && <section className="ph-card"><b>{t('النشاطات والحجوزات', 'Activities and bookings', 'Activités et réservations')}</b>{events.map((it) => row(it))}</section>}
       {stays.length > 0 && <section className="ph-card"><b>{t('الضيوف في البيت', 'Guests in the house', 'Hôtes dans la maison')}</b>{stays.map((it) => row(it))}</section>}
       {!list.length && <section className="ph-card ph-muted">{t('لا شيء في هذا اليوم', 'Nothing on this day', 'Rien ce jour-là')}</section>}

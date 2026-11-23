@@ -281,5 +281,19 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   on a Reception phone, locked on opening, a wrong code refused, the last view kept, then cut off: the phone is told and returns to
   the linking screen. Not tried: a real phone, the Arabic screen of the phone, the home-screen icon, an offline start.
 
+## 13. The new Calendar — step 6 "To prepare today" (no database update)
+- **Made by the program from the bookings; nobody types it; everybody who sees the calendar sees it** (Team, Reception,
+  Coordinator, Director). Words: "prepare", never "clean"; there is no cleaner role.
+- **Halls and kitchens** (every space with no beds): before the **first** activity or booking of the day there, with its hour,
+  the group, the people and **what the group asks for** (equipment and how many). **Bedrooms**: for each group **arriving** today;
+  and **ready again** after each group **leaves** today (the rooms it slept in).
+- Nothing for a cancelled booking, a group marked left, a space closed for repairs that day, or a space outside the calendar
+  (a store). Halls come first by hour, then arrivals, then rooms after a departure.
+- **Laptop:** a new tile "To prepare today" in the Today strip (the number of things); it opens the list, each line opens its
+  booking. **Phone:** a card "To prepare" at the top of Today (and of any day looked at). Read only.
+- The "done" tick is **later**, as the baseline says. Update 77 is **not used** (no database change); the next free update is 77.
+- Tried in the side pane: the tile appears; with a hall activity today at 15:00 the list shows "Hall A · before 15:00 · 12 people ·
+  Morning class". The phone card uses the same function (tested in `tests/calview.test.ts`); not looked at on a phone screen.
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

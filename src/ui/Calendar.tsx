@@ -10,7 +10,7 @@ import { Field, Modal, Seg, Tabs, biName, confirmBox, errText, parseAmount, prom
 import { m, tx, monthWord } from '../i18n';
 import { addDays, colorOf, type Currency } from '../hosting/host';
 import { calTotals, givenBack, holdDate, holdPassed, inCalendar, mayChange, occurrences, received, seesPrices, sleepsIn, type CalBooking, type CalData, type CalOrg, type CalSpace, type Totals } from '../hosting/calendar';
-import { bandOf, hm, itemsBetween, listOf, monthGrid, nextDate, search, shutOf, spacesShown, todayFigures, weekOf, type DayItem, type ListKind } from '../hosting/calview';
+import { bandOf, hm, itemsBetween, listOf, monthGrid, nextDate, search, shutOf, spacesShown, prepareOf, todayFigures, weekOf, type DayItem, type ListKind } from '../hosting/calview';
 import { CalSettings, inRoomText } from './CalSettings';
 import { BookingReceipt, CancelWindow, METHOD, MoneyWindow, PayWindow, PrintWindow, useBookingSheet, usePayReceipt } from './CalPaper';
 
@@ -163,13 +163,14 @@ function Board({ data, refresh }: { data: CalData; refresh: () => Promise<void> 
 
 // ---------------------------------------------------------------- the Today strip
 
-type Tile = 'arrive' | 'leave' | 'inuse' | 'free' | 'confirm';
+type Tile = 'arrive' | 'leave' | 'inuse' | 'free' | 'confirm' | 'prepare';
 function TodayStrip({ data, today, act, onOpen, onNew }: { data: CalData; today: string; act: (fn: () => Promise<unknown>) => Promise<void>; onOpen: (b: CalBooking, d?: string) => void; onNew: (s: NewStart) => void }) {
   const { s } = useApp();
   const [tile, setTile] = useState<Tile | null>(null);
   const [now, setNow] = useState(nowMinutes());
   useEffect(() => { const id = window.setInterval(() => setNow(nowMinutes()), 60000); return () => window.clearInterval(id); }, []);
   const f = useMemo(() => todayFigures(data, today, now), [data, today, now]);
+  const prep = useMemo(() => prepareOf(data, today), [data, today]);
   const r = data.rights;
   const status = (id: number, st: 'confirmed' | 'arrived' | 'left') => act(async () => {
     const res = await s.api.call('cal.booking.status', { id, status: st });
@@ -180,6 +181,7 @@ function TodayStrip({ data, today, act, onOpen, onNew }: { data: CalData; today:
     { k: 'leave', n: f.leave.length, label: L('يغادرون اليوم', 'Leave today', 'Partent aujourd’hui') },
     { k: 'inuse', n: f.inUse.length, label: L('قاعات مستعملة الآن', 'Halls in use now', 'Salles occupées maintenant') },
     { k: 'free', n: f.freeTonight.length, label: L('غرف فارغة الليلة', 'Rooms free tonight', 'Chambres libres ce soir') },
+    { k: 'prepare', n: prep.length, label: L('للتحضير اليوم', 'To prepare today', 'À préparer aujourd’hui') },
     { k: 'confirm', n: f.toConfirm.length, label: L('للتأكيد', 'To confirm', 'À confirmer'), red: f.passed > 0 },
   ];
   const row = (b: CalBooking, extra: React.ReactNode, buttons: React.ReactNode) => (
@@ -207,11 +209,18 @@ function TodayStrip({ data, today, act, onOpen, onNew }: { data: CalData; today:
               <tr key={sp.id}><td><b>{sp.name}</b> <span className="muted">{data.areas.find((a) => a.id === sp.building_id)?.name}</span></td><td className="small">{sp.beds ? `${sp.beds} ${L('سرير', 'beds', 'lits')}` : ''}</td>
                 <td style={{ textAlign: 'end' }}>{r.outside && <button className="btn small" onClick={() => { setTile(null); onNew({ spaces: [sp.id], from: today, to: addDays(today, 1), stay: true }); }}>{L('احجز', 'Book', 'Réserver')}</button>}</td></tr>
             ))}
+            {tile === 'prepare' && prep.map((x, i) => (
+              <tr key={i}>
+                <td><b>{x.space.name}</b> <span className="muted">{data.areas.find((a) => a.id === x.space.building_id)?.name}</span></td>
+                <td className="small">{x.kind === 'hall' ? `${L('قبل', 'before', 'avant')} ${hm(x.at ?? 0)} · ${x.people} ${L('شخص', 'people', 'personnes')}${x.equipment.length ? ` · ${x.equipment.map((e) => `${e.name} × ${e.qty}`).join('، ')}` : ''}` : x.kind === 'arrive' ? `${L('تجهيز لوصول', 'prepare for the arrival of', 'à préparer pour l’arrivée de')} ${x.people} ${L('شخص', 'people', 'personnes')}` : L('جاهزة من جديد بعد المغادرة', 'ready again after the group leaves', 'de nouveau prête après le départ du groupe')}</td>
+                <td style={{ textAlign: 'end' }}><button className="linkish" onClick={() => { setTile(null); onOpen(x.b, today); }}>{label(x.b)}</button></td>
+              </tr>
+            ))}
             {tile === 'confirm' && f.toConfirm.map((b) => row(b,
               <span className={holdPassed(b, today) ? 'cal-red' : ''}>{fmtDay(nextDate(b, data, today) ?? b.from_day)} · {L('محجوز حتى', 'held until', 'retenu jusqu’au')} {fmtShort(holdDate(b))}{holdPassed(b, today) ? ` · ${L('انتهى الموعد: اتصلوا بهم', 'the date has passed: call them', 'la date est passée : appelez-les')}` : ''}</span>,
               mayChange(r, b) && <button className="btn small primary" onClick={() => void status(b.id, 'confirmed')}>{L('أكّد', 'Confirm', 'Confirmer')}</button>))}
           </tbody></table>
-          {(tile === 'arrive' ? f.arrive : tile === 'leave' ? f.leave : tile === 'inuse' ? f.inUse : tile === 'free' ? f.freeTonight : f.toConfirm).length === 0 && <p className="muted">{L('لا شيء.', 'Nothing.', 'Rien.')}</p>}
+          {(tile === 'arrive' ? f.arrive : tile === 'leave' ? f.leave : tile === 'inuse' ? f.inUse : tile === 'free' ? f.freeTonight : tile === 'prepare' ? prep : f.toConfirm).length === 0 && <p className="muted">{L('لا شيء.', 'Nothing.', 'Rien.')}</p>}
         </Modal>
       )}
     </>

@@ -126,3 +126,48 @@ export function search(d: CalData, q: string, today: string): { b: CalBooking; n
 /** the closed period of the centre on a day, and whether a space is closed for repairs (for the bands of the screen) */
 export const bandOf = (d: Pick<CalData, 'periods'>, day: string) => periodOn(d.periods, day);
 export const shutOf = (d: Pick<CalData, 'closed'>, spaceId: number, day: string) => closedOn(d.closed, spaceId, day);
+
+// ------------------------------------------------------------------ "To prepare today" (baseline 2.1, section 8; step 6)
+
+/** one thing to prepare: nobody types it, it comes from the bookings. Words: "prepare", never "clean". */
+export interface PrepareTask {
+  /** hall: before its first activity of the day · arrive: a bedroom for a group arriving · after: a bedroom ready again after a group leaves */
+  kind: 'hall' | 'arrive' | 'after';
+  space: CalSpace;
+  b: CalBooking;
+  /** hall: the hour of the first activity (minutes) */
+  at: number | null;
+  people: number;
+  /** hall: what the group asks for (name, how many) */
+  equipment: { name: string; qty: number }[];
+  /** the hall's "always in the room" is not repeated here; this is the booking's own request */
+}
+
+/**
+ * The tasks of a day. Halls and kitchens (every space with no beds, in the calendar): before the first activity or booking of
+ * the day there. Bedrooms: for each group that arrives, and (ready again) for each group that leaves. A cancelled booking, a
+ * space closed that day and a stay marked left give nothing. Sorted: halls by hour, then arrivals, then rooms after a departure.
+ */
+export function prepareOf(d: Pick<CalData, 'bookings' | 'dates' | 'allocs' | 'spaces' | 'closed' | 'kinds' | 'needs' | 'equip'>, day: string): PrepareTask[] {
+  const spaces = new Map(d.spaces.filter(inCalendar).map((s) => [s.id, s]));
+  const out: PrepareTask[] = [];
+  const need = (id: number) => d.needs.filter((n) => n.booking_id === id && n.qty > 0).map((n) => ({ name: d.equip.find((e) => e.id === n.equip_id)?.name ?? '', qty: n.qty })).filter((x) => x.name);
+  // halls and kitchens: the first booking of the day in each
+  const first = new Map<number, DayItem>();
+  for (const it of itemsBetween(d, day, day).get(day) ?? []) {
+    if (it.b.kind === 'stay' || it.b.status === 'left') continue;
+    for (const id of it.spaces) {
+      const sp = spaces.get(id);
+      if (!sp || sleepsIn(sp, d.kinds) || closedOn(d.closed, id, day)) continue;
+      const cur = first.get(id);
+      if (!cur || it.occ.from < cur.occ.from) first.set(id, it);
+    }
+  }
+  for (const [id, it] of first) out.push({ kind: 'hall', space: spaces.get(id)!, b: it.b, at: it.occ.from, people: it.b.people, equipment: need(it.b.id) });
+  out.sort((x, y) => (x.at ?? 0) - (y.at ?? 0) || x.space.name.localeCompare(y.space.name));
+  const bedrooms = (b: CalBooking, on: string) => spacesOn(b, on, d).map((id) => spaces.get(id)).filter((s): s is CalSpace => !!s && sleepsIn(s, d.kinds));
+  const stays = d.bookings.filter((b) => b.kind === 'stay' && b.status !== 'cancelled');
+  for (const b of stays) if (b.from_day === day && b.status !== 'left') for (const s of bedrooms(b, day)) out.push({ kind: 'arrive', space: s, b, at: null, people: b.people, equipment: [] });
+  for (const b of stays) if (b.to_day === day) for (const s of bedrooms(b, b.to_day <= b.from_day ? b.from_day : addDays(b.to_day, -1))) out.push({ kind: 'after', space: s, b, at: null, people: b.people, equipment: [] });
+  return out;
+}

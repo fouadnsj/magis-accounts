@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGIS Inventory — questions, round 1</title>
+<style>
+:root{--text:#26292E;--muted:#6b6f76;--faint:#9a9da3;--line:#e2dfd6;--line2:#cfcbbf;--paper:#FDFCF9;--card:#fff;--soft:#f3f1ea;--ok:#3B6D11}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 80px;background:var(--paper);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:16px;margin:28px 0 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+p.lead{color:var(--muted);margin:0 0 10px}
+table.q{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line)}
+table.q td,table.q th{border-bottom:1px solid var(--line);padding:10px 12px;vertical-align:top;text-align:start}
+table.q th{background:var(--soft);font-size:12px;color:var(--muted);font-weight:600}
+td.n{width:40px;color:var(--faint);font-weight:600}
+td.qq{width:44%}
+td.qq b{display:block;margin-bottom:2px}
+td.qq small{color:var(--muted);display:block}
+label.o{display:block;margin:3px 0;cursor:pointer}
+label.o input{margin-inline-end:6px}
+label.o em{font-style:normal;font-size:11px;color:var(--faint)}
+textarea{width:100%;font:inherit;border:1px solid var(--line2);border-radius:8px;padding:6px 8px;background:#fff;margin-top:6px;min-height:40px;resize:vertical}
+.bar{position:sticky;bottom:0;background:var(--paper);border-top:1px solid var(--line);padding:12px 0;margin-top:24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;border:1px solid var(--line2);background:#fff;border-radius:8px;padding:7px 14px;cursor:pointer}
+button.pri{background:#26292E;color:#fff;border-color:#26292E}
+#saved{font-size:12px;color:var(--ok)}
+#out{width:100%;min-height:220px;font:12px/1.5 ui-monospace,Menlo,monospace;display:none;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MAGIS Inventory — questions, round 1</h1>
+<p class="lead">How the inventory should work, the same way as for the calendar. Look first at the drawings (inventory-mockups.html). What is ticked is my suggestion. At the end: <b>Make my answers</b>, then <b>Copy</b>, and paste in our conversation. Your answers are kept in this browser while you work.</p>
+<form id="f"></form>
+<div class="bar">
+  <button class="pri" type="button" id="make">Make my answers</button>
+  <button type="button" id="copy">Copy</button>
+  <button type="button" id="reset">Back to my suggestions</button>
+  <span id="saved"></span>
+</div>
+<textarea id="out" readonly></textarea>
+</div>
+<script>
+var S='(my suggestion)';
+var Q=[
+ ['A','A separate section, linked'],
+ ['A1','radio','The inventory as its own section (its own door, like the calendar), still linked to the books and the calendar','',[['Yes: its own door "Inventory · الجرد", same database as the centre',1],['Keep it as it is, a page among the others',0]]],
+ ['A2','radio','The places of the inventory','',[['The same areas and spaces as the calendar, plus places never booked (store, offices): one map of the centre, kept once',1],['A separate list of places for the inventory',0]]],
+ ['A3','radio','What the calendar shows as "always in the room"','',[['Read from the inventory (what is in that space)',1],['Typed separately in the calendar',0]]],
+ ['R','Who does what'],
+ ['R1','check','Who keeps the inventory (adds, moves, counts, takes out)?','',[['The accountant',1],['A person given the task (store keeper)',1],['The Director',0],['The Coordinator',0]]],
+ ['R2','radio','Who may look at the inventory?','',[['Everybody with an account: where things are, their state (without values)',1],['Only the keepers and the Director',0]]],
+ ['R3','check','Who sees the values ($)?','',[['Director',1],['Accountant',1],['Keeper',1],['Coordinator',0]]],
+ ['R4','radio','Reporting a problem (something broken, missing)','',[['Anyone, from the laptop or the phone, with a photo: it goes to the keeper',1],['Only the keepers',0]]],
+ ['W','Daily use'],
+ ['W1','radio','Lending (a laptop to a staff member, chairs to a parish)','',[['Yes: to a person or an organisation, with a return date; late ones in red',1],['No lending to follow',0]]],
+ ['W2','radio','Equipment asked by a booking of the calendar (2 projectors, 40 chairs)','',[['The inventory counts what is free at that time and warns; on the day, "take from the Store to Hall 1", then "bring back"',1],['Only a warning, as today',0]]],
+ ['W3','radio','Repairs','',[['A "to repair" list; the repair paid in the books is linked to the item',1],['Only the state (good / to repair / broken), as today',0]]],
+ ['W4','radio','Counting','',[['Once a year, space by space, on the phone with the labels; progress per space',1],['When the keeper wants, no plan',0]]],
+ ['W5','radio','Things that are used up (paper, cleaning products, kitchen supplies)','',[['Not in the inventory (bought and used: only the books)',1],['A simple stock: what comes in, what goes out, what is left',0]]],
+ ['W6','radio','Small items (a mug, a pen)','',[['Not listed one by one: only a group ("Mugs ×40") or nothing',1],['Everything listed',0]]],
+ ['F','Money'],
+ ['F1','radio','What must be listed from the purchases','',[['Every purchase on a furniture or equipment line (as today), or marked "not an item"',1],['Only above a value (write it below)',0]]],
+ ['F2','radio','A report for the donors: what each project bought (with photos, places, value)','',[['Yes',1],['Not needed',0]]],
+ ['F3','radio','Value','No depreciation was decided on 21 November.',[['Keep it: value of purchase, or an estimate; no depreciation',1],['Add a yearly loss of value',0]]],
+ ['F4','radio','An item given away, sold or thrown','',[['Taken out with a reason (no money), as today',1],['If sold, the money goes to the books as an income suggestion',0]]],
+ ['V','Looking'],
+ ['V1','radio','The first page of the inventory','',[['The map of places (drawing 1)',1],['The list of all items',0]]],
+ ['V2','radio','Photos','',[['Shown in the lists and the space pages; a photo asked for valuable items',1],['Optional, only on the item page',0]]],
+ ['V3','check','What should be printed?','',[['The sheet of a space (to put on its door)',1],['Labels (QR)',1],['A list for the yearly count',1],['A receipt when lending (signed)',0]]],
+ ['O','Others'],
+ ['O1','radio','The Coordinator (all centres): one view of the inventories of all centres','',[['Yes, later on the central server, with a filter by centre',1],['Not needed',0]]],
+ ['O2','text','What bothers you today in the inventory','What is slow, unclear, missing, too many steps.',[]],
+ ['O3','text','Anything else','',[]]
+];
+var f=document.getElementById('f'),h='',open=false;
+Q.forEach(function(q){
+ if(q.length===2){if(open)h+='</table>';h+='<h2>'+q[1]+'</h2><table class="q"><tr><th>#</th><th>Question</th><th>Your answer</th></tr>';open=true;return;}
+ var id=q[0],ty=q[1];h+='<tr data-q="'+id+'"><td class="n">'+id+'</td><td class="qq"><b>'+q[2]+'</b><small>'+q[3]+'</small></td><td>';
+ q[4].forEach(function(o){h+='<label class="o"><input type="'+(ty==='radio'?'radio':'checkbox')+'" name="'+id+'" value="'+o[0].replace(/"/g,'&quot;')+'"'+(o[1]?' checked':'')+'>'+o[0]+(o[1]?' <em>'+S+'</em>':'')+'</label>';});
+ h+='<textarea name="'+id+'note" placeholder="'+(ty==='text'?'Free text':'Note (optional)')+'"'+(ty==='text'?' style="min-height:90px"':'')+'></textarea></td></tr>';});
+f.innerHTML=h+'</table>';
+var KEY='magis-inv-answers-1';
+function save(){var o={};Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox')o[e.name+'|'+e.value]=e.checked;else if(e.type==='radio'){if(e.checked)o[e.name]=e.value;}else o[e.name]=e.value;});try{localStorage.setItem(KEY,JSON.stringify(o));document.getElementById('saved').textContent='Kept in this browser';}catch(x){}}
+function load(){var o;try{o=JSON.parse(localStorage.getItem(KEY)||'null');}catch(x){}if(!o)return;Array.prototype.forEach.call(f.elements,function(e){if(!e.name)return;if(e.type==='checkbox'){var k=e.name+'|'+e.value;if(k in o)e.checked=o[k];}else if(e.type==='radio'){if(e.name in o)e.checked=(o[e.name]===e.value);}else if(e.name in o)e.value=o[e.name];});}
+load();f.addEventListener('input',save);f.addEventListener('change',save);
+document.getElementById('make').onclick=function(){
+ var L=['MAGIS Inventory — answers, round 1 ('+new Date().toISOString().slice(0,10)+')',''];
+ document.querySelectorAll('tr[data-q]').forEach(function(tr){var id=tr.getAttribute('data-q'),parts=[];
+  tr.querySelectorAll('input,textarea').forEach(function(e){if(e.type==='checkbox'||e.type==='radio'){if(e.checked)parts.push(e.value);}else if(e.value.trim())parts.push('Note: '+e.value.trim());});
+  L.push(id+'. '+tr.querySelector('td.qq b').textContent+': '+(parts.join(' | ')||'—'));});
+ var o=document.getElementById('out');o.style.display='block';o.value=L.join('\n');o.select();};
+document.getElementById('copy').onclick=function(){document.getElementById('make').onclick();var o=document.getElementById('out');o.select();
+ var done=function(){document.getElementById('saved').textContent='Copied: paste it in the conversation';};
+ if(navigator.clipboard)navigator.clipboard.writeText(o.value).then(done,function(){document.execCommand('copy');done();});else{document.execCommand('copy');done();}};
+document.getElementById('reset').onclick=function(){if(!confirm('Put back my suggestions and erase your answers?'))return;try{localStorage.removeItem(KEY);}catch(x){}location.reload();};
+</script>
+</body>
+</html>

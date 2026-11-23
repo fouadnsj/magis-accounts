@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGIS Inventory — summary</title>
+<style>
+:root{--text:#26292E;--muted:#6b6f76;--line:#e2dfd6;--paper:#FDFCF9;--soft:#f3f1ea;--acc:#185FA5}
+*{box-sizing:border-box}
+body{margin:0;padding:28px 16px 60px;background:var(--paper);color:var(--text);font:14.5px/1.6 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:860px;margin:0 auto}
+h1{font-size:26px;margin:0}
+.sub{color:var(--muted);margin:2px 0 18px}
+h2{font-size:17px;margin:26px 0 8px;padding-bottom:4px;border-bottom:2px solid var(--line)}
+.box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:8px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.grid .box{margin:0}
+.box b.t{display:block;margin-bottom:2px}
+ul,ol{margin:4px 0;padding-inline-start:20px}
+li{margin:2px 0}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);font-size:13.5px}
+th,td{border-bottom:1px solid var(--line);padding:6px 10px;text-align:center}
+th:first-child,td:first-child{text-align:start}
+th{background:var(--soft);font-weight:600}
+.rule{display:flex;gap:10px;align-items:flex-start;margin:6px 0}
+.rule span{flex:none;width:24px;height:24px;border-radius:50%;background:#26292E;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center}
+.muted{color:var(--muted)}
+.files{font-size:13px}
+.files code{background:var(--soft);padding:1px 6px;border-radius:4px}
+@media print{body{background:#fff;padding:0}.box{break-inside:avoid}h2{break-after:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>The Inventory · الجرد · Inventaire</h1>
+<div class="sub">Summary of the inventory section of MAGIS · baseline 1.0 · 24 November 2026 · nothing built yet</div>
+
+<div class="box"><b>In one sentence.</b> What the centre owns, <b>where it is, in what state and what it is worth</b> — shown as a map of the centre with photos, kept by the keeper, linked to the books (every purchase of furniture or equipment) and to the calendar (the same spaces, what is always in each room).</div>
+
+<h2>The rules</h2>
+<div class="rule"><span>1</span><div><b>Its own door</b>, like the calendar, in the same database as the centre.</div></div>
+<div class="rule"><span>2</span><div><b>One map of the centre, kept once:</b> the calendar's areas and spaces. A tick says if a space <b>can be booked</b>; the store and offices are only in the inventory.</div></div>
+<div class="rule"><span>3</span><div><b>Every purchase on a furniture or equipment line</b> becomes an item, or is marked "not an item".</div></div>
+<div class="rule"><span>4</span><div><b>Value</b> = what it cost in USD, or an estimate. No depreciation.</div></div>
+<div class="rule"><span>5</span><div><b>Nothing is deleted:</b> an item leaves with a reason (given away, sold, thrown), no money.</div></div>
+<div class="rule"><span>6</span><div><b>Small things only as a group</b> ("Mugs ×40"). Things that are used up stay in the books; the stock (مخازن) comes later.</div></div>
+
+<h2>Who can do what</h2>
+<table>
+<tr><th>Right</th><th>Keeper</th><th>Director</th><th>Coordinator</th><th>Given by tick</th><th>Everyone</th></tr>
+<tr><td>Look at the inventory</td><td>✔</td><td>✔</td><td>✔</td><td>✔</td><td></td></tr>
+<tr><td>See the values ($)</td><td>✔</td><td>✔</td><td></td><td></td><td></td></tr>
+<tr><td>Add, move, count, take out, give to staff</td><td>✔</td><td></td><td></td><td></td><td></td></tr>
+<tr><td>Report a problem (to decide)</td><td>✔</td><td>✔</td><td>✔</td><td>✔</td><td>✔</td></tr>
+</table>
+<p class="muted">The keeper is the accountant, or a person given the task (store keeper). The Superior can change every tick.</p>
+
+<h2>The screens</h2>
+<div class="grid">
+<div class="box"><b class="t">The map</b>The first page: areas, a card per space with a photo, how many items, value, last count, what needs attention. Figures: purchases to register, to repair, with staff.</div>
+<div class="box"><b class="t">A space</b>The photos of what is in it, the list, count this space, move items, the sheet for the door.</div>
+<div class="box"><b class="t">An item</b>Photo, details, its whole history, and its links to the books (purchase, bill, project) and to the calendar.</div>
+</div>
+
+<h2>What an item carries</h2>
+<p>Label (QR), name, category, space, quantity, brand, model, serial number, state (good / to repair / broken), origin, purchase and supplier, value, photos, note, history. A <b>group</b> (Chairs ×60) splits when part of it moves: ×30 here (HO-0102-A), ×30 there (HO-0102-B).</p>
+<p>Each <b>category</b> has three ticks: <b>serial number</b> expected · <b>valuable</b> (a photo and a label are asked) · <b>shown in the calendar</b> (as "always in the room").</p>
+
+<h2>Laptops with staff</h2>
+<p>An item can be given to a staff member, chosen from the HR list (or typed). It shows who has it and since when. When a staff member leaves, the keeper is reminded of what they still have.</p>
+
+<h2>Links</h2>
+<div class="grid">
+<div class="box"><b class="t">💵 The books</b>Purchases become items. <b>What a project bought</b>: a report for the donors — the items bought on the lines funded by that project, in a period, as a PDF with photos and an Excel.</div>
+<div class="box"><b class="t">📅 The calendar</b>The same spaces. "Always in the room" is read from the inventory. Equipment asked by a booking: a warning if there is not enough.</div>
+</div>
+
+<h2>Phone and paper</h2>
+<p><b>Phone</b> (the full MAGIS app): count with the labels, record items, report a problem. <b>Printed</b>: the sheet of a space for its door, the QR labels, a list for counting.</p>
+
+<h2>Later</h2>
+<ul><li>The stock (مخازن) for materials and for the farm.</li><li>All the centres on the central server, with a filter by centre.</li></ul>
+
+<h2>The steps of the building</h2>
+<ol><li>One map shared with the calendar; categories with their ticks; groups that split.</li><li>The new screens: map, space, item.</li><li>Laptops with staff; problems reported.</li><li>Printed pages and the donor report.</li><li>Door, roles, guide.</li></ol>
+<p class="muted">Each step is tried in the side pane and kept; no installer until Fouad says "build". The 0.12 inventory screens wait meanwhile.</p>
+
+<h2>The files</h2>
+<div class="files"><code>INVENTORY-BASELINE.md</code> the full concept · <code>inventory-mockups.html</code> the drawings · <code>inventory-questions.html</code>, <code>inventory-questions-2.html</code> the questions answered</div>
+</div>
+</body>
+</html>

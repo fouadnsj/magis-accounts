@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAGIS Inventory — drawings (examples only)</title>
+<style>
+:root{--text:#26292E;--muted:#6b6f76;--faint:#9a9da3;--line:#e2dfd6;--line2:#cfcbbf;--paper:#FDFCF9;--soft:#f3f1ea;--acc:#185FA5;--acc-bg:#E6F1FB;--warn:#854F0B;--warn-bg:#FAEEDA;--err:#A32D2D;--err-bg:#FCEBEB;--ok:#3B6D11;--ok-bg:#EAF3DE}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 60px;background:var(--paper);color:var(--text);font:14px/1.5 -apple-system,"Segoe UI",Helvetica,Arial,sans-serif}
+.wrap{max-width:980px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:17px;margin:38px 0 4px}
+p.lead{color:var(--muted);margin:0 0 12px}
+.note{font-size:12px;color:var(--faint);margin:6px 2px 0}
+.scr{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line)}
+.bar h3{margin:0 8px 0 0;font-size:16px}
+.btn{border:1px solid var(--line2);background:#fff;border-radius:8px;padding:4px 11px;font-size:12px;white-space:nowrap}
+.btn.pri{background:#26292E;color:#fff;border-color:#26292E}
+.pill{border:1px solid var(--line2);border-radius:999px;padding:2px 11px;font-size:12px;color:var(--muted);white-space:nowrap}
+.pill.on{background:var(--acc-bg);color:var(--acc);border-color:#9cc1e6}
+.srch{flex:1;min-width:180px;border:1px solid var(--line2);border-radius:8px;padding:5px 10px;color:var(--faint);font-size:12px}
+.sp{flex:1}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.tile{border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:#fff}
+.tile b{display:block;font-size:19px}
+.tile small{color:var(--muted);font-size:11px}
+.tile.w{background:var(--warn-bg);border-color:#efd5a8}.tile.w b,.tile.w small{color:var(--warn)}
+.tile.e{background:var(--err-bg);border-color:#f1c6c6}.tile.e b,.tile.e small{color:var(--err)}
+.area{padding:10px 14px 14px}
+.ah{display:flex;gap:8px;align-items:center;font-weight:600;font-size:13px;margin:6px 0 8px}
+.ah i{width:11px;height:11px;border-radius:3px;display:inline-block}
+.ah small{font-weight:400;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.card{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.ph{height:70px;display:flex;align-items:center;justify-content:center;font-size:30px}
+.card .bd{padding:7px 9px;font-size:12px}
+.card .bd b{display:block;font-size:13px}
+.card .bd small{color:var(--muted);display:block}
+.dots{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
+.dot{font-size:10px;border-radius:999px;padding:0 6px}
+.d-ok{background:var(--ok-bg);color:var(--ok)}.d-w{background:var(--warn-bg);color:var(--warn)}.d-e{background:var(--err-bg);color:var(--err)}.d-b{background:var(--acc-bg);color:var(--acc)}
+.two{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:0}
+.col{padding:12px 14px;border-inline-end:1px solid var(--line)}
+.col:last-child{border:0}
+.items{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+.it{border:1px solid var(--line);border-radius:9px;overflow:hidden;font-size:11px;background:#fff}
+.it .ph{height:58px;font-size:24px}
+.it .bd{padding:5px 7px}
+.it .bd b{display:block;font-size:12px}
+.it .bd small{color:var(--muted)}
+.mini{font-size:12px;margin:0;padding:0;list-style:none}
+.mini li{padding:5px 0;border-bottom:1px solid var(--line);display:flex;gap:8px}
+.mini li span:first-child{color:var(--muted);min-width:78px}
+.tl{list-style:none;margin:0;padding:0;font-size:12px}
+.tl li{position:relative;padding:0 0 10px 18px;border-inline-start:2px solid var(--line);margin-inline-start:6px}
+.tl li:before{content:"";position:absolute;inset-inline-start:-6px;top:3px;width:10px;height:10px;border-radius:50%;background:#378ADD}
+.tl li b{display:block}
+.tl li small{color:var(--muted)}
+.links{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.lk{border-radius:9px;padding:7px 9px;font-size:12px}
+.lk b{display:block}
+.fin{background:var(--ok-bg);color:#27500A}.cal{background:var(--acc-bg);color:#0C447C}
+.phones{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;background:var(--soft);border-radius:12px;padding:16px}
+.dv{background:#fff;border:1px solid var(--line2);border-radius:24px;padding:13px;font-size:12px;min-height:330px}
+.who{font-size:11px;color:var(--faint);text-align:center;margin-bottom:6px}
+.dv h4{margin:0 0 8px;font-size:15px}
+.scan{border:2px dashed var(--line2);border-radius:12px;height:96px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:12px;margin-bottom:8px}
+.big{display:block;text-align:center;border-radius:10px;padding:9px;margin:5px 0;font-weight:600}
+.prog{height:8px;border-radius:4px;background:var(--soft);overflow:hidden;margin:4px 0 8px}
+.prog i{display:block;height:100%;background:#639922}
+.row{display:flex;gap:6px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:5px}
+.diag{display:grid;gap:10px}
+.r3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:stretch}
+.bx{border-radius:12px;padding:10px 12px;border:1px solid;font-size:12px}
+.bx b{display:block;font-size:14px;margin-bottom:2px}
+.bx ul{margin:4px 0 0;padding-inline-start:16px}
+.teal{background:#E1F5EE;border-color:#5DCAA5;color:#085041}
+.blue{background:#E6F1FB;border-color:#85B7EB;color:#0C447C}
+.amber{background:#FAEEDA;border-color:#EF9F27;color:#633806}
+.gray{background:var(--soft);border-color:var(--line2);color:var(--text)}
+.arrow{text-align:center;color:var(--faint);font-size:13px}
+table.t{width:100%;border-collapse:collapse;font-size:12px}
+table.t td,table.t th{border-bottom:1px solid var(--line);padding:5px 8px;text-align:start}
+table.t th{background:var(--soft);font-weight:600;color:var(--muted)}
+@media (max-width:720px){.two{grid-template-columns:1fr}.r3{grid-template-columns:1fr}.links{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>MAGIS Inventory — drawings</h1>
+<p class="lead">Examples only: the names, numbers and objects are invented to show the layout. The pictures stand for the photos of the objects.</p>
+
+<h2>1. The inventory home: the centre as a map of places</h2>
+<p class="lead">The same areas and spaces as the calendar, plus the places that are never booked (store, offices). Each space is a card: what is in it, its value, when it was last counted, what needs attention. A click opens the space.</p>
+<div class="scr">
+  <div class="bar"><h3>Inventory</h3><span class="pill on">By place</span><span class="pill">By category</span><span class="pill">All items</span><span class="pill">Lent out</span><span class="srch">🔍 Search: label, name, serial, person…</span><button class="btn">🏷 Labels</button><button class="btn">⬇ Excel</button><button class="btn pri">＋ Item</button></div>
+  <div class="tiles">
+    <div class="tile"><b>612</b><small>items · 1,480 units</small></div>
+    <div class="tile"><b>$48,300</b><small>value (bought or estimated)</small></div>
+    <div class="tile w"><b>4</b><small>purchases to register</small></div>
+    <div class="tile e"><b>7</b><small>to repair or broken</small></div>
+    <div class="tile w"><b>3</b><small>lent out · 1 late</small></div>
+    <div class="tile"><b>58%</b><small>counted this year</small></div>
+  </div>
+  <div class="area">
+    <div class="ah"><i style="background:#378ADD"></i>Area A · Main building <small>4 spaces · 214 items · $21,900</small></div>
+    <div class="cards">
+      <div class="card"><div class="ph" style="background:#E6F1FB">🪑</div><div class="bd"><b>Hall 1</b><small>86 items · $6,200</small><div class="dots"><span class="dot d-ok">counted Oct</span><span class="dot d-b">booked today</span></div></div></div>
+      <div class="card"><div class="ph" style="background:#E6F1FB">📽</div><div class="bd"><b>Hall 2</b><small>41 items · $3,950</small><div class="dots"><span class="dot d-e">1 broken</span></div></div></div>
+      <div class="card"><div class="ph" style="background:#E6F1FB">📚</div><div class="bd"><b>Library</b><small>52 items · $4,100</small><div class="dots"><span class="dot d-w">not counted</span></div></div></div>
+      <div class="card"><div class="ph" style="background:#E6F1FB">💻</div><div class="bd"><b>Office</b><small>35 items · $7,650</small><div class="dots"><span class="dot d-ok">counted Nov</span><span class="dot d-w">2 lent</span></div></div></div>
+    </div>
+    <div class="ah" style="margin-top:14px"><i style="background:#BA7517"></i>Area C · Guest house <small>7 spaces · 160 items · $9,800</small></div>
+    <div class="cards">
+      <div class="card"><div class="ph" style="background:#FAEEDA">🛏</div><div class="bd"><b>Bedroom 1</b><small>14 items · $820</small><div class="dots"><span class="dot d-ok">counted Sep</span></div></div></div>
+      <div class="card"><div class="ph" style="background:#FAEEDA">🛏</div><div class="bd"><b>Bedroom 2</b><small>14 items · $820</small><div class="dots"><span class="dot d-w">1 to repair</span></div></div></div>
+      <div class="card"><div class="ph" style="background:#FAEEDA">🍳</div><div class="bd"><b>Kitchen 1</b><small>63 items · $3,400</small><div class="dots"><span class="dot d-ok">counted Oct</span></div></div></div>
+      <div class="card"><div class="ph" style="background:#F1EFE8">📦</div><div class="bd"><b>Store (not booked)</b><small>69 items · $4,760</small><div class="dots"><span class="dot d-b">projectors, sound</span></div></div></div>
+    </div>
+  </div>
+</div>
+
+<h2>2. A space: everything that is in it</h2>
+<p class="lead">Photos first, then the list. The calendar's "always in the room" comes from here, so it is typed once. The page can be printed and put on the door.</p>
+<div class="scr">
+  <div class="bar"><h3>Hall 1 · Area A</h3><span class="pill">60 people</span><span class="pill">booked today 18:00</span><span class="sp"></span><button class="btn">✔ Count this space</button><button class="btn">↪ Move items…</button><button class="btn">🖨 Sheet for the door</button></div>
+  <div class="two">
+    <div class="col">
+      <div class="items">
+        <div class="it"><div class="ph" style="background:#F1EFE8">🪑</div><div class="bd"><b>Chairs ×60</b><small>HO-0102 · good</small></div></div>
+        <div class="it"><div class="ph" style="background:#F1EFE8">🟫</div><div class="bd"><b>Tables ×12</b><small>HO-0103 · good</small></div></div>
+        <div class="it"><div class="ph" style="background:#E6F1FB">📽</div><div class="bd"><b>Projector</b><small>HO-0140 · S/N 7731</small></div></div>
+        <div class="it"><div class="ph" style="background:#E6F1FB">🔊</div><div class="bd"><b>Speakers ×2</b><small>HO-0141 · <span style="color:var(--err)">to repair</span></small></div></div>
+        <div class="it"><div class="ph" style="background:#E1F5EE">⬜</div><div class="bd"><b>Whiteboard</b><small>HO-0150 · good</small></div></div>
+        <div class="it"><div class="ph" style="background:#FAEEDA">❄</div><div class="bd"><b>Air conditioner</b><small>HO-0160 · good</small></div></div>
+      </div>
+    </div>
+    <div class="col">
+      <ul class="mini">
+        <li><span>Items</span><b>86 · 104 units</b></li>
+        <li><span>Value</span><b>$6,200</b></li>
+        <li><span>Last count</span>14 Oct 2026 · by the keeper</li>
+        <li><span>Attention</span><span style="color:var(--err)">Speakers to repair (since 2 Nov)</span></li>
+        <li><span>This week</span>Workshop Wed asks 1 projector + 25 chairs: here ✔</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2>3. An item: its whole life, linked to the money and to the calendar</h2>
+<div class="scr">
+  <div class="bar"><h3>Projector · HO-0140</h3><span class="pill">Audio-visual</span><span class="pill">Hall 1</span><span class="sp"></span><button class="btn">↪ Move</button><button class="btn">🤝 Lend</button><button class="btn">🔧 Report a problem</button><button class="btn">🏷 Label</button></div>
+  <div class="two">
+    <div class="col">
+      <div style="display:flex;gap:12px">
+        <div class="ph" style="background:#E6F1FB;width:130px;height:110px;border-radius:10px;font-size:44px">📽</div>
+        <ul class="mini" style="flex:1">
+          <li><span>Brand · model</span>Epson EB-X49</li>
+          <li><span>Serial</span>7731-XX</li>
+          <li><span>State</span>good</li>
+          <li><span>Value</span><b>$540</b> (from the purchase)</li>
+          <li><span>Origin</span>Bought</li>
+        </ul>
+      </div>
+      <div class="links">
+        <div class="lk fin"><b>💵 Finance</b>Bought 12 Mar 2025 · entry 2025-0412 · supplier "Example shop" · bill scanned · project "Center"<br>Repairs paid: $35 (1 entry)</div>
+        <div class="lk cal"><b>📅 Calendar</b>Asked by 3 bookings this month · next: Drawing workshop, Wed 25 Nov 10:00, Hall 1</div>
+      </div>
+    </div>
+    <div class="col">
+      <ul class="tl">
+        <li><b>Asked for a booking</b><small>25 Nov · Drawing workshop · Hall 1</small></li>
+        <li><b>Counted</b><small>14 Oct 2026 · Hall 1 · by the keeper</small></li>
+        <li><b>Repaired</b><small>2 Jun 2026 · lamp changed · $35 (entry 2026-0611)</small></li>
+        <li><b>Lent and returned</b><small>10–12 May 2026 · Example parish · back in good state</small></li>
+        <li><b>Moved</b><small>3 Apr 2025 · Store → Hall 1</small></li>
+        <li><b>Bought</b><small>12 Mar 2025 · $540 · entry 2025-0412</small></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2>4. Lent out, and equipment for the bookings</h2>
+<p class="lead">What is outside its place now, until when, with whom. The calendar's equipment requests become a list of what to take where, and what comes back.</p>
+<div class="scr">
+  <div class="bar"><h3>Out of its place</h3><span class="pill on">Now</span><span class="pill">Late</span><span class="pill">For the bookings this week</span></div>
+  <table class="t">
+    <tr><th>Item</th><th>With</th><th>Since</th><th>Back on</th><th>For</th></tr>
+    <tr><td>💻 Laptop HO-0211</td><td>Person A (staff)</td><td>1 Sep</td><td>—</td><td>work</td></tr>
+    <tr><td>🪑 Chairs ×30 HO-0102</td><td>Example parish</td><td>20 Nov</td><td style="color:var(--err)">22 Nov · late</td><td>parish lunch</td></tr>
+    <tr><td>📽 Projector HO-0145</td><td>Hall 2 (from the Store)</td><td>today 08:30</td><td>today 13:00</td><td>📅 Example association · conference</td></tr>
+  </table>
+</div>
+
+<h2>5. The phone: find, count, report</h2>
+<div class="phones">
+  <div class="dv"><div class="who">Anyone · find something</div><h4>Where is…?</h4><div class="scan">📷 scan a label, or type</div>
+    <div class="row"><span>📽 Projector HO-0145</span><b>Store</b></div><div class="row"><span>📽 Projector HO-0140</span><b>Hall 1</b></div><div class="row"><span>🔊 Speakers HO-0141</span><b style="color:var(--err)">to repair</b></div></div>
+  <div class="dv"><div class="who">Keeper · yearly count</div><h4>Count · Hall 1</h4><div class="prog"><i style="width:72%"></i></div><small>62 of 86 seen</small>
+    <div class="scan" style="height:70px">📷 scan the next label</div><div class="row"><span>✔ Chairs ×60</span><small>60 seen</small></div><div class="row"><span>✔ Projector</span><small>seen</small></div><div class="row"><span>○ Whiteboard</span><small>not yet</small></div></div>
+  <div class="dv"><div class="who">Team · report a problem</div><h4>Something is broken</h4><div class="scan">📷 photo of the problem</div>
+    <div class="row"><span>Item</span><b>Speakers HO-0141</b></div><div class="row"><span>What</span><span>one speaker makes no sound</span></div><span class="big" style="background:#26292E;color:#fff">Send to the keeper</span></div>
+</div>
+
+<h2>6. How it fits together</h2>
+<div class="diag">
+  <div class="r3">
+    <div class="bx blue"><b>📅 Calendar</b>Areas and spaces · bookings<ul><li>asks for equipment</li><li>"always in the room"</li><li>"to prepare today"</li></ul></div>
+    <div class="bx teal"><b>📦 Inventory</b>What we own, where, in what state<ul><li>items, photos, labels</li><li>moves, loans, repairs, counts</li><li>value</li></ul></div>
+    <div class="bx amber"><b>💵 Finance</b>The books of the centre<ul><li>purchases → items</li><li>repair costs → item</li><li>value by project for donors</li></ul></div>
+  </div>
+  <div class="arrow">↑ the same areas and spaces for both ↑ · ↑ each purchase on a furniture or equipment line becomes an item ↑</div>
+  <div class="bx gray" style="text-align:center"><b>Shared: the map of the centre</b>areas → spaces (booked or not) · one list, kept once</div>
+</div>
+<p class="note">Example only. Nothing here is decided: see the questions page.</p>
+</div>
+</body>
+</html>

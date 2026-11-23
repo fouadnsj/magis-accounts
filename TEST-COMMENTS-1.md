@@ -41,3 +41,7 @@
    November 2026: "it will be helpful"). It shows the map with only the store spaces and what is in them. Decided (A):
    **only the spaces whose kind is "Store"**. So the starting kind "Store · مستودع" (no category, calendar comment 1) is
    needed in every centre; the view finds it by that kind.
+4. **The person who has an item (a laptop…) comes from the HR system** (Fouad, 23 November 2026: "must come from the
+   hr system"). Today "With staff" is a typed name (`inv_item.holder`, free text). Baseline §3 and step 3 already say
+   so: the person is chosen from the people of the centre in MAGIS HR (typed only if not there), and the keeper is
+   reminded when that person leaves. Do it with these fixes, or first thing in inventory step 3.

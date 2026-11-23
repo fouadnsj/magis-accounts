@@ -529,12 +529,13 @@ async function saveSpace(c: OpCtx, a: Parameters<(typeof HOST_OPS)['host.room.sa
   return { id };
 }
 
-/** a kind of space, with its category (the quick view it belongs to) */
+/** a kind of space, with its category (the quick view it belongs to); category_id null = no category (never in the quick views) */
 async function saveKind(c: OpCtx, a: { id?: number; name: string; sleeps?: boolean; active?: boolean; category_id?: number | null }) {
   if (a.category_id != null && !(await one(c.db, 'SELECT 1 FROM cal_category WHERE id = ?', [Number(a.category_id)]))) throw err('الفئة غير موجودة', 'That category does not exist', 'Cette catégorie n’existe pas');
   await HOST_OPS['host.kind.save'].run(c, a);
   const k = await one<{ id: number }>(c.db, 'SELECT id FROM host_kind WHERE name = ?', [String(a.name).trim()]);
-  const cat = a.category_id ?? (a.sleeps ? 2 : 1);
+  // left out (an old caller): the usual category; null: no category (a store, an office: not in the calendar's quick views)
+  const cat = a.category_id === undefined ? (a.sleeps ? 2 : 1) : a.category_id == null ? null : Number(a.category_id);
   if (k) await c.db.batch([{ sql: 'UPDATE host_kind SET category_id = ? WHERE id = ?', params: [cat, k.id] }]);
   return { id: k?.id ?? null };
 }

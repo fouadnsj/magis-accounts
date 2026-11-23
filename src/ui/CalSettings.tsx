@@ -39,6 +39,7 @@ export function inRoomText(d: CalData, sp: CalSpace): string {
   return x.items.length ? x.items.map((i) => (i.qty > 1 ? `${i.qty} ${i.name}` : i.name)).join(' · ') : x.typed ?? '';
 }
 export const catLabel = (d: CalData, id: number | null) => biName(d.categories.find((c) => c.id === id)?.name ?? '');
+const NO_CAT = () => t('بلا فئة (ليس في التقويم)', 'No category (not in the calendar)');
 
 // ---------------------------------------------------------------- areas and spaces
 
@@ -51,7 +52,7 @@ function SpacesTab({ data, refresh }: { data: CalData; refresh: () => Promise<vo
     if (n?.trim()) await act(() => s.api.call('cal.area.save', { name: n }));
   };
   const areaSave = (id: number, x: { name: string; active: boolean; color?: string | null }) => act(() => s.api.call('cal.area.save', { id, ...x }));
-  const firstKind = data.kinds.find((k) => k.active && !k.sleeps)?.id ?? data.kinds[0]?.id ?? null;
+  const firstKind = data.kinds.find((k) => k.active && !k.sleeps && k.category_id != null)?.id ?? data.kinds.find((k) => k.active && !k.sleeps)?.id ?? data.kinds[0]?.id ?? null;
   const open = (sp: CalSpace) => setForm({ id: sp.id, building_id: sp.building_id, name: sp.name, kind_id: sp.kind_id, floor: sp.floor ?? '', capacity: sp.capacity ? String(sp.capacity) : '', beds: sp.beds ? String(sp.beds) : '', rentable: !!sp.rentable, bookable: sp.bookable !== 0, fixed: sp.fixed ?? '', note: sp.note ?? '', category_id: sp.category_id, active: !!sp.active });
   return (
     <div className="panel">
@@ -82,7 +83,7 @@ function SpacesTab({ data, refresh }: { data: CalData; refresh: () => Promise<vo
                     <tr key={sp.id} className={sp.active ? '' : 'off'}>
                       <td><b>{sp.name}</b>{sp.note && <div className="muted">{sp.note}</div>}</td>
                       <td>{kindLabel(data, sp)}</td>
-                      <td>{catLabel(data, categoryOf(sp, data.kinds))}</td>
+                      <td className={categoryOf(sp, data.kinds) == null ? 'muted' : ''}>{categoryOf(sp, data.kinds) == null ? t('بلا فئة', 'No category') : catLabel(data, categoryOf(sp, data.kinds))}</td>
                       <td>{sp.floor ?? ''}</td>
                       <td className="n">{sleepsIn(sp, data.kinds) ? (sp.beds ? `${sp.beds} ${t('سرير', 'beds')}` : '—') : sp.capacity ? `${sp.capacity} ${t('شخصاً', 'people')}` : '—'}</td>
                       <td>{sp.bookable !== 0 ? t('نعم', 'Yes') : t('الجرد فقط', 'Inventory only')}</td>
@@ -127,7 +128,11 @@ function SpaceWindow({ data, form: start, onClose, refresh }: { data: CalData; f
         </Field>
         <Field label={t('اسم المكان', 'Name of the space')}><input className="inp" autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label={t('النوع', 'Kind')}>
-          <select className="inp" value={f.kind_id ?? ''} onChange={(e) => setF({ ...f, kind_id: Number(e.target.value) })}>
+          <select className="inp" value={f.kind_id ?? ''} onChange={(e) => {
+            // a new space of a kind with no category (a store, an office) starts as "cannot be booked"
+            const k = data.kinds.find((x) => x.id === Number(e.target.value));
+            setF({ ...f, kind_id: Number(e.target.value), bookable: f.id == null && k && k.category_id == null && f.category_id == null ? false : f.bookable });
+          }}>
             {data.kinds.filter((k) => k.active || k.id === f.kind_id).map((k) => <option key={k.id} value={k.id}>{biName(k.name)}</option>)}
           </select>
         </Field>
@@ -137,7 +142,7 @@ function SpaceWindow({ data, form: start, onClose, refresh }: { data: CalData; f
         <Field label={t('الطابق', 'Floor')}><input className="inp" value={f.floor} onChange={(e) => setF({ ...f, floor: e.target.value })} /></Field>
         <Field label={t('الفئة (العرض السريع)', 'Category (quick view)')}>
           <select className="inp" value={f.category_id ?? ''} onChange={(e) => setF({ ...f, category_id: e.target.value ? Number(e.target.value) : null })}>
-            <option value="">{t('فئة النوع', "The kind's category")}{kind?.category_id ? ` (${catLabel(data, kind.category_id)})` : ''}</option>
+            <option value="">{t('فئة النوع', "The kind's category")}{kind ? ` (${kind.category_id ? catLabel(data, kind.category_id) : NO_CAT()})` : ''}</option>
             {data.categories.filter((c) => c.active || c.id === f.category_id).map((c) => <option key={c.id} value={c.id}>{biName(c.name)}</option>)}
           </select>
         </Field>
@@ -194,13 +199,13 @@ function ListsTab({ data, refresh }: { data: CalData; refresh: () => Promise<voi
           <h3 style={{ margin: 0 }}>{t('أنواع الأماكن', 'Kinds of space')}</h3>
           <button className="btn small" onClick={() => setKindForm({ name: '', sleeps: false, category_id: data.categories[0]?.id ?? null, active: true, used: false })}>＋ {t('نوع', 'Kind')}</button>
         </div>
-        <p className="small muted">{t('نوع «فيه أسرّة» (غرفة نوم) تُعدّ فيه الأسرّة؛ الأنواع الأخرى لها سعة. كل نوع في فئة: هي العروض السريعة في التقويم (القاعات، الغرف…).', 'A kind "with beds" (bedroom) counts beds; the other kinds have a capacity. Each kind is in a category: the quick views of the calendar (Halls, Rooms…).')}</p>
+        <p className="small muted">{t('نوع «فيه أسرّة» (غرفة نوم) تُعدّ فيه الأسرّة؛ الأنواع الأخرى لها سعة. كل نوع في فئة: هي العروض السريعة في التقويم (القاعات، الغرف…). نوع بلا فئة (مستودع، مكتب) لا يظهر في العروض السريعة.', 'A kind "with beds" (bedroom) counts beds; the other kinds have a capacity. Each kind is in a category: the quick views of the calendar (Halls, Rooms…). A kind with no category (a store, an office) is not in the quick views.')}</p>
         <table className="t small"><thead><tr><th>{t('النوع', 'Kind')}</th><th>{t('الفئة', 'Category')}</th><th /><th className="n">{t('أماكن', 'Spaces')}</th><th /></tr></thead><tbody>
           {data.kinds.map((k) => {
             const used = data.spaces.filter((x) => x.kind_id === k.id).length;
             return (
               <tr key={k.id} className={k.active ? '' : 'off'}>
-                <td>{biName(k.name)}</td><td>{catLabel(data, k.category_id)}</td><td className="muted">{k.sleeps ? t('فيه أسرّة', 'with beds') : t('سعة', 'capacity')}</td><td className="n">{used}</td>
+                <td>{biName(k.name)}</td><td className={k.category_id == null ? 'muted' : ''}>{k.category_id == null ? NO_CAT() : catLabel(data, k.category_id)}</td><td className="muted">{k.sleeps ? t('فيه أسرّة', 'with beds') : t('سعة', 'capacity')}</td><td className="n">{used}</td>
                 <td style={{ textAlign: 'end' }}><button className="btn ghost small" onClick={() => setKindForm({ id: k.id, name: k.name, sleeps: !!k.sleeps, category_id: k.category_id, active: !!k.active, used: used > 0 })}>{t('عدّل', 'Edit')}</button></td>
               </tr>
             );
@@ -219,7 +224,9 @@ function ListsTab({ data, refresh }: { data: CalData; refresh: () => Promise<voi
             <Field label={t('الفئة', 'Category')}>
               <select className="inp" value={kindForm.category_id ?? ''} onChange={(e) => setKindForm({ ...kindForm, category_id: e.target.value ? Number(e.target.value) : null })}>
                 {data.categories.filter((c) => c.active || c.id === kindForm.category_id).map((c) => <option key={c.id} value={c.id}>{biName(c.name)}</option>)}
+                <option value="">{NO_CAT()}</option>
               </select>
+              {kindForm.category_id == null && <div className="small muted">{t('أماكن هذا النوع لا تظهر في العروض السريعة (القاعات، الغرف…): مستودع، مكتب، غرفة تخزين.', 'Spaces of this kind never appear in the quick views (Halls, Rooms…): a store, an office, a storage room.')}</div>}
             </Field>
             <label className="small cal-check"><input type="checkbox" disabled={kindForm.used} checked={kindForm.sleeps} onChange={(e) => setKindForm({ ...kindForm, sleeps: e.target.checked })} /> {t('فيه أسرّة (ينام فيه أشخاص)', 'Has beds (people sleep there)')}{kindForm.used ? ` — ${t('مستعمل في أماكن: لا يتغيّر', 'used by spaces: it cannot change')}` : ''}</label>
             {kindForm.id != null && <label className="small cal-check"><input type="checkbox" checked={kindForm.active} onChange={(e) => setKindForm({ ...kindForm, active: e.target.checked })} /> {t('قيد الاستعمال', 'In use')}</label>}

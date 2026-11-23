@@ -2360,4 +2360,24 @@ UPDATE access_profile SET perms = replace(perms, ']', ',"inventory.values"]')
    AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('community', 'country', 'hr'));
 `,
   },
+  {
+    n: 72,
+    name: 'calendar: a kind of space may have no category (not in the calendar); the starting kind "Store"',
+    sql: `
+-- (Fouad, first test, 23 November 2026, calendar comment 1) A kind may have NO category: its spaces never appear in the
+-- quick views of the calendar (Halls, Rooms...). Every centre gets a starting kind "Store" with no category. The kind is
+-- marked with a code so the inventory finds it (its view "Stores") even when the keeper renames it.
+-- If a kind named Store already exists (typed by hand), that one is used and its category taken away: no second kind.
+ALTER TABLE host_kind ADD COLUMN code TEXT;
+UPDATE host_kind SET code = 'store', category_id = NULL
+ WHERE id = (SELECT id FROM host_kind
+              WHERE lower(trim(name)) IN ('store', 'stores', 'store · مستودع', 'مستودع · store', 'مستودع', 'مستودعات')
+                 OR lower(trim(name)) LIKE 'store ·%' OR lower(trim(name)) LIKE '%· store'
+                 OR trim(name) LIKE 'مستودع ·%' OR trim(name) LIKE '%· مستودع'
+              ORDER BY active DESC, id LIMIT 1);
+INSERT INTO host_kind (name, sleeps, active, sort, category_id, code)
+  SELECT 'Store · مستودع', 0, 1, COALESCE((SELECT MAX(sort) FROM host_kind WHERE sort < 99), 0) + 1, NULL, 'store'
+   WHERE NOT EXISTS (SELECT 1 FROM host_kind WHERE code = 'store');
+`,
+  },
 ];

@@ -22,7 +22,7 @@ export type PriceState = 'free' | 'priced' | 'unset';
 export type CancelMoney = 'all' | 'none' | 'part';
 
 export interface CalCategory { id: number; name: string; active: number; sort: number }
-export interface CalKind extends HostKind { category_id: number | null }
+export interface CalKind extends HostKind { category_id: number | null; /** 'store': the starting kind Store (the inventory's view Stores finds it by this) */ code?: string | null }
 /** a space: a hall, a classroom, a kitchen, a bedroom… (a 0.12 room) */
 export interface CalSpace extends HostRoom { floor: string | null; rentable: number; fixed: string | null; note: string | null; category_id: number | null; /** 0: shown only in the inventory (a store, an office), never in the calendar */ bookable: number }
 export interface CalActivityKind { id: number; name: string; color: string | null; active: number; sort: number }

@@ -4,8 +4,9 @@
 // entry; of a gift or an old item, an estimate. No depreciation. Nothing is deleted: an item leaves (disposed, lost).
 // Pure functions here (shared by the server operations, the screens and the tests).
 import type { Lists, Trx } from '../domain/types';
+import type { InvRights, MapArea, MapSpace } from './map';
 
-export interface InvCategory { id: number; name: string; serial: number; active: number; sort: number }
+export interface InvCategory { id: number; name: string; serial: number; /** a photo and a label are asked for its items */ valuable: number; /** its items are "always in the room" in the calendar */ in_calendar: number; active: number; sort: number }
 export interface InvOriginRow { id: number; name: string; bought: number; active: number; sort: number }
 export interface InvPlace { id: number; name: string; active: number; sort: number }
 export interface InvSource { kind: 'heading' | 'line'; ref: number }
@@ -42,6 +43,8 @@ export interface InvItem {
   created_at: string;
   created_by: string | null;
   updated_at: string | null;
+  /** the item this part of a group was split from */
+  split_from?: number | null;
 }
 
 export interface InvMove { id: number; item_id: number; on_date: string; kind: string; place_id: number | null; holder: string | null; note: string | null; who: string | null; at: string }
@@ -63,6 +66,11 @@ export interface InvData {
   prefix: string;
   /** what a QR label holds besides the label: the fields chosen in the settings */
   qr: string[];
+  /** the map of the centre (the calendar's areas and spaces; each space is a place of the inventory) */
+  areas: MapArea[];
+  spaces: MapSpace[];
+  /** what this person may do (values: false = every amount is left out) */
+  rights: InvRights;
 }
 
 /** What the main `data` call carries, for the badge, the entry form and the list of purchases still to register. */

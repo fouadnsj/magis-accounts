@@ -11,9 +11,10 @@ import {
   CONDITIONS, nextCodes, prefixFor, QR_FIELDS,
   isSourceLine, type InvEntry, type InvCategory, type InvOriginRow, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
 } from './inv';
+import { INV_AREA, invRights, splitLabels, splitProblem, withoutValues, type InRoom, type MapArea, type MapSpace } from './map';
 
 const refuse = () => new UserError(m('غير مسموح لهذا المستخدم', 'Not allowed for this user', "Non autorisé pour cet utilisateur"));
-const view = (c: OpCtx) => { if (!has(c.profile, 'inventory.view') && !has(c.profile, 'inventory.manage')) throw refuse(); };
+const view = (c: OpCtx) => { if (!invRights(c.profile.perms).look) throw refuse(); };
 const manage = (c: OpCtx) => { if (!has(c.profile, 'inventory.manage')) throw refuse(); };
 
 const txt = (x: unknown) => (x == null || String(x).trim() === '' ? null : String(x).trim());
@@ -28,7 +29,8 @@ async function prefixOf(c: OpCtx): Promise<string> {
 }
 
 async function load(c: OpCtx): Promise<InvData> {
-  return {
+  const rights = invRights(c.profile.perms);
+  return withoutValues({
     categories: await c.db.query<InvCategory>('SELECT * FROM inv_category ORDER BY sort, name'),
     places: await c.db.query<InvPlace>('SELECT * FROM inv_place ORDER BY sort, name'),
     origins: await c.db.query<InvOriginRow>('SELECT * FROM inv_origin ORDER BY sort, id'),
@@ -39,7 +41,42 @@ async function load(c: OpCtx): Promise<InvData> {
     photos: await c.db.query<InvPhoto>('SELECT id, item_id, created_at FROM inv_photo WHERE deleted_at IS NULL ORDER BY created_at'),
     prefix: await prefixOf(c),
     qr: qrOf(await getMeta(c.db, 'inv_qr')),
-  };
+    areas: await c.db.query<MapArea>('SELECT id, name, color, active, sort FROM host_building ORDER BY sort, name'),
+    spaces: await c.db.query<MapSpace>('SELECT id, building_id, name, floor, active, sort, place_id, bookable, fixed FROM host_room ORDER BY building_id, sort, name'),
+    rights,
+  }, rights.values);
+}
+
+const maxOf = async (c: OpCtx, sql: string) => (await one<{ n: number }>(c.db, sql))?.n ?? 0;
+
+/**
+ * One map (inventory step 1): a new place of the inventory is a new space that cannot be booked, in the area "Inventory
+ * places" (made the first time). The keeper or whoever sets up the calendar may move it to its real area afterwards.
+ * Gives the statements that make the space of a place, for one place or many in one batch.
+ */
+async function placeMaker(c: OpCtx) {
+  const area = await one<{ id: number }>(c.db, 'SELECT id FROM host_building WHERE name = ?', [INV_AREA]);
+  const pre: Stmt[] = [];
+  let areaId = area?.id ?? 0;
+  if (!area) {
+    areaId = (await maxOf(c, 'SELECT COALESCE(MAX(id), 0) AS n FROM host_building')) + 1;
+    pre.push({ sql: 'INSERT INTO host_building (id, name, sort) VALUES (?,?,?)', params: [areaId, INV_AREA, (await maxOf(c, 'SELECT COALESCE(MAX(sort), 0) AS n FROM host_building')) + 1] });
+  }
+  const kind = await one<{ id: number }>(c.db, "SELECT id FROM host_kind WHERE sleeps = 0 ORDER BY (name = 'Other · أخرى') DESC, sort, id LIMIT 1");
+  let roomId = await maxOf(c, 'SELECT COALESCE(MAX(id), 0) AS n FROM host_room');
+  let roomSort = await maxOf(c, 'SELECT COALESCE(MAX(sort), 0) AS n FROM host_room');
+  return (placeId: number, name: string, active = 1): Stmt[] => [
+    ...pre.splice(0),
+    { sql: "INSERT INTO host_room (id, building_id, name, beds, kind, kind_id, capacity, active, sort, place_id, rentable, bookable) VALUES (?,?,?,0,'other',?,0,?,?,?,0,0)",
+      params: [++roomId, areaId, name, kind?.id ?? null, active, ++roomSort, placeId] },
+  ];
+}
+
+/** the place of a space of the map (every space has one) */
+async function placeOfSpace(c: OpCtx, spaceId: number) {
+  const sp = await one<{ place_id: number | null; active: number }>(c.db, 'SELECT place_id, active FROM host_room WHERE id = ?', [spaceId]);
+  if (!sp || sp.place_id == null) throw new UserError(m('المكان غير موجود', 'Space not found', 'Espace introuvable'));
+  return sp.place_id;
 }
 
 /** a purchase entry this person may list (it exists, is an expense, and is not in a private book he cannot see) */
@@ -217,6 +254,50 @@ export const INV_OPS = {
     },
   },
 
+  /**
+   * moves an item to another space of the map (inventory step 1). Part of a group (qty fewer than all) is split: the same
+   * label with a letter, A stays and B moves (HO-0102-A, HO-0102-B); a part split again keeps its letter. Each part keeps
+   * the purchase, the value of one unit and the photos; the history of both says what happened.
+   */
+  'inv.item.move': {
+    check: manage,
+    run: async (c: OpCtx, a: { id: number; space_id: number | null; qty?: number | null; date?: string; note?: string | null }) => {
+      const x = await itemOf(c, Number(a.id));
+      if (x.status !== 'in_use') throw new UserError(m('الغرض خارج الجرد', 'The item is out of the inventory', "L'objet est sorti de l'inventaire"));
+      const placeId = a.space_id == null ? null : await placeOfSpace(c, Number(a.space_id));
+      const date = a.date && isDay(a.date) ? a.date : today();
+      const note = txt(a.note);
+      const qty = a.qty == null ? x.qty : Number(a.qty);
+      if (placeId === x.place_id) throw new UserError(m('الغرض في هذا المكان أصلاً', 'The item is already in this space', "L'objet est déjà dans cet espace"));
+      if (qty === x.qty) {
+        await c.db.batch([
+          { sql: 'UPDATE inv_item SET place_id = ?, updated_at = ? WHERE id = ?', params: [placeId, nowIso(), x.id] },
+          moveStmt(x.id, 'moved', c.who, { date, place_id: placeId, holder: x.holder, note }),
+          auditStmt(c.who, 'move', 'inv_item', String(x.id), { place: x.place_id }, { place: placeId }),
+        ]);
+        return { id: x.id };
+      }
+      if (splitProblem(x, qty)) throw new UserError(m(`العدد الذي ينتقل: من 1 إلى ${x.qty - 1}`, `How many move: from 1 to ${x.qty - 1}`, `Combien partent : de 1 à ${x.qty - 1}`));
+      const codes = (await c.db.query<{ code: string }>('SELECT code FROM inv_item')).map((r) => r.code);
+      const { stays, moves } = splitLabels(x.code, codes);
+      const part = (await maxOf(c, 'SELECT COALESCE(MAX(id), 0) AS n FROM inv_item')) + 1;
+      const photos = await c.db.query<{ file: string; mime: string; size: number; created_at: string; created_by: string | null }>('SELECT file, mime, size, created_at, created_by FROM inv_photo WHERE item_id = ? AND deleted_at IS NULL ORDER BY created_at', [x.id]);
+      const was = stays !== x.code ? ` (${x.code})` : '';
+      await c.db.batch([
+        { sql: 'UPDATE inv_item SET code = ?, qty = ?, updated_at = ? WHERE id = ?', params: [stays, x.qty - qty, nowIso(), x.id] },
+        // the part: what the item is, its purchase and the value of one unit; no serial number (a serial is one object)
+        { sql: `INSERT INTO inv_item (id, code, name, category_id, place_id, qty, brand, model, serial, condition, status, holder, origin, origin_id, acquired_on, trx_id, party_id, value_usd, value_note, counted_on, note, created_at, created_by, split_from)
+                SELECT ?, ?, name, category_id, ?, ?, brand, model, NULL, condition, status, NULL, origin, origin_id, acquired_on, trx_id, party_id, value_usd, value_note, counted_on, note, ?, ?, id FROM inv_item WHERE id = ?`,
+          params: [part, moves, placeId, qty, nowIso(), c.who, x.id] },
+        ...photos.map((p) => ({ sql: 'INSERT INTO inv_photo (id, item_id, file, mime, size, created_at, created_by) VALUES (?,?,?,?,?,?,?)', params: [crypto.randomUUID(), part, p.file, p.mime, p.size, p.created_at, p.created_by] })),
+        moveStmt(x.id, 'split', c.who, { date, place_id: x.place_id, holder: x.holder, note: [`${qty} → ${moves}${was}`, note].filter(Boolean).join(' · ') }),
+        moveStmt(part, 'split', c.who, { date, place_id: placeId, note: [`${qty} ← ${stays}${was}`, note].filter(Boolean).join(' · ') }),
+        auditStmt(c.who, 'split', 'inv_item', String(x.id), { code: x.code, qty: x.qty, place: x.place_id }, { stays, moves, qty, part, place: placeId }),
+      ]);
+      return { id: x.id, part, stays, moves };
+    },
+  },
+
   /** the item leaves: disposed (thrown away, given away) or lost; it stays in the list with its history */
   'inv.item.out': {
     check: manage,
@@ -317,7 +398,7 @@ export const INV_OPS = {
   /** categories and places: add, rename, switch off (never deleted) */
   'inv.list.save': {
     check: manage,
-    run: async (c: OpCtx, a: { table: 'category' | 'place' | 'origin'; id?: number; name: string; serial?: boolean; active?: boolean }) => {
+    run: async (c: OpCtx, a: { table: 'category' | 'place' | 'origin'; id?: number; name: string; serial?: boolean; valuable?: boolean; in_calendar?: boolean; active?: boolean }) => {
       const name = txt(a.name);
       if (!name) throw new UserError(m('اكتب الاسم', 'Write the name', 'Écrivez le nom'));
       const tbl = a.table === 'category' ? 'inv_category' : a.table === 'place' ? 'inv_place' : a.table === 'origin' ? 'inv_origin' : null;
@@ -328,15 +409,34 @@ export const INV_OPS = {
       const active = a.active === false ? 0 : 1;
       const sort = ((await one<{ n: number }>(c.db, `SELECT COALESCE(MAX(sort), 0) AS n FROM ${tbl}`))?.n ?? 0) + 1;
       const stmts: Stmt[] = [];
+      // a category's two other ticks (inventory step 1): left as they are when not given (an older screen)
+      const tick = (x: boolean | undefined) => (x === undefined ? null : x ? 1 : 0);
+      // a place is a space of the map: a new one is a space that cannot be booked; one shown in the calendar is changed in
+      // the calendar's settings, an inventory-only one here (its space follows)
+      if (a.table === 'place') {
+        if (a.id) {
+          const sp = await one<{ id: number; building_id: number; bookable: number }>(c.db, 'SELECT id, building_id, bookable FROM host_room WHERE place_id = ?', [a.id]);
+          if (sp?.bookable) throw new UserError(m('هذا المكان في التقويم: غيّره في إعدادات التقويم', 'This space is in the calendar: change it in the calendar\'s settings', 'Cet espace est dans le calendrier : modifiez-le dans les réglages du calendrier'));
+          if (sp && (await one(c.db, 'SELECT 1 FROM host_room WHERE building_id = ? AND name = ? AND id <> ?', [sp.building_id, name, sp.id]))) throw new UserError(m('الاسم موجود', 'That name exists', 'Ce nom existe déjà'));
+          stmts.push({ sql: 'UPDATE inv_place SET name = ?, active = ? WHERE id = ?', params: [name, active, a.id] });
+          if (sp) stmts.push({ sql: 'UPDATE host_room SET name = ?, active = ? WHERE id = ?', params: [name, active, sp.id] });
+        } else {
+          const id = (await maxOf(c, 'SELECT COALESCE(MAX(id), 0) AS n FROM inv_place')) + 1;
+          stmts.push({ sql: 'INSERT INTO inv_place (id, name, sort) VALUES (?,?,?)', params: [id, name, sort] }, ...(await placeMaker(c))(id, name));
+        }
+        stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', 'inv_place', a.id ? String(a.id) : null, null, { name, active }));
+        await c.db.batch(stmts);
+        return { id: a.id ?? (await one<{ id: number }>(c.db, 'SELECT id FROM inv_place WHERE name = ?', [name]))?.id ?? null };
+      }
       if (a.table === 'origin' && a.id && active === 0 && (await one(c.db, 'SELECT 1 FROM inv_origin WHERE id = ? AND bought = 1', [a.id])))
         throw new UserError(m('«مشترى» لا يُوقَف: يصنعه قيد الشراء', '"Bought" cannot be switched off: a purchase entry makes it', '« Acheté » ne se désactive pas : une écriture d’achat le fait'));
       if (a.id) stmts.push(a.table === 'category'
-        ? { sql: 'UPDATE inv_category SET name = ?, serial = ?, active = ? WHERE id = ?', params: [name, serial, active, a.id] }
+        ? { sql: 'UPDATE inv_category SET name = ?, serial = ?, valuable = COALESCE(?, valuable), in_calendar = COALESCE(?, in_calendar), active = ? WHERE id = ?', params: [name, serial, tick(a.valuable), tick(a.in_calendar), active, a.id] }
         : { sql: `UPDATE ${tbl} SET name = ?, active = ? WHERE id = ?`, params: [name, active, a.id] });
       else stmts.push(a.table === 'category'
-        ? { sql: 'INSERT INTO inv_category (name, serial, sort) VALUES (?,?,?)', params: [name, serial, sort] }
+        ? { sql: 'INSERT INTO inv_category (name, serial, valuable, in_calendar, sort) VALUES (?,?,?,?,?)', params: [name, serial, tick(a.valuable) ?? 0, tick(a.in_calendar) ?? 0, sort] }
         : { sql: `INSERT INTO ${tbl} (name, sort) VALUES (?,?)`, params: [name, sort] });
-      stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', tbl, a.id ? String(a.id) : null, null, { name, serial, active }));
+      stmts.push(auditStmt(c.who, a.id ? 'update' : 'add', tbl, a.id ? String(a.id) : null, null, { name, serial, active, ...(a.table === 'category' ? { valuable: a.valuable, in_calendar: a.in_calendar } : {}) }));
       await c.db.batch(stmts);
       const id = a.id ?? (await one<{ id: number }>(c.db, `SELECT id FROM ${tbl} WHERE name = ?`, [name]))?.id ?? null;
       return { id };
@@ -414,6 +514,10 @@ export const INV_OPS = {
       if (rows.length > 5000) throw new UserError(m('أكثر من 5000 صف', 'More than 5000 rows', 'Plus de 5000 lignes'));
       const cats = new Map((await c.db.query<InvCategory>('SELECT * FROM inv_category')).map((x) => [x.name.toLowerCase(), x.id]));
       const places = new Map((await c.db.query<InvPlace>('SELECT * FROM inv_place')).map((x) => [x.name.toLowerCase(), x.id]));
+      // a place may also be written as the space's name alone ("Hall A"), when only one space has that name
+      const spaceNames = await c.db.query<{ name: string; place_id: number }>('SELECT r.name, r.place_id FROM host_room r WHERE r.place_id IS NOT NULL');
+      for (const sp of spaceNames) if (!places.has(sp.name.toLowerCase()) && spaceNames.filter((o) => o.name.toLowerCase() === sp.name.toLowerCase()).length === 1) places.set(sp.name.toLowerCase(), sp.place_id);
+      const makeSpace = await placeMaker(c);
       const parties = new Map((await c.db.query<{ id: number; name: string }>('SELECT id, name FROM party')).map((x) => [x.name.toLowerCase(), x.id]));
       const stmts: Stmt[] = [];
       let catSort = ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(sort), 0) AS n FROM inv_category'))?.n ?? 0);
@@ -449,7 +553,7 @@ export const INV_OPS = {
         const pn = txt(r.place);
         if (pn) {
           place = places.get(pn.toLowerCase()) ?? null;
-          if (place == null) { place = ++nextPlace; places.set(pn.toLowerCase(), place); stmts.push({ sql: 'INSERT INTO inv_place (id, name, sort) VALUES (?,?,?)', params: [place, pn, ++placeSort] }); }
+          if (place == null) { place = ++nextPlace; places.set(pn.toLowerCase(), place); stmts.push({ sql: 'INSERT INTO inv_place (id, name, sort) VALUES (?,?,?)', params: [place, pn, ++placeSort] }, ...makeSpace(place, pn)); }
         }
         const sup = txt(r.supplier);
         const party = sup ? parties.get(sup.toLowerCase()) ?? null : null;
@@ -477,7 +581,7 @@ export const INV_READ_ONLY = ['inv.get', 'inv.photo.get'];
 
 /** what the main data call carries (for those who see the inventory) */
 export async function invLite(c: OpCtx, shared?: { rows: Trx[]; lists: Lists }) {
-  if (!has(c.profile, 'inventory.view') && !has(c.profile, 'inventory.manage')) return null;
+  if (!invRights(c.profile.perms).look) return null;
   // a centre may switch the section off (Admin → Sections)
   if ((await getMeta(c.db, 'sec_inventory')) === '0') return null;
   const sources = await c.db.query<InvSource>('SELECT kind, ref FROM inv_source');
@@ -523,8 +627,24 @@ export async function inventoryPack(db: OpCtx['db']) {
     origins: await db.query<{ id: number; name: string }>('SELECT id, name FROM inv_origin WHERE active = 1 AND bought = 0 ORDER BY sort, id'),
     /** the names already used, to write the next ones faster */
     names: (await db.query<{ name: string }>('SELECT name FROM inv_item GROUP BY name ORDER BY COUNT(*) DESC, name LIMIT 300')).map((x) => x.name),
-    places: await db.query<{ id: number; name: string }>('SELECT id, name FROM inv_place WHERE active = 1 ORDER BY sort, name'),
+    // the names of the map ("Area · Space"; a store of "Inventory places" by its own name), so a renamed area is followed
+    places: await db.query<{ id: number; name: string }>(
+      `SELECT p.id, COALESCE(CASE WHEN b.name = ? THEN r.name ELSE b.name || ' · ' || r.name END, p.name) AS name
+         FROM inv_place p LEFT JOIN host_room r ON r.place_id = p.id LEFT JOIN host_building b ON b.id = r.building_id
+        WHERE p.active = 1 ORDER BY b.sort, r.sort, p.sort, p.name`, [INV_AREA]),
     items: await db.query<{ id: number; code: string; name: string; place_id: number | null; qty: number; serial: string | null; counted_on: string | null }>(
       "SELECT id, code, name, place_id, qty, serial, counted_on FROM inv_item WHERE status = 'in_use' ORDER BY code"),
   };
+}
+
+/**
+ * "Always in the room" for the calendar (baseline §6), read from the inventory: for each space, the items in use there whose
+ * category is ticked "shown in the calendar", by name, with how many.
+ */
+export async function inRoomRows(db: OpCtx['db']): Promise<InRoom[]> {
+  return db.query<InRoom>(
+    `SELECT r.id AS room_id, MIN(trim(i.name)) AS name, SUM(i.qty) AS qty
+       FROM host_room r JOIN inv_item i ON i.place_id = r.place_id AND i.status = 'in_use'
+       JOIN inv_category k ON k.id = i.category_id AND k.in_calendar = 1
+      WHERE r.place_id IS NOT NULL GROUP BY r.id, lower(trim(i.name)) ORDER BY r.id, MIN(trim(i.name))`);
 }

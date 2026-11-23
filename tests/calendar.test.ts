@@ -467,7 +467,7 @@ describe('migrations 64–67 on a 0.12 database', () => {
       { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, receipt_no, at) VALUES (1, 40, 'USD', '2026-12-01', 'H2026-0001', 'x')" },
     ]);
     const before = await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id');
-    expect(await migrate(old)).toEqual([64, 65, 66, 67, 68]);
+    expect(await migrate(old)).toEqual([64, 65, 66, 67, 68, 69, 70, 71]);
     expect(await old.query('SELECT id, code, kind, status, group_name, people, from_day, to_day, repeat_days, time_from, time_to, price_mode, rate, currency FROM host_booking ORDER BY id')).toEqual(before);
     expect(await old.query('SELECT id, origin, price_state, private, whole_centre, hold_until FROM host_booking ORDER BY id')).toEqual([
       { id: 1, origin: 'outside', price_state: 'priced', private: 0, whole_centre: 0, hold_until: null },

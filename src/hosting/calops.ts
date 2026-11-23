@@ -13,6 +13,7 @@ import {
   type CalSpace, type CancelMoney, type ClosedPeriod, type Clash, type Origin, type PriceHist, type Probe, type SpaceClosed, type World,
 } from './calendar';
 import { HOST_OPS } from './ops';
+import { inRoomRows } from '../inventory/ops';
 
 const err = (ar: string, en: string, fr: string) => new UserError(m(ar, en, fr));
 const refuse = () => err('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non autorisé pour cet utilisateur');
@@ -56,6 +57,7 @@ export async function loadCalAll(c: OpCtx): Promise<CalData> {
     needs: await q<HostNeed>('SELECT * FROM host_need'),
     lines: await q<HostLine>('SELECT * FROM host_line ORDER BY id'),
     pays: await q<HostPay>('SELECT * FROM host_pay ORDER BY paid_on, id'),
+    inRoom: await inRoomRows(c.db),
     rights: rightsOf(c),
   };
 }

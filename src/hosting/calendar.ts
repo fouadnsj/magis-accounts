@@ -11,6 +11,7 @@
 //  - the whole centre (Director) holds every space; an activity outside the centre holds none;
 //  - one group per bedroom: the program counts rooms, not beds;
 //  - nothing is deleted: a booking or a date is cancelled with a reason and kept.
+import type { InRoom } from '../inventory/map';
 import type { Currency, HostAlloc, HostBooking, HostBuilding, HostEquip, HostKind, HostLine, HostNeed, HostPay, HostRoom } from './host';
 import { addDays, isDay } from './host';
 
@@ -77,6 +78,9 @@ export interface CalData {
   needs: HostNeed[];
   lines: HostLine[];
   pays: HostPay[];
+  /** "always in the room", read from the inventory (inventory baseline 1.1, §6): the items of each space whose category is
+   * ticked "shown in the calendar". While a space has none, its typed `fixed` text is still shown (alwaysInRoom). */
+  inRoom?: InRoom[];
   /** what this person may see and do */
   rights: CalRights;
 }

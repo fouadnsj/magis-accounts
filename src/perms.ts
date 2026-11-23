@@ -54,6 +54,7 @@ export const PERM_GROUPS = [
     label: m('الجرد', 'Inventory'),
     perms: [
       { key: 'inventory.view', label: m('يرى الجرد: الأغراض وأماكنها وحالتها', 'Sees the inventory: the items, where they are, their state') },
+      { key: 'inventory.values', label: m('يرى قيم الجرد ($)', 'Sees the values of the inventory ($)', 'Voit les valeurs de l’inventaire ($)') },
       { key: 'inventory.manage', label: m('يدير الجرد: يسجّل المشتريات والهدايا، ينقل، يعدّ، يخرج غرضاً', 'Keeps the inventory: lists the purchases and gifts, moves, counts, takes an item out') },
     ],
   },
@@ -183,7 +184,9 @@ export const HR_ADMIN_PERMS = ['users.manage', 'data.backup', 'data.restore', 'd
  */
 export function withImplied(perms: Perm[]): Perm[] {
   const out = new Set(perms);
-  if (perms.includes('inventory.manage')) out.add('inventory.view');
+  // the keeper sees the values; seeing the values is looking at the inventory (inventory baseline 1.1, section 2)
+  if (perms.includes('inventory.manage')) out.add('inventory.values');
+  if (out.has('inventory.manage') || out.has('inventory.values')) out.add('inventory.view');
   // keeping the calendar brings the prices; setting a price is a change to a booking, so the prices bring booking
   if (out.has('hosting.keep')) out.add('hosting.prices');
   if (out.has('hosting.prices')) out.add('hosting.book');

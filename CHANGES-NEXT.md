@@ -1,7 +1,7 @@
 # For the next build (after 0.12.1) — list made 24 November 2026
 
-Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Five new database updates: 64 to 68** (the
-calendar's foundation, §3, and the "can be booked" tick, §4). They only add: nothing of 0.12.1 is changed or removed (rehearsed on copies of the 0.12 test data).
+Committed on `main` after the tag `v0.12.1`. Nothing is in an installer. **Eight new database updates: 64 to 71** (the
+calendar's foundation, §3, the "can be booked" tick, §4, and the inventory's step 1, §5). They only add: nothing of 0.12.1 is changed or removed (rehearsed on copies of the 0.12 test data).
 
 ## 1. Lists → Budget: choose the list a database follows
 - A database that has **not taken from any list yet** (an imported file, for example the ready Al-Ard database) now shows
@@ -76,3 +76,32 @@ A door **"New calendar · التقويم الجديد"** in the menu for whoever
   Every space already there can be booked. A space with bookings to come cannot be unticked until they are moved or
   cancelled.
 - Tried in the side pane on a copy of the 0.12 test data.
+
+## 5. The new Inventory — step 1 "One map" (data and rules only, no new screen yet)
+Concept: `inventory-plan/INVENTORY-BASELINE.md` (1.1, final) §9 step 1. Rules in `src/inventory/map.ts`, operations in
+`src/inventory/ops.ts`, tests in `tests/inventory-map.test.ts`.
+- **One map of the centre** (database update 69): the inventory and the calendar share the same areas and spaces. Every
+  space was already a place of the inventory; now every place of the 0.12 inventory is also a space. A place that was not
+  a space (a store typed in the 0.12 inventory) becomes a space that **cannot be booked**, in an area **"Inventory places ·
+  أماكن الجرد"** (made only when needed); it can be moved to its real area in the calendar's settings. Its items and their
+  history keep their place. A place added in the inventory becomes such a space too; a space shown in the calendar is
+  changed only in the calendar's settings. The phone's list of places uses the names of the map.
+- **Categories with three ticks** (update 70): serial number expected (as before), **valuable** (a photo and a label are
+  asked) and **shown in the calendar**. To start: IT equipment and Audio-visual are valuable; Audio-visual is shown in the
+  calendar. The keeper changes them in the inventory's lists.
+- **A group that splits**: when part of a group moves (Chairs ×30 of ×60), it is split, the same label with a letter:
+  A stays, B moves (HO-0102-A, HO-0102-B); a part split again keeps its letter and the new part takes the next one. Each
+  part keeps the purchase, the value of one unit and the photos; both histories say what happened; an old sticker still
+  finds every part. Moving the whole item keeps its label.
+- **"Always in the room" in the calendar** is read from the inventory: the items of the space whose category is ticked
+  "shown in the calendar", with how many. While the inventory has nothing of the kind for a space, the text typed in the
+  calendar's settings is still shown (nothing is lost before the keeper lists the items). The calendar's screens show it
+  in their next step.
+- **New tick "Sees the values of the inventory ($)"** (update 71): given to whoever keeps the inventory and to the
+  Superior; the Superior gives it to the Director's role. Who only looks receives the items without any amount.
+  **Reporting a problem needs no tick**: everyone may report one (the button comes in step 3).
+- The 0.12 inventory screen is not changed (it is not used meanwhile). Rehearsed on copies of the 0.12 test data, the
+  inventory check data and the real copies (Homs, demo, a community, HR, Syria): items, history, places and bookings
+  unchanged.
+- To check (with step 2's screens): the map, a store in "Inventory places", moving part of a group.
+

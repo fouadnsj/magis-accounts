@@ -2302,4 +2302,62 @@ UPDATE access_profile SET perms = replace(replace(replace(perms, ',"cal.history"
 ALTER TABLE host_room ADD COLUMN bookable INTEGER NOT NULL DEFAULT 1;
 `,
   },
+  {
+    n: 69,
+    name: 'inventory step 1: one map of the centre (every place of the inventory is a space, every space is a place)',
+    sql: `
+-- (Fouad, inventory baseline 1.1, rules 1-2 and step 1) The inventory and the calendar keep ONE map: the areas and spaces.
+-- Each space already has its place of the inventory (host_room.place_id, since 0.12). What was missing:
+-- 1. a place of the inventory that is not a space (a store typed in the 0.12 inventory) becomes a space that cannot be
+--    booked, in an area "Inventory places" made only if needed; the keeper may move it to its real area later. Its
+--    place, its items and their history stay exactly as they were (same place id).
+INSERT INTO host_building (name, sort)
+  SELECT 'Inventory places · أماكن الجرد', COALESCE((SELECT MAX(sort) FROM host_building), 0) + 1
+   WHERE EXISTS (SELECT 1 FROM inv_place p WHERE NOT EXISTS (SELECT 1 FROM host_room r WHERE r.place_id = p.id))
+     AND NOT EXISTS (SELECT 1 FROM host_building WHERE name = 'Inventory places · أماكن الجرد');
+INSERT INTO host_room (building_id, name, beds, kind, kind_id, capacity, active, sort, place_id, rentable, bookable)
+  SELECT (SELECT id FROM host_building WHERE name = 'Inventory places · أماكن الجرد'), p.name, 0, 'other',
+         (SELECT k.id FROM host_kind k WHERE k.sleeps = 0 ORDER BY (k.name = 'Other · أخرى') DESC, k.sort, k.id LIMIT 1),
+         0, p.active, COALESCE((SELECT MAX(sort) FROM host_room), 0) + p.id, p.id, 0, 0
+    FROM inv_place p
+   WHERE NOT EXISTS (SELECT 1 FROM host_room r WHERE r.place_id = p.id);
+-- 2. a space without its place (none should exist: saving a space makes one) gets one, named "Area · Space" as 0.12 did
+INSERT OR IGNORE INTO inv_place (name, sort)
+  SELECT b.name || ' · ' || r.name, COALESCE((SELECT MAX(sort) FROM inv_place), 0) + r.id
+    FROM host_room r JOIN host_building b ON b.id = r.building_id WHERE r.place_id IS NULL;
+UPDATE host_room SET place_id = (
+    SELECT p.id FROM inv_place p JOIN host_building b ON b.id = host_room.building_id
+     WHERE p.name = b.name || ' · ' || host_room.name AND NOT EXISTS (SELECT 1 FROM host_room r2 WHERE r2.place_id = p.id))
+ WHERE place_id IS NULL;
+`,
+  },
+  {
+    n: 70,
+    name: 'inventory step 1: categories with three ticks (serial, valuable, shown in the calendar); a group split in parts',
+    sql: `
+-- (Fouad, inventory baseline 1.1, section 3) Each category has three ticks: a serial number is expected (already there),
+-- VALUABLE (a photo and a label are asked for its items), and SHOWN IN THE CALENDAR (its items appear in the calendar
+-- as "always in the room"). To start: the categories that expect a serial number (IT, audio-visual) are valuable, and
+-- audio-visual (projector, sound) is shown in the calendar. The keeper changes these ticks in the inventory's lists.
+ALTER TABLE inv_category ADD COLUMN valuable INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE inv_category ADD COLUMN in_calendar INTEGER NOT NULL DEFAULT 0;
+UPDATE inv_category SET valuable = 1 WHERE serial = 1;
+UPDATE inv_category SET in_calendar = 1 WHERE name = 'Audio-visual · صوت وصورة';
+-- A group (Chairs x60): when some move to another space it is split, the same label with a letter (HO-0102-A, HO-0102-B).
+-- The new part remembers the item it came from.
+ALTER TABLE inv_item ADD COLUMN split_from INTEGER REFERENCES inv_item(id);
+`,
+  },
+  {
+    n: 71,
+    name: 'inventory step 1: seeing the values ($) is its own tick (the keeper and the Superior have it)',
+    sql: `
+-- (Fouad, inventory baseline 1.1, section 2) Looking at the inventory and seeing its values are two ticks: the values are
+-- seen by the keeper and the Director (the Superior gives the tick to the Director's role). Whoever keeps the inventory,
+-- and whoever manages the users, gets it. Reporting a problem needs no tick: everyone may report one. Centres only.
+UPDATE access_profile SET perms = replace(perms, ']', ',"inventory.values"]')
+ WHERE (perms LIKE '%"inventory.manage"%' OR perms LIKE '%"users.manage"%') AND perms NOT LIKE '%"inventory.values"%'
+   AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('community', 'country', 'hr'));
+`,
+  },
 ];

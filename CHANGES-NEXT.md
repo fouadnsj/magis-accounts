@@ -314,5 +314,19 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   the red "now" line (tried at night only), many groups in one hall at the same hour (blocks may overlap).
 - The real design (logo, photos, gentle animation) is step 9, later.
 
+## 15. The calendar phone, clearer and in colour (Fouad's comments of 24 November; no database update)
+- **Each activity or booking takes the colour of its area** (the colour set in the calendar settings, as on the laptop): a coloured
+  bar and a light tint, so the text stays dark and readable. Outside the centre: grey; the whole centre: dark. The area colour was
+  already in the pack: nothing new is sent, and still no prices or payments.
+- **Small marks:** our own activities plain; an outside booking gets a tag "Booking · حجز", a stay "Stay · إقامة"; **to confirm** is
+  dashed and striped with a "To confirm" tag; arrived / left have their tag; each line also names its area. A private one still
+  shows only "Reserved · محجوز".
+- **Week:** each day is its own block with a clear heading (the day, and how many things), **today highlighted** (dark heading, gold
+  frame), past days a little paler, a closed period as a band, and an empty day says "Nothing planned — an empty day".
+- **Today:** activities and bookings come first, then guests, then "To prepare"; bigger hours and names. **Spaces:** the same
+  colours and bigger names.
+- Tried in the side pane at 375 wide on a new empty test database: Today, Week (English), Spaces (Arabic, right to left).
+  Not tried: French, a real phone, many colours of areas, very long group names.
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

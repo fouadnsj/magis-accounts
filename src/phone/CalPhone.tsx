@@ -4,7 +4,7 @@
 // no connection it shows what it kept. The view it was left on (Today, Week or Spaces, and the day) is kept.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { gDel, gGet, gSet, lockKey, openKey, type Link, type Msg } from './store';
-import { addDays } from '../hosting/host';
+import { addDays, colorOf } from '../hosting/host';
 import { inCalendar, type CalBooking, type CalData, type CalSpace } from '../hosting/calendar';
 import { hm, itemsBetween, prepareOf, mondayOf, shutOf, bandOf, todayFigures, type DayItem } from '../hosting/calview';
 import { ROLE_NAME, type CalPhonePack } from '../hosting/calphone';
@@ -165,12 +165,31 @@ function Calendar({ t, tm, lang, langPick, link, pack, setPack, keyOf, onLock, o
   const where = (it: DayItem) => (it.b.outside_place ? it.b.outside_place : it.spaces.map(spaceName).filter(Boolean).join(' · '));
   const STATUS: Record<string, string> = { option: t('للتأكيد', 'To confirm', 'À confirmer'), confirmed: t('مؤكَّد', 'Confirmed', 'Confirmée'), arrived: t('وصلوا', 'Arrived', 'Arrivés'), left: t('غادروا', 'Left', 'Partis') };
 
-  const row = (it: DayItem, withDay?: string) => (
-    <button key={`${it.b.id}-${it.occ.day}-${it.occ.from}`} type="button" className={`ph-cal-row ${it.b.status}`} onClick={() => setOpen(it.b)}>
-      <span className="ph-cal-when ltr">{withDay ? dayShort(withDay) : hours(it) || (it.b.kind === 'stay' ? '🛏' : '')}</span>
-      <span className="ph-cal-what"><b>{it.b.group_name}</b>{it.b.status === 'option' ? <small> · {STATUS.option}</small> : null}<small>{[withDay ? hours(it) : '', where(it), it.b.people ? `${it.b.people} ${t('شخص', 'people', 'pers.')}` : ''].filter(Boolean).join(' · ')}</small></span>
-    </button>
-  );
+  /** the colour of a booking is the colour of its area (the first space it holds); outside the centre: grey; the whole centre: dark */
+  const areaId = (it: DayItem) => d.spaces.find((s) => s.id === it.spaces[0])?.building_id;
+  const colorFor = (it: DayItem) => (it.b.whole_centre ? '#23263a' : areaId(it) != null ? colorOf(d.areas, areaId(it)!) : '#6b7280');
+  const areaName = (it: DayItem) => name(d.areas.find((a) => a.id === areaId(it))?.name ?? '');
+  /** a small tag: our own activities are plain; an outside booking or a stay gets one */
+  const tagOf = (b: CalBooking) => (b.origin === 'ours' ? '' : b.kind === 'stay' ? t('إقامة', 'Stay', 'Séjour') : t('حجز', 'Booking', 'Réservation'));
+  const row = (it: DayItem, withDay?: string) => {
+    const tag = tagOf(it.b);
+    return (
+      <button key={`${it.b.id}-${it.occ.day}-${it.occ.from}`} type="button" className={`ph-cal-row ac ${it.b.status}`} style={{ ['--ac' as string]: colorFor(it) }} onClick={() => setOpen(it.b)}>
+        <span className="ph-cal-when ltr">{withDay ? dayShort(withDay) : hours(it) || (it.b.kind === 'stay' ? '🛏' : '')}</span>
+        <span className="ph-cal-what">
+          <b>{it.b.group_name}</b>
+          <small>{[withDay ? hours(it) : '', where(it), it.b.people ? `${it.b.people} ${t('شخص', 'people', 'pers.')}` : ''].filter(Boolean).join(' · ')}</small>
+          {(tag || it.b.status === 'option' || it.b.status === 'arrived' || it.b.status === 'left' || areaName(it)) && (
+            <span className="ph-tags">
+              {areaName(it) && <em className="ph-tag area">{areaName(it)}</em>}
+              {tag && <em className="ph-tag">{tag}</em>}
+              {it.b.status !== 'confirmed' && STATUS[it.b.status] && <em className={`ph-tag st-${it.b.status}`}>{STATUS[it.b.status]}</em>}
+            </span>
+          )}
+        </span>
+      </button>
+    );
+  };
   const band = bandOf(d, day);
 
   if (open) return <Detail {...{ t, tm, lang, d, b: open, contacts, spaceName, dayLong, name }} onBack={() => setOpen(null)} />;
@@ -200,15 +219,20 @@ function Calendar({ t, tm, lang, langPick, link, pack, setPack, keyOf, onLock, o
 
       {view === 'week' && (
         <>
-          <b>{dayShort(today0)} → {dayShort(addDays(today0, 6))}</b>
+          <b className="ph-week-h">{dayShort(today0)} → {dayShort(addDays(today0, 6))}</b>
           {Array.from({ length: 7 }, (_, i) => addDays(today0, i)).map((x) => {
             const list = items.get(x) ?? [];
             const pd = bandOf(d, x);
             return (
-              <section key={x} className={`ph-card ph-cal-day${x === today ? ' today' : ''}`}>
-                <b className="ph-cal-dh" onClick={() => { setDay(x); setView('today'); }}>{dayLong(x)}{x === today ? ` · ${t('اليوم', 'today', 'aujourd’hui')}` : ''}</b>
-                {pd && <div className="ph-muted">⛔ {pd.name}</div>}
-                {list.length ? list.map((it) => row(it)) : <div className="ph-muted">{t('لا شيء', 'Nothing', 'Rien')}</div>}
+              <section key={x} className={`ph-weekday${x === today ? ' today' : ''}${x < today ? ' past' : ''}`}>
+                <button type="button" className="ph-weekday-h" onClick={() => { setDay(x); setView('today'); }}>
+                  <span>{dayLong(x)}</span>
+                  <small>{x === today ? t('اليوم', 'Today', 'Aujourd’hui') : list.length ? `${list.length}` : ''}</small>
+                </button>
+                {pd && <div className="ph-weekday-band">⛔ {pd.name}</div>}
+                <div className="ph-weekday-b">
+                  {list.length ? list.map((it) => row(it)) : <div className="ph-weekday-empty">{t('لا شيء — يوم فارغ', 'Nothing planned — an empty day', 'Rien de prévu — journée libre')}</div>}
+                </div>
               </section>
             );
           })}
@@ -242,6 +266,8 @@ function TodayView({ t, d, day, today, items, row, dayLong, band, spaceName, nam
           <span>🛏 {t('حرّة الليلة', 'Free tonight', 'Libres ce soir')} <b>{fig.freeTonight.length}</b></span>
         </div>
       </section>
+      {events.length > 0 && <section className="ph-card"><b>{t('النشاطات والحجوزات', 'Activities and bookings', 'Activités et réservations')}</b>{events.map((it) => row(it))}</section>}
+      {stays.length > 0 && <section className="ph-card"><b>{t('الضيوف في البيت', 'Guests in the house', 'Hôtes dans la maison')}</b>{stays.map((it) => row(it))}</section>}
       {prep.length > 0 && (
         <section className="ph-card">
           <b>🧹 {t('للتحضير', 'To prepare', 'À préparer')}{day === today ? ` ${t('اليوم', 'today', 'aujourd’hui')}` : ''}</b>
@@ -253,8 +279,6 @@ function TodayView({ t, d, day, today, items, row, dayLong, band, spaceName, nam
           ))}
         </section>
       )}
-      {events.length > 0 && <section className="ph-card"><b>{t('النشاطات والحجوزات', 'Activities and bookings', 'Activités et réservations')}</b>{events.map((it) => row(it))}</section>}
-      {stays.length > 0 && <section className="ph-card"><b>{t('الضيوف في البيت', 'Guests in the house', 'Hôtes dans la maison')}</b>{stays.map((it) => row(it))}</section>}
       {!list.length && <section className="ph-card ph-muted">{t('لا شيء في هذا اليوم', 'Nothing on this day', 'Rien ce jour-là')}</section>}
     </>
   );
@@ -275,7 +299,7 @@ function SpacesView({ t, d, day, items, dayLong, band, name, spaceName, setOpen 
       <b>{dayLong(day)}</b>
       {band && <div className="ph-alert">⛔ {band.name}</div>}
       {areas.map((a) => (
-        <section key={a.id} className="ph-card" style={a.color ? { borderInlineStart: `5px solid ${a.color}` } : undefined}>
+        <section key={a.id} className="ph-card" style={{ borderInlineStart: `6px solid ${colorOf(d.areas, a.id)}` }}>
           <b>{name(a.name)}</b>
           {spaces.filter((s) => s.building_id === a.id).map((s) => {
             const { shut, users } = state(s);
@@ -283,7 +307,7 @@ function SpacesView({ t, d, day, items, dayLong, band, name, spaceName, setOpen 
               <div key={s.id} className="ph-room">
                 <span className="ph-room-name">{name(s.name)}{s.beds > 0 ? <small> · 🛏 {s.beds}</small> : s.capacity ? <small> · {s.capacity}</small> : null}</span>
                 {shut ? <span className="ph-muted">⛔ {shut.reason}</span>
-                  : users.length ? <span className="ph-chip-row">{users.map((it) => <button key={`${it.b.id}-${it.occ.from}`} type="button" className={`ph-chip2 ${it.b.status}`} onClick={() => setOpen(it.b)}>{it.b.group_name}{it.b.kind === 'stay' ? '' : ` · ${hm(it.occ.from)}`}</button>)}</span>
+                  : users.length ? <span className="ph-chip-row">{users.map((it) => <button key={`${it.b.id}-${it.occ.from}`} type="button" className={`ph-chip2 ${it.b.status}`} style={{ ['--ac' as string]: a.color || colorOf(d.areas, a.id) }} onClick={() => setOpen(it.b)}>{it.b.group_name}{it.b.kind === 'stay' ? '' : ` · ${hm(it.occ.from)}`}</button>)}</span>
                     : <span className="ph-free">{t('حرّة', 'free', 'libre')}</span>}
               </div>
             );

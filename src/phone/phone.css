@@ -150,3 +150,33 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--gold); outl
 .ph-cal-figs { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 15px; color: var(--muted); }
 .ph-cal-figs b { color: var(--ink); }
 .ph-chips button:disabled { opacity: 0.35; }
+
+/* Calendar phone, second pass (24 Nov 2026): colour by area, state marks, the week in separate blocks, bigger hours and names */
+.ph-cal-row.ac { --ac: #6b7280; border: 0; border-inline-start: 7px solid var(--ac); border-radius: 10px; background: color-mix(in srgb, var(--ac) 13%, #fff); padding: 9px 10px; margin-top: 8px; }
+.ph-cal-row.ac:first-of-type { margin-top: 4px; }
+.ph-cal-row.ac .ph-cal-when { flex: 0 0 84px; font-size: 18px; color: var(--ink); }
+.ph-cal-row.ac .ph-cal-what b { font-size: 18px; line-height: 1.25; }
+.ph-cal-row.ac .ph-cal-what small { font-size: 15px; color: #4a4638; }
+.ph-cal-row.ac.option { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ac) 18%, #fff), color-mix(in srgb, var(--ac) 18%, #fff) 6px, #fff 6px, #fff 12px); border-top: 2px dashed var(--ac); border-bottom: 2px dashed var(--ac); border-inline-end: 2px dashed var(--ac); }
+.ph-cal-row.ac.option .ph-cal-what b { font-style: normal; }
+.ph-cal-row.ac.left { opacity: 0.55; }
+.ph-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.ph-tag { font-style: normal; font-size: 12.5px; line-height: 1; padding: 4px 7px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: #4a4638; }
+.ph-tag.area { border-inline-start: 9px solid var(--ac); color: var(--ink); font-weight: 600; }
+.ph-tag.st-option { border: 1px dashed #8a6d1d; color: #6b5200; background: #fff8dc; }
+.ph-tag.st-arrived { background: #e2f2e4; border-color: #2e7d32; color: #1b5e20; }
+.ph-tag.st-left { background: #eee; color: #555; }
+.ph-week-h { font-size: 18px; text-align: center; }
+.ph-weekday { border: 2px solid var(--line); border-radius: 14px; background: #fff; overflow: hidden; margin-top: 6px; }
+.ph-weekday.today { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold); }
+.ph-weekday.past { opacity: 0.78; }
+.ph-weekday-h { display: flex; justify-content: space-between; align-items: center; width: 100%; font: inherit; font-size: 19px; font-weight: 700; text-align: start; border: 0; background: #efe9d9; color: var(--ink); padding: 11px 12px; }
+.ph-weekday.today .ph-weekday-h { background: var(--navy); color: #fff; }
+.ph-weekday-h small { font-size: 14px; font-weight: 600; opacity: 0.85; }
+.ph-weekday-band { background: #fff3c4; color: #6b5200; padding: 5px 12px; font-size: 14px; }
+.ph-weekday-b { padding: 4px 10px 10px; }
+.ph-weekday-empty { padding: 12px 2px 6px; color: var(--muted); font-size: 16px; }
+.ph-chip2 { --ac: var(--navy); background: color-mix(in srgb, var(--ac) 16%, #fff); color: var(--ink); border: 0; border-inline-start: 6px solid var(--ac); font-size: 17px; font-weight: 600; padding: 8px 11px; }
+.ph-chip2.option { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ac) 20%, #fff), color-mix(in srgb, var(--ac) 20%, #fff) 6px, #fff 6px, #fff 12px); border: 2px dashed var(--ac); }
+.ph-chip2.arrived { background: color-mix(in srgb, var(--ac) 16%, #fff); } .ph-chip2.left { background: #eee; color: #555; opacity: .7; }
+.ph-room-name { font-size: 18px; }

@@ -103,6 +103,7 @@ function LockScreen({ t, langPick, link, onOpen, onForget }: CalPhoneProps & { l
   const [code, setCode] = useState('');
   const [err, setErr] = useState(false);
   const [wait, setWait] = useState(0);
+  const [sure, setSure] = useState(false);
   const tries = useRef(0);
   useEffect(() => { if (wait <= 0) return; const h = setTimeout(() => setWait((w) => w - 1), 1000); return () => clearTimeout(h); }, [wait]);
   const open = async (c: string) => {
@@ -124,7 +125,13 @@ function LockScreen({ t, langPick, link, onOpen, onForget }: CalPhoneProps & { l
         </label>
         {wait > 0 && <div className="ph-muted">{t(`انتظر ${wait} ث`, `Wait ${wait} s`, `Attendez ${wait} s`)}</div>}
       </div>
-      <button className="ph-linkbtn" onClick={async () => { if (window.confirm(t('انسَ هذا الهاتف واطلب رمز ربط جديداً من المركز؟', 'Forget this phone and ask the centre for a new link code?', 'Oublier ce téléphone et demander un nouveau code de liaison au centre ?'))) await onForget(); }}>{t('نسيتُ الرمز', 'I forgot the code', 'J’ai oublié le code')}</button>
+      {!sure ? <button className="ph-linkbtn" onClick={() => setSure(true)}>{t('نسيتُ الرمز', 'I forgot the code', 'J’ai oublié le code')}</button> : (
+        <div className="ph-card">
+          <p>{t('انسَ هذا الهاتف واطلب رمز ربط جديداً من المركز؟', 'Forget this phone and ask the centre for a new link code?', 'Oublier ce téléphone et demander un nouveau code de liaison au centre ?')}</p>
+          <button className="ph-btn gold" onClick={() => void onForget()}>{t('نعم، انسَ هذا الهاتف', 'Yes, forget this phone', 'Oui, oublier ce téléphone')}</button>
+          <button className="ph-linkbtn" onClick={() => setSure(false)}>{t('إلغاء', 'Cancel', 'Annuler')}</button>
+        </div>
+      )}
     </div>
   );
 }

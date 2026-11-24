@@ -62,6 +62,8 @@ a { color: var(--brand-2); }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; }
 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 16px; }
 .span2 { grid-column: span 2; }
+/* starts a new row: the budget heading always opens its own row, with its line beside it (the entry window) */
+.rowstart { grid-column: 1 / span 2; }
 .span3 { grid-column: span 3; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }

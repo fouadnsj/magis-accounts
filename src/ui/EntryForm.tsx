@@ -204,6 +204,11 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
   // budget. The window no longer asks for a project (Fouad, 24 November 2026); an older expense put by hand on a project
   // outside the budget (Deir) keeps it when it is changed.
   const outsideIds = new Set(L.accounts.filter((a) => a.outside_budget).map((a) => a.id));
+  // The "Project" choice is shown only when it is a real choice (Fouad, 26 November 2026: "the project appears if Respo"):
+  // for the Administrator, in the Respo book or another private book, or when the entry already belongs to a project
+  // (an old entry being changed). In an ordinary book (Main, a holder's own book) it is hidden and the entry stays "the centre's own income".
+  const showProject = f.type === 'Income' && can('lists.donors')
+    && (f.accountId != null || f.bookId === d.grantsBookId || !!L.books.find((b) => b.id === f.bookId)?.private);
   const fundOfRow = () => (f.type === 'Exp' && (f.accountId == null || !outsideIds.has(f.accountId)) ? null : f.accountId);
 
   const opts = <T extends { id: number; name: string; active: number }>(arr: T[], current: number | null): Option[] =>
@@ -489,7 +494,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
               )}
             </>
           )}
-          {f.type === 'Income' && can('lists.donors') && (
+          {showProject && (
             <Field label={t('المشروع', 'Project')}>
               <select className="inp" value={f.accountId ?? ''} onChange={(e) => set('accountId', e.target.value ? Number(e.target.value) : null)}>
                 <option value="">{t('دخل المركز نفسه', "The centre's own income")}</option>
@@ -505,7 +510,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
             </Field>
           ) : (
             <>
-              <Field label={t('بند الموازنة', 'Budget heading')} className="span2">
+              <Field label={t('بند الموازنة', 'Budget heading')} className="span2 rowstart">
                 <Select value={f.headingId} options={headingOpts} onChange={(v) => setF((x) => ({ ...x, headingId: v, lineId: L.lines.filter((l) => l.heading_id === v && l.active).length === 1 ? L.lines.find((l) => l.heading_id === v && l.active)!.id : null }))} />
               </Field>
               <Field label={t('خط الموازنة', 'Budget line')} className="span2">

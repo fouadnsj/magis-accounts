@@ -13,7 +13,7 @@ import {
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, personPerms, rolesOf, roleFor, type Profile } from './auth';
-import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_ADMIN_TICK, MSG_NOT_SELF, cleanExtra, isHolderRole, keepsBook, rolePerms } from './roles';
+import { ADMIN_GIVES, ADMIN_GIVES_TICKS, ADMIN_ONLY, DIRECTOR_GIVES, MSG_ADMIN_GIVES_TICK, MSG_ADMIN_TICK, MSG_NOT_SELF, cleanExtra, holdsControlsOf, isHolderRole, keepsBook, rolePerms } from './roles';
 import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
@@ -161,8 +161,14 @@ export const needsApproval = (s: Settings, r: Trx, usd: number) =>
 export const needsDoc = (s: Settings, r: Trx, usd: number) =>
   s.doc_required_usd > 0 && r.type === 'Exp' && !r.private_total && usd >= s.doc_required_usd && (!s.doc_since || (r.created_at ?? '') >= s.doc_since);
 
-/** May this person approve large expenses? The profile named in the settings, or whoever manages users. */
-const mayApprove = (c: OpCtx, s: Settings) => (s.approval_profile_id ? c.profile.access_id === s.approval_profile_id || !!c.profile.roles?.some((r) => r.id === s.approval_profile_id) : can(c, 'users.manage'));
+/**
+ * The controls on large expenses (documents, approval) are the Administrator's (S2 of the review before 0.13.0). A database that
+ * has no ready-made roles yet (and a person with only Custom roles) keeps the old rule: whoever manages the users.
+ */
+export const holdsControls = (c: OpCtx) => holdsControlsOf(c.profile, can(c, 'users.manage'));
+
+/** May this person approve large expenses? The profile named in the settings, or the Administrator. */
+const mayApprove = (c: OpCtx, s: Settings) => (s.approval_profile_id ? c.profile.access_id === s.approval_profile_id || !!c.profile.roles?.some((r) => r.id === s.approval_profile_id) : holdsControls(c));
 
 /** What a book holds at the end of a month (SYP and USD). */
 function balanceAt(rows: Trx[], books: Book[], bookId: number, month: string) {
@@ -556,6 +562,7 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
 async function saveEnvelope(c: OpCtx, a: { id?: number | null; parentId: number; helper: string; active?: number }) {
   const mainId = await mainOf(c.db);
   if (!can(c, 'register.edit') && !writes(c, a.parentId, mainId)) throw refuse();
+  if (hiddenBook(c, await loadLists(c.db), a.parentId)) throw refuse();
   const parent = await one<{ id: number; name: string; parent_id: number | null; city_id: number | null; account_id: number | null }>(c.db, 'SELECT id, name, parent_id, city_id, account_id FROM book WHERE id = ?', [a.parentId]);
   if (!parent || parent.parent_id != null) throw new UserError(m('الدفتر غير موجود', 'Book not found', 'Caisse introuvable'));
   const helper = a.helper.trim();
@@ -614,6 +621,7 @@ async function approveRows(c: OpCtx, a: { ids: string[] }) {
   for (const id of a.ids) {
     const r = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [id]);
     if (!r) continue;
+    if (hiddenBook(c, lists, r.book_id)) throw refuse();
     if (r.date && closed.has(r.date.slice(0, 7))) throw new UserError(m(`الشهر ${r.date.slice(0, 7)} مغلق`, `Month ${r.date.slice(0, 7)} is closed`));
     stmts.push({ sql: 'UPDATE trx SET approved_at = ?, approved_by = ? WHERE id = ?', params: [at, c.who, id] }, auditStmt(c.who, 'approve', 'trx', id, null, null));
   }
@@ -648,6 +656,8 @@ async function answerTransfer(c: OpCtx, a: { id: string; ok: boolean; note?: str
 
 /** The tables of donors and grants: their lines are the Administrator's alone. */
 const DONOR_TABLES = ['grant_card', 'grant_part', 'grant_share', 'donor', 'province_send'];
+/** The tables whose audit lines belong to one book (the row id starts with the book id, or is the book). */
+const BOOK_AUDIT_TABLES = ['book_month', 'cash_count', 'cash_count_log', 'book'];
 
 /**
  * The last 500 lines of the audit trail that this person may read: without the donors and grants, no line about them;
@@ -664,7 +674,24 @@ async function auditFor(c: OpCtx): Promise<AuditRow[]> {
     try { const o = json ? JSON.parse(json) : null; return o && typeof o === 'object' && 'book_id' in o ? (o.book_id as number | null) : undefined; } catch { return undefined; }
   };
   const plain = (json: string | null) => (json && !donors ? json.replace(/"grant_id":"[^"]*"/g, '"grant_id":null') : json);
+  // the lines about a month, a cash count or the book itself carry the book as the first part of the row id (`1|2026-05`),
+  // or its id or name in what was written: a book hidden from this person leaves no line (M4 of the review before 0.13.0)
+  const hidden = lists.books.filter((b) => hiddenBook(c, lists, b.id));
+  const hiddenIds = new Set(hidden.map((b) => b.id));
+  const hiddenNames = new Set(hidden.map((b) => b.name));
+  const idsOf = (json: string | null): { id?: number; name?: string } => {
+    try { const o = json ? JSON.parse(json) : null; return o && typeof o === 'object' ? { id: typeof o.id === 'number' ? o.id : undefined, name: typeof o.name === 'string' ? o.name : typeof o.envelope === 'string' ? o.envelope : undefined } : {}; } catch { return {}; }
+  };
+  const aboutHiddenBook = (r: AuditRow) => {
+    if (!hidden.length) return false;
+    if (BOOK_AUDIT_TABLES.includes(r.tbl) && r.tbl !== 'book') return hiddenIds.has(Number(String(r.row_id ?? '').split('|')[0]));
+    if (r.tbl !== 'book') return false;
+    const sides = [idsOf(r.before), idsOf(r.after)];
+    return hiddenIds.has(Number(r.row_id)) || sides.some((x) => (x.id != null && hiddenIds.has(x.id)) || (x.name != null && ([...hiddenNames].some((n) => x.name === n || x.name!.endsWith(` · ${n}`)))))
+      || (!!r.row_id && ([...hiddenNames].some((n) => r.row_id === n || r.row_id!.endsWith(` · ${n}`))));
+  };
   return rows
+    .filter((r) => !aboutHiddenBook(r))
     .filter((r) => r.tbl !== 'trx' || !(hiddenBook(c, lists, bookOf(r.before) ?? null) || hiddenBook(c, lists, bookOf(r.after) ?? null)))
     .slice(0, 500)
     .map((r) => (donors ? r : { ...r, before: plain(r.before), after: plain(r.after) }));
@@ -696,7 +723,10 @@ async function closingProblems(c: OpCtx, month: string, bookId: number | null): 
     const open = lists.books
       .filter((b) => !b.is_main && b.parent_id == null && all.some((r) => r.book_id === b.id && ym(r.date) === month))
       .filter((b) => !bm.some((x) => x.book_id === b.id && x.ym === month));
-    if (open.length) out.push(m(`دفاتر لم تُغلق بعد: ${open.map((b) => b.name).join('، ')}`, `Books not closed yet: ${open.map((b) => b.name).join(', ')}`));
+    // (a private book this person does not see is not named: it still holds the month, the Administrator closes it)
+    const nm = (b: Book) => (hiddenBook(c, lists, b.id) ? 'private book' : b.name);
+    const nmAr = (b: Book) => (hiddenBook(c, lists, b.id) ? 'دفتر خاص' : b.name);
+    if (open.length) out.push(m(`دفاتر لم تُغلق بعد: ${open.map(nmAr).join('، ')}`, `Books not closed yet: ${open.map(nm).join(', ')}`));
   }
   return out;
 }
@@ -1439,8 +1469,12 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
       // a ready-made role a Director gives; a Custom role or an exception only within what he has himself
       for (const r of added) {
         if (r.kind && DIRECTOR_GIVES.includes(r.kind as never)) continue;
+        // (S1) a Custom role with the ticks that manage the people is the Administrator's to give
+        if (r.perms.some((p) => ADMIN_GIVES_TICKS.includes(p))) throw new UserError(MSG_ADMIN_GIVES_TICK);
         if (r.perms.some((p) => !can(c, p))) throw notMore();
       }
+      // (S1) nor does a Director make another Director with an "Advanced" exception
+      if (exAdded.some((p) => ADMIN_GIVES_TICKS.includes(p))) throw new UserError(MSG_ADMIN_GIVES_TICK);
       if (exAdded.some((p) => !can(c, p))) throw notMore();
       // (roles step 3) a private book (the Respo book) is given by the Administrator only
       const held = new Set((await c.db.query<{ book_id: number }>('SELECT book_id FROM user_book WHERE profile_id = ?', [a.id ?? -1])).map((r) => r.book_id));
@@ -1661,9 +1695,11 @@ export const OPS = {
   },
   'closing.problems': {
     check: anyone,
-    run: (c: OpCtx, a: { ym: string; bookId: number | null }) => {
+    run: async (c: OpCtx, a: { ym: string; bookId: number | null }) => {
       if (a.bookId != null && !keeps(c, a.bookId)) need(c, 'register.view');
       if (a.bookId == null) need(c, 'month.close', 'register.view');
+      // a private book this person neither keeps nor may see: nothing is said about it
+      if (a.bookId != null && hiddenBook(c, await loadLists(c.db), a.bookId)) throw refuse();
       return closingProblems(c, a.ym, a.bookId);
     },
   },
@@ -1825,7 +1861,7 @@ export const OPS = {
     check: (c: OpCtx) => need(c, 'lists.manage', 'users.manage'),
     run: (c: OpCtx, a: Partial<Settings>) => {
       // the controls (documents, approval) are the Superior's; the rest is the lists'
-      if (Object.keys(a).some((k) => CONTROL_KEYS.includes(k))) need(c, 'users.manage');
+      if (Object.keys(a).some((k) => CONTROL_KEYS.includes(k)) && !holdsControls(c)) throw refuse();
       if (Object.keys(a).some((k) => !CONTROL_KEYS.includes(k))) need(c, 'lists.manage');
       if (a.approval_profile_id !== undefined && a.approval_profile_id !== null && !Number.isInteger(a.approval_profile_id)) throw new UserError(m('اختر من يوافق', 'Choose who approves'));
       for (const k of ['doc_required_usd', 'approval_usd'] as const) if (a[k] !== undefined && !(Number(a[k]) >= 0)) throw new UserError(m('مبلغ غير صحيح', 'Wrong amount'));
@@ -1847,6 +1883,7 @@ export const OPS = {
     check: anyone,
     run: async (c: OpCtx, a: { bookId: number; counts: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] }) => {
       if (!writes(c, a.bookId, await mainOf(c.db))) need(c, 'register.edit');
+      if (hiddenBook(c, await loadLists(c.db), a.bookId)) throw refuse();
       const at = nowIso();
       // the book at this moment, and what the notes add up to: kept in the book's history
       const lists = await loadLists(c.db);
@@ -1922,6 +1959,8 @@ export const OPS = {
     /** The cash is counted at closing; a difference with the book must be explained. */
     run: async (c: OpCtx, a: { bookId: number; ym: string; counted_syp?: number | null; counted_usd?: number | null; note?: string | null; counts?: { currency: 'SYP' | 'USD'; denomination: number; qty: number }[] }) => {
       if (!keeps(c, a.bookId)) need(c, 'month.close'); // the office may close a book for its keeper
+      // ...but never a private book it may not see (the Respo book): not its balance, not its closing (M3)
+      if (hiddenBook(c, await loadLists(c.db), a.bookId)) throw refuse();
       if (!keeps(c, a.bookId) && !can(c, 'register.edit') && !can(c, 'register.view')) throw refuse();
       if ((await closedMonths(c.db)).has(a.ym)) throw new UserError(m('الشهر مغلق مسبقاً', 'The month is already closed'));
       throwIf(await closingProblems(c, a.ym, a.bookId));
@@ -1975,6 +2014,7 @@ export const OPS = {
     run: async (c: OpCtx, a: { bookId: number; ym: string }) => {
       if (!keeps(c, a.bookId)) need(c, 'register.view', 'month.close');
       const lists = await loadLists(c.db);
+      if (hiddenBook(c, lists, a.bookId)) throw refuse();
       return balanceAt(await loadTrx(c.db), lists.books, a.bookId, a.ym);
     },
   },

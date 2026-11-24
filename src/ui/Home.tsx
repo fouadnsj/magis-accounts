@@ -8,6 +8,7 @@ import { useNav } from './Shell';
 import { errText, fmtDate, fmtSyp, fmtUsd, promptBox, t, toast } from './kit';
 import { holderBalance } from './Cash';
 import { needsApproval } from '../ops';
+import { holdsControlsOf } from '../roles';
 import { PersonIcon } from './icons';
 import { rateOn } from '../domain/compute';
 import { invEntries, pendingEntries } from '../inventory/inv';
@@ -72,7 +73,7 @@ export function Home() {
 
   // Large expenses waiting for approval (shown to whoever approves)
   const S = d.lists.settings;
-  const approver = !!S.approval_on && (S.approval_profile_id ? s.profile.access_id === S.approval_profile_id || !!s.profile.roles?.some((r) => r.id === S.approval_profile_id) : can('users.manage'));
+  const approver = !!S.approval_on && (S.approval_profile_id ? s.profile.access_id === S.approval_profile_id || !!s.profile.roles?.some((r) => r.id === S.approval_profile_id) : holdsControlsOf(s.profile, can('users.manage')));
   const toApprove = approver
     ? d.rows.filter((r) => needsApproval(S, r, d.comp.get(r.id)?.expUsdTot ?? 0) && !d.closed.has((r.date ?? '').slice(0, 7)))
     : [];

@@ -22,7 +22,7 @@ import { GuideLink } from '../guide/GuideView';
 import { Checks } from './Checks';
 import { Phones } from './Phones';
 import { Users } from './People';
-import { peopleDoor } from '../roles';
+import { holdsControlsOf, peopleDoor } from '../roles';
 
 type Tab = 'start' | 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'look' | 'audit' | 'lists' | 'sections' | 'server';
 
@@ -39,7 +39,7 @@ export function Admin() {
     { value: 'start', label: t('البدء من ملف Excel', 'Start from the Excel workbook'), hidden: !(can('data.import') && !d.rows.length) },
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
     { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
-    { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
+    { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !holdsControlsOf(s.profile, can('users.manage')) },
     { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore') || (can('data.export') && s.mode === 'server')) || s.mode === 'preview' },
     // (Fouad, 25 November 2026) the people and their roles live in the door "Administration"; here stays the Accountant's
     // small window (book holders) and one's own password, for whoever has not that door
@@ -48,7 +48,7 @@ export function Admin() {
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
     { value: 'lists', label: t('قوائم الموازنة', 'Budget lists'), hidden: !listsHere },
     { value: 'sections', label: t('الأقسام', 'Sections'), hidden: true },
-    { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
+    { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || holdsControlsOf(s.profile, can('users.manage'))) },
   ];
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);
   return (
@@ -59,7 +59,7 @@ export function Admin() {
       {tab === 'start' && can('data.import') && !d.rows.length && <StartFromWorkbook />}
       {tab === 'months' && <Months />}
       {tab === 'checks' && <Checks />}
-      {tab === 'controls' && can('users.manage') && <Controls />}
+      {tab === 'controls' && holdsControlsOf(s.profile, can('users.manage')) && <Controls />}
       {tab === 'backups' && <Backups />}
       {tab === 'users' && <Users />}
       {tab === 'users' && <Phones />}
@@ -425,7 +425,8 @@ function Controls() {
  * downloaded one, the one sent to the mirror folder) is protected with it; whoever downloads does not choose it.
  */
 function CopyPassword() {
-  const { can } = useApp();
+  const { s: me, can } = useApp();
+  const mayControl = holdsControlsOf(me.profile, can('users.manage'));
   type St = { copyProtected: boolean; copyProtectedAt: string | null; copyProtectedBy: string | null; local: boolean };
   const [st, setSt] = useState<St | null>(null);
   const load = () => serverStatus<St>().then(setSt).catch(() => setSt(null));
@@ -459,13 +460,13 @@ function CopyPassword() {
           : t('لم تُحدَّد بعد. حتى تُحدَّد لا يمكن تنزيل نسخة، والنسخ المرسلة إلى المجلد الاحتياطي غير محمية.', 'Not set yet. Until it is set, no copy can be downloaded, and the copies sent to the mirror folder are not protected.')}
       </p>
       <p className="muted small" style={{ margin: '4px 0' }}>{t('إن ضاعت الكلمة لا يستطيع أحد فتح النسخ المحمية. غيّرها فتحمي النسخ الجديدة بها (القديمة تبقى بكلمتها القديمة).', 'If the password is lost, nobody can open the protected copies. Changing it protects the new copies with the new one (the old ones keep their old password).')}</p>
-      {can('users.manage') ? (
+      {mayControl ? (
         <div className="row" style={{ gap: 8 }}>
           <button className="btn" onClick={() => void set()}>{st.copyProtected ? t('غيّر كلمة السر (تحتاج القديمة)', 'Change the password (needs the old one)') : t('حدّد كلمة سر النسخ', 'Set the copy password')}</button>
           {st.copyProtected && st.local && <button className="btn ghost small" onClick={() => void set(true)}>{t('نسيتُ القديمة', 'I forgot the old one')}</button>}
         </div>
       ) : <p className="muted small">{t('يحدّدها من يدير المستخدمين (الرئيس).', 'It is set by whoever manages the users (the Superior).')}</p>}
-      {st.copyProtected && !st.local && can('users.manage') && <p className="muted small" style={{ margin: '4px 0 0' }}>{t('نسيتَ الكلمة القديمة؟ تُستبدل من حاسوب الخادم نفسه فقط.', 'Forgot the old one? It can be replaced on the server computer itself only.')}</p>}
+      {st.copyProtected && !st.local && mayControl && <p className="muted small" style={{ margin: '4px 0 0' }}>{t('نسيتَ الكلمة القديمة؟ تُستبدل من حاسوب الخادم نفسه فقط.', 'Forgot the old one? It can be replaced on the server computer itself only.')}</p>}
     </div>
   );
 }

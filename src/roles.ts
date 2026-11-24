@@ -32,6 +32,21 @@ export const kindInfo = (k: string | null | undefined) => ROLE_KINDS.find((x) =>
 export const ADMIN_ONLY: Perm[] = ['register.private', 'lists.donors', 'inventory.totals'];
 
 /**
+ * (review before 0.13.0, S1) The ticks that make a person a de-facto Director: manage the people, give the book holders' roles,
+ * reset passwords. The Director has them in his role, but only the Administrator GIVES them: never as an "Advanced" exception,
+ * never in a Custom role given by anybody else.
+ */
+export const ADMIN_GIVES_TICKS: Perm[] = ['users.manage', 'users.holders', 'users.passwords'];
+/**
+ * The controls on large expenses and the server's own controls: the Administrator's. A database with no ready-made roles (and a
+ * person with Custom roles only) keeps the old rule: whoever manages the users. (S2 and M6 of the review before 0.13.0)
+ */
+export const holdsControlsOf = (p: { admin?: boolean; roles?: { kind?: string | null }[] }, managesUsers: boolean) =>
+  managesUsers && (!!p.admin || !p.roles?.some((r) => !!r.kind));
+
+export const MSG_ADMIN_GIVES_TICK = m('«يدير المستخدمين» وما يشبهها يعطيها المشرف وحده', 'The ticks "manages the users", "gives book holders" and "resets passwords" are given by the Administrator alone', 'Les cases « gère les utilisateurs », « donne les teneurs de caisse » et « réinitialise les mots de passe » sont données par l’Administrateur seul');
+
+/**
  * (Fouad, 26 November 2026) What every person with an account in a centre has, whatever their roles: to LOOK at the calendar
  * (activities, spaces, who is where, "To prepare today"): no prices, no money, no contacts, nothing to change. A rule in the
  * code, not a stored tick: no database is touched, nobody's other rights change, and a role made later has it too.
@@ -134,6 +149,7 @@ export const MSG_NOT_SELF = m('لا أحد يعطي نفسه دوراً', 'Nobod
 export function whyNotGive(g: Giver, r: Pick<RoleLike, 'kind' | 'perms'>): Msg | null {
   if (r.kind !== 'administrator' && r.perms.some((p) => ADMIN_ONLY.includes(p))) return MSG_ADMIN_TICK;
   if (g.admin) return null;
+  if (!(r.kind && DIRECTOR_GIVES.includes(r.kind as RoleKind)) && r.perms.some((p) => ADMIN_GIVES_TICKS.includes(p))) return MSG_ADMIN_GIVES_TICK;
   if (r.kind && ADMIN_GIVES.includes(r.kind as RoleKind)) return MSG_ADMIN_ONLY;
   if (g.can('users.manage')) {
     if (r.kind && DIRECTOR_GIVES.includes(r.kind as RoleKind)) return null;
@@ -180,16 +196,23 @@ export function booksSwitchedOffWith(
   return [...main, ...inside].map((b) => ({ id: b.id, name: b.name }));
 }
 
+export const MSG_AS_PRIVATE = m('هذا الشخص يمسك دفتراً خاصاً: المشرف وحده يدخل باسمه', 'This person keeps a private book: only the Administrator signs in as them', 'Cette personne tient un livre privé : seul l’Administrateur se connecte comme elle');
+export const MSG_AS_VIEW_ONLY = m('تدخل للمشاهدة فقط؛ العمل باسم شخص آخر للمشرف وحده', 'You sign in to look only; acting as another person is for the Administrator alone', 'Vous entrez pour regarder seulement ; agir comme une autre personne est réservé à l’Administrateur');
+/** may this person act as somebody else (not only look)? The Administrator; a database without ready-made roles keeps the old way. */
+export const mayActAs = (p: { admin?: boolean; roles?: { kind?: string | null }[] }) => !!p.admin || !p.roles?.some((r) => !!r.kind);
+
 /**
  * "Test as…" (26 November 2026): the people one may open the program as, from the top of Administration. The same rule as
  * the 👁 button on People: the active people of this centre, never oneself, and — unless one is the Administrator — never the
  * Administrator or Director lines (the server refuses those too).
  */
-export function testAsChoices<U extends { id: number; active: number; roles?: number[]; access_id?: number | null }>(
-  users: U[], access: Pick<RoleLike, 'id' | 'kind'>[], myId: number, iAmAdmin: boolean,
+export function testAsChoices<U extends { id: number; active: number; roles?: number[]; access_id?: number | null; books?: number[] }>(
+  users: U[], access: Pick<RoleLike, 'id' | 'kind'>[], myId: number, iAmAdmin: boolean, privateBookIds: number[] = [],
 ): (U & { roleRows: Pick<RoleLike, 'id' | 'kind'>[] })[] {
   return users
     .filter((u) => u.active && u.id !== myId)
+    // (M5) whoever is not the Administrator never signs in as a person who keeps a private book (the Respo book, or another)
+    .filter((u) => iAmAdmin || !u.books?.some((b) => privateBookIds.includes(b)))
     .map((u) => ({ ...u, roleRows: (u.roles?.length ? u.roles : u.access_id != null ? [u.access_id] : []).map((id) => access.find((a) => a.id === id)).filter((a): a is Pick<RoleLike, 'id' | 'kind'> => !!a) }))
     .filter((u) => iAmAdmin || !u.roleRows.some((a) => !!a.kind && ADMIN_GIVES.includes(a.kind as RoleKind)));
 }

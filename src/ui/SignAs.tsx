@@ -6,25 +6,29 @@ import { has } from '../auth';
 import type { Session } from '../state';
 import { serverSignAs, serverSignAsBack, type SignedAs } from '../net';
 import { m, tx } from '../i18n';
-import { kindInfo, testAsChoices } from '../roles';
+import { MSG_AS_VIEW_ONLY, kindInfo, mayActAs, testAsChoices } from '../roles';
+import { useApp } from '../state';
+import type { Msg } from '../i18n';
 import type { AccessRow, UserRow } from '../ops';
 import { Modal, biName, errText, toast } from './kit';
 
 /** may this person use "sign in as" from here (themself signed in, managing the users, on the server) */
 export const maySignAs = (s: Session) => s.mode === 'server' && !s.as && has(s.profile, 'users.manage');
 
-export function SignAsButton({ s, profileId, name, small }: { s: Session; profileId: number; name: string; small?: boolean }) {
+export function SignAsButton({ s, profileId, name, small, why }: { s: Session; profileId: number; name: string; small?: boolean; why?: Msg | null }) {
   const [open, setOpen] = useState(false);
   if (!maySignAs(s) || profileId === s.profile.id) return null;
+  // a person this one may not sign in as: the button stays, greyed, and says why in plain words
+  if (why) return <button type="button" className={`btn ${small ? 'small' : ''}`} disabled title={tx(why)} style={{ opacity: 0.55 }}>👁 {tx(m('الدخول باسمه', 'Sign in as', 'Se connecter en tant que'))}</button>;
   return (
     <>
       <button type="button" className={`btn ${small ? 'small' : ''}`} title={tx(m(`الدخول باسم ${name}`, `Sign in as ${name}`, `Se connecter en tant que ${name}`))} onClick={() => setOpen(true)}>👁 {tx(m('الدخول باسمه', 'Sign in as', 'Se connecter en tant que'))}</button>
-      {open && <SignAsModal profileId={profileId} name={name} onClose={() => setOpen(false)} />}
+      {open && <SignAsModal profileId={profileId} name={name} canAct={mayActAs(s.profile)} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function SignAsModal({ profileId, name, onClose }: { profileId: number; name: string; onClose: () => void }) {
+function SignAsModal({ profileId, name, canAct, onClose }: { profileId: number; name: string; canAct: boolean; onClose: () => void }) {
   const [mode, setMode] = useState<'view' | 'act'>('view');
   const [busy, setBusy] = useState(false);
   const go = async () => {
@@ -42,11 +46,14 @@ function SignAsModal({ profileId, name, onClose }: { profileId: number; name: st
           <b>👁 {tx(m('مشاهدة فقط', 'See only', 'Voir seulement'))}</b>
           <span>{tx(m('لا يُحفظ شيء. آمن على البيانات الحقيقية.', 'Nothing can be saved. Safe on real data.', 'Rien ne peut être enregistré. Sans risque pour les vraies données.'))}</span>
         </button>
-        <button type="button" className={mode === 'act' ? 'on' : ''} onClick={() => setMode('act')}>
-          <b>✍️ {tx(m('مشاهدة وعمل', 'See and act', 'Voir et agir'))}</b>
-          <span>{tx(m(`ما تفعله يُكتب في السجل «أنت باسم ${name}».`, `What you do is written in the history as "you as ${name}".`, `Ce que vous faites est écrit dans l'historique « vous en tant que ${name} ».`))}</span>
-        </button>
+        {canAct && (
+          <button type="button" className={mode === 'act' ? 'on' : ''} onClick={() => setMode('act')}>
+            <b>✍️ {tx(m('مشاهدة وعمل', 'See and act', 'Voir et agir'))}</b>
+            <span>{tx(m(`ما تفعله يُكتب في السجل «أنت باسم ${name}».`, `What you do is written in the history as "you as ${name}".`, `Ce que vous faites est écrit dans l'historique « vous en tant que ${name} ».`))}</span>
+          </button>
+        )}
       </div>
+      {!canAct && <p className="muted small">{tx(MSG_AS_VIEW_ONLY)}</p>}
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{tx(m('إلغاء', 'Cancel', 'Annuler'))}</button>
         <button className="btn primary" disabled={busy} onClick={go}>{tx(m(`الدخول باسم ${name}`, `Sign in as ${name}`, `Se connecter en tant que ${name}`))}</button>
@@ -77,9 +84,13 @@ export function SignAsBanner({ name, as }: { name: string; as: SignedAs }) {
  */
 let lastMode: 'view' | 'act' = 'view';
 export function TestAs({ s }: { s: Session }) {
+  const { d } = useApp();
+  const priv = d.lists.books.filter((b) => b.private).map((b) => b.id);
+  const canAct = mayActAs(s.profile);
   const [people, setPeople] = useState<ReturnType<typeof testAsChoices<UserRow>>>([]);
   const [who, setWho] = useState<number | ''>('');
-  const [mode, setMode] = useState<'view' | 'act'>(lastMode);
+  const [mode0, setMode] = useState<'view' | 'act'>(lastMode);
+  const mode = canAct ? mode0 : 'view';
   const [busy, setBusy] = useState(false);
   const may = maySignAs(s);
   useEffect(() => {
@@ -88,7 +99,7 @@ export function TestAs({ s }: { s: Session }) {
     void (async () => {
       try {
         const [users, access] = await Promise.all([s.api.call('users.list') as Promise<UserRow[]>, s.api.call('access.list') as Promise<AccessRow[]>]);
-        if (live) setPeople(testAsChoices(users, access, s.profile.id, !!s.profile.admin));
+        if (live) setPeople(testAsChoices(users, access, s.profile.id, canAct, priv));
       } catch { /* the list stays empty */ }
     })();
     return () => { live = false; };
@@ -115,9 +126,10 @@ export function TestAs({ s }: { s: Session }) {
       </select>
       <span className="chips" role="radiogroup" style={{ display: 'inline-flex' }}>
         <button type="button" role="radio" aria-checked={mode === 'view'} className={`chip ${mode === 'view' ? 'on' : ''}`} onClick={() => { lastMode = 'view'; setMode('view'); }}>👁 {tx(m('مشاهدة فقط', 'See only', 'Voir seulement'))}</button>
-        <button type="button" role="radio" aria-checked={mode === 'act'} className={`chip ${mode === 'act' ? 'on' : ''}`} onClick={() => { lastMode = 'act'; setMode('act'); }}>✍️ {tx(m('مشاهدة وعمل', 'See and act', 'Voir et agir'))}</button>
+        {canAct && <button type="button" role="radio" aria-checked={mode === 'act'} className={`chip ${mode === 'act' ? 'on' : ''}`} onClick={() => { lastMode = 'act'; setMode('act'); }}>✍️ {tx(m('مشاهدة وعمل', 'See and act', 'Voir et agir'))}</button>}
       </span>
       <button type="button" className="btn small primary" disabled={!pick || busy} onClick={go}>{tx(m('دخول', 'Go', 'Entrer'))}</button>
+      {!canAct && <span className="muted small">{tx(MSG_AS_VIEW_ONLY)}</span>}
     </div>
   );
 }

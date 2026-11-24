@@ -29,6 +29,7 @@ import { addHeading, addLine, addNamed, auditStmt, blankTrx, getMeta, loadLists,
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type BudgetPayload, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
 import { ALL_PERMS } from '../src/perms';
+import { holdsControlsOf } from '../src/roles';
 import { deleteNetGrant, listNetGrants, partAmount, saveNetGrant, type NetGrant } from '../src/domain/netGrants';
 import { grantReport, type GrantReportPartIn } from '../src/domain/grantReport';
 import { projectReport } from '../src/domain/projects';
@@ -697,6 +698,27 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     return [sid, s, c];
   };
 
+  /**
+   * Who may "sign in as" whom (review before 0.13.0, M5). The Administrator: anybody (he may also act). Anybody else who manages
+   * the users (the Director): never the Administrator nor another Director, never a person who keeps a private book (the Respo
+   * book or another), and only to SEE. A database without ready-made roles keeps the old rule (nobody climbs to the Administrator).
+   */
+  const asRefusal = async (c: Centre, real: Profile, target: Profile, mode: 'act' | 'view'): Promise<HttpError | null> => {
+    if (target.id === real.id) return null;
+    const no = (ar: string, en: string, fr: string) => new HttpError(403, { ar, en, fr });
+    if (target.admin && !real.admin) return no('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement');
+    if (real.admin || !real.roles?.some((r) => !!r.kind)) return null;
+    if (target.roles?.some((r) => r.kind === 'administrator' || r.kind === 'director'))
+      return no('المشرف أو المدير: للمشرف فقط', 'The Administrator and the Directors: only the Administrator may sign in as them', 'L’Administrateur et les Directeurs : seul l’Administrateur peut se connecter comme eux');
+    if (target.books.length) {
+      const priv = new Set((await c.handle.db.query<{ id: number }>('SELECT id FROM book WHERE private = 1')).map((b) => b.id));
+      if (target.books.some((b) => priv.has(b)))
+        return no('هذا الشخص يمسك دفتراً خاصاً: للمشرف فقط', 'This person keeps a private book: only the Administrator may sign in as them', 'Cette personne tient un livre privé : seul l’Administrateur peut se connecter comme elle');
+    }
+    if (mode === 'act') return no('للرؤية فقط: ما تعمله باسم غيرك للمشرف وحده', 'You may look as another person, not act as them: only the Administrator acts as someone else', 'Vous pouvez regarder comme une autre personne, pas agir comme elle : seul l’Administrateur agit à la place d’un autre');
+    return null;
+  };
+
   /** What this person would see had they signed in themselves (Fouad, 25 November 2026; "sign in as" / "Test as…"): the same
    *  rules as /api/signin without the password. A person of the directory (the same name) sees what the directory gave them;
    *  otherwise their ring: the databases of the house they are in (a community: the Jesuits' door) where their name is, and
@@ -728,7 +750,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
   /** Creating or setting up a database: on the server computer itself, or by someone who manages users. */
   const mayCreate = (req: http.IncomingMessage, found: [string, Session, Centre] | null) =>
-    isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!(found?.[1].as ? found[1].as.view.dir : dirPersonOf(req))?.admin;
+    isLocal(req) || (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || !!(found?.[1].as ? found[1].as.view.dir : dirPersonOf(req))?.admin;
 
   const send = (res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
     const text = JSON.stringify(body === undefined ? null : body);
@@ -944,7 +966,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // Managing the databases (Fouad, 29 October 2026): the window is for the server computer or someone who manages
     // users; every change also needs the PASSWORD of that database's Superior (a user who manages users there).
     // (the Coordinator — the directory's administrator — manages every database, Fouad 2026-11-07)
-    const mayManage = () => isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!dirPerson?.admin;
+    // (review before 0.13.0, M6: the server's own controls are the Administrator's, not any Director's)
+    /** the server's controls that need a signed-in person (backup folder, copy password, status): the Administrator or the directory's administrator */
+    const mayConfig = () => (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || !!dirPerson?.admin;
+    const mayManage = () => isLocal(req) || (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || !!dirPerson?.admin;
 
     if (url === '/api/hello' && method === 'GET') {
       // the communities are not even named until their password is given
@@ -974,7 +999,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return n;
     };
     const needManage = () => {
-      if (!mayManage()) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+      if (!mayManage()) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو للمشرف', en: 'On the server computer itself, or by the Administrator', fr: 'Sur l’ordinateur du serveur lui-même, ou par l’Administrateur' });
     };
     /** the password of a user who manages users in THAT database (its Superior) */
     const needSuperior = async (c: Centre, password: unknown, coordinatorToo = false) => {
@@ -985,7 +1010,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       for (const p of await listProfiles(c.handle.db)) {
         try {
           const r = await login(c.handle.db, p.id, String(password ?? ''));
-          if (has(r.profile, 'users.manage')) {
+          if (holdsControlsOf(r.profile, has(r.profile, 'users.manage'))) {
             failures.delete(ip);
             return r.profile.name;
           }
@@ -1094,11 +1119,15 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     };
     const publicPerson = (p: DirPerson) => ({ id: p.id, name: p.name, admin: p.admin, active: p.active, mustChange: p.mustChange, grants: p.grants });
     /** going to another database while signed in as someone else: stays "as", and the real person needs an account of their own there */
-    const keepAs = async (s: Session | undefined, c: Centre): Promise<Session['as'] | null> => {
+    const keepAs = async (s: Session | undefined, c: Centre, target: Profile): Promise<Session['as'] | null> => {
       if (!s?.as) return null;
       const me = s.as.by.trim().toLowerCase();
       const mine = (await listProfiles(c.handle.db)).find((q) => !q.office && q.name.trim().toLowerCase() === me);
       if (!mine) throw new HttpError(403, { ar: 'ليس لك حساب في قاعدة البيانات هذه: ارجع أولاً إلى حسابك', en: 'You have no account of your own in this database: first go back to your own account', fr: "Vous n'avez pas de compte à vous dans cette base : revenez d'abord à votre compte" });
+      // the same limits in the other database: a Director does not become its Administrator by going there
+      const real = await loadProfile(c.handle.db, mine.id);
+      const refused = real ? await asRefusal(c, real, target, s.as.mode) : null;
+      if (refused) throw refused;
       return { ...s.as, byId: mine.id };
     };
     /** the profile of a database this person enters as: the one chosen, else (for the administrator) its Superior */
@@ -1188,7 +1217,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (await setupNeeded(c)) throw new HttpError(409, { ar: 'لم تُعدّ هذه القاعدة بعد', en: 'This database is not set up yet' });
       const profile = await dirProfile(dirPerson, c);
       if (!profile) throw new HttpError(403, { ar: 'لا حساب لك في هذه القاعدة. اطلب من المدير ربطه.', en: 'You have no account in this database. Ask the administrator to link one.' });
-      const keep = await keepAs(found?.[1], c);
+      const keep = await keepAs(found?.[1], c, profile);
       if (found) sessions.delete(found[0]);
       const sid = randomBytes(32).toString('base64url');
       sessions.set(sid, { db: c.slug, profile, mustChange: false, last: Date.now(), ip, ...(keep ? { as: keep, ring: found![1].ring } : { person: personOf(profile) }) });
@@ -2211,7 +2240,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // ---- a database brought from a file (Fouad, 2026-11-12): looked at first (its name, its users), then created under ITS
     // OWN NAME unless a new one is given, with the house, colour and logo chosen; one step, so a refused file leaves nothing.
     if (url === '/api/dbs/peek' && method === 'POST') {
-      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو للمشرف', en: 'On the server computer itself, or by the Administrator', fr: 'Sur l’ordinateur du serveur lui-même, ou par l’Administrateur' });
       const body = (await readBody(req, UPLOAD_BODY)) as { base64?: string };
       const info = await peekDb(String(body.base64 ?? ''));
       const same = [];
@@ -2219,7 +2248,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { ...info, nameTaken: info.organisation.trim() !== '' && same.length > 0 });
     }
     if (url === '/api/dbs/import' && method === 'POST') {
-      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+      if (!mayCreate(req, found)) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو للمشرف', en: 'On the server computer itself, or by the Administrator', fr: 'Sur l’ordinateur du serveur lui-même, ou par l’Administrateur' });
       const body = (await readBody(req, UPLOAD_BODY)) as { base64?: string; organisation?: string; centre?: string | null; color?: string | null; logo?: string | null };
       const info = await peekDb(String(body.base64 ?? ''));
       const organisation = (body.organisation ?? '').trim() || info.organisation.trim();
@@ -2248,7 +2277,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     if (url === '/api/dbs/create' && method === 'POST') {
       const body = (await readBody(req)) as { organisation?: string; centre?: string; color?: string | null; logo?: string | null; kind?: string | null; mainList?: string | null };
-      if (!(isCtyKind(body.kind) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو لمن يدير المستخدمين', en: 'On the server computer itself, or by someone who manages users' });
+      if (!(isCtyKind(body.kind) ? mayCreateCty() : mayCreate(req, found))) throw new HttpError(403, { ar: 'على حاسوب الخادم نفسه، أو للمشرف', en: 'On the server computer itself, or by the Administrator', fr: 'Sur l’ordinateur du serveur lui-même, ou par l’Administrateur' });
       const organisation = (body.organisation ?? '').trim();
       if (!organisation) throw new HttpError(400, { ar: 'اكتب اسم قاعدة البيانات', en: 'Write the name of the database' });
       const centre = (CENTRE_KEYS as readonly string[]).includes(body.centre ?? '') ? (body.centre as CentreKey) : guessCentre(organisation);
@@ -2394,7 +2423,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const c = centreOf(r.db);
       const profile = await loadProfile(c.handle.db, r.profileId);
       if (!profile) throw new HttpError(403, { ar: 'هذا الحساب موقوف', en: 'This account is switched off', fr: 'Ce compte est désactivé' });
-      const keep = await keepAs(found[1], c);
+      const keep = await keepAs(found[1], c, profile);
       sessions.delete(found[0]);
       const sid = randomBytes(32).toString('base64url');
       sessions.set(sid, { db: c.slug, profile, mustChange: keep ? false : r.mustChange, last: Date.now(), ip, ...(keep ? { as: keep, ring: found[1].ring } : { ring, person: personOf(profile) }) });
@@ -2457,7 +2486,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!target) throw new HttpError(400, { ar: 'المستخدم غير موجود أو موقوف', en: 'This user does not exist or is switched off', fr: "Cet utilisateur n'existe pas ou est désactivé" });
       const mode = body.mode === 'act' ? 'act' : 'view';
       // (roles step 1) only the Administrator signs in as the Administrator: nobody climbs through "sign in as"
-      if (target.admin && !real.admin && target.id !== real.id) throw new HttpError(403, { ar: 'للمشرف فقط', en: 'For the Administrator only', fr: 'Pour l’Administrateur seulement' });
+      const refused = await asRefusal(c, real, target, mode);
+      if (refused) throw refused;
       if (target.id === real.id) { s.profile = real; s.as = undefined; return send(res, 200, { ok: true }); }
       s.profile = target;
       s.as = { byId: real.id, by: real.name, mode, view: await asViewOf(c, target, isLocal(req)) };
@@ -2699,7 +2729,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
 
     if (url === '/api/server/status' && method === 'GET') {
-      if (!has(s.profile, 'data.backup') && !has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (!has(s.profile, 'data.backup') && !mayConfig()) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
       const backups = await c.files.list();
       return send(res, 200, {
         version: SERVER_VERSION,
@@ -2731,7 +2761,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     }
     // the copy password: decided by the owner (who manages the users); only its key is kept, never the password
     if (url === '/api/server/copy-password' && method === 'POST') {
-      if (!has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'لمن يدير المستخدمين فقط', en: 'Only for someone who manages the users' });
+      if (!mayConfig()) throw new HttpError(403, { ar: 'للمشرف فقط', en: 'For the Administrator only', fr: 'Pour l’Administrateur seulement' });
       const body = (await readBody(req)) as { password?: string; oldPassword?: string; forgot?: boolean };
       const pw = String(body.password ?? '');
       if (pw.length < 10) throw new HttpError(400, { ar: 'كلمة سر النسخ: 10 أحرف على الأقل', en: 'The copy password must have at least 10 characters' });
@@ -2764,7 +2794,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       return send(res, 200, { ok: true });
     }
     if (url === '/api/server/config' && method === 'POST') {
-      if (!has(s.profile, 'users.manage')) throw new HttpError(403, { ar: 'غير مسموح', en: 'Not allowed' });
+      if (!mayConfig()) throw new HttpError(403, { ar: 'للمشرف فقط', en: 'For the Administrator only', fr: 'Pour l’Administrateur seulement' });
       const body = (await readBody(req)) as { backupMirror?: string | null; idleMinutes?: number };
       if (body.idleMinutes !== undefined) {
         const n = Math.round(Number(body.idleMinutes));
@@ -2786,6 +2816,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (s.mustChange && op !== 'profile.setPin')
         throw new HttpError(403, { ar: 'غيّر كلمة السر أولاً', en: 'Change your password first' });
       const args = await readBody(req);
+      // signed in as someone else: never a password, whatever the rights (a Director took over an account this way: M5)
+      if (s.as && (op === 'profile.setPin' || (op === 'user.save' && !!(args as { pin?: string } | null)?.pin)))
+        throw new HttpError(403, { ar: 'لا تُغيَّر كلمة سر وأنت تدخل باسم غيرك: ارجع إلى حسابك', en: 'No password is changed while you are signed in as someone else: go back to your own account first', fr: 'Aucun mot de passe ne change tant que vous êtes connecté comme une autre personne : revenez d’abord à votre compte' });
       const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files };
       const t0 = performance.now();
       const result = await runOp(ctx, op, args);

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../state';
 import { serverConfig, serverStatus } from '../net';
+import { holdsControlsOf } from '../roles';
 import { Field, errText, fmtDate, t, toast } from './kit';
 
 interface Status {
@@ -20,8 +21,8 @@ interface Status {
 }
 
 export function ServerTab() {
-  const { can } = useApp();
-  const isSup = can('users.manage');
+  const { s: me, can } = useApp();
+  const isSup = holdsControlsOf(me.profile, can('users.manage'));
   const [st, setSt] = useState<Status | null>(null);
   const [mirror, setMirror] = useState('');
   const [idle, setIdle] = useState('15');

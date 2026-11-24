@@ -9,7 +9,7 @@ import type { AccessRow, SavedUser, UserRow } from '../ops';
 import { PERM_GROUPS, withImplied, type Perm } from '../perms';
 import { READY_ROLES, doorsOf } from '../doors';
 import { doorName } from './Doors';
-import { ADMIN_GIVES, ADMIN_ONLY, KEEPS_BOOK, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, booksSwitchedOffWith, keepsBook, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, withEveryone, type RoleLike } from '../roles';
+import { ADMIN_GIVES, ADMIN_GIVES_TICKS, ADMIN_ONLY, MSG_AS_PRIVATE, KEEPS_BOOK, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, booksSwitchedOffWith, keepsBook, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, withEveryone, type RoleLike } from '../roles';
 import { m, tx, type Msg } from '../i18n';
 import { Field, Modal, biName, confirmBox, errText, t, toast } from './kit';
 import { GuideLink } from '../guide/GuideView';
@@ -163,7 +163,7 @@ function People() {
                   </td>
                 )}
                 <td className="right nowrap">
-                  {!adminsLine(u) && <SignAsButton s={s} profileId={u.id} name={u.name} small />}{' '}
+                  {!adminsLine(u) && <SignAsButton s={s} profileId={u.id} name={u.name} small why={!admin && hasKinds && u.books.some((b) => d.lists.books.find((x) => x.id === b)?.private) ? MSG_AS_PRIVATE : null} />}{' '}
                   {mine(u) && <button className="btn small" onClick={() => setEdit(u)} title={tx(m('تعديل', 'Change', 'Modifier'))}>✎</button>}{' '}
                   {pinOk(u) && <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>}{' '}
                   {mine(u) && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)} title={tx(m('إيقاف', 'Switch off', 'Désactiver'))}>✕</button>}
@@ -517,7 +517,7 @@ function UserModal({ user, access, onClose, onDone, onSaved }: { user: Partial<U
               <b className="small">{tx(g.label)}</b>
               {g.perms.map((p) => {
                 const byRole = fromRoles.has(p.key);
-                const adminOnly = ADMIN_ONLY.includes(p.key);
+                const adminOnly = ADMIN_ONLY.includes(p.key) || (!admin && ADMIN_GIVES_TICKS.includes(p.key));
                 const notMine = !admin && !can(p.key);
                 const noSelf = self && !extra.includes(p.key);
                 return (

@@ -29,6 +29,11 @@ const DOOR: Record<DoorKey, { name: Msg; hint: Msg; glyph: ReactNode }> = {
     hint: m('أشخاص المراكز كلّها، وكلّ مركز على حدة في الداخل', 'The people of all the centres, each centre kept apart inside', 'Les personnes de tous les centres, chaque centre à part à l’intérieur'),
     glyph: <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="16" r="6" /><path d="M12 39c0-7 5-12 12-12s12 5 12 12" /><circle cx="10" cy="22" r="4" /><circle cx="38" cy="22" r="4" /><path d="M3 36c0-4 3-7 7-7M45 36c0-4-3-7-7-7" /></svg>,
   },
+  admin: {
+    name: m('الإدارة', 'Administration', 'Administration'),
+    hint: m('أشخاص المركز وأدوارهم', 'The people of the centre and their roles', 'Les personnes du centre et leurs rôles'),
+    glyph: <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="20" cy="15" r="6" /><path d="M8 38c0-7 5-12 12-12 3 0 5.5.9 7.5 2.4" /><path d="M35 25l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9v-5z" /><path d="M32 33l2.2 2.2L38.5 31" /></svg>,
+  },
 };
 const ENTER = m('دخول', 'Enter', 'Entrer');
 const HR_NOTE = m('واحدة للجميع، ومفصولة في الداخل', 'One for all, and separated inside', 'Une pour tous, et séparée à l’intérieur');

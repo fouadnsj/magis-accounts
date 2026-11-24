@@ -11,7 +11,7 @@ import { createOffice } from '../src/setup';
 import { MIGRATIONS } from '../src/db/migrations';
 import { migrate, splitSql, type Db } from '../src/db/db';
 import { doorsOf } from '../src/doors';
-import { ROLE_KINDS, sensitiveOf, unionPerms, whyNotGive } from '../src/roles';
+import { ROLE_KINDS, peopleDoor, sensitiveOf, unionPerms, whyNotGive } from '../src/roles';
 import { startServer, type Running } from '../server/server';
 import { nodeDb } from './nodeDb';
 
@@ -159,17 +159,17 @@ describe('several roles per person, and the limits', () => {
     // an exception he does not have himself (keeping a book), refused; one he has, given
     await expect(runOp(dina, 'user.save', { id: rafi, name: 'Rafi', roles: rafiRoles, extra: ['data.restore'], books: [] })).rejects.toThrow(/more than you have/);
     await runOp(dina, 'user.save', { id: rafi, name: 'Rafi', roles: rafiRoles, extra: ['cal.prices'], books: [] });
-    // a Custom role: within his ticks only
-    await expect(runOp(dina, 'access.save', { name: 'Restorer', perms: ['data.restore'] })).rejects.toThrow(/more than you have/);
-    await runOp(dina, 'access.save', { name: 'Hall helper', perms: ['cal.view', 'cal.whole'] });
+    // a Custom role is made by the Administrator (roles step 3: the ticks of the roles are his); the Director gives it within his ticks
+    await expect(runOp(dina, 'access.save', { name: 'Restorer', perms: ['data.restore'] })).rejects.toThrow(/Administrator only/);
+    await expect(runOp(dina, 'access.save', { name: 'Hall helper', perms: ['cal.view', 'cal.whole'] })).rejects.toThrow(/Administrator only/);
+    await runOp(sup, 'access.save', { name: 'Hall helper', perms: ['cal.view', 'cal.whole'] });
     await runOp(sup, 'access.save', { name: 'Petty cash', perms: ['book.own', 'month.reopen'] });
     roles = (await runOp(sup, 'access.list', {})) as AccessRow[];
     expect(roles.find((r) => r.name === 'Hall helper')!.kind).toBe(null);
     await runOp(dina, 'user.save', { name: 'Hiba', roles: [roles.find((r) => r.name === 'Hall helper')!.id], books: [], pin: 'hiba-pass-1' });
     await expect(runOp(dina, 'user.save', { name: 'Pete', roles: [roles.find((r) => r.name === 'Petty cash')!.id], books: [], pin: 'pete-pass-1' })).rejects.toThrow(/more than you have/);
-    // the ticks of a role: only what he has; never the Administrator's nor the Director's role
-    await runOp(dina, 'access.save', { id: role('reception').id, name: role('reception').name, perms: [...role('reception').perms, 'cal.whole'] });
-    await expect(runOp(dina, 'access.save', { id: role('reception').id, name: role('reception').name, perms: [...role('reception').perms, 'register.main'] })).rejects.toThrow(/more than you have/);
+    // the ticks of a role: the Administrator's only
+    await expect(runOp(dina, 'access.save', { id: role('reception').id, name: role('reception').name, perms: [...role('reception').perms, 'cal.whole'] })).rejects.toThrow(/Administrator only/);
     await expect(runOp(dina, 'access.save', { id: role('director').id, name: role('director').name, perms: role('director').perms.filter((p) => p !== 'cal.whole') })).rejects.toThrow(/Administrator only/);
     // the ready-made roles stay
     await expect(runOp(sup, 'access.delete', { id: role('keeper').id })).rejects.toThrow(/ready-made roles stay/);
@@ -302,22 +302,28 @@ describe('who gives what (roles step 3)', () => {
     await runOp(com, 'user.deactivate', { id: hadi });
   });
 
-  it('"Make a copy to adapt": a Director copies a ready-made role he gives, then only adds what he has', async () => {
+  it('the ticks of the roles, the copies and the Custom roles are the Administrator\'s (Fouad, 25 November 2026)', async () => {
     const dina = await ctxOf('Dina');
     const acc = role('accountant');
-    // the Accountant's ticks are not all his (he does not write), but he gives that role, so he may copy it
-    expect(acc.perms.some((p) => !dina.profile.perms.includes(p))).toBe(true);
-    await runOp(dina, 'access.save', { name: 'Accountant (Homs copy)', perms: acc.perms.filter((p) => p !== 'data.import'), from: acc.id });
-    await expect(runOp(dina, 'access.save', { name: 'Accountant (too much)', perms: [...acc.perms, 'data.restore'], from: acc.id })).rejects.toThrow(/more than you have/);
-    await expect(runOp(dina, 'access.save', { name: 'Accountant (no from)', perms: acc.perms })).rejects.toThrow(/more than you have/);
-    await expect(runOp(dina, 'access.save', { name: 'Director (copy)', perms: role('director').perms, from: role('director').id })).rejects.toThrow(/Administrator only/);
-    // the copy is Custom, and the Director may give it (it is within a ready-made role he gives)
+    await expect(runOp(dina, 'access.save', { name: 'Accountant (Homs copy)', perms: acc.perms })).rejects.toThrow(/Administrator only/);
+    await expect(runOp(dina, 'access.save', { id: acc.id, name: acc.name, perms: acc.perms.filter((p) => p !== 'data.import') })).rejects.toThrow(/Administrator only/);
+    // "Make a copy to adapt": the Administrator; the copy is Custom; the Respo book and grants never go into a copy
+    await runOp(sup, 'access.save', { name: 'Accountant (Homs copy)', perms: acc.perms.filter((p) => p !== 'data.import') });
     roles = (await runOp(sup, 'access.list', {})) as AccessRow[];
     const copy = roles.find((r) => r.name === 'Accountant (Homs copy)')!;
     expect(copy.kind).toBe(null);
-    // the Administrator copies anything but never carries the Respo book or grants into a copy
-    await expect(runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms, from: role('administrator').id })).rejects.toThrow(/only in the role Administrator/);
-    await runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms.filter((p) => p !== 'lists.donors' && p !== 'register.private'), from: role('administrator').id });
+    await expect(runOp(dina, 'access.delete', { id: copy.id })).rejects.toThrow(/Administrator only/);
+    await expect(runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms })).rejects.toThrow(/only in the role Administrator/);
+    await runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms.filter((p) => p !== 'lists.donors' && p !== 'register.private') });
+    await runOp(sup, 'access.delete', { id: copy.id });
+    // who sees the door "Administration": the Administrator and the Director, not the Accountant
+    expect(peopleDoor((await ctxOf('Sup')).profile.roles, () => true)).toBe(true);
+    expect(peopleDoor(dina.profile.roles, () => true)).toBe(true);
+    const com = await ctxOf('Com');
+    expect(peopleDoor(com.profile.roles, (p) => com.profile.perms.includes(p))).toBe(false);
+    // a database not updated yet: whoever manages the users
+    expect(peopleDoor([{ kind: null }], (p) => p === 'users.manage')).toBe(true);
+    expect(peopleDoor([{ kind: null }], () => false)).toBe(false);
   });
 });
 

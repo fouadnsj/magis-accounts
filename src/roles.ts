@@ -122,8 +122,11 @@ export function whyNotGive(g: Giver, r: Pick<RoleLike, 'kind' | 'perms'>): Msg |
   return MSG_ADMIN_ONLY;
 }
 
-/** The ticks a new Custom role may hold when it is made as a copy of a ready-made role ("Make a copy to adapt"). */
-export function mayCopy(g: Giver, from: Pick<RoleLike, 'kind' | 'perms'>): boolean {
-  if (g.admin) return true;
-  return !!from.kind && DIRECTOR_GIVES.includes(from.kind as RoleKind) && g.can('users.manage');
+/**
+ * The door "Administration" (people and roles; Fouad, 25 November 2026): for whoever holds the role Administrator or Director.
+ * A database not updated yet (no ready-made roles) opens it to whoever manages the users, as before.
+ */
+export function peopleDoor(roles: { kind?: string | null }[] | undefined, can: (p: Perm) => boolean): boolean {
+  if (roles?.some((r) => r.kind === 'administrator' || r.kind === 'director')) return true;
+  return !roles?.some((r) => r.kind) && can('users.manage');
 }

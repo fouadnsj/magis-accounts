@@ -25,7 +25,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Every human being deserves to find their place in society.
 - French: Chaque être humain mérite de trouver sa place dans la société.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on every human being’s place
-- Shown on: HR, Calendar
+- Shown on: HR, Calendar, 
 
 ### ch-dignity
 
@@ -33,7 +33,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: The dignity of a person is not separable from that of others.
 - French: La dignité d’un individu n’est pas séparable de celle des autres.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on dignity
-- Shown on: HR
+- Shown on: HR, 
 
 ### ch-bridges
 
@@ -41,7 +41,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Our world needs bridges, trust and dialogue.
 - French: Notre monde a besoin de ponts, de confiance et de dialogue.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on bridges
-- Shown on: Accounts, Calendar
+- Shown on: Accounts, Calendar, 
 
 ### ch-home
 
@@ -65,7 +65,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: “Trust and responsibility”: one of the five values of our charter.
 - French: « Confiance et responsabilité » : l’une des cinq valeurs de notre charte.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), “Our values” (the sentence around the value is ours)
-- Shown on: Accounts
+- Shown on: Accounts, 
 
 ### ch-simple
 
@@ -246,7 +246,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: One charter, shared values and a shared way of working, while each centre keeps the freedom to answer the needs and character of its own city.
 - French: Une seule charte, des valeurs communes et une façon commune de travailler, chaque centre gardant la liberté de répondre aux besoins et au caractère de sa ville.
 - Source: The concept note (2026 draft, §3, from Jaramana to a network)
-- Shown on: HR
+- Shown on: HR, 
 - Translated for the page: ar, fr
 
 ### nt-direction

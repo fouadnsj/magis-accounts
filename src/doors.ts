@@ -4,8 +4,9 @@
 import { m, type Msg } from './i18n';
 import type { Perm } from './perms';
 
-export type DoorKey = 'accounts' | 'calendar' | 'inventory' | 'hr';
-export const DOOR_ORDER: DoorKey[] = ['accounts', 'calendar', 'inventory', 'hr'];
+export type DoorKey = 'accounts' | 'calendar' | 'inventory' | 'hr' | 'admin';
+/** (25 November 2026) the fifth door, "Administration": the people of the centre and their roles */
+export const DOOR_ORDER: DoorKey[] = ['accounts', 'calendar', 'inventory', 'hr', 'admin'];
 
 /** The ticks that bring a person to the reports (as in the old menu). */
 const REPORTS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange', 'reports.cash'];
@@ -18,6 +19,8 @@ export interface DoorFacts {
   inventoryOn: boolean;
   /** this person has a place in an HR database on this server (the sign-in ring, or the Coordinator's grants) */
   hr: boolean;
+  /** holds the role Administrator or Director (src/roles.ts peopleDoor): the door "Administration" */
+  people?: boolean;
 }
 
 /**
@@ -35,6 +38,7 @@ export function doorsOf(f: DoorFacts): DoorKey[] {
   if (can('cal.view')) out.push('calendar');
   if (f.inventoryOn && can('inventory.view')) out.push('inventory');
   if (f.hr) out.push('hr');
+  if (f.people) out.push('admin');
   return out;
 }
 

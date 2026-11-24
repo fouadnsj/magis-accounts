@@ -13,7 +13,7 @@ import {
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, personPerms, rolesOf, roleFor, type Profile } from './auth';
-import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_NOT_SELF, cleanExtra, isHolderRole, mayCopy } from './roles';
+import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_NOT_SELF, cleanExtra, isHolderRole } from './roles';
 import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
@@ -1464,7 +1464,7 @@ async function accessList(c: OpCtx): Promise<AccessRow[]> {
   return rows.map((r) => ({ ...r, kind: r.kind ?? null, perms: cleanPerms(JSON.parse(r.perms)) }));
 }
 
-async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: string[]; from?: number }) {
+async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: string[] }) {
   need(c, 'users.manage');
   const name = a.name.trim();
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
@@ -1480,15 +1480,9 @@ async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: strin
     const had = before ? cleanPerms(JSON.parse(before.perms)) : [];
     const addedTicks = list.filter((p) => !had.includes(p));
     if (before?.kind !== 'administrator' && addedTicks.some((p) => ADMIN_ONLY.includes(p))) throw adminOnlyTick();
-    if (!isAdmin(c)) {
-      if (before?.kind && ADMIN_GIVES.includes(before.kind as never)) throw onlyAdmin();
-      // (roles step 3) "Make a copy to adapt": a new Custom role may start from the ticks of a ready-made role he gives
-      // (a Custom role is copied only within his own ticks; the Administrator's and the Director's roles are not his to copy)
-      const src = !a.id && a.from != null ? (await roleRows(c.db, [Number(a.from)]))[0] : undefined;
-      if (src?.kind && ADMIN_GIVES.includes(src.kind as never)) throw onlyAdmin();
-      const fromSrc = src && mayCopy({ admin: false, can: (p) => can(c, p) }, src) ? src.perms : [];
-      if (addedTicks.some((p) => !can(c, p) && !fromSrc.includes(p))) throw notMore();
-    }
+    // (roles step 3, Fouad 25 November 2026) the ticks of a role, a new Custom role ("Make a copy to adapt") and deleting a role:
+    // the Administrator only — a tick changes the rights of everybody who holds the role. The Director gives the roles, not their ticks.
+    if (!isAdmin(c)) throw onlyAdmin();
   }
   if (a.id) {
     await c.db.batch([
@@ -1978,12 +1972,13 @@ export const OPS = {
       return changePin(c.db, a.id, a.pin, c.who, a.id !== c.profile.id);
     },
   },
-  'access.save': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; perms: string[]; from?: number }) => saveAccess(c, a) },
+  'access.save': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; perms: string[] }) => saveAccess(c, a) },
   'access.delete': {
     check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); },
     run: async (c: OpCtx, a: { id: number }) => {
       if (await one(c.db, 'SELECT 1 FROM profile WHERE access_id = ?', [a.id])) throw new UserError(m('مستعمل لمستخدمين', 'Some users have this profile'));
       if (await rolesOn(c.db)) {
+        if (!isAdmin(c)) throw onlyAdmin();
         if (await one(c.db, 'SELECT 1 FROM profile_role WHERE access_id = ?', [a.id])) throw new UserError(m('مستعمل لمستخدمين', 'Some users have this profile'));
         if (await one(c.db, 'SELECT 1 FROM access_profile WHERE id = ? AND kind IS NOT NULL', [a.id]))
           throw new UserError(m('الأدوار الجاهزة تبقى', 'The ready-made roles stay', 'Les rôles prêts restent'));

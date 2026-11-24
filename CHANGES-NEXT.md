@@ -438,3 +438,24 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   Accountant role: Karim added as book holder; the Respo book not offered).
 - Note: on Homs today the Accountant role does **not** have "Adds book holders"; Fouad ticks it on the Roles page if he wants it.
 - Not done here: the book made with the person (step 5), the Respo/Grants hiding pass (step 2, other session), HR roles (paused).
+
+## 20. The door "Administration": people and roles (Fouad's decision, 25 November 2026; no database update)
+- A **fifth door** on the doors page, **"Administration · الإدارة"** (a person with a small shield, the same look and warm
+  sentences as the other doors), shown **only to whoever holds the role Administrator or Director** (`src/roles.ts`
+  `peopleDoor`; a database not updated yet: whoever manages the users). Normal sign-in; nothing new to remember.
+- Inside, its own menu and the "← MAGIS · Doors" bar: **People** (the Users window of §19, with the phones under it) and
+  **Roles** (the ready-made roles, one sentence each). The screens live in `src/ui/People.tsx` (they can move again easily).
+- **Roles: the ticks are the Administrator's.** Only he changes the ticks of a role, makes a Custom role ("Make a copy to
+  adapt") or deletes one; they are under "Advanced (the Administrator)". The Director reads the list and gives the roles on
+  People (the server refuses him the rest: `access.save`, `access.delete`). This replaces the Director's "copy within his
+  ticks" of §19.
+- **Accounts → Admin is now "Settings · الإعدادات"** (so that "الإدارة" means one thing): month closing, checks, controls,
+  backups, appearance, audit log, sections, server. Users and Roles left it. The **Accountant keeps his small Book holders
+  window there**; whoever has no Administration door keeps his own password there too.
+- Guide: a new section "Administration: people and roles"; the Admin section is now "Settings"; the paths "Admin → …" read
+  "Settings → …", and the phones "Administration → People → Phones". Five charter or concept-note sentences already in use
+  also suit the new door (`DOORS-SENTENCES.md` regenerated). "Report a problem" unchanged.
+- Tests: `tests/doors.test.ts` (the fifth door, last, from the roles), `tests/roles.test.ts` (ticks and copies for the
+  Administrator only; who sees the door). 424 tests pass.
+- Tried in the side pane on a copy: Fouad sees five doors, Administration → People and Roles with "Advanced"; Nagham
+  (Director) has People and Roles, no "Advanced"; Assem (Accountant) has no Administration door and keeps Settings → Book holders.

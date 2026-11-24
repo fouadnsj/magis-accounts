@@ -20,6 +20,8 @@ import { invEntries, pendingEntries } from '../inventory/inv';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
+import { PeoplePage, RolesPage } from './People';
+import { peopleDoor } from '../roles';
 import { Calendar } from './Calendar';
 import { InventoryHome } from './InvHome';
 import { Guide } from './Guide';
@@ -42,19 +44,18 @@ function useNarrow() {
 }
 
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
-const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
 
-export type Page = 'doors' | 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'files' | 'admin' | 'guide';
+export type Page = 'doors' | 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'files' | 'admin' | 'guide' | 'people' | 'roles';
 
 /** "← MAGIS · الأبواب": the way back to the doors page, the arrow turned the way the language reads */
 const backLabel = () => { const l = getLang(); return l === 'ar' || l === 'both' ? '→ MAGIS · الأبواب' : l === 'fr' ? '← MAGIS · Portes' : '← MAGIS · Doors'; };
 
-const PAGES: Page[] = ['doors', 'home', 'register', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'files', 'admin', 'guide'];
+const PAGES: Page[] = ['doors', 'home', 'register', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'files', 'admin', 'guide', 'people', 'roles'];
 
 /** The door each page belongs to ('admin' and 'guide' belong to none: they keep the door the person came from). */
-const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', files: 'accounts', calendar: 'calendar', invmap: 'inventory' };
+const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', files: 'accounts', calendar: 'calendar', invmap: 'inventory', people: 'admin', roles: 'admin' };
 /** where a door opens */
-const DOOR_HOME: Record<Exclude<DoorKey, 'hr'>, Page> = { accounts: 'home', calendar: 'calendar', inventory: 'invmap' };
+const DOOR_HOME: Record<Exclude<DoorKey, 'hr'>, Page> = { accounts: 'home', calendar: 'calendar', inventory: 'invmap', admin: 'people' };
 
 interface Nav {
   go: (p: Page, opts?: { review?: boolean; book?: number }) => void;
@@ -102,7 +103,9 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
   }, []);
   const backTitle = tx(m('إلى صفحة الأبواب', 'Back to the doors page', 'Retour à la page des portes'));
   const hrOn = !!hrDbs?.length && !!onOpenHr && s.mode === 'server';
-  const doors = doorsOf({ can, hasBook: myBooks.length > 0, inventoryOn: !!d.inv, hr: hrOn });
+  // the door "Administration" (Fouad, 25 November 2026): whoever holds the role Administrator or Director
+  const people = peopleDoor(s.profile.roles, can);
+  const doors = doorsOf({ can, hasBook: myBooks.length > 0, inventoryOn: !!d.inv, hr: hrOn, people });
   const openHr = () => {
     if (!hrDbs?.length || !onOpenHr) return;
     if (hrDbs.length === 1) onOpenHr(hrDbs[0]);
@@ -208,10 +211,16 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
             {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
             {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
           </>}
+          {door === 'admin' && <div className="door-name">{tx(m('الإدارة', 'Administration', 'Administration'))}</div>}
+          {door === 'admin' && people && <>
+            {item('people', tx(m('الأشخاص', 'People', 'Personnes')))}
+            {item('roles', tx(m('الأدوار', 'Roles', 'Rôles')))}
+          </>}
           {door === 'calendar' && can('cal.view') && item('calendar', t('التقويم', 'Calendar'))}
           {door === 'inventory' && can('inventory.view') && d.inv && item('invmap', t('الجرد', 'Inventory'), (d.problems?.open ?? 0) + toInventory ? <span className="badge">{(d.problems?.open ?? 0) + toInventory}</span> : null)}
           {(can('lists.manage') || can('lists.donors') || can('budget.view') || can('inventory.view')) && item('guide', <><GuideSun light /> {t('الدليل', 'Guide')}</>)}
-          {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
+          {/* (25 November 2026) "Administration" is now the door of the people and roles; this page is the Settings */}
+          {item('admin', t('الإعدادات', 'Settings'))}
           <div className="spacer" />
           <ReportButton />
           <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
@@ -230,6 +239,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
               {door === 'accounts' && <span className="door-here">{tx(m('الحسابات', 'Accounts', 'Comptes'))}</span>}
               {door === 'calendar' && <span className="door-here">{tx(m('التقويم', 'Calendar', 'Calendrier'))}</span>}
               {door === 'inventory' && <span className="door-here">{tx(m('الجرد', 'Inventory', 'Inventaire'))}</span>}
+              {door === 'admin' && <span className="door-here">{tx(m('الإدارة', 'Administration', 'Administration'))}</span>}
             </div>
           )}
           {page === 'doors' && (
@@ -247,6 +257,8 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
           {page === 'lists' && <ListsPage />}
           {page === 'files' && <Files />}
           {page === 'admin' && <Admin />}
+          {page === 'people' && people && <PeoplePage />}
+          {page === 'roles' && people && <RolesPage />}
           {page === 'guide' && <Guide section={guideSection} />}
         </main>
       </div>

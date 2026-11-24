@@ -5,7 +5,7 @@ import { DOOR_ORDER, READY_ROLES, doorsOf, type DoorKey } from '../src/doors';
 import { SENTENCES, pickSentences, sentencesFor } from '../src/ui/doorSentences';
 
 const ticks = (ps: Perm[]) => (p: Perm) => withImplied(ps).includes(p);
-const doorsFor = (ps: Perm[], o: { hasBook?: boolean; inventoryOn?: boolean; hr?: boolean } = {}) => doorsOf({ can: ticks(ps), hasBook: !!o.hasBook, inventoryOn: o.inventoryOn ?? true, hr: !!o.hr });
+const doorsFor = (ps: Perm[], o: { hasBook?: boolean; inventoryOn?: boolean; hr?: boolean; people?: boolean } = {}) => doorsOf({ can: ticks(ps), hasBook: !!o.hasBook, inventoryOn: o.inventoryOn ?? true, hr: !!o.hr, people: !!o.people });
 const role = (k: string) => READY_ROLES.find((r) => r.key === k)!;
 
 describe('which doors a person sees', () => {
@@ -17,9 +17,14 @@ describe('which doors a person sees', () => {
     expect(doorsFor(role('coordinator').perms)).toEqual(['calendar', 'inventory']);
   });
   it('the doors come in the page’s order, and a person with nothing has none', () => {
-    expect(doorsFor(ALL_PERMS.filter((p) => !p.startsWith('hr.')), { hasBook: true, hr: true })).toEqual(DOOR_ORDER);
+    expect(doorsFor(ALL_PERMS.filter((p) => !p.startsWith('hr.')), { hasBook: true, hr: true, people: true })).toEqual(DOOR_ORDER);
     expect(doorsFor([])).toEqual([]);
     expect(doorsFor(['users.manage'])).toEqual([]);
+  });
+  it('the fifth door, "Administration", comes from holding the role Administrator or Director, last in the row', () => {
+    expect(DOOR_ORDER[DOOR_ORDER.length - 1]).toBe('admin');
+    expect(doorsFor(role('director').perms, { people: true })).toEqual(['accounts', 'calendar', 'inventory', 'admin']);
+    expect(doorsFor([], { people: true })).toEqual(['admin']);
   });
   it('the inventory door needs the inventory in this database; HR needs a place in an HR database', () => {
     expect(doorsFor(role('keeper').perms, { inventoryOn: false })).toEqual([]);

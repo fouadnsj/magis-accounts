@@ -1,5 +1,75 @@
 # Rehearsal of the updates 57 → 77 on copies of the real databases — who can do what, before and after
 
+## Second rehearsal, newest backups (25 November 2026)
+
+Same method and same rules as the first one (below): I copied the newest files you put in `real-db/` (taken 24 November, evening), worked only on the
+copies in a private scratch folder, and deleted them. I compared the checksum of every real file before and after: **the real files are unchanged**.
+No installer, no tag, no program code changed.
+
+**Result: everything passes again.** No update failed, the database check says "ok" before and after on all 7, a second run changes nothing, no
+table lost a row, and **nobody has less than before** (0 people with fewer rights).
+
+| File | What it is | Update before → after | Ran | Time | Main rows before → after |
+|---|---|---|---|---|---|
+| `magis-homs/magis.db` | **MAGIS Homs** | 63 → 77 | 14 | 47 ms | register 814 → 814, books 10, people 7, audit 587 |
+| `magis-al-ard/magis.db` | **MAGIS Al-Ard** | 63 → 77 | 14 | 39 ms | people 2, books 2, audit 47 (no register rows yet) |
+| `hr-sj/magis.db` | **HR** | 63 → 77 | 14 | 42 ms | people 1, audit 79 |
+| `homs-st-francois-regis/magis.db` | **community** (Homs, St François Régis) | 63 → 77 | 14 | 37 ms | people 8, books 8 |
+| `syria/magis.db` | **country** (Syria) | 63 → 77 | 14 | 45 ms | people 1 |
+| `MAGIS/province/magis.db` (the older one: no newer file) | **Province** | 57 → 77 | 20 | 64 ms | people 2, books 3 |
+| `aleppo/magis_2026-11-24_005738_daily.db` | **see the warning below** | 50 → 77 | 27 | 54 ms | register 32 → 32, people 5 |
+
+In all of them the only old tables whose content changed are the list of **roles** (that is the purpose) and the list of space kinds in the calendar
+(six kinds added, "Other" moved to the end). Nothing else moved.
+
+**⚠ The "Aleppo" file is not the real Aleppo.** `real-db/aleppo/magis_2026-11-24_005738_daily.db` is a daily backup of the server's database called
+*aleppo*, but inside it is named **"MAGIS Demo"**: a test database (32 register rows; people Superior, Accountant, Rami, Maya, Wasfi). The real
+Aleppo accounts (Fouad and Salim, 493 rows, the file of 30 October) are no longer in that folder, so I could not repeat them; **the first
+rehearsal below covered them and passed** (they are at update 35, the longest jump). If the real Aleppo is now on the server under another name,
+please give me its file. There is still **no Jaramana database**.
+
+### Who can do what, before and after (newest files)
+"Same" = exactly the same rights. "More" = the same plus new rights. **Less: nobody.**
+
+| Database | Person | Today (old profile) | After: role | Rights | Doors before → after |
+|---|---|---|---|---|---|
+| **Homs** | Fouad | Superior | **Administrator** | more (+13: the whole calendar with prices, inventory values and the inventory **big totals**) | Accounts, Administration → **+ Calendar** |
+| | Assem | Accountant | Accountant | **same** | Accounts |
+| | Roula · Nagham · Darine | Book holder | Book holder | same | Accounts |
+| | Canzali (switched off) | Book holder | Book holder | same | — |
+| | **Ghassan** (new since the first rehearsal) | "Reception" (a profile made by hand, one tick: *sees the calendar*) | stays **Custom** (still named Reception) | more (+1: the calendar tick of the new calendar; still no prices) | none → **Calendar** |
+| **Al-Ard** | Fouad | Superior | **Administrator** | more (+13) | Accounts, Inventory, Administration → **+ Calendar** |
+| | "Accountant" (placeholder) | Accountant | Accountant | more (+2: calendar, inventory values) | + Calendar |
+| **HR** | Fouad | HR keeper | stays **Custom** | more (+11 calendar ticks, not used there) | as before |
+| **Community** | Superior (Mourad), Econome (Fouad), Minister (Fouad) | the three office profiles | stay **Custom** | same | Accounts |
+| | Administrator (Fouad) | community "Administrator" | stays **Custom** | more (+11 calendar ticks, not used there) | Administration → + Calendar |
+| | Mourad · Fouad · Gerald · Julian | Jesuit | stay **Custom** | same | Accounts |
+| **Country** | Alvaro Dorantes | Country econome | stays **Custom** | more (+11 calendar ticks, not used there) | + Calendar |
+| **Province** (older file) | Coordinator / Province | Superior / Accountant | Administrator / Accountant | more (+17 / +6) | + Calendar |
+
+The inventory **big totals** are a new right and only the Administrator role has it. Nobody lost anything because of it.
+**Custom roles that carry donors or the Respo book: none.** Only the Administrator role carries them: **Fouad** on Homs and Al-Ard, "Coordinator" on
+Province (and "Superior" in the Demo-named Aleppo file).
+
+### New in the real data
+- **Homs:** **no calendar spaces, no bookings and no inventory items yet.** Homs has 814 register rows (800 before), one inventory source (a budget
+  heading marked as a source of purchases), and nothing else typed in the calendar or inventory. The first test on Homs will therefore start empty.
+- **Al-Ard:** the calendar spaces you typed are there and **kept**: 2 buildings, 4 rooms, 1 booking, 2 allocations, 1 line, and 4 inventory places;
+  no inventory items, no register rows. The update only adds the new lists around them.
+- **Names in the centres and in HR:** the HR database still has **one** account, **Fouad**, spelled the same as in Homs, Al-Ard and the community.
+  Nobody else has an HR account (Assem, Roula, Nagham, Darine, Canzali, Ghassan), so they have no HR door, as today. Nothing differs, nothing to merge.
+  **Julian** is still only in the community database and has no account in Homs; **Alvaro Dorantes** only in the country database. The decisions
+  of section 4 below are unchanged.
+- **Assem (Homs Accountant)** gets nothing new: his profile on the real Homs server has none of the calendar ticks the other accountants have, so nothing is added: he keeps just what he had
+  (no calendar, no calendar prices; the Al-Ard accountant does get the calendar). The question of the Accountants' prices (section 4) therefore
+  concerns Al-Ard and the Province only.
+- **Ghassan** is the one new person: his profile "Reception" is *not* the new ready-made Reception role (that one also has contacts, outside bookings and
+  organisations). ☐ Keep him as he is, or give him the ready-made Reception role (more than he has now)?
+
+---
+
+## First rehearsal (24 November 2026), on the files of 22 November
+
 Made on 24 November 2026 (job J5, "final check"). For Fouad. Plain words. **Nothing real was touched**: I copied the files, worked only on the copies
 (in a private scratch folder, not shared, not in the cloud, not in `test-servers/`), and deleted them at the end. I checked that the real files are
 byte for byte the same as before. No installer, no tag.

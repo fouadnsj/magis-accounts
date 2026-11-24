@@ -17,7 +17,9 @@ import { calPhoneOf, calPhonePack, claimLink } from '../server/calphone';
 import { nodeDb } from './nodeDb';
 
 const today = () => nowIso().slice(0, 10);
-const day = (n: number) => addDays(today(), n);
+// a day n days from today; a Sunday moves to the Monday, because an outside hall booking on a Sunday asks for a second "save"
+// (the test must give the same result on any weekday it runs)
+const day = (n: number) => { const d = addDays(today(), n); return new Date(`${d}T00:00:00Z`).getUTCDay() === 0 ? addDays(d, 1) : d; };
 
 describe('update 76 on a database at 75', () => {
   it('adds the table of calendar phones and nothing else changes', async () => {

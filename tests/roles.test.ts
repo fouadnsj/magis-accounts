@@ -43,7 +43,7 @@ describe('update 77: nobody is locked out', () => {
     const before = Object.fromEntries(await Promise.all(names.map(async (n) => [n, await rightsOf(db, await idOf(db, n))])));
     const rolesBefore = await db.query('SELECT id, perms FROM access_profile ORDER BY id');
 
-    expect(await migrate(db)).toEqual([77]);
+    expect(await migrate(db)).toEqual([77, 78]);
     // only one thing is new: the Administrator role (the old Superior) has the totals of the inventory (Fouad, 26 November 2026)
     for (const n of names) expect(await rightsOf(db, await idOf(db, n))).toEqual(n === 'Sup' ? [...before[n], 'inventory.totals'].sort() : before[n]);
     // no tick of an old role changed
@@ -78,7 +78,7 @@ describe('update 77: nobody is locked out', () => {
     for (const kind of ['hr', 'community', 'country']) {
       const other = await atUpdate(76, kind);
       const rows = JSON.stringify(await other.query('SELECT id, name, perms FROM access_profile ORDER BY id'));
-      expect(await migrate(other)).toEqual([77]);
+      expect(await migrate(other)).toEqual([77, 78]);
       expect(JSON.stringify(await other.query('SELECT id, name, perms FROM access_profile ORDER BY id'))).toBe(rows);
       expect((await other.query<{ n: number }>('SELECT COUNT(*) AS n FROM access_profile WHERE kind IS NOT NULL'))[0].n).toBe(0);
     }

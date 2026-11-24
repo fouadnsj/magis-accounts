@@ -5,7 +5,8 @@
 // humble, belonging to nobody. Nothing is an invented name, number, testimony or quote. A testimony is NOT used on the TV: it speaks of a
 // person, and a screen at the entrance is seen by everyone. The sentences that already exist on the doors page are taken from there BY NAME
 // (so a correction made there is made here too); the new ones are below. The list is written out for review in TV-SENTENCES.md
-// (regenerate it with: scripts/tv-sentences-md.ts).
+// (regenerate it with: scripts/tv-sentences-md.ts). Each centre may switch a phrase off, edit it, or write its own (table cal_tv_phrase,
+// update 78: only what the centre changed is stored, so a corrected default here still reaches a centre that never edited it).
 import { m, type Msg } from '../i18n';
 import { SENTENCES, type SentenceKind } from '../ui/doorSentences';
 
@@ -65,6 +66,55 @@ export function tvGreeting(minutes: number): Msg {
   return m('أهلاً بكم', 'Welcome', 'Bienvenue');
 }
 
+/** how long one phrase stays on the TV, in minutes (Fouad, 26 November 2026: "let us say 5"); a centre may change it between the limits */
+export const TV_PHRASE_MINUTES = 5;
+export const TV_PHRASE_MIN = 1;
+export const TV_PHRASE_MAX = 15;
+export const clampPhraseMinutes = (n: unknown): number => {
+  const x = Math.round(Number(n));
+  return Number.isFinite(x) ? Math.max(TV_PHRASE_MIN, Math.min(TV_PHRASE_MAX, x)) : TV_PHRASE_MINUTES;
+};
+/** the longest text of one phrase, in one language */
+export const TV_PHRASE_LENGTH = 220;
+
+/** what a centre changed (table cal_tv_phrase) */
+export interface TvPhraseRow { id: number; builtin_key: string | null; ar: string | null; en: string | null; fr: string | null; active: number; edited: number; sort: number }
+
+/** a phrase as the settings page shows it, and as the TV uses it */
+export interface TvPhrase {
+  /** the id in the code, for a built-in phrase; null for a phrase written by the centre */
+  key: string | null;
+  /** the row of the centre (its edit or its own phrase); null while nothing was changed */
+  id: number | null;
+  ar: string; en: string; fr: string;
+  active: boolean;
+  /** the text of a built-in phrase was changed by the centre */
+  edited: boolean;
+  kind: SentenceKind | 'centre';
+  source: string;
+  /** the text in the code (a built-in phrase), to restore it */
+  original: Msg | null;
+}
+const WRITTEN_BY_CENTRE = 'written by the centre';
+
+/** every phrase this centre may show: the built-in ones that suit it (with what the centre changed), then the ones it wrote */
+export function tvPhraseList(centre: string | null | undefined, rows: TvPhraseRow[] = []): TvPhrase[] {
+  const byKey = new Map(rows.filter((r) => r.builtin_key).map((r) => [r.builtin_key!, r]));
+  const out: TvPhrase[] = TV_SENTENCES.filter((x) => !x.centre || x.centre === centre).map((x) => {
+    const r = byKey.get(x.id);
+    const edited = !!r?.edited;
+    return {
+      key: x.id, id: r?.id ?? null,
+      ar: edited ? r!.ar ?? '' : x.msg.ar, en: edited ? r!.en ?? '' : x.msg.en, fr: edited ? r!.fr ?? '' : x.msg.fr ?? x.msg.en,
+      active: r ? !!r.active : true, edited, kind: x.kind, source: x.source, original: { ar: x.msg.ar, en: x.msg.en, fr: x.msg.fr ?? x.msg.en },
+    };
+  });
+  for (const r of rows.filter((r) => !r.builtin_key).sort((a, b) => a.sort - b.sort || a.id - b.id)) {
+    out.push({ key: null, id: r.id, ar: r.ar ?? '', en: r.en ?? '', fr: r.fr ?? '', active: !!r.active, edited: false, kind: 'centre', source: WRITTEN_BY_CENTRE, original: null });
+  }
+  return out;
+}
+
 /** a small fixed shuffle: the same order for the same day and centre (so all the screens of a centre agree), another one tomorrow */
 function seeded(seed: string): () => number {
   let h = 2166136261;
@@ -77,14 +127,14 @@ function seeded(seed: string): () => number {
   };
 }
 
-/** the phrases of this centre for this day, in an order that changes every day: the general ones and the centre's own */
-export function tvPhrases(centre: string | null | undefined, day: string): Msg[] {
-  const pool = TV_SENTENCES.filter((x) => !x.centre || x.centre === centre);
+/** the phrases of this centre for this day, in an order that changes every day: the active ones (the code's list when the centre changed nothing) */
+export function tvPhrases(centre: string | null | undefined, day: string, rows: TvPhraseRow[] = []): Msg[] {
+  const pool = tvPhraseList(centre, rows).filter((p) => p.active && (p.ar.trim() || p.en.trim() || p.fr.trim()));
   const rand = seeded(`${centre ?? ''}|${day}`);
   const a = [...pool];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
-  return a.map((x) => ({ ar: x.msg.ar, en: x.msg.en, fr: x.msg.fr ?? x.msg.en }));
+  return a.map((x) => ({ ar: x.ar, en: x.en, fr: x.fr }));
 }

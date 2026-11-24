@@ -8,7 +8,7 @@ import { closedOn, inCalendar, periodOn, sleepsIn, type CalData } from './calend
 import { itemsBetween } from './calview';
 import { brandStyle } from '../brand';
 import type { Msg } from '../i18n';
-import { tvPhrases } from './tvSentences';
+import { TV_PHRASE_MINUTES, tvPhrases, type TvPhraseRow } from './tvSentences';
 
 export const TV_FROM = 8 * 60;
 export const TV_TO = 22 * 60;
@@ -36,13 +36,20 @@ export interface TvScreen {
   logo: string | null;
   /** the welcome phrases of this day, Arabic with English and French (src/hosting/tvSentences.ts); nothing else of the program */
   phrases: Msg[];
+  /** how long one phrase stays (minutes; a setting of the centre) */
+  phraseMinutes: number;
 }
 
 /** what the database says about its look (the meta table) */
 export interface TvBrand { centre?: string | null; color?: string | null; logo?: string | null }
 
-/** the screen of a day, from a calendar already cut like the Team phone's */
-export function tvScreen(d: CalData, day: string, organisation = '', asOf = '', brand: TvBrand = {}): TvScreen {
+/**
+ * The screen of a day, from a calendar already cut like the Team phone's.
+ * Every ACTIVE area that has at least one bookable space (not a bedroom, not a store shown only in the inventory) is drawn with all its
+ * bookable spaces, whether or not anything happens there today (a quiet tile says so); an area with only bedrooms or nothing bookable is not
+ * drawn (the guests are in "staying").
+ */
+export function tvScreen(d: CalData, day: string, organisation = '', asOf = '', brand: TvBrand = {}, phr: { rows?: TvPhraseRow[]; minutes?: number } = {}): TvScreen {
   const items = (itemsBetween(d, day, day).get(day) ?? []).filter((it) => it.b.status !== 'left' || it.b.kind !== 'stay');
   const halls = d.spaces.filter((s) => inCalendar(s) && !sleepsIn(s, d.kinds));
   const areas: TvArea[] = [];
@@ -73,6 +80,7 @@ export function tvScreen(d: CalData, day: string, organisation = '', asOf = '', 
     period: periodOn(d.periods, day)?.name ?? null,
     color: look.color,
     logo: look.mark,
-    phrases: tvPhrases(brand.centre, day),
+    phrases: tvPhrases(brand.centre, day, phr.rows ?? []),
+    phraseMinutes: phr.minutes ?? TV_PHRASE_MINUTES,
   };
 }

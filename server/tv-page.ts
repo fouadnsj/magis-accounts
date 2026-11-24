@@ -3,7 +3,7 @@
 // TV"), then it asks the server for today's screen every minute. Read only; it receives no price, payment or contact (src/hosting/caltv.ts).
 //   • the MAP (calendar step 7b, Fouad 26 November 2026): the areas as large soft coloured blocks, each holding its spaces as tiles that
 //     say what is happening now (the area's colour, strong), what comes next (soft) or nothing (quiet); the centre's mark and name, the
-//     clock and the date, and a welcome phrase that changes every 45 seconds (src/hosting/tvSentences.ts). Outside 08:00–22:00 a calm
+//     clock and the date, and a welcome phrase that changes every few minutes, 5 by default (a setting of the centre; src/hosting/tvSentences.ts). Outside 08:00–22:00 a calm
 //     night screen. A gentle fade, a slow light on the busy tiles: nothing flashes.
 //   • the PLAIN page (halls hour by hour, calendar step 7): kept. It is shown by /tv?plain, and by itself if the map cannot be drawn.
 //   • ?l=fr (or ?l=ar) changes the language under the Arabic: English is the default, as in the program.
@@ -58,13 +58,15 @@ body.map{background:#15171c;font-family:"Amiri","Geeza Pro","Noto Naskh Arabic",
 .m-nm h1{margin:.1vw 0 0;font-size:2.35vw;line-height:1.2;font-weight:700;color:#f6f2e8}
 .m-say{flex:1 1 auto;align-self:stretch;display:flex;flex-direction:column;justify-content:center;overflow:hidden;text-align:center;padding:0 1.4vw;transition:opacity .8s ease}
 .m-say.out{opacity:0}
-.m-gr{font-size:1.5vw;color:#9aa3b2;letter-spacing:.04em;min-height:1.6em}
-.m-ar{margin:0;font-size:2.7vw;line-height:1.45;font-weight:700;color:#f3d98a}
-.m-tr{margin:.1vw 0 0;direction:ltr;font-family:Georgia,"Times New Roman",serif;font-style:italic;font-size:1.75vw;line-height:1.35;color:#d4cfc2}
+.m-gr{font-size:1.9vw;color:#d9d3c3;min-height:1.5em}
+.bi .a{font-weight:700}
+.bi .e{font-size:.74em;font-weight:400;opacity:.85;margin-inline-start:.5em;font-family:Georgia,"Times New Roman",serif;font-style:italic;direction:ltr;display:inline-block;unicode-bidi:isolate}
+.m-ar{margin:0;font-size:2.9vw;line-height:1.45;font-weight:700;color:#f3d98a}
+.m-tr{margin:.1vw 0 0;direction:ltr;font-family:Georgia,"Times New Roman",serif;font-style:italic;font-size:1.6vw;line-height:1.35;color:#d4cfc2}
 .m-when{flex:0 0 23%;text-align:left;direction:ltr}
-.m-clock{font-size:5.6vw;line-height:1;font-weight:700;color:#f6f2e8;font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
-.m-date{margin-top:.5vw;font-size:1.45vw;line-height:1.3;color:#cfc9bb;white-space:nowrap;text-align:left}
-.m-date b{display:block;font-size:1.65vw;color:#f1ead6;font-weight:700;text-align:left;direction:ltr;unicode-bidi:plaintext}
+.m-clock{font-size:6vw;line-height:1;font-weight:700;color:#f6f2e8;font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+.m-date{margin-top:.5vw;font-size:1.25vw;line-height:1.3;color:#cfc9bb;white-space:nowrap;text-align:left}
+.m-date b{display:block;font-size:1.9vw;color:#f1ead6;font-weight:700;text-align:left;direction:ltr;unicode-bidi:plaintext}
 .m-bandx{flex:0 0 auto;background:#6b5200;color:#fff3c4;font-size:1.6vw;padding:.3vw 1.2vw;border-radius:.6vw;margin:.3vw 0 .2vw}
 .m-map{flex:1 1 0;min-height:0;display:flex;flex-direction:column;margin:.4vw -.4vw 0}
 .m-row{flex:1 1 0;min-height:0;display:flex;flex-direction:row}
@@ -76,12 +78,15 @@ body.map{background:#15171c;font-family:"Amiri","Geeza Pro","Noto Naskh Arabic",
 .m-tile{position:relative;flex:1 1 0;box-sizing:border-box;margin:.3vw;border-radius:1.1vw;padding:.55vw .9vw;overflow:hidden;display:flex;flex-direction:column;justify-content:center;line-height:1.22;min-width:0}
 .m-tile .n{font-size:1.1em;font-weight:700;color:#c9ccd6;overflow:hidden;max-height:2.45em}
 .m-tile .t{font-size:1.3em;font-weight:700;max-height:3.7em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
-.m-tile .h{font-size:.95em;margin-top:.1em}
 .m-tile .t2{font-size:1.08em;font-weight:700;max-height:2.5em;overflow:hidden;color:#fff;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.m-tile .lab{font-size:.78em;opacity:.8;letter-spacing:.03em}
+.m-tile .lab{font-size:.95em;opacity:.92}
+.m-tile .tm{font-weight:700;font-size:1.12em;letter-spacing:.02em;direction:ltr;display:inline-block;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+.m-tile .h{margin-top:.2em}
+.m-tile.busy .h .tm{background:rgba(0,0,0,.3);color:#fff;padding:.04em .5em;border-radius:.6em;font-size:1.22em}
+.m-tile.next .h .tm,.m-tile.maybe .h .tm{color:#ffe08a;font-size:1.22em}
+.m-tile .l .tm{color:inherit}
 .m-tile .l{font-size:.88em;margin-top:.15em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.m-tile .tm{direction:ltr;display:inline-block;unicode-bidi:isolate}
-.m-tile .f{font-size:.95em;color:#7f8696}
+.m-tile .f{font-size:1.02em;color:#8a90a0}
 .m-tile.compact .l{display:none}
 .m-tile.free{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09)}
 .m-tile.free .n{color:#aeb3c0}
@@ -103,12 +108,12 @@ body.map{background:#15171c;font-family:"Amiri","Geeza Pro","Noto Naskh Arabic",
 .m-foot .st{display:flex;justify-content:space-between;direction:ltr;font-size:1.15vw;color:#7f8696;margin-top:.1vw}
 .m-foot .st .off{color:#ffb4a8}
 .m-night{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.m-night .m-mark{width:22vh;height:22vh;flex-basis:22vh}
-.m-night .m-eye{margin-top:2vh;text-align:center}
-.m-night h1{font-size:3.4vw;margin:.4vh 0 0;color:#f6f2e8}
-.m-night .m-say{margin-top:2.4vh;max-width:70vw;flex:0 0 auto;align-self:auto;display:block}
-.m-night .m-ar{font-size:3.2vw}.m-night .m-tr{font-size:2.1vw}.m-night .m-gr{font-size:1.7vw}
-.m-night .m-clock{font-size:6vw;margin-top:2.4vh}
+.m-night .m-mark{width:18vh;height:18vh;flex-basis:18vh}
+.m-night .m-eye{margin-top:1.2vh;text-align:center}
+.m-night h1{font-size:3.2vw;margin:.2vh 0 0;color:#f6f2e8}
+.m-night .m-say{margin-top:1.6vh;max-width:70vw;flex:0 0 auto;align-self:auto;display:block}
+.m-night .m-ar{font-size:3vw}.m-night .m-tr{font-size:1.8vw}.m-night .m-gr{font-size:2vw}
+.m-night .m-clock{font-size:5.4vw;margin-top:1.4vh}
 .m-night .m-when{flex:0 0 auto;text-align:center}
 .m-night .m-date,.m-night .m-date b{text-align:center}
 .m-night .m-soon{font-size:1.7vw;color:#9aa3b2;margin-top:1vh}
@@ -215,6 +220,8 @@ export const TV_JS = `(function () {
   var LG = (/[?&]l=(ar|en|fr)/.exec(QS) || [])[1] || 'en';
   var AT = /[?&]at=([0-2]?[0-9]):([0-5][0-9])/.exec(QS), atBase = new Date().getTime();
   function clockNow() { var n = new Date(); if (!AT) return n; var t = new Date(); t.setHours(+AT[1], +AT[2], 0, 0); return new Date(t.getTime() + (n.getTime() - atBase)); }
+  // how long one welcome phrase stays, in minutes (the centre can change it in Calendar → Settings; this is only the start)
+  var PHRASE_MINUTES = 5;
   var mapOk = true, shellMode = '', shellKey = '', sig = '', phraseAt = -1, firstDraw = true, lastReload = 0, parts = {};
   var AR_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
   var AR_MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
@@ -227,9 +234,12 @@ export const TV_JS = `(function () {
     free: ['فارغ', 'Free', 'Libre'], next: ['التالي', 'Next', 'Ensuite'], then: ['بعده', 'Then', 'Puis'], shut: ['مغلق', 'Closed', 'Fermé'], maybe: ['بانتظار التأكيد', 'to be confirmed', 'à confirmer'],
     guests: ['في البيت', 'In the house', 'Dans la maison'], out: ['خارج المركز', 'Outside the centre', 'Hors du centre'], upd: ['آخر تحديث', 'Updated', 'Mis à jour'],
     off: ['لا اتصال: هذه آخر شاشة', 'No connection: showing the last screen', 'Pas de connexion : dernier écran'], empty: ['لا شيء في القاعات اليوم', 'Nothing in the halls today', 'Rien dans les salles aujourd’hui'],
-    closedp: ['فترة إغلاق', 'Closed period', 'Période de fermeture'], back: ['تعود شاشة اليوم عند الثامنة', 'Today’s screen comes back at 08:00', 'L’écran du jour revient à 08:00'], night: ['ليلة هادئة', 'A quiet night', 'Une nuit tranquille']
+    none: ['لا نشاط اليوم', 'No activity today', 'Aucune activité aujourd’hui'], closedp: ['فترة إغلاق', 'Closed period', 'Période de fermeture'], back: ['تعود شاشة اليوم عند الثامنة', 'Today’s screen comes back at 08:00', 'L’écran du jour revient à 08:00'], night: ['ليلة هادئة', 'A quiet night', 'Une nuit tranquille']
   };
   function w(k) { return WORDS[k][0] + ' · ' + WORDS[k][LG === 'fr' ? 2 : 1]; }
+  // a word or a short phrase: the Arabic first and big, the other language small after it (the Arabic alone with ?l=ar)
+  function bi(ar, other) { var a = el('span', 'a', ar); return el('span', 'bi', null, LG === 'ar' || !other ? [a] : [a, el('span', 'e', other)]); }
+  function wk(k) { return bi(WORDS[k][0], WORDS[k][LG === 'fr' ? 2 : 1]); }
   function rgb(hex) { return [parseInt(hex.substr(1, 2), 16), parseInt(hex.substr(3, 2), 16), parseInt(hex.substr(5, 2), 16)]; }
   function hex2(n) { n = Math.max(0, Math.min(255, Math.round(n))); return (n < 16 ? '0' : '') + n.toString(16); }
   function lum(hex) {
@@ -247,7 +257,7 @@ export const TV_JS = `(function () {
   function rgba(hex, a) { var c = rgb(hex); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
   // white or very dark text, whichever reads better on this colour
   function textOn(hex) { return lum(hex) > 0.34 ? '#14161b' : '#ffffff'; }
-  function tm(from, to) { var s = el('span', 'tm', hm(from) + '–' + hm(to)); return s; }
+  function tm(from, to) { return el('span', 'tm', hm(from) + ' – ' + hm(to)); }
   function bidi(e) { e.setAttribute('dir', 'auto'); return e; }
 
   // what a space says now: busy (an activity now), maybe (to be confirmed), next (something later), free, shut
@@ -273,18 +283,18 @@ export const TV_JS = `(function () {
       d.appendChild(el('div', 'n', sp.name));
       d.appendChild(bidi(el('div', 't', t.cur.title)));
       d.appendChild(el('div', 'h', null, [tm(t.cur.from, t.cur.to)]));
-      if (t.rest.length) { var l = el('div', 'l'); l.appendChild(el('span', 'lab', w('next') + ' ')); l.appendChild(tm(t.rest[0].from, t.rest[0].to)); l.appendChild(document.createTextNode(' ' + t.rest[0].title + (t.rest.length > 1 ? '  +' + (t.rest.length - 1) : ''))); bidi(l); d.appendChild(l); }
+      if (t.rest.length) { var l = el('div', 'l'); l.appendChild(el('span', 'lab', null, [wk('next')])); l.appendChild(tm(t.rest[0].from, t.rest[0].to)); l.appendChild(document.createTextNode(' ' + t.rest[0].title + (t.rest.length > 1 ? '  +' + (t.rest.length - 1) : ''))); bidi(l); d.appendChild(l); }
     } else if (t.st === 'maybe' || t.st === 'next') {
       d.style.background = rgba(color, t.st === 'next' ? 0.2 : 0.1); d.style.borderColor = rgba(ensure(color, 0.18), 0.7);
       d.appendChild(el('div', 'n', sp.name));
       var first = t.st === 'maybe' ? t.cur : t.rest[0], more = t.st === 'maybe' ? t.rest : t.rest.slice(1);
-      d.appendChild(el('div', 'h', null, [el('span', 'lab', (t.st === 'maybe' ? w('maybe') : w('next')) + '  '), tm(first.from, first.to)]));
+      d.appendChild(el('div', 'h', null, [el('span', 'lab', null, [wk(t.st === 'maybe' ? 'maybe' : 'next')]), tm(first.from, first.to)]));
       d.appendChild(bidi(el('div', 't2', first.title)));
-      if (more.length) { var m2 = el('div', 'l'); m2.appendChild(el('span', 'lab', w('then') + ' ')); m2.appendChild(tm(more[0].from, more[0].to)); m2.appendChild(document.createTextNode(' ' + more[0].title + (more.length > 1 ? '  +' + (more.length - 1) : ''))); bidi(m2); d.appendChild(m2); }
+      if (more.length) { var m2 = el('div', 'l'); m2.appendChild(el('span', 'lab', null, [wk('then')])); m2.appendChild(tm(more[0].from, more[0].to)); m2.appendChild(document.createTextNode(' ' + more[0].title + (more.length > 1 ? '  +' + (more.length - 1) : ''))); bidi(m2); d.appendChild(m2); }
     } else if (t.st === 'shut') {
-      d.appendChild(el('div', 'n', sp.name)); d.appendChild(el('div', 'f', w('shut')));
+      d.appendChild(el('div', 'n', sp.name)); d.appendChild(el('div', 'f', null, [wk('shut')]));
     } else {
-      d.appendChild(el('div', 'n', sp.name)); d.appendChild(el('div', 'f', w('free')));
+      d.appendChild(el('div', 'n', sp.name)); d.appendChild(el('div', 'f', null, [wk(sp.items.length ? 'free' : 'none')]));
     }
     return d;
   }
@@ -300,7 +310,7 @@ export const TV_JS = `(function () {
   function drawAreas(s, now, box) {
     var n = s.areas.length, a, i, r;
     box.innerHTML = '';
-    if (!n) { box.appendChild(el('div', 'm-empty', w('empty'))); return; }
+    if (!n) { box.appendChild(el('div', 'm-empty', null, [wk('empty')])); return; }
     var nrows = n <= 3 ? 1 : n <= 6 ? 2 : 3, groups = [], total = 0;
     for (a = 0; a < n; a++) total += s.areas[a].spaces.length;
     var cur = [], acc = 0;
@@ -372,7 +382,7 @@ export const TV_JS = `(function () {
 
   // the same for the phrase: a long one is set smaller so that it stays in the header
   function fitSay() {
-    var base = shellMode === 'night' ? [3.2, 2.1, 1.7] : [2.7, 1.75, 1.5], k = 1, n = 0, say = parts.say;
+    var base = shellMode === 'night' ? [3, 1.8, 2] : [2.9, 1.6, 1.9], k = 1, n = 0, say = parts.say;
     var set = function () { parts.ar.style.fontSize = base[0] * k + 'vw'; parts.tr.style.fontSize = base[1] * k + 'vw'; parts.gr.style.fontSize = base[2] * Math.max(k, 0.8) + 'vw'; };
     set();
     if (shellMode === 'night') return;
@@ -387,7 +397,7 @@ export const TV_JS = `(function () {
   }
   function greeting(nm) {
     var g = nm < 720 ? ['صباح الخير', 'Good morning', 'Bonjour'] : nm >= 1020 ? ['مساء الخير', 'Good evening', 'Bonsoir'] : ['أهلاً بكم', 'Welcome', 'Bienvenue'];
-    return LG === 'ar' ? g[0] : g[0] + ' · ' + g[LG === 'fr' ? 2 : 1];
+    return bi(g[0], g[LG === 'fr' ? 2 : 1]);
   }
 
   // the shell: the header with the mark, the name, the phrase and the clock; built again only when the day/night screen changes
@@ -403,7 +413,7 @@ export const TV_JS = `(function () {
     var when = el('div', 'm-when', null, [parts.clock, el('div', 'm-date', null, [parts.d1, parts.d2])]);
     if (mode === 'night') {
       var h1 = el('h1', null, s.organisation || 'MAGIS'); bidi(h1);
-      wrap.appendChild(el('div', 'm-night', null, [mark, el('div', 'm-eye', 'MAGIS'), h1, say, when, el('div', 'm-soon', w('back'))]));
+      wrap.appendChild(el('div', 'm-night', null, [mark, el('div', 'm-eye', 'MAGIS'), h1, say, when, el('div', 'm-soon', null, [wk('back')])]));
       wrap.className += ' m-nightwrap';
     } else {
       var nmh = el('h1', null, s.organisation || 'MAGIS'); bidi(nmh);
@@ -416,17 +426,17 @@ export const TV_JS = `(function () {
     shellMode = mode; shellKey = (s.logo || '') + '|' + (s.organisation || '') + '|' + LG; sig = ''; phraseAt = -1;
   }
 
-  // the welcome phrase: one at a time, every 45 seconds, the same on every screen of the centre (the time decides)
+  // the welcome phrase: one at a time, every few minutes (PHRASE_MINUTES, then the centre's setting), the same on every screen of the centre (the time decides)
   function phrase(force) {
     var s = screen; if (!s || !parts.ar || !parts.say) return;
-    var list = s.phrases && s.phrases.length ? s.phrases : [{ ar: 'أهلاً بكم', en: 'Welcome', fr: 'Bienvenue' }];
-    var at = Math.floor(new Date().getTime() / 45000);
+    var list = s.phrases || [], at = Math.floor(new Date().getTime() / ((s.phraseMinutes || PHRASE_MINUTES) * 60000));
     if (!force && at === phraseAt) return;
-    var p = list[at % list.length], now = clockNow(), nm = now.getHours() * 60 + now.getMinutes();
+    var p = list.length ? list[at % list.length] : null, now = clockNow(), nm = now.getHours() * 60 + now.getMinutes();
     var put = function () {
       if (!parts.gr || !parts.say) return;
-      parts.gr.textContent = greeting(nm); parts.ar.textContent = p.ar;
-      parts.tr.textContent = LG === 'ar' ? '' : LG === 'fr' ? (p.fr || p.en) : p.en;
+      parts.gr.innerHTML = ''; parts.gr.appendChild(greeting(nm));
+      parts.ar.textContent = p ? p.ar || '' : '';
+      parts.tr.textContent = !p || LG === 'ar' ? '' : LG === 'fr' ? (p.fr || p.en || '') : (p.en || p.fr || '');
       parts.say.className = 'm-say'; fitSay();
     };
     if (phraseAt < 0 || force) { phraseAt = at; put(); return; }
@@ -437,9 +447,9 @@ export const TV_JS = `(function () {
     var f = parts.foot; f.innerHTML = '';
     var out = [], i;
     for (i = 0; i < s.outside.length; i++) out.push(s.outside[i].title + ' (' + s.outside[i].place + ', ' + hm(s.outside[i].from) + ')');
-    if (out.length) f.appendChild(bidi(el('div', 'ln', null, [el('b', null, w('out') + ': '), document.createTextNode(out.join(' · '))])));
-    if (s.staying.length) f.appendChild(bidi(el('div', 'ln', null, [el('b', null, w('guests') + ': '), document.createTextNode(s.staying.join(' · '))])));
-    f.appendChild(el('div', 'st', null, [el('span', null, w('upd') + ' ' + lastOk), el('span', 'off', offline ? w('off') : '')]));
+    if (out.length) f.appendChild(bidi(el('div', 'ln', null, [el('b', null, null, [wk('out'), document.createTextNode(': ')]), document.createTextNode(out.join(' · '))])));
+    if (s.staying.length) f.appendChild(bidi(el('div', 'ln', null, [el('b', null, null, [wk('guests'), document.createTextNode(': ')]), document.createTextNode(s.staying.join(' · '))])));
+    f.appendChild(el('div', 'st', null, [el('span', null, null, [wk('upd'), document.createTextNode(' ' + lastOk)]), el('span', 'off', null, offline ? [wk('off')] : [])]));
   }
 
   function drawMap() {
@@ -458,7 +468,7 @@ export const TV_JS = `(function () {
       var sg = mapSig(s, nm);
       if (sg !== sig) {
         sig = sg;
-        if (s.period) { parts.band.style.display = 'block'; parts.band.textContent = w('closedp') + ': ' + s.period; } else parts.band.style.display = 'none';
+        if (s.period) { parts.band.style.display = 'block'; parts.band.innerHTML = ''; parts.band.appendChild(wk('closedp')); parts.band.appendChild(document.createTextNode(': ' + s.period)); } else parts.band.style.display = 'none';
         drawAreas(s, nm, parts.map);
         if (firstDraw) setTimeout(function () { var wr = parts.map && parts.map.parentNode; if (wr) wr.className = wr.className.replace(' m-first', ''); }, 4000);
         firstDraw = false;

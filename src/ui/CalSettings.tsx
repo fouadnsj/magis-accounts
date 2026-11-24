@@ -10,8 +10,10 @@ import { categoryOf, inCalendar, sleepsIn, type CalData, type CalSpace } from '.
 import { alwaysInRoom } from '../inventory/map';
 import { phoneWhere } from '../net';
 import { PHONE_ROLES, ROLE_NAME, type CalPhoneInfo, type PhoneRole } from '../hosting/calphone';
+import { TV_PHRASE_LENGTH, TV_PHRASE_MAX, TV_PHRASE_MIN, type TvPhrase } from '../hosting/tvSentences';
+import { m, tx } from '../i18n';
 
-type Tab = 'spaces' | 'lists' | 'closings' | 'phones';
+type Tab = 'spaces' | 'lists' | 'closings' | 'phones' | 'tv';
 
 interface SpaceForm { id?: number; building_id: number; name: string; kind_id: number | null; floor: string; capacity: string; beds: string; rentable: boolean; bookable: boolean; fixed: string; note: string; category_id: number | null; active: boolean }
 
@@ -27,11 +29,13 @@ export function CalSettings({ data, refresh }: { data: CalData; refresh: () => P
         { value: 'lists', label: t('القوائم', 'Lists') },
         { value: 'closings', label: t('الإغلاق', 'Closings') },
         ...(phones ? [{ value: 'phones' as Tab, label: t('هواتف التقويم', 'Calendar phones') }] : []),
+        ...(data.rights.setup ? [{ value: 'tv' as Tab, label: tx(m('عبارات الشاشة', 'TV phrases', 'Phrases de l’écran')) }] : []),
       ]} />
       {tab === 'spaces' && <SpacesTab data={data} refresh={refresh} />}
       {tab === 'lists' && <ListsTab data={data} refresh={refresh} />}
       {tab === 'closings' && <ClosingsTab data={data} refresh={refresh} />}
       {tab === 'phones' && phones && <PhonesTab />}
+      {tab === 'tv' && data.rights.setup && <TvPhrasesTab />}
     </>
   );
 }
@@ -454,6 +458,114 @@ function PhonesTab() {
           <p>{t(`للهاتف «${made.name}». يعمل مرة واحدة ولمدة 30 دقيقة. اكتبه على الهاتف ثم اختر رمزاً من 4 أرقام.`, `For the phone "${made.name}". It works once, for 30 minutes. Type it on the phone, then choose a code of 4 digits.`)}</p>
           <div className="ltr" style={{ fontSize: 34, fontWeight: 700, letterSpacing: 4, textAlign: 'center', margin: '14px 0' }}>{made.code}</div>
           <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" onClick={() => setMade(null)}>{t('تم', 'Done')}</button></div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- the TV phrases (Fouad, 26 November 2026; update 78)
+
+/** where a phrase comes from, in a few words (the full source is under it) */
+const KIND_NAME: Record<string, string> = {
+  charter: 'The charter · الميثاق', logo: 'The logos · الرموز', note: 'The concept note · الورقة التعريفية', app: 'The first page · الصفحة الأولى', testimony: 'A testimony', original: 'Original · أصلية', centre: 'Written by the centre · كتبها المركز',
+};
+
+function TvPhrasesTab() {
+  const { s } = useApp();
+  const [list, setList] = useState<TvPhrase[] | null>(null);
+  const [minutes, setMinutes] = useState('5');
+  const [saved, setSaved] = useState('5');
+  const [sel, setSel] = useState<string | null>(null);
+  const [form, setForm] = useState<{ key: string | null; id: number | null; ar: string; en: string; fr: string; isNew: boolean } | null>(null);
+  const load = async () => {
+    try {
+      const r = (await s.api.call('cal.tv.get')) as { minutes: number; phrases: TvPhrase[] };
+      setList(r.phrases); setMinutes(String(r.minutes)); setSaved(String(r.minutes));
+    } catch (e) { toast(errText(e), true); setList([]); }
+  };
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const act = async (fn: () => Promise<unknown>, done?: string) => { try { await fn(); await load(); if (done) toast(done); } catch (e) { toast(errText(e), true); } };
+  if (!list) return null;
+  const idOf = (p: TvPhrase) => p.key ?? `c${p.id}`;
+  const shown = list.find((p) => idOf(p) === sel) ?? list.find((p) => p.active) ?? list[0];
+  const saveMinutes = () => act(() => s.api.call('cal.tv.minutes', { minutes: Number(minutes) }), t('حُفظت المدة', 'Saved'));
+  const toggle = (p: TvPhrase) => act(() => s.api.call('cal.tv.save', p.key ? { key: p.key, active: !p.active } : { id: p.id, active: !p.active }));
+  const restore = async (p: TvPhrase) => {
+    if (!(await confirmBox(t('إرجاع العبارة إلى نصّها الأصلي؟', 'Put the phrase back to its original text?')))) return;
+    await act(() => s.api.call('cal.tv.save', { key: p.key, restore: true }));
+  };
+  const remove = async (p: TvPhrase) => {
+    if (!(await confirmBox(t('حذف هذه العبارة؟ لا يمكن التراجع.', 'Delete this phrase? This cannot be undone.'), true))) return;
+    await act(() => s.api.call('cal.tv.delete', { id: p.id! }));
+  };
+  const save = async () => {
+    if (!form) return;
+    const body = { ar: form.ar, en: form.en, fr: form.fr };
+    try {
+      if (form.isNew) await s.api.call('cal.tv.save', body); else await s.api.call('cal.tv.save', form.key ? { key: form.key, ...body } : { id: form.id, ...body });
+      setForm(null); await load();
+    } catch (e) { toast(errText(e), true); }
+  };
+  const on = list.filter((p) => p.active).length;
+  return (
+    <div className="panel">
+      <h3 style={{ margin: 0 }}>📺 {tx(m('عبارات الشاشة', 'TV phrases', 'Phrases de l’écran'))}</h3>
+      <p className="small muted">{t('العبارات الترحيبية التي تظهر على شاشة المدخل، واحدة كل بضع دقائق، بالعربية أولاً وتحتها لغة أخرى. أطفئ عبارة أو عدّلها أو اكتب عبارتك. العبارات الأصلية مأخوذة من الميثاق ومن شروح الرموز؛ ولا تُستعمل شهادات الأشخاص أبداً.', 'The welcome phrases of the screen at the entrance, one every few minutes, Arabic first and another language under it. Switch one off, edit it, or write your own. The original ones come from the charter and the explanation of the logos; a person\'s testimony is never used.')}</p>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0' }}>
+        <span>{t('تتبدّل العبارة كل', 'The phrase changes every')}</span>
+        <input className="inp" type="number" min={TV_PHRASE_MIN} max={TV_PHRASE_MAX} style={{ width: 70 }} value={minutes} onChange={(e) => setMinutes(e.target.value)} />
+        <span>{t('دقيقة (من 1 إلى 15)', 'minutes (1 to 15)')}</span>
+        {minutes !== saved && <button className="btn small primary" onClick={() => void saveMinutes()}>{t('حفظ', 'Save')}</button>}
+        <span style={{ flex: 1 }} />
+        <span className="small muted">{on} / {list.length} {t('مفعّلة', 'on')}</span>
+        <button className="btn small" onClick={() => setForm({ key: null, id: null, ar: '', en: '', fr: '', isNew: true })}>＋ {t('اكتب عبارة', 'Write a phrase')}</button>
+      </div>
+      {shown && (
+        <div className="tvprev" aria-label="preview">
+          <div className="small" style={{ opacity: .7 }}>{t('معاينة على الشاشة', 'Preview on the screen')}</div>
+          <div className="a" dir="rtl">{shown.ar}</div>
+          <div className="e" dir="ltr">{shown.en || shown.fr}</div>
+        </div>
+      )}
+      <table className="t small" style={{ marginTop: 10 }}>
+        <thead><tr><th style={{ width: 60 }}>{t('مفعّلة', 'On')}</th><th>{t('العبارة', 'Phrase')}</th><th>{t('المصدر', 'Source')}</th><th /></tr></thead>
+        <tbody>
+          {list.map((p) => (
+            <tr key={idOf(p)} className={`${p.active ? '' : 'off'} ${shown && idOf(shown) === idOf(p) ? 'sel' : ''}`} onClick={() => setSel(idOf(p))} style={{ cursor: 'pointer' }}>
+              <td><input type="checkbox" checked={p.active} onChange={() => void toggle(p)} onClick={(e) => e.stopPropagation()} aria-label={t('تفعيل', 'On')} /></td>
+              <td>
+                <div dir="rtl" style={{ fontSize: 16, fontWeight: 600 }}>{p.ar || '—'}</div>
+                {p.en && <div dir="ltr" className="muted">{p.en}</div>}
+                {p.fr && p.fr !== p.en && <div dir="ltr" className="muted" style={{ fontStyle: 'italic' }}>{p.fr}</div>}
+                {p.edited && <span className="pill" style={{ background: '#fff4d6' }}>{t('معدّلة', 'edited')}</span>}
+              </td>
+              <td className="muted"><b>{KIND_NAME[p.kind] ?? p.kind}</b><div>{p.kind === 'centre' ? '' : p.source}</div></td>
+              <td style={{ textAlign: 'end', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                <button className="btn ghost small" onClick={() => setForm({ key: p.key, id: p.id, ar: p.ar, en: p.en, fr: p.fr, isNew: false })}>{t('عدّل', 'Edit')}</button>
+                {p.edited && <button className="btn ghost small" onClick={() => void restore(p)}>{t('الأصل', 'Restore the original')}</button>}
+                {!p.key && <button className="btn ghost small" onClick={() => void remove(p)}>{t('احذف', 'Delete')}</button>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {form && (
+        <Modal title={form.isNew ? t('عبارة جديدة', 'A new phrase') : t('عدّل العبارة', 'Edit the phrase')} onClose={() => setForm(null)}>
+          <p className="small muted">{t('اكتب بلغة واحدة على الأقل. تظهر العربية أولاً وتحتها اللغة الأخرى. العبارة التي تكتبها مسؤوليتك.', 'Write in at least one language. Arabic shows first, the other language under it. A phrase you write is your own responsibility.')}</p>
+          <div className="cal-form">
+            <Field label="العربية"><textarea className="inp" dir="rtl" rows={2} maxLength={TV_PHRASE_LENGTH} autoFocus value={form.ar} onChange={(e) => setForm({ ...form, ar: e.target.value })} /></Field>
+            <Field label="English"><textarea className="inp" dir="ltr" rows={2} maxLength={TV_PHRASE_LENGTH} value={form.en} onChange={(e) => setForm({ ...form, en: e.target.value })} /></Field>
+            <Field label="Français"><textarea className="inp" dir="ltr" rows={2} maxLength={TV_PHRASE_LENGTH} value={form.fr} onChange={(e) => setForm({ ...form, fr: e.target.value })} /></Field>
+          </div>
+          <div className="tvprev" style={{ marginTop: 10 }}>
+            <div className="a" dir="rtl">{form.ar}</div>
+            <div className="e" dir="ltr">{form.en || form.fr}</div>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}>
+            <button className="btn" onClick={() => setForm(null)}>{t('إلغاء', 'Cancel')}</button>
+            <button className="btn primary" disabled={!form.ar.trim() && !form.en.trim() && !form.fr.trim()} onClick={() => void save()}>{t('حفظ', 'Save')}</button>
+          </div>
         </Modal>
       )}
     </div>

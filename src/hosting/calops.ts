@@ -3,7 +3,7 @@
 // the price history, cancelling with a part kept, the lists, and the spaces from the Excel file. Rules: calendar.ts.
 // The 0.12 hosting operations (ops.ts) stay as they are until the new screens replace them.
 import { nowIso, one, type Db, type Stmt } from '../db/db';
-import { auditStmt, UserError } from '../db/repo';
+import { auditStmt, getMeta, setMetaStmt, UserError } from '../db/repo';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import { addDays, isDay, nextCode, nextReceipt, type Currency, type HostAlloc, type HostBuilding, type HostEquip, type HostLine, type HostNeed, type HostPay, type HostService } from './host';
@@ -15,6 +15,7 @@ import {
 import { HOST_OPS } from './ops';
 import { isPhoneRole, LINK_MINUTES, newLinkCode, normCode, shaHex, type CalPhoneInfo } from './calphone';
 import { inRoomRows } from '../inventory/ops';
+import { clampPhraseMinutes, tvPhraseList, TV_PHRASE_LENGTH, TV_SENTENCES, type TvPhrase, type TvPhraseRow } from './tvSentences';
 
 const err = (ar: string, en: string, fr: string) => new UserError(m(ar, en, fr));
 const refuse = () => err('غير مسموح لهذا المستخدم', 'Not allowed for this user', 'Non autorisé pour cet utilisateur');
@@ -723,6 +724,92 @@ async function phoneCut(c: OpCtx, a: { id: string }) {
   return { ok: true };
 }
 
+
+// ---------------------------------------------------------------- the TV welcome phrases (Fouad, 26 November 2026; update 78)
+
+const PHRASE_COLS = 'id, builtin_key, ar, en, fr, active, edited, sort';
+async function centreKey(c: OpCtx): Promise<string> { return (await getMeta(c.db, 'centre')) ?? 'other'; }
+
+/** all the phrases the TV may show for this centre, as the settings page lists them, and the interval */
+async function tvGet(c: OpCtx): Promise<{ minutes: number; phrases: TvPhrase[] }> {
+  const rows = await c.db.query<TvPhraseRow>(`SELECT ${PHRASE_COLS} FROM cal_tv_phrase ORDER BY sort, id`);
+  return { minutes: clampPhraseMinutes((await getMeta(c.db, 'tv_phrase_minutes')) ?? undefined), phrases: tvPhraseList(await centreKey(c), rows) };
+}
+
+const phraseText = (x: unknown): string => {
+  const v = String(x ?? '').replace(/\s+/g, ' ').trim();
+  if (v.length > TV_PHRASE_LENGTH) throw err(`العبارة طويلة: ${TV_PHRASE_LENGTH} حرفاً على الأكثر`, `The phrase is too long: ${TV_PHRASE_LENGTH} letters at most`, `La phrase est trop longue : ${TV_PHRASE_LENGTH} lettres au plus`);
+  return v;
+};
+
+/**
+ * Change one phrase: a built-in one (key) can be switched off/on, edited, or restored; a phrase of the centre (id) is edited; with neither, a
+ * new phrase is written. Only what differs from the code is stored. No check but the length and that something is written in one language.
+ */
+async function tvSave(c: OpCtx, a: { key?: string | null; id?: number | null; ar?: string; en?: string; fr?: string; active?: boolean; restore?: boolean }) {
+  const now = nowIso();
+  const has = (k: 'ar' | 'en' | 'fr') => a[k] !== undefined;
+  const texts = has('ar') || has('en') || has('fr');
+  const ar = phraseText(a.ar), en = phraseText(a.en), fr = phraseText(a.fr);
+  if (a.key) {
+    const sent = TV_SENTENCES.find((x) => x.id === a.key);
+    if (!sent || (sent.centre && sent.centre !== (await centreKey(c)))) throw err('عبارة غير معروفة', 'Unknown phrase', 'Phrase inconnue');
+    const row = await one<TvPhraseRow>(c.db, `SELECT ${PHRASE_COLS} FROM cal_tv_phrase WHERE builtin_key = ?`, [a.key]);
+    let active = row ? row.active : 1;
+    let edited = row ? row.edited : 0;
+    let [tar, ten, tfr] = [row?.ar ?? null, row?.en ?? null, row?.fr ?? null];
+    if (a.active !== undefined) active = a.active ? 1 : 0;
+    if (a.restore) { edited = 0; tar = ten = tfr = null; }
+    if (texts) {
+      if (!ar && !en && !fr) throw err('اكتب العبارة بلغة واحدة على الأقل', 'Write the phrase in at least one language', 'Écrivez la phrase dans une langue au moins');
+      const o = { ar: sent.msg.ar, en: sent.msg.en, fr: sent.msg.fr ?? sent.msg.en };
+      if (ar === o.ar && en === o.en && fr === o.fr) { edited = 0; tar = ten = tfr = null; } else { edited = 1; [tar, ten, tfr] = [ar, en, fr]; }
+    }
+    const stmts: Stmt[] = [];
+    if (active && !edited) { if (row) stmts.push({ sql: 'DELETE FROM cal_tv_phrase WHERE id = ?', params: [row.id] }); }
+    else if (row) stmts.push({ sql: 'UPDATE cal_tv_phrase SET active = ?, edited = ?, ar = ?, en = ?, fr = ?, edited_by = ?, edited_at = ? WHERE id = ?', params: [active, edited, tar, ten, tfr, c.who, now, row.id] });
+    else stmts.push({ sql: 'INSERT INTO cal_tv_phrase (builtin_key, ar, en, fr, active, edited, created_by, created_at, edited_by, edited_at) VALUES (?,?,?,?,?,?,?,?,?,?)', params: [a.key, tar, ten, tfr, active, edited, c.who, now, c.who, now] });
+    await c.db.batch([...stmts, auditStmt(c.who, 'tv-phrase', 'cal_tv_phrase', a.key, row ? { active: row.active, edited: row.edited } : null, { active, edited })]);
+    return { ok: true };
+  }
+  if (a.id) {
+    const row = await one<TvPhraseRow>(c.db, `SELECT ${PHRASE_COLS} FROM cal_tv_phrase WHERE id = ? AND builtin_key IS NULL`, [a.id]);
+    if (!row) throw err('عبارة غير موجودة', 'Phrase not found', 'Phrase introuvable');
+    const [nar, nen, nfr] = texts ? [ar, en, fr] : [row.ar ?? '', row.en ?? '', row.fr ?? ''];
+    if (!nar && !nen && !nfr) throw err('اكتب العبارة بلغة واحدة على الأقل', 'Write the phrase in at least one language', 'Écrivez la phrase dans une langue au moins');
+    const active = a.active === undefined ? row.active : a.active ? 1 : 0;
+    await c.db.batch([
+      { sql: 'UPDATE cal_tv_phrase SET ar = ?, en = ?, fr = ?, active = ?, edited_by = ?, edited_at = ? WHERE id = ?', params: [nar, nen, nfr, active, c.who, now, row.id] },
+      auditStmt(c.who, 'tv-phrase', 'cal_tv_phrase', String(row.id), { ar: row.ar, en: row.en, fr: row.fr, active: row.active }, { ar: nar, en: nen, fr: nfr, active }),
+    ]);
+    return { id: row.id };
+  }
+  if (!ar && !en && !fr) throw err('اكتب العبارة بلغة واحدة على الأقل', 'Write the phrase in at least one language', 'Écrivez la phrase dans une langue au moins');
+  const sort = ((await one<{ n: number }>(c.db, 'SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM cal_tv_phrase'))?.n) ?? 1;
+  await c.db.batch([
+    { sql: 'INSERT INTO cal_tv_phrase (builtin_key, ar, en, fr, active, edited, sort, created_by, created_at) VALUES (NULL,?,?,?,?,0,?,?,?)', params: [ar, en, fr, a.active === false ? 0 : 1, sort, c.who, now] },
+    auditStmt(c.who, 'tv-phrase', 'cal_tv_phrase', null, null, { ar, en, fr }),
+  ]);
+  return { id: (await one<{ id: number }>(c.db, 'SELECT MAX(id) AS id FROM cal_tv_phrase'))?.id ?? null };
+}
+
+/** a phrase the centre wrote can be deleted; a built-in one only switched off or edited */
+async function tvDelete(c: OpCtx, a: { id: number }) {
+  const row = await one<TvPhraseRow>(c.db, `SELECT ${PHRASE_COLS} FROM cal_tv_phrase WHERE id = ?`, [a.id]);
+  if (!row) throw err('عبارة غير موجودة', 'Phrase not found', 'Phrase introuvable');
+  if (row.builtin_key) throw err('العبارة الأصلية تُطفأ أو تُعدَّل فقط', 'A built-in phrase can only be switched off or edited', 'Une phrase d’origine ne peut qu’être éteinte ou modifiée');
+  await c.db.batch([{ sql: 'DELETE FROM cal_tv_phrase WHERE id = ?', params: [row.id] }, auditStmt(c.who, 'tv-phrase-delete', 'cal_tv_phrase', String(row.id), { ar: row.ar, en: row.en, fr: row.fr }, null)]);
+  return { ok: true };
+}
+
+async function tvMinutes(c: OpCtx, a: { minutes: number }) {
+  const n = Number(a.minutes);
+  if (!Number.isFinite(n) || n < 1 || n > 15) throw err('المدة بين دقيقة و15 دقيقة', 'The time is between 1 and 15 minutes', 'La durée est de 1 à 15 minutes');
+  const minutes = clampPhraseMinutes(n);
+  await c.db.batch([setMetaStmt('tv_phrase_minutes', String(minutes)), auditStmt(c.who, 'tv-phrase-minutes', 'meta', 'tv_phrase_minutes', null, { minutes })]);
+  return { minutes };
+}
+
 export const CAL_OPS = {
   'cal.get': { check: need('view'), run: (c: OpCtx) => loadCal(c) },
   'cal.history': { check: need('history'), run: (c: OpCtx, a: { booking_id?: number }) => history(c, a) },
@@ -768,6 +855,10 @@ export const CAL_OPS = {
   'cal.phone.list': { check: managesPhones, run: (c: OpCtx) => phoneList(c) },
   'cal.phone.edit': { check: managesPhones, run: (c: OpCtx, a: Parameters<typeof phoneEdit>[1]) => phoneEdit(c, a) },
   'cal.phone.cut': { check: managesPhones, run: (c: OpCtx, a: { id: string }) => phoneCut(c, a) },
+  'cal.tv.get': { check: need('setup'), run: (c: OpCtx) => tvGet(c) },
+  'cal.tv.save': { check: need('setup'), run: (c: OpCtx, a: Parameters<typeof tvSave>[1]) => tvSave(c, a) },
+  'cal.tv.delete': { check: need('setup'), run: (c: OpCtx, a: { id: number }) => tvDelete(c, a) },
+  'cal.tv.minutes': { check: need('setup'), run: (c: OpCtx, a: { minutes: number }) => tvMinutes(c, a) },
   'cal.date.change': { check: anyChange, run: (c: OpCtx, a: Parameters<typeof dateChange>[1]) => dateChange(c, a) },
   'cal.date.undo': { check: anyChange, run: (c: OpCtx, a: { id: number }) => dateUndo(c, a) },
 
@@ -793,7 +884,7 @@ export const CAL_OPS = {
   'cal.import.orgs': { check: need('orgs'), run: (c: OpCtx, a: { rows: unknown[][]; dry?: boolean }) => importOrgs(c, a) },
 } as const;
 
-export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options', 'cal.phone.list'];
+export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options', 'cal.phone.list', 'cal.tv.get'];
 
 /** for the tests and the coming screens: who sees the amounts */
 export const calSeesPrices = (c: OpCtx) => seesPrices(rightsOf(c));

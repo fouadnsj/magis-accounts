@@ -92,7 +92,7 @@ describe('the TV screen', () => {
     expect(homs.phrases.length).toBeGreaterThan(10);
     expect(Object.keys(homs.phrases[0]).sort()).toEqual(['ar', 'en', 'fr']);
     // the whole screen of the map holds only these keys: no price, contact, note, leader, status or id of a person
-    expect(Object.keys(homs).sort()).toEqual(['areas', 'asOf', 'color', 'day', 'from', 'logo', 'organisation', 'outside', 'period', 'phrases', 'staying', 'to']);
+    expect(Object.keys(homs).sort()).toEqual(['areas', 'asOf', 'color', 'day', 'from', 'logo', 'organisation', 'outside', 'period', 'phraseMinutes', 'phrases', 'staying', 'to']);
     const s = await screen('director');
     expect(Object.keys(s.areas[0].spaces[0].items[0]).sort()).toEqual(['from', 'hold', 'people', 'title', 'to']);
   });
@@ -133,7 +133,7 @@ describe('the TV screen', () => {
     const byName = (name: string) => day.tiles.find((t) => textOf(t).includes(name))!;
     expect(byName('Hall A').className).toBe('m-tile busy');
     expect(textOf(byName('Hall A'))).toContain('Test choir');
-    expect(textOf(byName('Hall A'))).toContain('09:00–11:00');
+    expect(textOf(byName('Hall A'))).toContain('09:00 – 11:00');
     expect(byName('Hall B').className).toBe('m-tile shut'); // closed for painting in the test before
     expect(day.text).toContain('Test centre'); // the name of the centre
     expect(day.text).toContain('Good morning'); // the greeting of the hour

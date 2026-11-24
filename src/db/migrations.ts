@@ -2549,4 +2549,30 @@ INSERT INTO access_profile (name, perms, sort, kind)
    WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'keeper');
 `,
   },
+  {
+    n: 78,
+    name: 'the TV welcome phrases of a centre: switched off, edited, or written by the centre; the interval is a setting',
+    sql: `
+-- (Fouad, 26 November 2026) The phrases of the TV screen live in the code (src/hosting/tvSentences.ts) and stay the default: a corrected
+-- default reaches a centre that never edited it. This table holds only what the centre changed:
+--  - a built-in phrase (builtin_key = its id in the code) that is switched off (active = 0) or edited (edited = 1, with its own ar/en/fr);
+--  - a phrase written by the centre (builtin_key NULL).
+-- The change interval is meta.tv_phrase_minutes (1-15, 5 when empty).
+CREATE TABLE cal_tv_phrase (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  builtin_key TEXT,
+  ar          TEXT,
+  en          TEXT,
+  fr          TEXT,
+  active      INTEGER NOT NULL DEFAULT 1,
+  edited      INTEGER NOT NULL DEFAULT 0,
+  sort        INTEGER NOT NULL DEFAULT 0,
+  created_by  TEXT,
+  created_at  TEXT,
+  edited_by   TEXT,
+  edited_at   TEXT
+);
+CREATE UNIQUE INDEX cal_tv_phrase_key ON cal_tv_phrase (builtin_key) WHERE builtin_key IS NOT NULL;
+`,
+  },
 ];

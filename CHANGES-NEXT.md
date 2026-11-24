@@ -658,3 +658,43 @@ Fouad answered "as you suggest" to Q1, Q2 and Q3 of `DECISIONS-BEFORE-BUILD.html
   files written) and the Export tab, Lists has no Projects or Cities tab, the block "Special funds · projects" is open under Budget, the Books table has no City
   column, the entry form has no City, Settings has no "start" tab (794 rows); "Test as" Assem (Accountant): same, with the Export tab and the block in Lists.
   Not tried: an entry saved with the hidden city, a PDF, an empty register.
+
+## 28. The real TV screen: a colourful map of the centre (calendar step 7b, 26 November 2026; NO database update — 78 stays free)
+Fouad: "something more interactive like a colourful map of areas with spaces that holds the names of the activity in it, with the logo of the centre
+and an original welcoming phrase." The plain page (§ "TV" above) is kept; `/tv` now shows the map.
+- **The map.** Each **area** is a large soft block in its colour from the settings (a calm colour is chosen when an area has none), holding its **spaces
+  as tiles** (bedrooms are not drawn; they stay in "In the house"). A tile says, by what the clock says:
+  **busy now** (the area's colour, strong: the activity's name big, its hours, the space's name small, and the next one under it), **next** (soft: the
+  space's name, the next activity and its hours, then what follows), **free** (quiet), **closed** (struck through, "Closed · مغلق", the reason is never
+  sent), **to be confirmed** (soft, dashed). A private booking shows only "Reserved · محجوز". The areas are as wide as their number of spaces; the
+  tiles share the height, so a big area and a small one both fill the screen like a map. Big type for 4–5 metres (the smallest line is 1.2 vw, the
+  names 1.6–2.5 vw); Arabic right to left, the area on the right is the first.
+- **The header.** The centre's **mark** (on a cream card, so a navy or maroon mark can be seen on the dark screen) with a slow light behind it, the
+  centre's name, a **welcome phrase** in Arabic with English under it (`?l=fr` for French, `?l=ar` for Arabic alone) that changes every 45 seconds with
+  a gentle fade, a small greeting by the hour above it (Good morning / Welcome / Good evening), the clock and the date in Arabic and English.
+  Under the map: the groups staying in the house and our activities outside the centre (names only), and "Updated hh:mm" (with "No connection: showing
+  the last screen" when the server cannot be reached).
+- **Night.** Outside 08:00–22:00 a calm screen: the big mark, the name, the phrase, the clock and "Today's screen comes back at 08:00". At midnight
+  the screen asks for the new day by itself (not only at the next minute).
+- **The phrases** (`src/hosting/tvSentences.ts`, 38, listed with their sources in **`TV-SENTENCES.md`**, made by `scripts/tv-sentences-md.ts`):
+  the charter, the logos' explanation, the first page's sentences, the concept note (taken from the doors page **by name**, so a correction there is
+  made here), plus 10 ORIGINAL ones written for the TV, in the same spirit (the first one is "أهلاً بكم، البيت بيتكم" / "Welcome. This house is
+  yours."). **No testimony** is used (a screen at the entrance is seen by everyone). A centre's own logo sentences show only on its TV. The order changes
+  every day and is the same on every TV of a centre. The Arabic and French of the new ones are mine: **to be read by Fouad**.
+- **What the TV receives** (`src/hosting/caltv.ts`, unchanged rule): group names, hours, area and space names, the centre's colour and mark, the phrases.
+  Never a price, payment, contact, note, leader or the reason of a closing; a private booking only "Reserved". New in the data: `color`, `logo`,
+  `phrases` (the mark is the centre's own: `/brand/mark-<centre>.png`, or the small picture set in Admin → Appearance).
+- **Crowded centres.** More than 3 areas go in 2 or 3 rows (in order), each row as tall as its fullest area needs; in each area the tiles share the height in
+  rows, and if the type does not fit it is made smaller together for that area (at last the "then" lines are left out). A long phrase is set smaller to
+  stay in the header. This is measured by the page itself after the Arabic letters have loaded.
+- **Old TVs.** The script is plain old-style JavaScript, no build, and the same CSS tools as the plain page (flex, vw, rgba). `/tv?plain` shows the plain
+  page; **if the map cannot be drawn** (any error) the page falls back to the plain one by itself. `/tv?at=14:30` shows the screen as at that hour of
+  today (to try the TV at another time; the clock then goes on from there).
+- **Tests** (`tests/caltv.test.ts` +4, `tests/tvsentences.test.ts` 5): the screen holds only the allowed keys; the mark and colour of a centre; the page script is
+  run against a small made-up page: busy / closed / free tiles, a private booking only "Reserved", no price, contact, note or leader anywhere on the page,
+  the night screen, French, `?plain`, and the fall-back when the map breaks; the phrases (a source or "original", three languages, no testimony, no
+  number, no buzzword, a centre's own only with its centre, the same order for a day, the greeting by hour).
+- **Tried in the side pane** at 1920×1080 and 1280×720 on a COPY of the Homs test data (own port) with some bookings added for today: 14:30, 15:30, 18:40
+  (busy / next / free / closed / to confirm), the night at 23:00 in English and French, `?plain`, and the phrase changing by itself. Also a crowded test: 5 areas and 21 spaces (a navy area
+  too), 9 spaces in one area. **Not tried:** a real TV or an old TV browser, a screen seen from 5 metres, the midnight change, a very long activity name
+  (cut after 3 lines).

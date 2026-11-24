@@ -2,8 +2,13 @@
 // from 08:00 to 22:00. Read only. It shows the names of the groups, never prices, payments, contacts, notes or leaders: a private
 // booking shows only "Reserved · محجوز". The server cuts the calendar like the Team phone (src/hosting/calphone.ts) and then
 // makes this small screen, so the TV receives nothing else. Pure functions, tested in tests/caltv.test.ts.
+// The map screen (server/tv-page.ts) draws the same data: areas as coloured blocks, spaces as tiles; it adds the centre's mark and
+// colour and the welcome phrases of the day, and nothing that is private.
 import { closedOn, inCalendar, periodOn, sleepsIn, type CalData } from './calendar';
 import { itemsBetween } from './calview';
+import { brandStyle } from '../brand';
+import type { Msg } from '../i18n';
+import { tvPhrases } from './tvSentences';
 
 export const TV_FROM = 8 * 60;
 export const TV_TO = 22 * 60;
@@ -26,10 +31,18 @@ export interface TvScreen {
   staying: string[];
   /** a closed period of the centre today (holidays): its name */
   period: string | null;
+  /** the centre's own look (the map screen): its colour and its mark (an address of the program, or a small picture), null = the MAGIS sun */
+  color: string | null;
+  logo: string | null;
+  /** the welcome phrases of this day, Arabic with English and French (src/hosting/tvSentences.ts); nothing else of the program */
+  phrases: Msg[];
 }
 
+/** what the database says about its look (the meta table) */
+export interface TvBrand { centre?: string | null; color?: string | null; logo?: string | null }
+
 /** the screen of a day, from a calendar already cut like the Team phone's */
-export function tvScreen(d: CalData, day: string, organisation = '', asOf = ''): TvScreen {
+export function tvScreen(d: CalData, day: string, organisation = '', asOf = '', brand: TvBrand = {}): TvScreen {
   const items = (itemsBetween(d, day, day).get(day) ?? []).filter((it) => it.b.status !== 'left' || it.b.kind !== 'stay');
   const halls = d.spaces.filter((s) => inCalendar(s) && !sleepsIn(s, d.kinds));
   const areas: TvArea[] = [];
@@ -47,6 +60,7 @@ export function tvScreen(d: CalData, day: string, organisation = '', asOf = ''):
       }));
     if (spaces.length) areas.push({ name: a.name, color: a.color, spaces });
   }
+  const look = brandStyle({ centre: brand.centre ?? 'other', color: brand.color, logo: brand.logo });
   return {
     organisation,
     day,
@@ -57,5 +71,8 @@ export function tvScreen(d: CalData, day: string, organisation = '', asOf = ''):
     outside: items.filter((it) => it.b.outside_place && !it.b.whole_centre).map((it) => ({ title: it.b.group_name, place: it.b.outside_place!, from: it.occ.from, to: it.occ.to })),
     staying: [...new Set(items.filter((it) => it.b.kind === 'stay').map((it) => it.b.group_name))],
     period: periodOn(d.periods, day)?.name ?? null,
+    color: look.color,
+    logo: look.mark,
+    phrases: tvPhrases(brand.centre, day),
   };
 }

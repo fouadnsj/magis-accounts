@@ -56,5 +56,6 @@ export async function tvPack(db: Db, p: CalPhoneRow, today: string): Promise<TvS
   const all = await loadCalRaw(db, rights);
   const asOf = nowIso();
   await db.batch([{ sql: 'UPDATE cal_phone SET last_sync = ? WHERE id = ?', params: [asOf, p.id] }]);
-  return tvScreen(phoneCut(all, 'team', today), today, (await getMeta(db, 'organisation')) ?? '', asOf);
+  const brand = { centre: (await getMeta(db, 'centre')) ?? 'other', color: await getMeta(db, 'brand_color'), logo: await getMeta(db, 'brand_logo') };
+  return tvScreen(phoneCut(all, 'team', today), today, (await getMeta(db, 'organisation')) ?? '', asOf, brand);
 }

@@ -1,5 +1,6 @@
 // The TV at the entrance (calendar step 7, plain version): today's halls hour by hour, read only; only group names (a private
 // booking shows only "Reserved · محجوز"); never prices, payments, contacts, notes or leaders. Invented names; days from today.
+import vm from 'node:vm';
 import { describe, expect, it, beforeAll } from 'vitest';
 import { runOp, type OpCtx } from '../src/ops';
 import { loadProfile } from '../src/auth';
@@ -8,7 +9,7 @@ import { nowIso, type Db } from '../src/db/db';
 import { addDays } from '../src/hosting/host';
 import { RESERVED, type CalData } from '../src/hosting/calendar';
 import { calPhoneOf, claimLink, tvPack } from '../server/calphone';
-import { TV_FROM, TV_TO, type TvScreen } from '../src/hosting/caltv';
+import { TV_FROM, TV_TO, tvScreen, type TvScreen } from '../src/hosting/caltv';
 import { TV_HTML, TV_JS } from '../server/tv-page';
 import { nodeDb } from './nodeDb';
 
@@ -79,5 +80,89 @@ describe('the TV screen', () => {
     expect(TV_HTML).not.toMatch(/<script>[^<]/);
     expect(TV_JS).toContain('/api/tv/screen');
     expect(TV_JS).not.toContain('/api/calphone');
+  });
+
+  it('the map screen carries the centre’s mark and colour and the welcome phrases, and nothing else of the program', async () => {
+    const d = (await runOp(director, 'cal.get', undefined)) as CalData;
+    const homs = tvScreen(d, today(), 'Homs house', '', { centre: 'homs' });
+    expect([homs.logo, homs.color]).toEqual(['/brand/mark-homs.png', '#5B191D']);
+    const own = tvScreen(d, today(), 'Own', '', { centre: 'other', color: '#336699', logo: 'data:image/png;base64,AAAA' });
+    expect([own.logo, own.color]).toEqual(['data:image/png;base64,AAAA', '#336699']);
+    expect(tvScreen(d, today(), 'Nobody', '', { centre: 'other' }).logo).toBeNull(); // the page then shows the MAGIS sun
+    expect(homs.phrases.length).toBeGreaterThan(10);
+    expect(Object.keys(homs.phrases[0]).sort()).toEqual(['ar', 'en', 'fr']);
+    // the whole screen of the map holds only these keys: no price, contact, note, leader, status or id of a person
+    expect(Object.keys(homs).sort()).toEqual(['areas', 'asOf', 'color', 'day', 'from', 'logo', 'organisation', 'outside', 'period', 'phrases', 'staying', 'to']);
+    const s = await screen('director');
+    expect(Object.keys(s.areas[0].spaces[0].items[0]).sort()).toEqual(['from', 'hold', 'people', 'title', 'to']);
+  });
+
+  // ---- the page script, run against a tiny made-up page (no browser here): what the map shows and what it never shows
+  type FEl = { tag: string; className: string; style: Record<string, string>; kids: FEl[]; text: string; attrs: Record<string, string>; parentNode: FEl | null; src?: string };
+  const fakeEl = (tag: string): FEl & Record<string, unknown> => {
+    const e: FEl & Record<string, unknown> = { tag, className: '', style: {}, kids: [], text: '', attrs: {}, parentNode: null,
+      appendChild(c: FEl) { c.parentNode = e; e.kids.push(c); return c; },
+      setAttribute(k: string, v: string) { e.attrs[k] = v; } };
+    Object.defineProperty(e, 'textContent', { get: () => e.text, set: (v: unknown) => { e.text = String(v ?? ''); e.kids = []; } });
+    Object.defineProperty(e, 'innerHTML', { get: () => '', set: () => { e.kids = []; e.text = ''; } });
+    return e;
+  };
+  const all = (e: FEl): FEl[] => [e, ...e.kids.flatMap(all)];
+  const textOf = (e: FEl): string => e.text + ' ' + (e.src ?? '') + ' ' + e.kids.map(textOf).join(' ');
+  /** run the TV script as a TV would: linked, with this query; returns the page */
+  const runPage = async (query: string, opts: { breakImg?: boolean } = {}) => {
+    const scr = await screen();
+    const app = fakeEl('div'); const body = { className: '' };
+    const store: Record<string, string> = { 'magis-tv-key': 'x' };
+    class XHR {
+      status = 200; responseText = JSON.stringify(scr); timeout = 0; onload: (() => void) | null = null; onerror: unknown; ontimeout: unknown;
+      open() {} setRequestHeader() {} send() { this.onload?.(); }
+    }
+    const sandbox = {
+      document: { getElementById: () => app, createElement: (t: string) => { if (opts.breakImg && t === 'img') throw new Error('no pictures here'); return fakeEl(t); }, createTextNode: (t: string) => { const e = fakeEl('#text'); e.text = t; return e; }, body },
+      localStorage: { getItem: (k: string) => store[k] ?? null, setItem: (k: string, v: string) => { store[k] = v; }, removeItem: (k: string) => { delete store[k]; } },
+      XMLHttpRequest: XHR, location: { search: query }, setInterval: () => 0, setTimeout: () => 0, Date, Math, JSON, parseInt, RegExp, String, Number,
+    };
+    vm.runInNewContext(TV_JS, sandbox);
+    return { app, body, text: textOf(app as unknown as FEl), tiles: all(app as unknown as FEl).filter((e) => e.className.indexOf('m-tile ') === 0) };
+  };
+
+  it('the map: busy now, next, closed and free tiles; a private booking is only Reserved; nothing private, no price, no contact', async () => {
+    const day = await runPage('?at=09:30');
+    expect(day.body.className).toBe('map');
+    const byName = (name: string) => day.tiles.find((t) => textOf(t).includes(name))!;
+    expect(byName('Hall A').className).toBe('m-tile busy');
+    expect(textOf(byName('Hall A'))).toContain('Test choir');
+    expect(textOf(byName('Hall A'))).toContain('09:00–11:00');
+    expect(byName('Hall B').className).toBe('m-tile shut'); // closed for painting in the test before
+    expect(day.text).toContain('Test centre'); // the name of the centre
+    expect(day.text).toContain('Good morning'); // the greeting of the hour
+    const afternoon = await runPage('?at=14:30');
+    expect(textOf(afternoon.tiles.find((t) => textOf(t).includes('Hall A'))!)).toContain(RESERVED);
+    for (const r of [day, afternoon]) for (const bad of ['Private meeting', 'secret note', 'do not tell', 'Person A', '0911', 'USD', 'price', 'rate', 'leader', 'painting']) expect(r.text).not.toContain(bad);
+    const free = await runPage('?at=20:30');
+    expect(free.tiles.find((t) => textOf(t).includes('Hall A'))!.className).toBe('m-tile free');
+    const fr = await runPage('?at=09:30&l=fr');
+    expect(fr.text).toContain('Fermé');
+  });
+
+  it('outside 08:00–22:00 the screen is the calm night screen, not the map', async () => {
+    const night = await runPage('?at=23:10');
+    expect(night.body.className).toBe('map');
+    expect(night.tiles).toHaveLength(0);
+    expect(night.text).toContain('08:00');
+    expect(night.text).toContain('Test centre');
+    expect(night.text).not.toContain('Hall A');
+  });
+
+  it('the plain page stays: ?plain shows it, and the map that cannot be drawn falls back to it by itself', async () => {
+    const plain = await runPage('?plain');
+    expect(plain.body.className).toBe('plain');
+    expect(plain.tiles).toHaveLength(0);
+    expect(plain.text).toContain('Hall A');
+    const broken = await runPage('?at=09:30', { breakImg: true });
+    expect(broken.body.className).toBe('plain');
+    expect(broken.text).toContain('Hall A');
+    expect(broken.text).toContain('Test choir');
   });
 });

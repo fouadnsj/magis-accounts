@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tester's guide · MAGIS Accounts 0.13.0</title>
+<style>
+  :root { --ink:#26292E; --soft:#6b6a63; --gold:#B8891B; --gold-d:#8A6A1A; --bg:#FBF9F4; --card:#fff; --line:#E4DED0; --ok:#2F6B4F; --bad:#A4332B; --unc:#9A6A00; --skip:#7a7a72; --warm:#F6EFDD; }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.55 'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 22px 16px 130px; }
+  h1 { font-size: 28px; margin: 6px 0 2px; line-height: 1.2; }
+  h2 { font-size: 21px; margin: 0 0 6px; }
+  h3 { font-size: 17px; margin: 14px 0 4px; }
+  .sub { color: var(--soft); margin: 0 0 16px; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0; padding-inline-start: 22px; }
+  li { margin: 3px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; margin: 14px 0; }
+  .card.gold { border-top: 5px solid var(--gold); }
+  details.card > summary { cursor: pointer; font-weight: 700; font-size: 19px; list-style: none; }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::before { content: '▸ '; color: var(--gold-d); }
+  details.card[open] > summary::before { content: '▾ '; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+  .grid label { display: block; font-size: 14px; color: var(--soft); }
+  .grid input { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); margin-top: 2px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .tag { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 9px; padding: 1px 8px; margin-inline-start: 6px; vertical-align: middle; white-space: nowrap; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .tag.new { background: var(--gold); color: #fff; }
+  .tag.cmp { background: #EAF1F7; color: #25507a; border: 1px solid #c4d6e6; }
+  .tag.priv { background: #F3E6E4; color: var(--bad); border: 1px solid #e3c2be; }
+  .sev-key { font-size: 15px; }
+  .sev-key b { white-space: nowrap; }
+  .ex { background: var(--warm); border-radius: 10px; padding: 8px 12px; margin: 8px 0; font-size: 15.5px; }
+
+  /* tool bar */
+  .tools { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 12px 0; }
+  .tools input[type=search] { flex: 1 1 220px; font: inherit; font-size: 16px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  .tools label.chk { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+  .tools input[type=checkbox] { width: 20px; height: 20px; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 10px 18px; cursor: pointer; background: var(--gold); color: #fff; font-weight: 600; }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  button.small { padding: 6px 12px; font-size: 15px; }
+
+  /* progress */
+  .meter { height: 12px; background: #EEE8D8; border-radius: 8px; overflow: hidden; }
+  .meter > i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .25s; }
+  .counts { font-size: 14.5px; color: var(--soft); margin-top: 4px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .counts b { color: var(--ink); }
+
+  /* doors */
+  .door { background: var(--card); border: 1px solid var(--line); border-top: 5px solid var(--gold); border-radius: 14px; margin: 18px 0; }
+  .door-h { display: block; width: 100%; text-align: start; background: none; color: var(--ink); border-radius: 14px; padding: 14px 18px; font-weight: 400; }
+  .door-h .dn { font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold-d); font-weight: 700; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .door-h .dt { font-size: 23px; font-weight: 700; display: block; line-height: 1.25; }
+  .door-h .dt::before { content: '▸ '; color: var(--gold-d); }
+  .door.open > .door-h .dt::before { content: '▾ '; }
+  .door-h .di { color: var(--soft); font-size: 15.5px; display: block; margin: 2px 0 8px; }
+  .door-b { display: none; padding: 0 18px 16px; }
+  .door.open > .door-b { display: block; }
+  .door-intro { background: var(--warm); border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; font-size: 15.5px; }
+
+  .sec { border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; background: #fff; }
+  .sec-h { display: flex; width: 100%; gap: 10px; align-items: baseline; justify-content: space-between; text-align: start; background: #FFFBEF; color: var(--ink); border-radius: 12px; padding: 10px 14px; font-weight: 700; font-size: 18px; }
+  .sec-h .st-t { flex: 1; }
+  .sec-h small { font-weight: 400; color: var(--soft); font-size: 14px; white-space: nowrap; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .sec-b { display: none; padding: 4px 14px 14px; }
+  .sec.open > .sec-b { display: block; }
+  .sec.open > .sec-h { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .sec-intro { color: var(--soft); font-size: 15.5px; margin: 8px 0; }
+
+  .test { border: 1px solid var(--line); border-inline-start: 6px solid #D9D3C3; border-radius: 10px; padding: 10px 14px; margin: 12px 0; background: #fff; }
+  .test[data-s=ok] { border-inline-start-color: var(--ok); }
+  .test[data-s=bad] { border-inline-start-color: var(--bad); background: #FFF8F7; }
+  .test[data-s=unc] { border-inline-start-color: var(--unc); background: #FFFCF2; }
+  .test[data-s=skip] { border-inline-start-color: var(--skip); }
+  .th { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
+  .num { font-weight: 700; color: var(--gold-d); font-size: 14.5px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; white-space: nowrap; }
+  .tt { font-weight: 700; font-size: 17.5px; }
+  .who { font-size: 14px; color: var(--soft); font-style: italic; margin: 2px 0; }
+  .lbl { font-weight: 700; font-size: 13px; letter-spacing: .07em; text-transform: uppercase; color: var(--gold-d); margin-top: 6px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .do ol { margin: 2px 0 4px; }
+  .exp { margin: 0 0 4px; }
+  .ans { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .ans label, .sev label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 20px; padding: 6px 12px; cursor: pointer; background: #fff; font-size: 15.5px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; user-select: none; }
+  .ans input, .sev input { margin: 0; width: 17px; height: 17px; }
+  .ans label.on.ok { background: #E4F1EA; border-color: var(--ok); color: var(--ok); font-weight: 700; }
+  .ans label.on.bad { background: #F6DEDB; border-color: var(--bad); color: var(--bad); font-weight: 700; }
+  .ans label.on.unc { background: #FBF0D0; border-color: var(--unc); color: var(--unc); font-weight: 700; }
+  .ans label.on.skip { background: #ECECE8; border-color: var(--skip); color: #444; font-weight: 700; }
+  .sev { display: none; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+  .test[data-s=bad] .sev { display: flex; }
+  .sev > span { font-size: 14.5px; color: var(--bad); font-weight: 700; margin-inline-end: 4px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  .sev label.on { background: #F6DEDB; border-color: var(--bad); color: var(--bad); font-weight: 700; }
+  textarea { width: 100%; min-height: 54px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 15.5px; background: #fff; color: var(--ink); resize: vertical; }
+  .secnote { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); }
+  .secnote .lbl { margin-top: 0; }
+  .pnote, .psev { display: none; }
+  .none { color: var(--soft); text-align: center; padding: 20px; display: none; }
+
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 10px 14px; z-index: 20; }
+  .bar-in { max-width: 900px; margin: 0 auto; display: flex; gap: 8px 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  #prog { color: var(--soft); font-size: 14.5px; flex: 1 1 200px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; min-width: 160px; }
+  #prog .meter { height: 8px; margin-top: 4px; }
+  #out { display: none; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 18px 0; white-space: pre-wrap; font: 14px/1.5 ui-monospace, Menlo, monospace; }
+  #storewarn { display: none; background: #F6DEDB; border: 1px solid var(--bad); border-radius: 10px; padding: 8px 12px; margin: 10px 0; color: var(--bad); }
+  .print-head { display: none; }
+  @media screen { .hid { display: none !important; } }
+
+  @media (max-width: 560px) {
+    body { font-size: 16.5px; }
+    h1 { font-size: 24px; }
+    .door-b { padding: 0 10px 14px; }
+    .sec-b { padding: 4px 8px 12px; }
+    .door-h { padding: 12px 12px; }
+    .door-h .dt { font-size: 20px; }
+    .sec-h { font-size: 16.5px; flex-wrap: wrap; }
+    .ans label { padding: 8px 12px; }
+    .bar button { padding: 9px 12px; font-size: 15px; }
+  }
+
+  @media print {
+    body { background: #fff; font-size: 11.5pt; }
+    .wrap { padding: 0; max-width: none; }
+    h1, .card, .bar, .tools, .noprint, details.card, #out, #storewarn, .ans, .sev, textarea, .do, .exp, .who, .lbl, .sec-intro, .door-intro, .door-h .di, .meter, .counts, .tag, .none, .sec-h small { display: none !important; }
+    .print-head { display: block; margin-bottom: 10px; }
+    .door { border: 0; border-top: 2px solid #999; border-radius: 0; margin: 14px 0; }
+    .door:not(.pr) { display: none; }
+    .door-h { padding: 4px 0; }
+    .door-b, .sec-b { display: block !important; padding: 0 !important; }
+    .sec { border: 0; margin: 6px 0; }
+    .sec:not(.pr) { display: none; }
+    .sec-h { background: none; padding: 2px 0; font-size: 13pt; border: 0; }
+    .test { display: none; border: 0; border-inline-start: 4px solid #999; padding: 4px 10px; margin: 6px 0; background: none !important; page-break-inside: avoid; }
+    .test.pr { display: block; }
+    .test .th { display: block; }
+    .num { margin-inline-end: .6em; }
+    .door-h .dt::before { content: none !important; }
+    .pnote, .psev { display: block; white-space: pre-wrap; }
+    .psev { font-weight: 700; }
+    .secnote { border: 0; padding: 0; margin: 4px 0; }
+    .secnote .pnote.sn { display: block; }
+    .secnote:not(.pr) { display: none; }
+    .secnote .lbl { display: block !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tester's guide · MAGIS Accounts 0.13.0</h1>
+  <p class="sub noprint">Door by door, section by section. Do each test, say how it went, and write a note when something is wrong or unclear. Your answers stay in this page on this device. At the bottom: <b>Copy my notes</b>, <b>Save notes as a file</b> and <b>Print</b>.</p>
+
+  <div class="print-head" id="printHead"></div>
+
+  <div class="card gold">
+    <h2>Who is testing</h2>
+    <div class="grid">
+      <label>Your name<input id="f-name" autocomplete="off"></label>
+      <label>Date<input id="f-date" autocomplete="off" placeholder="for example 27 November 2026"></label>
+      <label>Device<input id="f-device" autocomplete="off" placeholder="for example Windows laptop, iPad"></label>
+      <label>Browser<input id="f-browser" autocomplete="off" placeholder="for example Chrome, Safari, Edge"></label>
+      <label style="grid-column:1/-1">The version written at the bottom of the program<input id="f-version" autocomplete="off" placeholder="copy it exactly as you see it"></label>
+    </div>
+  </div>
+
+  <details class="card" open>
+    <summary>Before you start</summary>
+    <h3>What the program is</h3>
+    <p>MAGIS Accounts is the program of the MAGIS centres. It has <b>doors</b>: Accounts, Calendar · التقويم, Inventory · الجرد, HR, and Administration · الإدارة. Each door has its own menu. Version 0.13.0 is the new version. You test it before anyone uses it for real.</p>
+    <p>Two small tags help you:
+      <span class="tag new">new in 0.13.0</span> = new since version 0.12.1. Test it as something you meet for the first time.
+      <span class="tag cmp">to compare with the old version</span> = it existed before. Check that it still works as it used to.
+      <span class="tag priv">privacy check</span> = someone must <b>not</b> see this. Be strict here.</p>
+
+    <h3>The data is a COPY, not real</h3>
+    <p>You work on a test copy of the program. The halls, bedrooms, bookings, payments and inventory items with names like “Sample…” are made-up test data. You may add, change, cancel and break things. Nothing is real. <b>Never use the real program for this test.</b> If you are not sure which one you are in, stop and ask Fouad.</p>
+
+    <h3>How to sign in</h3>
+    <p>Fouad gives you the address of the test copy and several accounts. Each account has one or more <b>roles</b>: Administrator, Director, Accountant, Book holder, Reception, Coordinator (workshops), Store keeper. Ask Fouad which account has which role. Write nobody's password in this page.</p>
+    <p>Each test says <i>“As: …”</i> when a special role is needed. If no role is written, use the Administrator. To change person: sign out, or use “Test as…” below.</p>
+
+    <h3>“Test as…” (in Administration)</h3>
+    <p>Open the door <b>Administration · الإدارة</b>. At the top of People and Roles there is a small control <b>Test as… · الدخول باسم…</b>. Choose a person, choose <b>See only</b> or <b>See and act</b>, press <b>Go</b>. You land on that person's own doors page, with a band at the top and a way back. It is the quick way to see the program as another person without their password.</p>
+    <ul>
+      <li>In <b>See only</b> the program refuses every change. That is correct, not a problem.</li>
+      <li>A <b>Director</b> using “Test as…” can only look. If a Director can act as someone, that is a problem (write it down).</li>
+      <li>For the tests about signing in, sign in for real with the person's own name and password.</li>
+    </ul>
+
+    <h3>How to reload</h3>
+    <p>If a page looks stuck, old or half empty, reload it: <b>F5</b> or <b>Ctrl+R</b> (Windows), <b>Cmd+R</b> (Mac), or the reload button of the browser (on a tablet: the round arrow, or pull the page down). Then tell in the note whether reloading fixed it. After you change a role, reload.</p>
+
+    <h3>Where to write your notes</h3>
+    <p>Here, in this page. Every test has four choices and a note box. The page keeps your answers in the browser of this device: <b>do not clear the browser's data, and use the same browser each time</b>. At the end of each work session press <b>Save notes as a file</b> and keep the files. Send them to Fouad.</p>
+
+    <h3>How to go through it</h3>
+    <ol>
+      <li>Open one door at a time (press its title). Then open a section.</li>
+      <li>Do the tests of the section in order. Read <b>What to do</b>, do it, and compare with <b>What should happen</b>.</li>
+      <li>Choose one answer:
+        <b>✔ Works</b> (it did what is written) ·
+        <b>✘ Problem</b> (it did not) ·
+        <b>➖ Not tried</b> (you could not or did not try) ·
+        <b>❓ Not clear</b> (you do not know if it is right).</li>
+      <li>If it is a problem, also choose how serious it is, and write a note.</li>
+      <li>Start with the first page and the doors, then Accounts, Calendar and Inventory (Calendar and Inventory work together). The other doors can follow in any order. One person can do a door in one or two hours.</li>
+    </ol>
+    <p class="sev-key"><b>How serious?</b> <b>Blocks work</b> = I cannot do the job. · <b>Wrong result</b> = it works but gives a wrong number, a wrong person sees it, or it does the wrong thing. · <b>Annoying</b> = it works, but it is slow, ugly, hard or confusing. · <b>Idea</b> = it is not wrong, but I suggest something.</p>
+    <p>If the program shows a blank page or an error: write what you pressed just before, take a screenshot, reload, and go on.</p>
+  </details>
+
+  <details class="card">
+    <summary>How to write a good note</summary>
+    <p>A good note lets someone else do the same thing and see the same problem. Write three things, and say who you were:</p>
+    <ol>
+      <li><b>What you did</b> (which role, which page, what you pressed).</li>
+      <li><b>What you expected</b>.</li>
+      <li><b>What happened</b> (the words of any message; the number you saw).</li>
+    </ol>
+    <div class="ex"><b>Example 1 · a wrong result.</b> “As Reception. Calendar › Week › I dragged over Hall A on Tuesday from 14:00 to 16:00. I expected the booking window to open with those hours. It opened, but the hours were 08:00 to 10:00. Same on a second try.”</div>
+    <div class="ex"><b>Example 2 · nothing happens.</b> “As Accountant. Accounts › Reports › Monthly › Excel. I expected a file with the table of the month. I pressed it twice. No file, no message. Chrome on Windows.”</div>
+    <div class="ex"><b>Example 3 · an idea.</b> “In Quick add the buttons ‘Record and next room’ and ‘Done’ look the same. Maybe use another colour for ‘Done’.”</div>
+    <p>Short is good. One problem per test. If you are unsure, choose <b>❓ Not clear</b> and say what confused you.</p>
+    <h3>What to do with a screenshot</h3>
+    <p>A picture often says more than words. Take one of the whole screen when you see a problem. <b>Name the file with the test number</b>, for example <b>CAL-5-4.png</b> (the number is written before each test: CAL 5.4). If you have two pictures, add a letter: CAL-5-4-b.png. Write “screenshot CAL-5-4” in the note. Keep all the pictures in one folder with the saved notes.</p>
+    <ul>
+      <li>Windows: Win + Shift + S. Mac: Cmd + Shift + 4. iPad or tablet: the power and volume buttons together.</li>
+      <li>Do not photograph a password. Be careful with names and phone numbers of real people, even in the copy.</li>
+    </ul>
+  </details>
+
+  <div class="card">
+    <div id="overall" class="meter"><i></i></div>
+    <div class="counts" id="overallc"></div>
+    <div class="tools noprint">
+      <input type="search" id="q" placeholder="Search the tests (a word, a number like CAL 5.4, or a word in your notes)" aria-label="Search">
+      <label class="chk"><input type="checkbox" id="onlybad"> Show only problems</label>
+      <button class="ghost small" id="openall">Open all</button>
+      <button class="ghost small" id="closeall">Close all</button>
+      <button class="ghost small" id="load" title="Open a .json file saved with “Save notes as a file”">Load a saved file</button>
+      <button class="ghost small" id="clear" title="Erase every answer in this page">Clear all answers</button>
+      <input type="file" id="loadfile" accept=".json,application/json" style="display:none">
+    </div>
+  </div>
+  <div id="storewarn">Your browser does not keep what you write here (private window, or blocked data). Your notes will be lost when you close the page. Press <b>Save notes as a file</b> often.</div>
+
+  <div id="doors"></div>
+  <div class="none" id="none">No test matches. Clear the search, or untick “Show only problems”.</div>
+
+  <pre id="out"></pre>
+</div>
+
+<div class="bar noprint">
+  <div class="bar-in">
+    <div id="prog"><span id="progt"></span><div class="meter"><i></i></div></div>
+    <button id="copy">Copy my notes</button>
+    <button id="save">Save notes as a file</button>
+    <button class="ghost" id="print">Print</button>
+  </div>
+</div>
+
+<script>
+// ---- the tests. t(title, what to do (steps separated by |), what should happen, flags, "As: role")
+// flags: N = new in 0.13.0 · C = to compare with the old version · P = privacy check
+function t(title, doit, exp, flags, who) { return { title: title, doit: doit, exp: exp, flags: flags || '', who: who || '' }; }
+var DOORS = [];
+
+DOORS.push({ id: 'START', name: 'The first page and the doors', about: 'Before the doors', intro: 'Signing in, the doors page, finding your way, the Guide. Do this first: everything else starts from here.', secs: [
+  { t: 'Signing in and signing out', tests: [
+    t(`The first page`, `Open the address of the test copy in your browser.|Look at the page before you sign in.`, `A welcome page with the houses and the button “Jesuit communities”. Nothing private is shown.`, 'C'),
+    t(`Sign in as the Administrator`, `Choose the centre (Homs).|Choose the Administrator's name and write the password Fouad gave you.`, `You enter and see the doors page with the centre's name.`, 'C'),
+    t(`A wrong password`, `Try a wrong password once.`, `A short, clear message. Nothing opens. The program does not break.`, 'C'),
+    t(`A first sign-in with a temporary password`, `Only if Fouad gave you an account with a temporary password: sign in with it.`, `The program asks you to choose your own password before you go on. (Choose ➖ if you have no such account.)`, 'C'),
+    t(`Sign out and press Back`, `Sign out with the button at the bottom of the menu.|Press the Back button of the browser.`, `You are on the first page. Back does not show a private page again.`, 'P')
+  ] },
+  { t: 'The doors page', intro: 'Sign in as the Administrator. Five doors should show.', tests: [
+    t(`The centre and its sentence`, `Look at the doors page after signing in.`, `The centre's mark in its light, its name, and a warm sentence under the name (in Arabic, with English or French under it).`, 'N'),
+    t(`Five doors, one after the other`, `Watch the doors appear.`, `Accounts, Calendar · التقويم, Inventory · الجرد, HR and Administration · الإدارة come in one after the other. Each has its own warm sentence.`, 'N'),
+    t(`Small numbers on the doors`, `Look for a small number on each door.`, `A number shows where something waits: on Accounts (books to look at, payments waiting for the books) and on Inventory (problems reported, purchases to register).`, 'N'),
+    t(`New sentences each time`, `Open the doors page three times (go out to the first page and come back, or reload).`, `The sentences change. The same sentence never shows twice on one page. The sentence under the centre's name is not the one of your last visit.`, 'N'),
+    t(`Every door opens`, `Press each door in turn.`, `Each door opens its own menu, with a clear button at the top: “← MAGIS · Doors” (in Arabic “→ MAGIS · الأبواب”). The HR door opens the HR database without a new sign-in.`, 'N'),
+    t(`The way back`, `In each door, go to a page inside it.|Press the back button at the top.|Then press the centre's mark and name in the top bar.`, `Both lead to the doors page, from every page of Accounts, Calendar, Inventory and Administration.`, 'N'),
+    t(`Back and Forward of the browser`, `Open Accounts › Register, then Reports, then Budget.|Press the browser's Back button three times, then Forward.`, `The pages walk back one by one, down to the doors page. There is no dead end and no blank page.`, 'N'),
+    t(`Reload keeps your place`, `Open Accounts › Reports. Reload the page.`, `You come back to Reports, not to the doors page.`, 'N'),
+    t(`The “where am I” line`, `Look at the top bar in: Accounts › Reports › Monthly, Accounts › Settings › Month closing, Calendar › Settings, Inventory › a space › an item, Administration › People.`, `The back button is on the start side, then a line like “Accounts › Reports › Monthly”, then the Guide button on the end side. The steps that lead somewhere are links. In Arabic it reads from right to left.`, 'N'),
+    t(`A narrow window`, `Make the browser window narrow (or use a phone) and look at the top bar of a page inside a door.`, `The back button stays in the top bar. Only the last two steps of the line show, on one line, cut with “…” if too long. Nothing runs over the page.`, 'N'),
+    t(`The Guide button`, `Press the Guide button in the top bar on an Inventory page, then on Accounts › Settings › Month closing.`, `The Guide opens at the right section each time (Inventory; closing the month). The Guide page itself has no Guide button.`, 'N'),
+    t(`The menu of each door`, `Look at the menu of each door.`, `Accounts: Home, Register, Payments waiting for the books, Cash, Reports, Budget, Grants, Lists. Calendar: the calendar. Inventory: the inventory. Guide, Settings or Administration and the usual buttons at the bottom of every menu. There is NO “Export” item, and the old pages “Calendar · الإقامة والتقويم” and the old inventory are gone.`, 'N'),
+    t(`The HR door and the way back`, `Press the HR door.|Then use the button at the top of the HR menu to go back.`, `HR opens with no new sign-in. The button returns to THIS centre's doors page.`, 'N')
+  ] },
+  { t: 'The built-in Guide', tests: [
+    t(`Open the Guide`, `Press “Guide” in the menu.`, `The Guide opens. It has sections for Calendar · التقويم, Inventory · الجرد, “Administration: people, roles and sentences” and “Settings”. It follows the language you chose.`, 'N'),
+    t(`Read the Calendar and Inventory sections`, `Read both sections slowly. Compare each sentence with the screen.`, `What is written is what the screens do. In the note, write each sentence that is wrong, missing or unclear.`, 'N'),
+    t(`The older sections`, `Look for “Accommodation and calendar (the older page)” and “Inventory (the older page)” in the Guide.`, `They are still there (Fouad will decide later to remove them). Note anything in them that could confuse a user, because their pages are no longer in the menu.`, 'C')
+  ] }
+] });
+
+DOORS.push({ id: 'ACC', name: 'Accounts', about: 'Door 1', intro: 'The register, cash, reports, budget, grants, lists, the payments that wait for the books, month closing and settings. Much of it is as in 0.12.1: for those, check that it still works as it did.', secs: [
+  { t: 'Home', tests: [
+    t(`The four big buttons`, `Open Accounts › Home. Press each of the four big buttons: expense, income, transfer, exchange.`, `Each opens the entry window of its type.`, 'C'),
+    t(`What the home page shows`, `Look at the months not yet closed, the rows to review, the status of each book and the envelopes.`, `They show what is true for the data (compare with Register and Cash).`, 'C'),
+    t(`Notice: payments waiting for the books`, `When some payments of the calendar wait, look for the line “n payments waiting for the books · Show them”. Press it.`, `The line shows the right number and opens the page “Payments waiting for the books”.`, 'N'),
+    t(`Warning: purchases to register`, `When expenses on furniture or equipment are not yet items, look for the warning on the home page. Press it.`, `It leads to the new Inventory (“Purchases to register”).`, 'N')
+  ] },
+  { t: 'The entry window', intro: 'Press “New entry”, or one of the four big buttons.', tests: [
+    t(`An expense: the fields`, `Open a new expense. Look at all the fields.`, `Date, book, budget heading, budget line, currency, amount, explanation, party, receipt. There is NO “Project” field for an expense, and NO city.`, 'N'),
+    t(`Save an expense and see its project`, `Save an expense on a funded line.|Open Reports › By project.`, `The expense is in the project of its budget line. A line that is not funded is outside the budget.`, 'N', 'As: Administrator'),
+    t(`No city anywhere`, `Open an expense, an income, a transfer and an exchange. Look for a “City” field. Save one entry.`, `No city field in any of them. The entry saves, with no message like “City is required”.`, 'N'),
+    t(`An income in an ordinary book: no Project field`, `New income. Choose the Main book (or your own book).`, `The “Project” field is NOT shown. The entry is saved as the centre's own income.`, 'N'),
+    t(`An income in the Respo book: the Project field`, `New income. Choose the Respo book.`, `The “Project” field now shows (only the Administrator has this book).`, 'N', 'As: Administrator'),
+    t(`The fields are always in the same places`, `Switch between expense and income, in an ordinary book and in the Respo book (the Project field comes and goes).`, `Row 1: date and book (and project when shown). Row 2: heading and line side by side. Row 3: currency and amount. Row 4: explanation, party, receipt. Nothing jumps around.`, 'N'),
+    t(`The entry window on a narrow screen`, `Make the window narrower than about 1000 pixels (or use a phone). Open a new expense.`, `The heading and the line are one under the other. Every field can be read and used.`, 'N'),
+    t(`A transfer`, `Make a transfer from one book to another.|Then confirm it as the receiving person (use “Test as… See and act”, or sign in for real).`, `Same grid as the other entries. It stays “on the way” until the receiver confirms.`, 'C'),
+    t(`An exchange`, `Make an exchange of dollars into pounds.`, `The heading and line come first, then dollars, pounds and the rate.`, 'C'),
+    t(`A document on an entry`, `Attach a photo or a PDF to an entry (on a tablet: use the camera).|Open it again from the row.`, `The document is kept under the bill code and opens from the row.`, 'C'),
+    t(`Change an entry`, `In the Register, click a row, change the amount, save.|Then try the same in a month that is already closed.`, `An open month: the change is saved. A closed month: it does not change; you correct with a reversing entry.`, 'C')
+  ] },
+  { t: 'The Register', tests: [
+    t(`Filters`, `Open Accounts › Register. Use the filters: month, book, project (with “not funded”), type, heading.`, `The list follows each filter. The numbers add up.`, 'C'),
+    t(`Search`, `Type a word of an explanation in the search box.`, `Only the rows with that word are listed.`, 'C'),
+    t(`Rows to review`, `Press “To review”.`, `It shows what needs correcting. After you correct a row, it leaves the list.`, 'C')
+  ] },
+  { t: 'Payments waiting for the books', intro: 'These are payments and refunds of the Calendar. The program only suggests them; a person makes each one an entry of a book. See also Calendar section 9 and 10.', tests: [
+    t(`The page`, `Open “Payments waiting for the books” in the Accounts menu.`, `Each line shows: receipt number (H2026-…), date, amount, currency, the group's name, the booking's code, and whether it is money received or given back. A private booking shows “Reserved · محجوز”. No price, no contact, no note. The menu has a badge with the number.`, 'N', 'As: Administrator'),
+    t(`The Accountant's view`, `Open the page as the Accountant.`, `The Accountant sees the payments of the Main book, and one plain line like “n payments are in the books of holders (each holder enters his own)”: no amount, no name, no book.`, 'N P', 'As: Accountant'),
+    t(`Who does not see the page`, `Look for the page as a Book holder who has no calendar-money right, and as Reception.`, `The page is not in their menu.`, 'N P', 'As: Book holder · Reception'),
+    t(`A Book holder with the money right`, `Open the page as the Book holder who is also Coordinator (workshops).`, `The list shows only the payments that went into HER books. After she makes the entry, her Accounts home says how many are still waiting.`, 'N', 'As: Book holder + Coordinator'),
+    t(`Make the entry · اجعلها قيداً`, `Press the button on a payment received.`, `The entry window opens already filled and locked: type (income), date, currency, amount, receipt number and the book of the payment. You choose the heading and the line, and save. The line leaves the waiting list, and the Calendar shows the payment “in the books ✓”.`, 'N', 'As: Administrator'),
+    t(`Money given back becomes an expense`, `Press “Make the entry” on a refund (receipt HR2026-…).`, `The window is an Expense, with the amount and book locked. After saving, the refund is “in the books”.`, 'N', 'As: Administrator'),
+    t(`The entry must say what the payment says`, `In the Register, try to type by hand an entry with the receipt number of a payment but a different amount, and then a second entry with a receipt number already used.`, `Both are refused, with a message that says why (another entry has it, wrong type, wrong amount or currency, or wrong book). Entries already saved are not asked again.`, 'N'),
+    t(`The Accountant never writes in a holder's book`, `As the Accountant, try to make an entry with a receipt number whose payment belongs to a Book holder's book.`, `It is refused: “Receipt H… belongs to the book …”.`, 'N P', 'As: Accountant'),
+    t(`The Administrator moves a payment to another book`, `On a waiting payment, change its book in its row (choose another ordinary book).|Then try a private book.|Then try a payment that is already an entry.`, `The first works and is written in the audit log. The private book (the Respo book) is refused. An entry already made cannot be moved. Nobody else has this choice.`, 'N P', 'As: Administrator'),
+    t(`A payment taken back`, `Take back a payment in the Calendar, then look at the waiting page.`, `The taken-back payment is not listed.`, 'N')
+  ] },
+  { t: 'Cash', tests: [
+    t(`What each holder should hold`, `Open Accounts › Cash.`, `For each holder: what they should hold now, in pounds and dollars, compared with what they counted.`, 'C'),
+    t(`Counting note by note`, `Count cash for a book by notes. Make the count differ from the book. Explain the difference.`, `The difference shows and you can write why. It is saved.`, 'C'),
+    t(`Envelopes`, `Give money to an envelope, write what the helper spent, put back what is left.`, `Give, Spent and Put back each change the balance correctly.`, 'C')
+  ] },
+  { t: 'Reports and Excel', intro: 'Each report is for the period chosen at the top.', tests: [
+    t(`The report tabs`, `Open Accounts › Reports. Open each tab: Summary, Explore, Quarters & categories, Monthly, By project, All centres, Funding, Exchange log.`, `Each one opens and shows figures for the chosen period. The figures are the same as in 0.12.1.`, 'C'),
+    t(`An Excel button on each report`, `On Summary and on Monthly press “Excel” next to the period.`, `A file saves and opens. It has the title, the centre, the period and the date at the top, then the tables, the big figures and the bar lists of the tab (one sheet each). Figures are real numbers you can add.`, 'N'),
+    t(`Excel on the other tabs`, `Press Excel on Explore, Quarters & categories, By project, Funding and Exchange log.`, `Each saves a file of what is on the screen.`, 'N'),
+    t(`There is no PDF button`, `Look for a PDF or Print button on the report tabs.`, `There is none (it may come later). Write an idea if you need one.`, 'N'),
+    t(`The Export tab`, `Open Reports › Export.`, `Choose all periods, one month, or from–to; a book; a project; the options lists, reports and confidential.`, 'N'),
+    t(`Export one month`, `Export one month to Excel.`, `A file with the register rows of that month, in the columns of the workbook.`, 'N'),
+    t(`Export with lists and reports`, `Tick “lists” and “reports”, then export.`, `The file has the extra sheets.`, 'N'),
+    t(`“Confidential” only for the Administrator`, `Look for the option “confidential” as the Administrator and as the Accountant.`, `Donors and grants are in the export only for the Administrator. The Accountant does not have the option.`, 'N P', 'As: Administrator · Accountant'),
+    t(`By project, for the donor`, `Open Reports › By project. Press the Excel for one project.`, `The grant, what was received, spent and left, line by line, and an Excel with every expense and its document.`, 'C', 'As: Administrator'),
+    t(`By project without the grant columns`, `Open Reports › By project as the Director.`, `The project and what it spent are there. The columns Grant, Received and Left are NOT.`, 'N P', 'As: Director'),
+    t(`Funding without the grant lines`, `Open Reports › Funding as the Administrator and as the Director.`, `The Administrator sees “Reached the Respo”, “With the Respo”, grants and other income. The Director does not.`, 'N P', 'As: Administrator · Director')
+  ] },
+  { t: 'Budget', tests: [
+    t(`Read the budget`, `Open Accounts › Budget.`, `One budget for the period. Each line: the budget, the spending, what is left, the share spent with its colour, and the pace against the time gone.`, 'C'),
+    t(`The Projects tab`, `Open the “Projects” tab of the Budget as the Administrator and then as the Director.`, `Each project's money against its lines. The Grant and Difference columns are for the Administrator only.`, 'N P', 'As: Administrator · Director'),
+    t(`The project page`, `Press the 📄 of a project.`, `An overview, its lines and items, the grant (Administrator only), the expenses, and an Excel file.`, 'C'),
+    t(`A new budget`, `Press “＋ New budget”: empty, from the last 12 months, from another budget.`, `Each way makes a budget with the lines and their projects.`, 'C', 'As: Administrator'),
+    t(`Revise a budget`, `Press “Revise the budget…”.`, `The original is kept as it was and a new version opens to change.`, 'C', 'As: Administrator'),
+    t(`The Budget page is for reading`, `Look at the Budget page as the Director.`, `He can read everything about the centre's money and projects, but cannot change or see donors.`, 'N P', 'As: Director')
+  ] },
+  { t: 'Grants and projects', intro: `Only the Administrator has the Grants page. Fouad's grant work has not changed since 0.12.1: check that it still works.`, tests: [
+    t(`Grants are for the Administrator only`, `Look for “Grants” in the Accounts menu as the Administrator, then as the Director and the Accountant.`, `Only the Administrator has it.`, 'N P', 'As: Administrator · Director · Accountant'),
+    t(`A grant, step by step`, `Press “＋ Grant, step by step”. Write the donor, the amount and the currency. Choose the project here and its dates. Choose its lines. Give each line its items.`, `The three checks (project, dates, lines) become ✓. The bar compares the grant with its lines: “Matches”, “Short by” or “Not yet given to lines”.`, 'C', 'As: Administrator'),
+    t(`A promised grant (quick)`, `Press “＋ Promised grant (quick)”.`, `It is noted quickly and can be finished later.`, 'C', 'As: Administrator'),
+    t(`The money's steps`, `Move a grant through promised → approved → transferred → in the bank → in hand.`, `“In hand” becomes an income in the Respo book. While a step is missing, the money cannot leave the Respo book.`, 'C', 'As: Administrator')
+  ] },
+  { t: 'Lists', tests: [
+    t(`No Cities`, `Open Accounts › Lists.`, `There is no “Cities” tab. The Books table has no City column. The window of a book has no city field.`, 'N'),
+    t(`“Special funds · projects” block`, `Open Lists › Budget and go to the bottom.`, `A block “Special funds · projects” shows each project with its grant and donor, dates, share and number of entries. You can add a private project, merge two, mark “outside the budget”, change dates. There is no “Projects” tab in Lists any more.`, 'N', 'As: Administrator'),
+    t(`The block for other roles`, `Open Lists › Budget as the Accountant.`, `The block shows only when some project is outside the budget (it opens by itself then). A private project with no outside-budget mark is not shown.`, 'N P', 'As: Accountant'),
+    t(`Books and keepers`, `Open Lists › Books. Rename a book, switch one off.`, `The change is saved. The Respo book is not listed for anyone but the Administrator.`, 'C P'),
+    t(`Taking from the main list`, `Open Lists › Budget › “Take from the main list…”. Tick headings and lines.`, `What you tick is taken. What came from the main list is only switched off, never deleted.`, 'C', 'As: Administrator'),
+    t(`The list this database follows`, `On a database that never took from a list, open Lists › Budget.`, `“The list this database follows” shows the server's lists. (Choose ➖ if this copy already took from a list.)`, 'N')
+  ] },
+  { t: 'Settings and closing the month', intro: '“Settings · الإعدادات” is the old “Admin” page. People and Roles are not here any more: they are in Administration.', tests: [
+    t(`The Settings page`, `Open Accounts › Settings.`, `Tabs for month closing, checks, controls, backups, appearance, audit log, sections and server (some only for some roles). People and Roles are not here.`, 'N'),
+    t(`Closing the month, step 1: the holder`, `As a Book holder (or Test as… See and act): Settings › Month closing. Count your cash, explain a difference, close your book's month.`, `The book's month is closed.`, 'C'),
+    t(`Closing the month, step 2: the office`, `When every book is closed, close the month as the Accountant or the Administrator.`, `What is missing (documents, approvals, rows to review) shows first. Then the month closes and does not change.`, 'C', 'As: Accountant'),
+    t(`The month-end report`, `Open the month-end report and print it or save it as PDF.`, `Each book's cash with its count, income and expenses by heading, what is missing, and a place for each holder, the Accountant and the Superior to sign.`, 'C'),
+    t(`Controls`, `Look for the “Controls” tab as the Administrator, then as the Director and the Accountant.`, `Only the Administrator has it (documents required, approval amount, who approves).`, 'N P', 'As: Administrator · Director'),
+    t(`Backups`, `Make a copy now. Use “Compare” to see what changed since a copy.`, `The copy is made. Compare lists the changes and can put one row back.`, 'C'),
+    t(`The copy password`, `Look at Settings › Backups › the copy password, as the Administrator and as the Director.`, `Only the Administrator sees the copy password box and the server's controls.`, 'N P', 'As: Administrator · Director'),
+    t(`Appearance and the receipt's Arabic title`, `Open Appearance. Look at the name, the colour, the logo and the Arabic title of the receipt.`, `They can be changed by the Administrator only.`, 'C', 'As: Administrator'),
+    t(`The audit log`, `Open the audit log as the Administrator and then as the Director.`, `The Administrator sees everything. The Director sees no line about grants, donors or a private book.`, 'N P', 'As: Administrator · Director'),
+    t(`“Databases · new”`, `Look at the databases button at the top of the menu as the Administrator and as the Director.`, `“Databases · new” shows only for the Administrator. The Director has the plain “Databases” list.`, 'N P', 'As: Administrator · Director')
+  ] }
+] });
+DOORS.push({ id: 'CAL', name: 'Calendar · التقويم', about: 'Door 2', intro: `All of this is new in 0.13.0 (the old calendar page is gone). The test copy already has sample halls, bedrooms, organisations and bookings, but add your own too. Most tests are as the Administrator; the Director and the Coordinator (workshops) do the same. Reception and the others are tested in the last section of this guide.`, secs: [
+  { t: 'Settings: areas, spaces, lists, closings', intro: `Press “⚙ Calendar settings” on the calendar (for the Director and the Administrator).`, tests: [
+    t(`Going to the settings and back`, `Press “⚙ Calendar settings”.|Look at the title and the top of the page.|Press “Back to the calendar”.`, `The page says “Calendar settings” and the line at the top shows Calendar › Settings. “Back to the calendar” brings you back.`, 'N'),
+    t(`An area with a colour`, `Add an area (for example “Test building”) and give it a colour.`, `The area is saved. In the week, its spaces are grouped under it in that colour.`, 'N'),
+    t(`Spaces: hall, bedroom, kitchen`, `Add a hall (with its capacity), a bedroom (with its number of beds) and a kitchen. Fill the floor, “rentable or ours only”, “what is always in it”, a note and a category.`, `Each is saved with what you wrote. The bedroom counts beds, the hall has a capacity.`, 'N'),
+    t(`“Can be booked” off for a store`, `On a store space, untick “Can be booked”.`, `It shows “Inventory only”. It never appears in the calendar: not in the views, not in the booking window, not in the Today counts. It stays in the Inventory.`, 'N'),
+    t(`A space with bookings cannot be switched off`, `Try to untick “Can be booked” on a space that has bookings to come.`, `The program refuses until they are moved or cancelled.`, 'N'),
+    t(`Kinds of space and their categories`, `Open the kinds of space. Make a kind with “No category (not in the calendar)”. Look for the kind “Store · مستودع”.`, `Spaces of a kind with no category never show in the quick views. A new space of that kind starts as “cannot be booked”. The kind “Store · مستودع” exists.`, 'N'),
+    t(`Lists: kinds, services, equipment`, `Open the lists: kinds of activity (with colours), kinds of organisation, services, equipment.`, `You can add, change and switch off. The equipment names come from the inventory.`, 'N'),
+    t(`A closed period`, `Add a closed period (for example the month of August).`, `A gold band on those days. Booking inside it gives a warning with “Save anyway”.`, 'N'),
+    t(`A space closed for repairs`, `Close a space for a few days.|If it has bookings in those days, read the list the program shows.|Then try to book that space on those days.`, `Bookings already there are listed first, and a second “save anyway” is needed. The space is hatched. Booking it is refused.`, 'N')
+  ] },
+  { t: 'The screen: week, day, month, list', tests: [
+    t(`The bar`, `Open the Calendar door. Look at the bar.`, `‹ Today ›, Day / Week / Month / List, the area, the search, “+ New”, “🖨 Print”, “⚙ Calendar settings”, and “Organisations” at the end, away from “New”.`, 'N'),
+    t(`Week`, `Open Week and go forward and back.`, `Spaces are grouped by area (an area can be folded). Stays are bars across the nights. A line “outside the centre”. The week starts on Monday. The digits are 0–9, also in Arabic.`, 'N'),
+    t(`Day`, `Open Day.`, `Hours from 08:00 to 22:00, and a red line for the time now (today only).`, 'N'),
+    t(`Month`, `Open Month.`, `Each day's events are in its box and you can see how busy it is.`, 'N'),
+    t(`List`, `Open List.`, `Groups: upcoming, in the house, to confirm, past.`, 'N'),
+    t(`Quick views`, `Press Everything, Halls and Rooms. Sign out and in as the same person.`, `Each shows the right spaces. Your choice is remembered for you.`, 'N'),
+    t(`Search`, `Type a group's name, a title, a person or a phone number in the search.`, `The bookings that match are found, in each view.`, 'N'),
+    t(`Closed periods and closed spaces`, `Look at the days of a closed period and at a space closed for repairs.`, `The closed period is a gold band. The closed space is hatched.`, 'N'),
+    t(`“Always in the room”`, `Put the mouse on a space in the week or the day (or look under the space in a booking window).`, `A tip says what is always in the room (for example the projector of the hall), read from the inventory.`, 'N')
+  ] },
+  { t: 'The Today strip', tests: [
+    t(`The tiles`, `Look at the strip at the top.`, `Tiles: arrive today, leave today, halls in use now, rooms free tonight, to confirm, to prepare today. Each shows a number.`, 'N'),
+    t(`Open each tile`, `Press each tile.`, `Its list opens with its buttons: mark arrived, mark left, book a free room, confirm. A held date that has passed is red.`, 'N'),
+    t(`Mark arrived and left`, `Press “Arrived” on a group arriving today, later “Left”.`, `The state changes in the list and in the booking.`, 'N')
+  ] },
+  { t: 'Drag to book', tests: [
+    t(`Drag over hours (Day)`, `In Day, drag over some hours of one hall.`, `The booking window opens with that hall and those hours already filled in.`, 'N'),
+    t(`Drag over days and spaces (Week)`, `In Week, drag over three days and two spaces.`, `The booking window opens with those days and spaces selected.`, 'N'),
+    t(`Drag over days (Month)`, `In Month, drag over a few days.`, `The window opens with those days.`, 'N')
+  ] },
+  { t: 'Booking window: our activity', tests: [
+    t(`The window`, `Press “+ New”. Look at the first choice.`, `You choose: our activity, an outside booking, or the whole centre. Order of the window: who, where, when, equipment, services, price, status.`, 'N'),
+    t(`Our activity, one day`, `Choose “Our activity”. Fill the kind, title, leader, a hall, one day and hours. Save.`, `It is saved and shows in the calendar. The hours go in steps of 15 minutes, with morning, afternoon and evening.`, 'N'),
+    t(`Every week on chosen days`, `Make a course every week on Monday and Wednesday from 17:00 to 19:00 for a month.`, `All the dates are made. They show in the week.`, 'N'),
+    t(`The same place and time twice`, `Make another activity at the same place and the same time.`, `It is refused: a space is never given twice.`, 'N'),
+    t(`Weekly with some dates taken`, `Make a weekly activity where some dates are already taken.`, `The program offers it without those dates, lists them, and you press “Save without these dates”.`, 'N'),
+    t(`Warnings`, `Try: more people than the capacity; a day inside the closed period.`, `A warning shows with “Save anyway”. (The Sunday warning is only for an outside booking of a hall.)`, 'N'),
+    t(`The whole centre`, `Make a booking for the whole centre for one day. Then try to book any space that day.`, `The whole centre holds every space that can be booked (not the stores). The second booking is refused.`, 'N'),
+    t(`An activity outside the centre`, `Make our activity outside the centre (what and where).`, `It shows on the line “outside the centre”, not in a space.`, 'N'),
+    t(`Private`, `Make a booking and tick “Private”. Open the calendar as a person who does not manage it.`, `The booking shows only “Reserved · محجوز”, with no details.`, 'N P')
+  ] },
+  { t: 'Booking window: an outside booking', tests: [
+    t(`A new organisation from the window`, `Choose “Outside booking”. Make a new organisation inside the window, with two persons in charge and their phones.`, `The organisation is made. You choose the person for THIS booking. It shows in the Organisations register.`, 'N'),
+    t(`Where an outside group can go`, `Try to book an outside group in a space marked “ours only”.`, `It is refused. An outside group goes only in spaces that can be rented.`, 'N'),
+    t(`A stay`, `Make a stay of three nights in a bedroom.|Then try a stay in a hall.`, `The bedroom works and shows as a bar across the nights. A stay in a hall is refused.`, 'N'),
+    t(`A bedroom holds one group`, `Try to put a second group in the same bedroom on the same nights.`, `It is refused.`, 'N'),
+    t(`To confirm, held until a date`, `Save a booking as “To confirm” with a “held until” date.`, `The space is held. After that date the booking turns red.`, 'N'),
+    t(`Confirm a booking`, `Open a “To confirm” booking and press “Confirm”.`, `It becomes “Confirmed”.`, 'N')
+  ] },
+  { t: 'Price, services and equipment', tests: [
+    t(`“Free” is on at the start`, `Open a new booking as the Director or the Coordinator and look at the price part.`, `The tick “free” is ticked.`, 'N', 'As: Director'),
+    t(`An amount`, `Untick “free”. Type an amount in USD. Choose per person per night (stay), for the whole booking, or for each date.`, `The agreed total shows at once and follows your choice. Try SYP too.`, 'N', 'As: Director'),
+    t(`Services`, `Add a service (a meal, a coffee break) with the number of people and an amount.`, `The total grows. The amounts show only for the Director and the Coordinator.`, 'N', 'As: Director'),
+    t(`Equipment`, `Add equipment from the list, with how many. Ask for more than the inventory holds.`, `The names come from the inventory. A warning shows when bookings at the same time ask for more than there is.`, 'N'),
+    t(`Save and open again`, `Save a booking with price, a service and equipment. Open it again.`, `The total, the service and the equipment are all there.`, 'N'),
+    t(`The price history`, `Change the price of a booking and save. Look for the history.`, `Every change is kept in the history (who, when, the old and new price).`, 'N', 'As: Director'),
+    t(`Reception: no price`, `Make an outside booking as Reception.`, `The window shows no price. The booking is saved “price not set”, and the window says so.`, 'N P', 'As: Reception'),
+    t(`The Director decides free or a price`, `As the Director open the booking Reception made.`, `A line asks you to decide: free, or a price.`, 'N', 'As: Director')
+  ] },
+  { t: 'The booking view', intro: `Press a booking to open it.`, tests: [
+    t(`Head and blocks`, `Open a confirmed booking and a “To confirm” one.`, `A coloured head with the name and the state. One block of big facts (days, hours, spaces, people). One block “who” (organisation, leader, person, phone to call). One block for money. The services and the equipment.`, 'N'),
+    t(`The two groups of buttons`, `Look at the buttons.`, `“The whole booking” (Change, Confirm, Cancel the booking) and “Only this date (…)” (Move this date, Cancel this date only, This date and the following).`, 'N'),
+    t(`Move one date`, `In a weekly activity, press “Move this date” on one Wednesday.`, `That date moves. It is kept as moved and not deleted. The other dates stay.`, 'N'),
+    t(`Cancel one date, or this and the following`, `Cancel one date only. Then cancel “this date and the following” on another booking.`, `The dates are cancelled but kept (shown as cancelled). “Put back” brings one back.`, 'N'),
+    t(`Change a booking`, `Press “Change” and change the hours.`, `The change is saved and the booking shows it.`, 'N'),
+    t(`Cancel a booking with no money`, `Press “Cancel the booking” on one with no payment. Write a reason.`, `It is cancelled with its reason. It is not in the “To prepare” list any more.`, 'N')
+  ] },
+  { t: 'Payments and receipts', tests: [
+    t(`A payment before confirming`, `On a booking that is still “To confirm”, press “＋ A payment received”. Give amount, currency, date, cash or transfer.`, `It is accepted (an advance). It gets a receipt number like H2026-0007 and shows in the booking's list as “waiting for the books”.`, 'N', 'As: Director'),
+    t(`Whose book`, `Record a payment as the person who keeps exactly one book (the Book holder who is also Coordinator).`, `The window says “The money goes into: her book”. The payment waits in HER list “Payments waiting for the books”.`, 'N', 'As: Book holder + Coordinator'),
+    t(`The Main book`, `Record a payment as a person with no book, or choose the Main book.`, `It waits in the Accountant's list.`, 'N'),
+    t(`Another person's book`, `Try to choose another person's book, then a private book.`, `Both are refused: “Choose your own book or the Main book”.`, 'N P'),
+    t(`Take a payment back`, `Take back a payment that is not yet an entry.`, `It shows struck through. It leaves the waiting list.`, 'N'),
+    t(`In the books`, `Make the entry of a payment in Accounts (see Accounts, Payments waiting). Return to the booking.`, `The payment says “in the books ✓”. It can no longer be taken back.`, 'N'),
+    t(`Receipt of one payment`, `Press 🖨 on a payment line. Preview, then print or save.`, `A page titled “Receipt · وصل استلام” (never “invoice”) with the same number as in the books, the amount in words in Arabic and English, two places to sign, the two logos.`, 'N'),
+    t(`“COPY”`, `Print the same receipt a second time.`, `The second page says COPY. The first did not.`, 'N'),
+    t(`Receipt of the whole booking`, `Open the receipt window of a booking. Change a line, the currency and rate, look at the preview, then print.`, `Lines for price and services, the amount in words (Arabic and English), two places to sign, two logos. Printed again it says COPY.`, 'N C'),
+    t(`The amount in Arabic words`, `(If you read Arabic.) Make payments of 1, 2, 3, 11, 12, 200 and 2000 USD or SYP and read the words on the receipts.`, `For example 11 SYP: «إحدى عشرة ليرة»; 200 USD: «مئتا دولار»; 2000 USD: «ألفا دولار»; 1 USD: «دولار أمريكي واحد». Write each wrong one in the note.`, 'N'),
+    t(`Syrian pounds are whole`, `Record a payment of 1250.75 SYP.`, `It is rounded to 1,251 and the words and the figure agree.`, 'N')
+  ] },
+  { t: 'Cancelling a booking with money', tests: [
+    t(`The three choices`, `Cancel a booking that has money received. Write a reason.`, `A window offers: keep all, give all back, or keep a part (type the amount to keep for each currency).`, 'N', 'As: Director'),
+    t(`Keep a part`, `Choose “keep a part”. Type an amount for USD.`, `What is given back is worked out. It shows as waiting for the books.`, 'N'),
+    t(`Decide later`, `Cancel and press “Decide” later instead of choosing now.`, `The booking is cancelled and the decision can be made later.`, 'N'),
+    t(`The refund waits in the right book`, `Look at the refund (HR2026-…) of a payment that went into the Book holder's book.`, `It waits in HER list, as an expense to make. Reception and others do not see it.`, 'N'),
+    t(`Only the Administrator moves the book`, `Try to change the book of a refund as the Accountant, then as the Administrator.`, `Only the Administrator can.`, 'N P'),
+    t(`Once it is an entry`, `Make the entry of a refund, then try to change the decision or to put the booking back.`, `Both are refused.`, 'N')
+  ] },
+  { t: 'Printed pages and Excel', intro: `Press “🖨 Print” in the bar. A preview opens first.`, tests: [
+    t(`A week page`, `Print a week.`, `A short page: each day with hours, spaces, people, phone, arrivals and leavings. Fit for the reception and the guard.`, 'N'),
+    t(`The week of one hall`, `Print the week of one hall.`, `A landscape page for the door of that hall.`, 'N'),
+    t(`The booking sheet for the group`, `In a booking, print the sheet for the group.`, `A page with the two logos. Amounts show only for those who see money, and never for a free booking.`, 'N'),
+    t(`Excel of bookings`, `Save the Excel of a period.`, `The file opens. It lists the bookings of the period.`, 'N'),
+    t(`Excel of payments`, `Save the sheet of payments as the Director.`, `Received and given back, in the books or not.`, 'N', 'As: Director'),
+    t(`Reception sees no amount`, `As Reception, print a week and save the Excel.`, `No amounts anywhere.`, 'N P', 'As: Reception')
+  ] },
+  { t: 'Organisations', tests: [
+    t(`The register`, `Press “Organisations” at the end of the bar.`, `The list of organisations, with how many bookings each has.`, 'N'),
+    t(`Search`, `Search by name, by a person and by a phone number.`, `Each finds the organisation.`, 'N'),
+    t(`Change an organisation`, `Open one. Change its kind and note. Add a person with a phone. Switch a person off.`, `The changes are saved. A person is switched off, never removed.`, 'N')
+  ] },
+  { t: 'To prepare today', tests: [
+    t(`A hall activity today`, `Make a hall activity today at 15:00 with some equipment. Open the tile “To prepare today”.`, `A line like “Hall A · before 15:00 · 12 people”, with what the group asks for.`, 'N'),
+    t(`Only the first of the day`, `Make a second activity in the same hall today.`, `The hall is listed once, for the first activity of the day.`, 'N'),
+    t(`A group arriving`, `Make a group arrive today in a bedroom.`, `The bedroom is listed for that group.`, 'N'),
+    t(`Ready again after leaving`, `Make a group leave today.`, `The bedroom is listed again as ready again after it leaves.`, 'N'),
+    t(`What is not listed`, `Cancel a booking. Look at a space closed for repairs and a store.`, `Nothing is listed for a cancelled booking, a closed space or a store.`, 'N'),
+    t(`Everyone sees it, nobody types it`, `Open the list as Reception and as a Book holder.`, `The list is the same, read only. Press a line: its booking opens.`, 'N')
+  ] }
+] });
+DOORS.push({ id: 'INV', name: 'Inventory · الجرد', about: 'Door 3', intro: `The new Inventory shares one map with the Calendar: the same areas and spaces. Tests are as the Administrator unless it says another role. The test copy has about 31 sample items (a group of 40 chairs, a laptop with a holder, a projector, items to repair, one broken) and one problem reported.`, secs: [
+  { t: 'The map and the figures', tests: [
+    t(`The first page: the map`, `Open the Inventory door.`, `Each area with its colour, and a card for each space. A card shows a photo of something in it, how many items, the last count and what needs attention. A store that cannot be booked says “not booked”.`, 'N'),
+    t(`Old stores in “Inventory places”`, `Look for an area called “Inventory places · أماكن الجرد”.`, `The old stores (places that were not spaces) are there. Their items and history are unchanged.`, 'N'),
+    t(`The figures on top`, `Look at the figures: items, value, purchases to register, to repair or broken, with staff, valuable items without a photo or serial. Press one.`, `Each opens its list. (The total value is for the Administrator only.)`, 'N'),
+    t(`Quick views`, `Press Map, Stores · المستودعات, By place, By category, All items, With staff.`, `Each shows its list. “Stores” shows only the spaces of the kind Store, each with what is in it.`, 'N'),
+    t(`Search`, `Search by a label, a name, a serial number and a person.`, `The items are found. An old label finds every part of a group that was split.`, 'N'),
+    t(`Settings and back`, `Press “⚙ Inventory settings”, then “Back to the inventory”.`, `Both work and the top line says Inventory › Settings.`, 'N')
+  ] },
+  { t: 'A space page', tests: [
+    t(`The page`, `Open the page of a space with items.`, `The photos of what is in it, then the list. Figures: items, last count, “Always in the room”, and the bookings of the week in that space.`, 'N'),
+    t(`The bookings of the week`, `Look at the calendar part of a hall's page.`, `It lists the week's bookings of that hall (for whoever sees the calendar).`, 'N'),
+    t(`The keeper's buttons`, `Look at the buttons as the Store keeper.`, `“⚡ Quick add”, “Count this space”, “Move items…”, “🖨 Sheet for the door”.`, 'N', 'As: Store keeper'),
+    t(`The kind of an inventory-only space`, `Open the page of a store or an office (not bookable).`, `You can choose its kind there.`, 'N')
+  ] },
+  { t: 'Putting things in: purchases and gifts', tests: [
+    t(`Purchases to register`, `Open the figure “purchases to register” (Homs has 9).`, `The list of expenses on furniture or equipment that are not yet items.`, 'N'),
+    t(`Register one purchase`, `Press “Register” on one. Give the name, category, space and number.`, `It becomes an item. Its value is the amount of the entry. The purchase goes out of the list and the number goes down.`, 'N'),
+    t(`The serial box`, `Register a purchase of a category that asks for a serial number, and then of one that does not.`, `The serial box shows (highlighted) only when the category asks for it.`, 'N'),
+    t(`A gift or an old item`, `Press “+ Item”. Give a name, space, an origin (gift, old…) and an estimated value.`, `The item is made with that origin and value.`, 'C'),
+    t(`The photo of a valuable item`, `Give a photo to a valuable item (for example the laptop).`, `The photo shows on its page and on the space's card.`, 'N')
+  ] },
+  { t: 'Quick add, room after room', intro: `Quick add is the table where you type only numbers. It opens from a space page.`, tests: [
+    t(`The ready list`, `On a bedroom's page press “⚡ Quick add”.`, `The space is already chosen. The usual items of a bedroom are already in rows (bed, cupboard, desk, chair, fan…), with the number empty.`, 'N'),
+    t(`Type numbers and record`, `Type numbers in two or three rows. Leave others empty or 0. Record.`, `The items are made in that space. Empty or 0 rows are skipped. Enter goes to the next row.`, 'N'),
+    t(`Serial and valuable marks`, `Look at a row whose category asks for a serial number, and one that is valuable.`, `The serial box shows highlighted. A valuable row is marked 📷🏷 (photo and label to add later).`, 'N'),
+    t(`“Room 3 of 12”`, `Look at the title of the Quick add of a bedroom.`, `Beside the title: “room 3 of 12” (the rooms of the same area and kind, in the order of the map).`, 'N'),
+    t(`Record and next room`, `Type numbers, then press “Record and next room ›”.`, `This room is recorded. The next room opens with its list ready and the numbers empty. The origin you chose stays.`, 'N'),
+    t(`Next room, and Done`, `Press “Next room ›” without typing anything. Walk to the last room.`, `The room is skipped. After at least one room, “Cancel” becomes “Done” (back to the page you started from). The last room has no “next”.`, 'N'),
+    t(`The same in several rooms`, `Open “Same in several rooms”. Press “Select all · Bedroom”. Type Bed 2 and Cupboard 1. Record.`, `The button says “Record in 3 rooms”. Each ticked room gets the items, all in one save. “Only this room” takes the ticks off. The room you are in is always counted.`, 'N'),
+    t(`A serial item in several rooms`, `With several rooms ticked, type a row with a serial category and quantity 1 (a laptop).`, `The row is skipped, marked ⛔, with a sentence: it needs its own serial number in each room. The message after saving names the skipped row.`, 'N'),
+    t(`The origin`, `Choose an origin (for example “old”) before the table. Go to the next room.`, `The origin stays chosen from room to room. You can change it for one room.`, 'N'),
+    t(`Quick add from the map's home`, `On the first page press “⚡ Quick add”.`, `The space is chosen on each row (as before). Excel template and blank numbered labels still work.`, 'C')
+  ] },
+  { t: 'An item page', tests: [
+    t(`Details`, `Open an item (the chairs, the laptop).`, `Photos, details, value, origin, the other parts of its group, and the history.`, 'N'),
+    t(`Photos`, `As the keeper, add a photo and remove one.`, `Both work. Whoever only looks has no buttons.`, 'N', 'As: Store keeper'),
+    t(`The link to the purchase`, `On an item bought through the books, look for the link.`, `Date, bill, supplier, heading › line. The entry's amount shows only for those who see values.`, 'N'),
+    t(`The link to the calendar`, `Open the projector (shown in the calendar).`, `The bookings to come in the next 60 days that ask for equipment of that name.`, 'N'),
+    t(`Move, Change, Label`, `Press each of the three buttons.`, `Move opens the move window, Change the item window of 0.12.1, Label prints a label.`, 'N C')
+  ] },
+  { t: 'Moves, split groups, counts', tests: [
+    t(`Split a group`, `Take the 40 chairs. Press “Move items…” and move 15 to another space.`, `25 stay (label with A), 15 move (the same label with B). Both histories say so.`, 'N'),
+    t(`Search the old label`, `Search the label the chairs had before the split.`, `Both parts are found.`, 'N'),
+    t(`Split again`, `Move part of group B again.`, `The new part takes the next letter (C). Each part keeps the purchase, the value of one unit and the photos.`, 'N'),
+    t(`Move a whole item`, `Move a whole item (not part of it).`, `It keeps its label. The history says where it went, when, and who.`, 'N'),
+    t(`Count this space`, `Press “Count this space”.`, `The last count of that space shows today's date. Everything in it is counted as seen.`, 'N')
+  ] },
+  { t: 'Items with staff', tests: [
+    t(`Give a laptop to a person`, `On an item (a laptop), choose “With a person”. The list offers the people of HR (names only).`, `You choose a name from the HR list. The item shows in “With staff”.`, 'N'),
+    t(`A name not in HR`, `Type a name that is not in the list.`, `It is accepted as typed.`, 'N'),
+    t(`The person has left in HR`, `If an item is with someone who left in HR (ask Fouad whether there is one), look at the home page.`, `A red tile “with someone who left: take them back”. The item page and the “With staff” list say “left” with the date. (Choose ➖ if there is no such person.)`, 'N')
+  ] },
+  { t: 'Problems reported', tests: [
+    t(`The button`, `Look for “⚠ Report a problem · أبلغ عن مشكلة” in the laptop menu and in the Inventory bar.`, `The button is in both. Anyone of the centre has it, with no special right.`, 'N', 'As: Reception'),
+    t(`Report a problem`, `Press it. Write what is wrong, choose or type where (space names are suggested), add a photo.`, `The report is sent. It shows in “My reports”.`, 'N'),
+    t(`The keeper's list`, `Open the Inventory as the keeper.`, `The menu has a number on “Inventory”. The home has a tile “problems reported” with a list (photo, what, where, who, when, state).`, 'N', 'As: Store keeper'),
+    t(`Answer a report`, `Open a report. Choose the item concerned. Set the state to “Needs repair”. Add a word for the person.`, `The item's state and its history change.`, 'N', 'As: Store keeper'),
+    t(`“Nothing wrong”`, `Answer another report with “Nothing wrong”.`, `The item is not changed. The person is told.`, 'N'),
+    t(`The person sees the answer`, `As the person who reported, open “My reports”.`, `It says “seen by the keeper” with the new state, the item and the word.`, 'N'),
+    t(`Anyone may report`, `Report a problem as a Book holder and as Reception.`, `It works for both.`, 'N')
+  ] },
+  { t: 'Paper: sheets, counting lists, donor report', tests: [
+    t(`Sheet for the door`, `On a space page press “🖨 Sheet for the door”.`, `The name of the space, its items (label, item, quantity, category, state if not good), the date and the last count. No values. Arabic and English. Two logos.`, 'N'),
+    t(`Counting list`, `Press “☑ Counting list”. Choose one space, then several.`, `One page per space: label, item, quantity, serial, last count, a box to tick, a line for what is not found, and “Counted by / on”.`, 'N'),
+    t(`Labels of a space`, `Print all the labels of a space from its page.`, `A PDF of labels with the QR code and the label.`, 'N C'),
+    t(`Report for a donor`, `Press “📄 Report for a donor”. Choose a project and months.`, `A PDF in landscape with photos (photo, label, item, space, quantity, date, receipt, supplier, budget line, value, totals, “By space”) and an Excel file (Summary, Items, By space).`, 'N', 'As: Administrator'),
+    t(`The donor report warning`, `Choose a project that has a purchase in that period which is not yet an item.`, `The window warns “not in the report”.`, 'N', 'As: Administrator'),
+    t(`The donor report is private`, `Look for the button as the Store keeper, the Director and the Accountant.`, `The button is only for the Administrator.`, 'N P', 'As: Store keeper · Director')
+  ] },
+  { t: 'Settings of the inventory', tests: [
+    t(`The three ticks of a category`, `Open the categories. Look at: serial number, valuable, in calendar.`, `IT equipment and Audio-visual are valuable; Audio-visual is shown in the calendar. Changes are kept and not overwritten.`, 'N'),
+    t(`“Always in the room” in the calendar`, `Tick “in calendar” for projectors. Put one in Hall 1. Open the calendar.`, `Hall 1 shows the projector as “always in the room”.`, 'N'),
+    t(`The ready lists`, `Edit the ready list of a kind of space (add, remove, change order, category).`, `Quick add in such a space uses the new list.`, 'N')
+  ] },
+  { t: 'Values and totals, role by role', intro: `Each item has its own value. The big totals (the home figure, the sums on the area and space cards, the Stores view) are for the Administrator only.`, tests: [
+    t(`The Administrator`, `Open the inventory home and a space page.`, `The value figure, the sums on cards, and the value of the space show.`, 'N P', 'As: Administrator'),
+    t(`The Store keeper`, `Open the home, a space and an item.`, `The value of each item shows and can be written. NO sum anywhere: no big figure, no sum on cards, none on the space page, none in Stores.`, 'N P', 'As: Store keeper'),
+    t(`The Director`, `Open the inventory.`, `As the Store keeper: the value of each item, no sum.`, 'N P', 'As: Director'),
+    t(`The Coordinator (workshops)`, `Open the inventory.`, `Looks only. No value anywhere.`, 'N P', 'As: Coordinator'),
+    t(`A person who only looks`, `Open the inventory as a Book holder or Reception.`, `No amount anywhere, no “+ Item”, no purchases to register. The sheet for the door can still be printed.`, 'N P', 'As: Book holder · Reception'),
+    t(`The Accountant`, `Open the inventory as the Accountant.`, `No sums. If he has the keeper's rights he can still write the value of an item.`, 'N P', 'As: Accountant'),
+    t(`The Excel of the inventory`, `Press Excel on the list of items.`, `The file has the value of each item and its line total (it needs the values right).`, 'C')
+  ] }
+] });
+DOORS.push({ id: 'HR', name: 'HR', about: 'Door 4', intro: `Fouad's HR work is paused: nothing new here. Only look, and check that what a person with HR sees is right. HR is one database for all the centres, separated inside. A person has the HR door only if their name also exists there.`, secs: [
+  { t: 'What a person with HR sees', tests: [
+    t(`The door and the way back`, `Open the HR door. Then come back with the button at the top of the HR menu.`, `HR opens with no new sign-in. You return to this centre's doors page.`, 'N C'),
+    t(`Who has the HR door`, `Look at the doors page as the Administrator, then (Test as…) as a person with no place in HR.`, `The HR door shows only for a person who has a place in an HR database.`, 'N P'),
+    t(`Home and people`, `Open the HR home and People. Open one person's page.`, `The home lists what needs attention (agreements ending soon, insurance, papers, code of conduct). A person's page has the mark of their centre and their names in Arabic and English.`, 'C'),
+    t(`Salaries and the cost of an hour`, `Open a person's agreement and the salary scale as a person without the salary right.`, `Amounts, stipends and the cost of an hour are not shown to a person without the right.`, 'C P', 'As: a person without the salary right'),
+    t(`Tutors' sessions and payroll`, `Open Tutors' sessions and Payroll (look only).`, `The page of sessions has one line per tutor and one column per day. Payroll opens with its runs. Nothing is changed.`, 'C'),
+    t(`HR in the other languages`, `Switch the language to Arabic and then French in HR.`, `Everything follows the language, and right-to-left in Arabic.`, 'C')
+  ] }
+] });
+
+DOORS.push({ id: 'ADM', name: 'Administration · الإدارة', about: 'Door 5', intro: `People, Roles, Sentences, and “Test as…”. This door is only for the Administrator and the Director. The server checks every limit, not only the screen: where a test says “refused”, the program must refuse even if you find a way to ask.`, secs: [
+  { t: 'The door and the People list', tests: [
+    t(`Who has the door`, `Look at the doors page as the Administrator, the Director, the Accountant and Reception.`, `Administration · الإدارة shows only for the Administrator and the Director.`, 'N P', 'As: Administrator · Director · Accountant'),
+    t(`The list of people`, `Open People.`, `One line per person: the name (and the books kept), the roles as chips, the doors, “Exceptions (+n)”. Under the roles: “Sees: prices — because of: Coordinator (workshops)”.`, 'N'),
+    t(`Lines the Director cannot touch`, `As the Director look at the lines of the Administrator and of another Director.`, `They have no buttons for him.`, 'N P', 'As: Director')
+  ] },
+  { t: 'Adding and changing a person', tests: [
+    t(`Add a person with several roles`, `Press “＋ Person”. Write a name. Choose Reception and Store keeper. Save.`, `The roles are chips (one or several). Under each chosen role is one plain sentence. The doors this person will see are shown (Calendar and Inventory).`, 'N'),
+    t(`The password`, `Add a person and leave the password empty.|Add another and type one.`, `The first: the program makes 6 digits and shows them once. The second: the typed password is not shown again. The person must change it at the first sign-in.`, 'N'),
+    t(`A Book holder gets a book`, `Add a person with the role Book holder.`, `A line appears: “keeps a cash book — the program makes their book with their name”, ticked. On Save the book is made with the person (not private, not the Main book). A window shows the password once and says the book was made.`, 'N'),
+    t(`A book that already exists`, `Add a Book holder whose name is the same as an existing book.`, `A clear sentence refuses it. Nothing is made.`, 'N'),
+    t(`Give Book holder later`, `For an existing person without a book, give the role Book holder.|Try a person who already keeps a book.`, `The first is offered the book line. The second is not.`, 'N'),
+    t(`Chips greyed with the reason`, `As the Director open the roles of a person.`, `“Administrator” and “Director” are greyed and the reason is written under them (“For the Administrator only”).`, 'N P', 'As: Director'),
+    t(`Advanced: exceptions`, `Open “Advanced: exceptions on this person”. Add one tick for one person.`, `The list shows “Exceptions: +1”. The ticks “manages the users”, “gives book holders” and “resets passwords” are greyed for a Director.`, 'N'),
+    t(`The Director's limits`, `As the Director: give Reception to a person.|Try to give Director, to change the Administrator's password, to give yourself a role.`, `The first works. The others are refused.`, 'N P', 'As: Director'),
+    t(`Switch a person off`, `Switch off a Book holder who keeps a book alone.`, `The question names the book that goes off too. After, the book is off (not deleted; its rows stay). A shared book, the Main book and a private book never go off.`, 'N'),
+    t(`The last Administrator`, `Try to switch off, or remove the role from, the only Administrator.`, `It is refused: at least one Administrator stays.`, 'N P', 'As: Administrator')
+  ] },
+  { t: 'Roles', tests: [
+    t(`The seven roles`, `Open Roles.`, `Administrator, Director, Accountant, Book holder, Reception, Coordinator (workshops), Store keeper — one sentence each, with how many people hold each.`, 'N'),
+    t(`Advanced (the Administrator)`, `Open “Advanced” as the Administrator. Press “Make a copy to adapt”.`, `A Custom role is made. The Respo book and the grants never go into a copy.`, 'N', 'As: Administrator'),
+    t(`The Director cannot change ticks`, `As the Director open Roles.`, `He reads the list. There is no “Advanced”. The server refuses him any change of a role.`, 'N P', 'As: Director')
+  ] },
+  { t: 'Test as…', tests: [
+    t(`The control`, `Look at the top of People and Roles.`, `A small control “Test as… · الدخول باسم…”: a list of people with their roles, “See only / See and act” (default See only) and “Go”.`, 'N'),
+    t(`Who is in the list`, `Look at the list as the Administrator and as the Director.`, `Never yourself. A Director does not see the Administrator, other Directors, nor a person who keeps a private book.`, 'N P', 'As: Administrator · Director'),
+    t(`Go`, `Choose a person and press Go.`, `You land on THAT person's doors page (not on Administration). A band at the top says who you are and has the way back.`, 'N'),
+    t(`See only`, `In “See only”, try to save an entry, a booking and a setting.`, `Each is refused with a clear message.`, 'N'),
+    t(`See and act (Administrator)`, `As the Administrator choose “See and act” and make a small change as that person.`, `It works. The history says “Fouad as X”.`, 'N'),
+    t(`A Director can only look`, `As the Director use Test as…`, `Only “See only” is offered, with the reason in words. He cannot sign in as the Administrator, a Director or a keeper of a private book.`, 'N P', 'As: Director'),
+    t(`The databases of the person you look as`, `Test as a person with only the Homs database. Look at the Databases list and at the doors.`, `The list shows that person's databases only. The HR door shows only if they really have a place in HR.`, 'N P'),
+    t(`No passwords while “as”`, `While signed in as someone else, try to change that person's password or code.`, `It is refused.`, 'N P')
+  ] },
+  { t: 'Sentences', intro: `One pool of warm sentences feeds the doors page and the TV.`, tests: [
+    t(`The list`, `Open Sentences.`, `All the sentences, each with its source (charter, logos, concept note, “original” or “written by the centre”) and its places (the centre's line, each door, the TV). A filter by place. An on/off box.`, 'N'),
+    t(`Switch one off`, `Switch off a sentence of the Calendar door. Open the doors page several times.`, `It never appears again.`, 'N'),
+    t(`Edit a sentence`, `Press Edit. Change the Arabic, English and French, and the places (tick boxes). Look at the live preview.`, `The preview shows it. Saved, the new text shows on the doors page. “Restore the original” puts the text and the places back.`, 'N'),
+    t(`Write your own`, `Press “Write a sentence”.`, `It is marked “written by the centre” and is on every place. You can delete it. A built-in sentence cannot be deleted, only switched off or edited.`, 'N'),
+    t(`The TV settings`, `Set how many minutes a phrase stays (1–15) and the language under the Arabic.`, `They are saved. The TV follows them (see the TV door).`, 'N')
+  ] },
+  { t: `The Accountant's Book holders window`, tests: [
+    t(`Add a book holder`, `As the Accountant open Settings › Book holders. Press “＋ Book holder”.`, `Only book holders. The book (not Main, not private), the password and “switch off” are offered. His own password can be changed.`, 'N', 'As: Accountant'),
+    t(`His limits`, `As the Accountant try to give another role or an exception.`, `There is no way to; it is refused.`, 'N P', 'As: Accountant')
+  ] }
+] });
+
+DOORS.push({ id: 'TV', name: 'The TV and the Calendar phone', about: 'Screens', intro: `Two read-only screens for the Calendar: the TV page /tv (open it in another browser or on a TV) and the Calendar phone (the phone page with #calendar). Both are linked from Calendar › Settings › Calendar phones. Neither ever shows prices, payments, notes or leaders.`, secs: [
+  { t: 'Linking a phone or a TV', tests: [
+    t(`Link a phone`, `In Calendar › Settings › Calendar phones press “Link a phone”. Give it a name (for example “Test phone”) and a role. Look at the code.`, `A link code like XXXX-XXXX. It works once and for 30 minutes.`, 'N', 'As: Director'),
+    t(`A used code`, `Use the same link code a second time.`, `It is refused.`, 'N P'),
+    t(`Cut a phone off`, `Cut a linked phone off. On the phone press ↻.`, `The phone is told it was cut off, forgets the calendar and returns to the link screen.`, 'N P')
+  ] },
+  { t: 'The TV page /tv', tests: [
+    t(`Link the TV`, `Link a “phone” called “Entrance TV”, role Team. In another browser open the address of the server followed by /tv. Type the code.`, `The page draws the map. It asks for no 4 digits.`, 'N'),
+    t(`The map`, `Look at the whole screen.`, `The centre's mark and name, a welcome phrase in Arabic with English under it, a greeting by the hour, the clock and the date in Arabic and English, a colourful map of the areas with a tile for each space that can be booked (bedrooms are not drawn).`, 'N'),
+    t(`The tiles`, `Make bookings now, next, later today, a closed space and one to confirm. Look at the tiles.`, `Busy now: the activity's name big, its hours, the space's name. Next: the next activity and its hours. Free: quiet. Closed: “Closed · مغلق”. To confirm: soft and dashed.`, 'N'),
+    t(`Every area shows`, `Compare the areas on the TV with the areas of the settings.`, `Every active area that has at least one bookable space is drawn, with all its spaces. A space with nothing today says “لا نشاط اليوم · No activity today”. (An area with only bedrooms or stores does not show.)`, 'N'),
+    t(`The phrase`, `Wait five minutes.`, `The phrase changes by itself with a gentle fade.`, 'N'),
+    t(`What it never shows`, `Make a private booking and a booking with a price, a note and a leader.`, `The TV shows only “Reserved · محجوز” for the private one, and never a price, phone, note or leader.`, 'N P'),
+    t(`No connection`, `Stop the network for the TV browser.`, `It keeps the last screen and says there is no connection.`, 'N'),
+    t(`Night`, `Look at the page outside 08:00–22:00 (or add ?at=23:00 to the address).`, `A calm screen with the mark, the name, the phrase, the clock and “Today's screen comes back at 08:00”.`, 'N'),
+    t(`Other languages and the plain page`, `Add ?l=fr, ?l=ar and ?plain to the address.`, `French under the Arabic; Arabic alone; and the plain page.`, 'N'),
+    t(`A real TV`, `If you can, open /tv on the real TV and look from 4 or 5 metres.`, `The type can be read from a distance. (Choose ➖ if you cannot.)`, 'N')
+  ] },
+  { t: 'The Calendar phone', intro: `Open the phone page of the test copy and add #calendar at the end of the address. On a computer, make the window narrow.`, tests: [
+    t(`Link the phone`, `Type the link code. Then choose 4 digits, twice.`, `The phone opens straight on Today. The server never knows the 4 digits.`, 'N'),
+    t(`Wrong digits`, `Type wrong digits five times.`, `The phone waits 30 seconds.`, 'N'),
+    t(`I forgot the code`, `Press “I forgot the code”.`, `A question inside the page: “Yes, forget this phone / Cancel”. After yes, a new link code is needed.`, 'N'),
+    t(`Today`, `Look at Today.`, `Our activities and bookings first, then the guests, then “To prepare”. Halls and rooms are in two titled groups (Halls · القاعات · Salles, Rooms · الغرف · Chambres).`, 'N'),
+    t(`Week`, `Open Week.`, `Each day is its own block with its heading and number of things. Today is highlighted. Past days are paler. An empty day says “Nothing planned — an empty day”.`, 'N'),
+    t(`Spaces`, `Open Spaces.`, `Each space free, used or closed, for a day. The colours are the area colours.`, 'N'),
+    t(`The marks`, `Look at bookings of different kinds.`, `Our activity plain; an outside booking with “Booking · حجز”; a stay with “Stay · إقامة”; to confirm dashed with a tag; private only “Reserved · محجوز”. Each line names its area.`, 'N'),
+    t(`Tap a booking`, `Tap a booking.`, `It opens. Contacts show only on Reception, Coordinator and Director phones, never on a Team phone. No prices or payments on any phone.`, 'N P'),
+    t(`The last view is kept`, `Choose Week, leave the page, come back.`, `It opens on the last view.`, 'N'),
+    t(`Updated and no connection`, `Look at the “Updated … from … to …” line. Then cut the connection.`, `It says when it was updated. With no connection it shows what it kept and says so. ↻ updates it.`, 'N'),
+    t(`Arabic, English, French`, `Look at the phone in the three languages.`, `Arabic reads right to left with digits 0–9. Names and times are not cut.`, 'N'),
+    t(`A real phone`, `If you can, link a real phone and add it to the home screen.`, `It works like on the computer; the icon opens it. (Choose ➖ if you cannot.)`, 'N')
+  ] },
+  { t: 'The full phone app (compare)', intro: `The phone app for the books is not new, but it now has the problem button and the new inventory. Open phone.html on a phone or a narrow window.`, tests: [
+    t(`Record an expense`, `Link the phone with your name and password. Record an expense with a photo.`, `Rows wait, then go to the server by themselves.`, 'C'),
+    t(`Report a problem with no connection`, `Cut the connection. Report a problem with a photo. Reconnect.`, `The report is kept and sent once at the next sync, never twice. The keeper sees it.`, 'N')
+  ] }
+] });
+
+DOORS.push({ id: 'COM', name: 'Jesuit communities', about: 'Not changed', intro: `The communities' app is not changed in 0.13.0. You only check that it still opens and works. It is entered from the first page.`, secs: [
+  { t: 'Check that it still works', tests: [
+    t(`Entry from the first page`, `Go to the first page. Press “Jesuit communities”.`, `The communities' sign-in opens.`, 'C'),
+    t(`Sign in and the hats`, `Sign in with the account Fouad gave you for a community. If you are also econome or Superior, choose the hat at the top.`, `The page colour changes with the hat. The band says “You are working as…”.`, 'C'),
+    t(`I spent, for me and for the house`, `Make one expense “For me” and one “For the house”.`, `Both are saved. “For the house” shows only the minister's lines.`, 'C'),
+    t(`Confirm what you received`, `When the econome gives money, confirm it in your month.`, `It is confirmed.`, 'C'),
+    t(`Count and close`, `Count your cash note by note and close the period.`, `The period closes and nothing in it can change.`, 'C'),
+    t(`Phone and computer`, `Open it on a phone and on a computer.`, `A phone sees the book simply. A computer sees the desk with a side menu.`, 'C')
+  ] }
+] });
+
+DOORS.push({ id: 'ALL', name: 'Everyone: roles, privacy and checks', about: 'Across all doors', intro: `These tests cut across the doors. Do them last. Each person signs in and must see only what they should. “Where it should NOT show” is as important as “where it shows”.`, secs: [
+  { t: 'Each role signs in', intro: `Sign in for real with the accounts Fouad gave you (or Test as… See only). Write what you see.`, tests: [
+    t(`Administrator`, `Sign in. Look at the doors page and the menus.`, `Five doors: Accounts, Calendar, Inventory, HR, Administration. The Respo book, the Grants, the donors and the inventory totals are there.`, 'N', 'As: Administrator'),
+    t(`Director`, `Sign in. Look at the doors.`, `Accounts (to look at, not to write), Calendar (all), Inventory with the value of each item but no totals, Administration. No Grants, no donors, no Respo book. He gives the other roles to people of his centre.`, 'N P', 'As: Director'),
+    t(`Accountant`, `Sign in. Look at the doors. Make an entry in the Main book. Close a month.`, `Accounts and Calendar (and Inventory only if he has keeper's rights). He writes in the Main book and closes months. No private book. The Calendar shows no prices.`, 'N P', 'As: Accountant'),
+    t(`Book holder`, `Sign in. Look at the doors. Make an entry in her own book.`, `Accounts (her own book) and the Calendar to look at. She cannot write in the Main book and sees no other person's book.`, 'N P', 'As: Book holder'),
+    t(`Reception`, `Sign in.`, `One door: the Calendar. He books outside groups, keeps organisations and welcomes guests, sees contacts, never a price. He can also report a problem.`, 'N P', 'As: Reception'),
+    t(`Coordinator (workshops)`, `Sign in.`, `The Calendar with our programme, outside bookings, prices and payments. The Inventory without any value.`, 'N P', 'As: Coordinator (workshops)'),
+    t(`Store keeper`, `Sign in.`, `The Inventory with the value of each item and all the keeper's buttons, and the Calendar to look at. No totals, no donor report.`, 'N P', 'As: Store keeper'),
+    t(`Two roles together`, `Sign in as a person who has Reception and Store keeper.`, `He has the Calendar and the Inventory doors. His rights are both roles together, nothing taken away.`, 'N', 'As: Reception + Store keeper'),
+    t(`The Calendar for everyone, to look at`, `Sign in as a Book holder and as a Store keeper. Open the Calendar.`, `They see activities, spaces, who is where and “To prepare today”. No price, no money, no contact (a private booking is “Reserved”), no organisations register, and no way to change anything.`, 'N P')
+  ] },
+  { t: 'What must stay private', intro: `Each test is a “must not see”. If you can see it, choose ✘ and write who you were.`, tests: [
+    t(`The Respo book`, `As the Director and the Accountant look in: the Register's book filter, Lists › Books, Cash, Month closing, the Excel export.`, `The Respo book (and any private book) is nowhere. It is not listed.`, 'N P', 'As: Director · Accountant'),
+    t(`Closing the month of a private book`, `As the Accountant open Month closing. Look for the Respo book and try to close it.`, `It is not named (“private book”) and he cannot close it or see its balance. Only the Administrator closes it.`, 'N P', 'As: Accountant'),
+    t(`Grants and donors`, `As the Director look in: Reports, Budget, the project page, Lists, the audit log, Province sends.`, `No donor name, no grant, no grant steps anywhere. The project, its lines and spending are there.`, 'N P', 'As: Director'),
+    t(`The audit log`, `As the Director and the Accountant open the audit log.`, `No line about grants, donors, a private book, or the months and counts of a private book.`, 'N P', 'As: Director · Accountant'),
+    t(`Inventory totals`, `As every role but the Administrator, look for the big value figure, the sums on cards and the donor report.`, `They are not shown to anyone else.`, 'N P'),
+    t(`Prices in the calendar`, `As Reception, look for any price, amount or payment in: the booking, the printed pages, Excel, the phone and the TV.`, `There is none anywhere.`, 'N P', 'As: Reception'),
+    t(`The server's controls`, `As the Director look at Settings: the Controls tab, the Server tab and the copy password; and at the Databases button.`, `None of them is shown to him.`, 'N P', 'As: Director')
+  ] },
+  { t: 'View only means view only', tests: [
+    t(`The Calendar, view only`, `As a Book holder try: “+ New”, dragging, “⚙ Calendar settings”, payments, cancelling.`, `None of these is possible. Dragging does nothing.`, 'N P', 'As: Book holder'),
+    t(`The Inventory, view only`, `As Reception look for “+ Item”, “Quick add”, “Move items…”, “Count this space”.`, `Not shown. A person who only looks still prints the sheet for the door and reports a problem.`, 'N P', 'As: Reception'),
+    t(`A Director in Test as`, `As the Director use Test as… on an Accountant. Try to save an entry.`, `Refused: he can only look.`, 'N P', 'As: Director')
+  ] },
+  { t: 'Languages', tests: [
+    t(`Arabic`, `Choose Arabic alone. Visit the doors page, one page of each door, a booking window and a printed page.`, `The whole layout reads right to left. Digits are 0–9. Nothing is cut or overlaps. Write each English word that remains.`, 'N C'),
+    t(`English`, `Choose English alone and visit the same pages.`, `Plain English, with the Arabic names of screens kept where the program shows both.`, 'N C'),
+    t(`French`, `Choose French alone and visit the same pages.`, `French everywhere. Write each English or Arabic word that remains.`, 'N C'),
+    t(`Both languages`, `Choose the setting that shows Arabic and English together.`, `Both show; layout stays clean.`, 'C'),
+    t(`The sentences`, `Look at the sentences of the doors in all three languages.`, `Arabic first, then English or French under it. Say whether the Arabic and French read well (some were written fresh and Fouad has to check).`, 'N')
+  ] },
+  { t: 'A narrow screen, a phone, a tablet', tests: [
+    t(`Doors page and menu`, `Make the window narrow, or use a phone or a tablet. Open the doors page and a menu.`, `Nothing runs sideways. Buttons are big enough to press.`, 'N'),
+    t(`Accounts on a narrow screen`, `Make an entry and open the Register and Reports.`, `The entry window has the heading and the line one under the other. Tables can be scrolled.`, 'N'),
+    t(`Calendar and Inventory on a tablet`, `Open the week, a booking window, the map and a space page.`, `Everything can be used by touch. Write what is hard (for example dragging).`, 'N'),
+    t(`Administration on a narrow screen`, `Open People and the Test as… control.`, `They fit and work.`, 'N')
+  ] },
+  { t: 'Printing, PDF and Excel saves', intro: `For each: the file saves (or the print preview opens), opens in the right program, the Arabic reads right, and the logos and numbers are there.`, tests: [
+    t(`Receipts (PDF)`, `Save a payment receipt and a booking receipt as PDF.`, `They open and read well, in Arabic and English.`, 'N'),
+    t(`Calendar pages`, `Save the week page, the hall's week and the booking sheet.`, `They open and read well.`, 'N'),
+    t(`Inventory pages`, `Save the sheet for the door and the counting list.`, `They open and read well.`, 'N'),
+    t(`Donor report`, `Save the PDF and the Excel of the donor report.`, `The PDF has photos. The Excel opens with its sheets.`, 'N', 'As: Administrator'),
+    t(`Excel of the Calendar`, `Save the bookings and the payments.`, `Both open in Excel (or Numbers).`, 'N'),
+    t(`Excel of Reports and Export`, `Save a report's Excel and an Export.`, `Both open; figures are numbers.`, 'N'),
+    t(`Month-end report`, `Print the month-end report.`, `It reads well and has the signing places.`, 'C')
+  ] },
+  { t: 'A second sign-in and the session', tests: [
+    t(`Two people on one computer`, `Sign in as one person, sign out, sign in as another.`, `The second person sees only their own doors and data, nothing of the first.`, 'N P'),
+    t(`The same person in two browsers`, `Sign in as the same person in two browsers at the same time. Make a change in one.`, `Both work. After a reload the other shows the change.`, 'C'),
+    t(`A person switched off`, `Switch a person off in People while they are signed in elsewhere. Press something in their session.`, `They are put out at once.`, 'N P'),
+    t(`After a change of role`, `Give a person a new role. Then reload their session (or sign in again).`, `The doors follow the new roles.`, 'N')
+  ] },
+  { t: 'Speed and stability', tests: [
+    t(`Every page loads`, `Open every page of every door once.`, `No blank page, no message like “error” or “undefined”.`, 'N'),
+    t(`Speed`, `Open Register, a week of the Calendar and the Inventory map.`, `Each opens in a few seconds. Write which page is slow.`, 'N'),
+    t(`Anything else`, `Write here anything you noticed that no test covers.`, `This is for you to fill. Choose ✔ if you found nothing.`, '')
+  ] }
+] });
+
+(function () {
+  var KEY = 'magis-tester-guide-0.13.0';
+  var STAT = [['ok', '✔ Works'], ['bad', '✘ Problem'], ['skip', '➖ Not tried'], ['unc', '❓ Not clear']];
+  var STATNAME = { ok: '✔ Works', bad: '✘ Problem', skip: '➖ Not tried', unc: '❓ Not clear' };
+  var SEV = ['Blocks work', 'Wrong result', 'Annoying', 'Idea'];
+  var TAGS = { N: ['new', 'new in 0.13.0'], C: ['cmp', 'to compare with the old version'], P: ['priv', 'privacy check'] };
+  var state = { info: {}, t: {}, sec: {} };
+  var storeOK = true;
+  var all = [];        // flat list of {key, door, sec, secKey, test, num, el}
+  var secs = [];       // {key, door, title, no, el, tests:[], noteEl}
+  var doors = [];      // {id, name, el, secs:[]}
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (s && typeof s === 'object') { state = { info: s.info || {}, t: s.t || {}, sec: s.sec || {} }; }
+    } catch (e) { storeOK = false; }
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { storeOK = false; $('storewarn').style.display = 'block'; } }
+  try { localStorage.setItem(KEY + '-test', '1'); localStorage.removeItem(KEY + '-test'); } catch (e) { storeOK = false; }
+
+  // ---- build the page
+  function build() {
+    var html = '';
+    DOORS.forEach(function (d, di) {
+      var nt = 0; d.secs.forEach(function (s) { nt += s.tests.length; });
+      html += '<article class="door" data-door="' + d.id + '"><button class="door-h" type="button"><span class="dn">' + esc(d.about) + '</span>' +
+        '<span class="dt">' + esc(d.name) + '</span><span class="di">' + d.secs.length + ' sections · ' + nt + ' tests</span>' +
+        '<div class="meter"><i></i></div><div class="counts"></div></button><div class="door-b"><div class="door-intro">' + esc(d.intro) + '</div>';
+      d.secs.forEach(function (s, si) {
+        var skey = d.id + '-' + (si + 1);
+        html += '<section class="sec" data-sec="' + skey + '"><button class="sec-h" type="button"><span class="st-t">' + (si + 1) + ' · ' + esc(s.t) + '</span><small></small></button><div class="sec-b">';
+        if (s.intro) html += '<p class="sec-intro">' + esc(s.intro) + '</p>';
+        s.tests.forEach(function (x, ti) {
+          var key = d.id + '-' + (si + 1) + '-' + (ti + 1);
+          var num = d.id + ' ' + (si + 1) + '.' + (ti + 1);
+          var steps = x.doit.split('|');
+          var doHtml = steps.length > 1 ? '<ol>' + steps.map(function (z) { return '<li>' + esc(z) + '</li>'; }).join('') + '</ol>' : '<p>' + esc(steps[0]) + '</p>';
+          var tags = ''; ['N', 'C', 'P'].forEach(function (f) { if (x.flags.indexOf(f) >= 0) tags += '<span class="tag ' + TAGS[f][0] + '">' + TAGS[f][1] + '</span>'; });
+          html += '<div class="test" id="t-' + key + '" data-key="' + key + '" data-s=""><div class="th"><span class="num">' + num + '</span><span class="tt">' + esc(x.title) + '</span>' + tags + '</div>' +
+            (x.who ? '<div class="who">' + esc(x.who) + '</div>' : '') +
+            '<div class="do"><div class="lbl">What to do</div>' + doHtml + '</div>' +
+            '<div class="exp"><div class="lbl">What should happen</div>' + esc(x.exp) + '</div>' +
+            '<div class="ans">' + STAT.map(function (st) { return '<label class="' + st[0] + '"><input type="radio" name="s-' + key + '" value="' + st[0] + '" data-k="' + key + '" data-w="s">' + st[1] + '</label>'; }).join('') + '</div>' +
+            '<div class="sev"><span>How serious?</span>' + SEV.map(function (v) { return '<label><input type="radio" name="v-' + key + '" value="' + v + '" data-k="' + key + '" data-w="v">' + v + '</label>'; }).join('') + '</div>' +
+            '<textarea data-n="' + key + '" placeholder="What you did · what you expected · what happened" aria-label="Note for ' + num + '"></textarea>' +
+            '<div class="psev"></div><div class="pnote"></div></div>';
+        });
+        html += '<div class="secnote"><div class="lbl">Notes for this section</div><textarea data-sn="' + skey + '" placeholder="Anything about this section as a whole" aria-label="Notes for section ' + (si + 1) + '"></textarea><div class="pnote sn"></div></div>';
+        html += '</div></section>';
+      });
+      html += '</div></article>';
+    });
+    $('doors').innerHTML = html;
+    // index the elements
+    DOORS.forEach(function (d) {
+      var de = document.querySelector('.door[data-door="' + d.id + '"]');
+      var dobj = { id: d.id, name: d.name, el: de, secs: [] };
+      d.secs.forEach(function (s, si) {
+        var skey = d.id + '-' + (si + 1);
+        var se = document.querySelector('.sec[data-sec="' + skey + '"]');
+        var sobj = { key: skey, door: dobj, title: s.t, no: si + 1, el: se, tests: [], noteEl: se.querySelector('textarea[data-sn]'), noteBox: se.querySelector('.secnote') };
+        s.tests.forEach(function (x, ti) {
+          var key = d.id + '-' + (si + 1) + '-' + (ti + 1);
+          var el = document.getElementById('t-' + key);
+          var tobj = { key: key, door: dobj, sec: sobj, test: x, num: d.id + ' ' + (si + 1) + '.' + (ti + 1), el: el, noteEl: el.querySelector('textarea'),
+            hay: (d.id + ' ' + (si + 1) + '.' + (ti + 1) + ' ' + x.title + ' ' + x.doit + ' ' + x.exp + ' ' + x.who).toLowerCase() };
+          sobj.tests.push(tobj); all.push(tobj);
+        });
+        dobj.secs.push(sobj); secs.push(sobj);
+      });
+      doors.push(dobj);
+    });
+  }
+
+  function get(key) { return state.t[key] || (state.t[key] = { s: '', v: '', n: '' }); }
+  function status(key) { var r = state.t[key]; return r ? r.s : ''; }
+
+  // ---- numbers
+  function tally(list) {
+    var c = { ok: 0, bad: 0, skip: 0, unc: 0, none: 0, n: list.length };
+    list.forEach(function (x) { var s = status(x.key); if (s) c[s]++; else c.none++; });
+    c.answered = c.n - c.none; return c;
+  }
+  function countsText(c) { return '✔ <b>' + c.ok + '</b> · ✘ <b>' + c.bad + '</b> · ❓ <b>' + c.unc + '</b> · ➖ <b>' + c.skip + '</b> · not answered <b>' + c.none + '</b>'; }
+
+  function refresh() {
+    all.forEach(function (x) {
+      var r = state.t[x.key] || { s: '', v: '', n: '' };
+      x.el.setAttribute('data-s', r.s || '');
+      Array.prototype.forEach.call(x.el.querySelectorAll('input[type=radio]'), function (inp) {
+        var val = inp.getAttribute('data-w') === 's' ? r.s : r.v;
+        var on = val === inp.value; inp.checked = on;
+        inp.parentNode.className = (inp.parentNode.className.replace(/\bon\b/g, '').trim() + (on ? ' on' : '')).trim();
+      });
+      if (x.noteEl.value !== (r.n || '') && document.activeElement !== x.noteEl) x.noteEl.value = r.n || '';
+      var pr = r.s === 'bad' || !!(r.n && r.n.trim());
+      x.el.classList.toggle('pr', pr);
+      x.el.querySelector('.psev').textContent = r.s ? (STATNAME[r.s] + (r.s === 'bad' && r.v ? ' — ' + r.v : '')) : '';
+      x.el.querySelector('.pnote').textContent = r.n || '';
+    });
+    secs.forEach(function (s) {
+      var c = tally(s.tests);
+      s.el.querySelector('.sec-h small').textContent = (c.bad ? '✘ ' + c.bad + ' · ' : '') + c.answered + ' of ' + c.n;
+      var n = state.sec[s.key] || '';
+      if (document.activeElement !== s.noteEl) s.noteEl.value = n;
+      s.noteBox.querySelector('.pnote').textContent = n;
+      var hasPr = n.trim() || s.tests.some(function (t) { return t.el.classList.contains('pr'); });
+      s.el.classList.toggle('pr', !!hasPr);
+      s.noteBox.classList.toggle('pr', !!n.trim());
+    });
+    doors.forEach(function (d) {
+      var list = []; d.secs.forEach(function (s) { list = list.concat(s.tests); });
+      var c = tally(list);
+      d.el.querySelector('.meter i').style.width = (c.n ? Math.round(100 * c.answered / c.n) : 0) + '%';
+      d.el.querySelector('.counts').innerHTML = c.answered + ' of ' + c.n + ' answered · ' + countsText(c);
+      d.el.classList.toggle('pr', d.secs.some(function (s) { return s.el.classList.contains('pr'); }));
+    });
+    var c = tally(all);
+    var pct = c.n ? Math.round(100 * c.answered / c.n) : 0;
+    $('overall').querySelector('i').style.width = pct + '%';
+    $('overallc').innerHTML = '<b>' + c.answered + '</b> of <b>' + c.n + '</b> answered (' + pct + '%) · ' + countsText(c);
+    $('prog').querySelector('.meter i').style.width = pct + '%';
+    if (!flashing) $('progt').textContent = c.answered + ' of ' + c.n + ' answered · ✘ ' + c.bad + (c.bad === 1 ? ' problem' : ' problems');
+    ['name', 'date', 'device', 'browser', 'version'].forEach(function (k) { var e = $('f-' + k); if (document.activeElement !== e) e.value = state.info[k] || ''; });
+    var who = ['name', 'date', 'device', 'browser'].map(function (k) { return state.info[k] || ''; }).filter(Boolean);
+    if (state.info.version) who.push('version: ' + state.info.version);
+    $('printHead').innerHTML = '<h2>Tester\'s notes · MAGIS Accounts 0.13.0</h2><p>' + esc(who.join(' · ')) +
+      '<br>✔ ' + c.ok + ' · ✘ ' + c.bad + ' · ❓ ' + c.unc + ' · ➖ ' + c.skip + ' · not answered ' + c.none + ' of ' + c.n + '</p>';
+    applyFilter();
+  }
+
+  var flashing = false, flashT = null;
+  function flash(msg) {
+    flashing = true; $('progt').textContent = msg; clearTimeout(flashT);
+    flashT = setTimeout(function () { flashing = false; refresh(); }, 4500);
+  }
+
+  // ---- filter and search
+  function applyFilter() {
+    var q = $('q').value.trim().toLowerCase(), only = $('onlybad').checked, active = !!q || only, shown = 0;
+    all.forEach(function (x) {
+      var r = state.t[x.key] || {};
+      var ok = (!only || r.s === 'bad') && (!q || x.hay.indexOf(q) >= 0 || (r.n || '').toLowerCase().indexOf(q) >= 0);
+      x.el.classList.toggle('hid', !ok); if (ok) shown++;
+    });
+    secs.forEach(function (s) {
+      var any = s.tests.some(function (t) { return !t.el.classList.contains('hid'); });
+      s.el.classList.toggle('hid', active && !any);
+      s.noteBox.classList.toggle('hid', active);
+      if (active && any) s.el.classList.add('open');
+    });
+    doors.forEach(function (d) {
+      var any = d.secs.some(function (s) { return !s.el.classList.contains('hid'); });
+      d.el.classList.toggle('hid', active && !any);
+      if (active && any) d.el.classList.add('open');
+    });
+    $('none').style.display = active && !shown ? 'block' : 'none';
+  }
+
+  // ---- events
+  document.addEventListener('click', function (e) {
+    var el = e.target;
+    if (el.tagName === 'INPUT' && el.type === 'radio' && el.getAttribute('data-k')) {
+      var r = get(el.getAttribute('data-k')), w = el.getAttribute('data-w');
+      var cur = w === 's' ? r.s : r.v;
+      var nv = cur === el.value ? '' : el.value;   // pressing the chosen answer again clears it
+      if (w === 's') { r.s = nv; } else { r.v = nv; }
+      save(); refresh(); return;
+    }
+    var h = el.closest ? el.closest('.door-h') : null;
+    if (h) { h.parentNode.classList.toggle('open'); return; }
+    var sh = el.closest ? el.closest('.sec-h') : null;
+    if (sh) { sh.parentNode.classList.toggle('open'); return; }
+  });
+  document.addEventListener('input', function (e) {
+    var el = e.target;
+    if (el.getAttribute && el.getAttribute('data-n')) { get(el.getAttribute('data-n')).n = el.value; save(); refresh(); }
+    else if (el.getAttribute && el.getAttribute('data-sn')) { state.sec[el.getAttribute('data-sn')] = el.value; save(); refresh(); }
+    else if (el.id && el.id.indexOf('f-') === 0) { state.info[el.id.slice(2)] = el.value; save(); refresh(); }
+    else if (el.id === 'q') applyFilter();
+  });
+  $('onlybad').addEventListener('change', applyFilter);
+  $('openall').addEventListener('click', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.door, .sec'), function (x) { x.classList.add('open'); });
+  });
+  $('closeall').addEventListener('click', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('.door, .sec'), function (x) { x.classList.remove('open'); });
+  });
+
+  // ---- the report
+  function sevRank(v) { var i = SEV.indexOf(v); return i < 0 ? 9 : i; }
+  function report() {
+    var i = state.info, L = [];
+    L.push('MAGIS Accounts 0.13.0 — Tester\'s notes');
+    L.push('Tester: ' + (i.name || '(no name)') + ' · Date: ' + (i.date || '(no date)'));
+    L.push('Device: ' + (i.device || '-') + ' · Browser: ' + (i.browser || '-') + ' · Version at the bottom of the program: ' + (i.version || '-'));
+    L.push('');
+    function line(x, n) {
+      var r = state.t[x.key] || {};
+      var s = n + '. ' + x.door.name + ' › ' + x.sec.no + ' ' + x.sec.title + ' › ' + x.num + ' ' + x.test.title + '\n   Status: ' + STATNAME[r.s || ''] ;
+      if (!r.s) s = n + '. ' + x.door.name + ' › ' + x.sec.no + ' ' + x.sec.title + ' › ' + x.num + ' ' + x.test.title + '\n   Status: not answered';
+      if (r.s === 'bad') s += ' — Severity: ' + (r.v || 'not said');
+      if (x.test.who) s += '\n   (' + x.test.who + ')';
+      s += '\n   Note: ' + ((r.n || '').trim() ? r.n.trim().replace(/\n/g, '\n         ') : '(none)');
+      return s;
+    }
+    var bad = all.filter(function (x) { return status(x.key) === 'bad'; });
+    bad.sort(function (a, b) { return sevRank((state.t[a.key] || {}).v) - sevRank((state.t[b.key] || {}).v); });
+    L.push('PROBLEMS (' + bad.length + ')'); L.push('');
+    if (!bad.length) L.push('(none)'), L.push('');
+    bad.forEach(function (x, k) { L.push(line(x, k + 1)); L.push(''); });
+    var unc = all.filter(function (x) { return status(x.key) === 'unc'; });
+    L.push('NOT CLEAR (' + unc.length + ')'); L.push('');
+    if (!unc.length) L.push('(none)'), L.push('');
+    unc.forEach(function (x, k) { L.push(line(x, k + 1)); L.push(''); });
+    var other = all.filter(function (x) { var r = state.t[x.key] || {}; return r.s !== 'bad' && r.s !== 'unc' && (r.n || '').trim(); });
+    L.push('OTHER NOTES (tests that work, were not tried or not answered, with a note) (' + other.length + ')'); L.push('');
+    if (!other.length) L.push('(none)'), L.push('');
+    other.forEach(function (x, k) { L.push(line(x, k + 1)); L.push(''); });
+    var sn = secs.filter(function (s) { return (state.sec[s.key] || '').trim(); });
+    L.push('NOTES FOR WHOLE SECTIONS (' + sn.length + ')'); L.push('');
+    if (!sn.length) L.push('(none)'), L.push('');
+    sn.forEach(function (s) { L.push(s.door.name + ' › ' + s.no + ' ' + s.title + ':\n   ' + state.sec[s.key].trim().replace(/\n/g, '\n   ')); L.push(''); });
+    var c = tally(all);
+    L.push('SUMMARY'); L.push('');
+    L.push('All tests: ' + c.n + ' · answered ' + c.answered + ' · ✔ Works ' + c.ok + ' · ✘ Problem ' + c.bad + ' · ❓ Not clear ' + c.unc + ' · ➖ Not tried ' + c.skip + ' · not answered ' + c.none);
+    var sv = SEV.map(function (v) { return v + ' ' + bad.filter(function (x) { return (state.t[x.key] || {}).v === v; }).length; });
+    sv.push('severity not said ' + bad.filter(function (x) { return !(state.t[x.key] || {}).v; }).length);
+    L.push('Problems by severity: ' + sv.join(' · '));
+    L.push('');
+    doors.forEach(function (d) {
+      var list = []; d.secs.forEach(function (s) { list = list.concat(s.tests); });
+      var k = tally(list);
+      L.push(d.name + ': ' + k.n + ' tests · answered ' + k.answered + ' · ✔ ' + k.ok + ' · ✘ ' + k.bad + ' · ❓ ' + k.unc + ' · ➖ ' + k.skip);
+    });
+    return L.join('\n');
+  }
+
+  $('copy').addEventListener('click', function () {
+    var text = report();
+    var out = $('out'); out.style.display = 'block'; out.textContent = text;
+    function done() { flash('Copied. Paste it in your message to Fouad.'); }
+    function fallback() {
+      try { var ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); var ok = document.execCommand('copy'); document.body.removeChild(ta); if (ok) { done(); return; } } catch (e) { }
+      document.getSelection().selectAllChildren(out); flash('Select the text shown above and copy it.');
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+    out.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  function fileBase() {
+    var n = (state.info.name || 'tester').toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, '-').replace(/^-+|-+$/g, '') || 'tester';
+    var d = new Date(); var p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return 'magis-test-notes-' + n + '-' + d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  function download(name, mime, text) {
+    try {
+      var blob = new Blob([text], { type: mime + ';charset=utf-8' });
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 1500);
+      return true;
+    } catch (e) { return false; }
+  }
+  function jsonText() {
+    var rows = all.filter(function (x) { var r = state.t[x.key]; return r && (r.s || (r.n || '').trim()); }).map(function (x) {
+      var r = state.t[x.key];
+      return { key: x.key, number: x.num, door: x.door.name, section: x.sec.no + ' ' + x.sec.title, title: x.test.title, status: r.s ? STATNAME[r.s] : '', severity: r.s === 'bad' ? (r.v || '') : '', note: r.n || '' };
+    });
+    return JSON.stringify({ app: 'MAGIS Accounts 0.13.0 tester guide', saved: new Date().toISOString(), info: state.info, tests: rows, state: state }, null, 1);
+  }
+  $('save').addEventListener('click', function () {
+    var base = fileBase();
+    var ok1 = download(base + '.txt', 'text/plain', '﻿' + report());
+    setTimeout(function () { var ok2 = download(base + '.json', 'application/json', jsonText()); flash(ok1 && ok2 ? 'Saved two files: ' + base + '.txt and .json (look in your Downloads).' : 'The browser did not save the files. Use “Copy my notes” instead.'); }, 600);
+  });
+  $('print').addEventListener('click', function () { refresh(); window.print(); });
+  $('load').addEventListener('click', function () { $('loadfile').click(); });
+  $('loadfile').addEventListener('change', function () {
+    var f = this.files && this.files[0]; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      try {
+        var o = JSON.parse(rd.result); var s = o.state || o;
+        if (!s || !s.t) throw new Error('no');
+        state = { info: s.info || {}, t: s.t || {}, sec: s.sec || {} }; save(); refresh(); flash('Notes loaded from the file.');
+      } catch (e) { flash('This file is not a notes file saved by this page (.json).'); }
+    };
+    rd.readAsText(f); this.value = '';
+  });
+  var clearArmed = false, clearT = null;
+  $('clear').addEventListener('click', function () {
+    var b = this;
+    if (!clearArmed) { clearArmed = true; b.textContent = 'Press again to erase all'; clearT = setTimeout(function () { clearArmed = false; b.textContent = 'Clear all answers'; }, 5000); return; }
+    clearTimeout(clearT); clearArmed = false; b.textContent = 'Clear all answers';
+    state = { info: {}, t: {}, sec: {} }; try { localStorage.removeItem(KEY); } catch (e) { }
+    document.getElementById('q').value = ''; $('onlybad').checked = false;
+    Array.prototype.forEach.call(document.querySelectorAll('textarea'), function (t) { t.value = ''; });
+    refresh(); flash('All answers erased.');
+  });
+  window.addEventListener('beforeprint', refresh);
+
+  // Arabic words keep their own direction inside English sentences
+  function bidi(root) {
+    var re = /[\u0600-\u06FF\u0750-\u077F]+(?:[ \u00A0·]+[\u0600-\u06FF\u0750-\u077F]+)*/g;
+    var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), nodes = [], n;
+    while ((n = w.nextNode())) { var p = n.parentNode.nodeName; if (p !== 'SCRIPT' && p !== 'TEXTAREA' && p !== 'STYLE' && re.test(n.nodeValue)) nodes.push(n); re.lastIndex = 0; }
+    nodes.forEach(function (node) {
+      var txt = node.nodeValue, frag = document.createDocumentFragment(), last = 0, m; re.lastIndex = 0;
+      while ((m = re.exec(txt))) {
+        if (m.index > last) frag.appendChild(document.createTextNode(txt.slice(last, m.index)));
+        var b = document.createElement('bdi'); b.textContent = m[0]; frag.appendChild(b); last = m.index + m[0].length;
+      }
+      if (last < txt.length) frag.appendChild(document.createTextNode(txt.slice(last)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+
+  load(); build(); bidi(document.querySelector('.wrap'));
+  if (!storeOK) $('storewarn').style.display = 'block';
+  refresh();
+})();
+</script>
+</body>
+</html>

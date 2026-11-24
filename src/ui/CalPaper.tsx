@@ -54,6 +54,9 @@ export function usePayReceipt(data: CalData, refresh: () => Promise<void>) {
     const p = data.pays.find((x) => x.id === payId);
     if (!p) return;
     try {
+      // the print is counted first: "copy" is printed when the SERVER says it was printed before (two people printing together)
+      const { before } = (await s.api.call('cal.paper.printed', { what: 'pay', id: p.id })) as { before: number };
+      void refresh();
       const { payReceiptPdf } = await import('../io/hostReceipt');
       const org = data.orgs.find((o) => o.id === b.org_id);
       const spaces = data.allocs.filter((a) => a.booking_id === b.id).map((a) => data.spaces.find((x) => x.id === a.room_id)?.name).filter(Boolean).join(', ');
@@ -62,9 +65,9 @@ export function usePayReceipt(data: CalData, refresh: () => Promise<void>) {
         ...(await look()), receipt_no: p.receipt_no, paid_on: p.paid_on, amount: p.amount, currency: p.currency, method: p.method,
         from: { name: org?.name ?? b.group_name, person: b.contact ?? '', phone: b.phone ?? '' },
         booking: { code: b.code, name: `${b.group_name}${b.subject ? ` · ${b.subject}` : ''}`, days: dayText(b), spaces: b.whole_centre ? 'The whole centre · المركز كله' : b.outside_place ?? spaces },
-        due: b.price_state === 'priced' ? due : null, copy: (p.printed ?? 0) > 0,
+        due: b.price_state === 'priced' ? due : null, copy: before > 0,
       });
-      if (await savePdf(`receipt_${p.receipt_no}.pdf`, bytes)) { await s.api.call('cal.paper.printed', { what: 'pay', id: p.id }); await refresh(); }
+      await savePdf(`receipt_${p.receipt_no}.pdf`, bytes);
     } catch (e) { toast(errText(e), true); }
   };
 }
@@ -223,7 +226,7 @@ export function BookingReceipt({ data, b, onClose, refresh }: { data: CalData; b
     <ReceiptWindow
       data={{ pays: data.pays, lines: data.lines, allocs: data.allocs, rooms: data.spaces, buildings: data.areas, needs: data.needs, equip: data.equip }}
       booking={b} rows0={rows} nights={nights} printed={b.receipt_printed ?? 0}
-      onPrinted={async () => { await s.api.call('cal.paper.printed', { what: 'booking', id: b.id }); await refresh(); }}
+      claim={async () => { const r = (await s.api.call('cal.paper.printed', { what: 'booking', id: b.id })) as { before: number }; void refresh(); return r.before; }}
       onClose={onClose}
     />
   );

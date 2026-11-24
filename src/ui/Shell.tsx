@@ -13,6 +13,7 @@ import { Home } from './Home';
 import { EntryForm, type EntryStart } from './EntryForm';
 import { Register } from './Register';
 import { Cash } from './Cash';
+import { PaysWaitingPage, usePaysWaiting } from './PaysWaiting';
 import { Reports } from './Reports';
 import { BudgetPage } from './Budget';
 import { Grants } from './Grants';
@@ -46,15 +47,15 @@ function useNarrow() {
 
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
 
-export type Page = 'doors' | 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'admin' | 'guide' | 'people' | 'roles' | 'sentences';
+export type Page = 'doors' | 'home' | 'register' | 'paywait' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'admin' | 'guide' | 'people' | 'roles' | 'sentences';
 
 /** "← MAGIS · الأبواب": the way back to the doors page, the arrow turned the way the language reads */
 const backLabel = () => { const l = getLang(); return l === 'ar' || l === 'both' ? '→ MAGIS · الأبواب' : l === 'fr' ? '← MAGIS · Portes' : '← MAGIS · Doors'; };
 
-const PAGES: Page[] = ['doors', 'home', 'register', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'admin', 'guide', 'people', 'roles', 'sentences'];
+const PAGES: Page[] = ['doors', 'home', 'register', 'paywait', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'admin', 'guide', 'people', 'roles', 'sentences'];
 
 /** The door each page belongs to ('admin' and 'guide' belong to none: they keep the door the person came from). */
-const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', calendar: 'calendar', invmap: 'inventory', people: 'admin', roles: 'admin' };
+const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', paywait: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', calendar: 'calendar', invmap: 'inventory', people: 'admin', roles: 'admin' };
 /** where a door opens */
 const DOOR_HOME: Record<Exclude<DoorKey, 'hr'>, Page> = { accounts: 'home', calendar: 'calendar', inventory: 'invmap', admin: 'people' };
 
@@ -132,6 +133,9 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
     databases: onDatabases,
   };
   const toReview = d.rows.filter((r) => r.review).length;
+  // payments and refunds of the Calendar waiting to become entries (only for those who write entries)
+  const payWait = usePaysWaiting();
+  const toEnter = payWait?.rows.length ?? 0;
   const toInventory = can('inventory.manage') ? pendingEntries(invEntries(d).rows, d.lists, d.inv).length : 0;
   // the register is for those who write in a book or look at the books (not for the reception or a stock keeper with no book)
   const finances = myBooks.length > 0 || can('register.view') || can('register.main') || can('register.edit');
@@ -205,6 +209,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
           {door === 'accounts' && <>
             {item('home', t('الرئيسية', 'Home'))}
             {finances && item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
+            {payWait && (payWait.ever || toEnter > 0) && item('paywait', tx(m('مدفوعات تنتظر الدفاتر', 'Payments waiting for the books', 'Paiements en attente des livres')), toEnter ? <span className="badge">{toEnter}</span> : null)}
             {(myBooks.length > 0 || can('reports.cash')) && item('cash', t('النقد', 'Cash'))}
             {(REPORT_PERMS.some(can) || can('data.export')) && item('reports', t('التقارير', 'Reports'))}
             {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
@@ -246,10 +251,11 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
           {door === 'admin' && page !== 'doors' && <TestAs s={s} />}
           {page === 'doors' && (
             <Doors doors={doors} centre={s.centre ?? 'other'} centreName={s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')} mark={st.mark ?? '/brand/magis-sun.png'} who={s.profile.name}
-              badges={{ accounts: toReview, inventory: (d.problems?.open ?? 0) + toInventory }} onEnter={nav.door} />
+              badges={{ accounts: toReview + toEnter, inventory: (d.problems?.open ?? 0) + toInventory }} onEnter={nav.door} />
           )}
           {page === 'home' && <Home />}
           {page === 'register' && <Register key={`${reviewOnly}|${bookOnly}`} />}
+          {page === 'paywait' && payWait && <PaysWaitingPage />}
           {page === 'cash' && <Cash />}
           {page === 'reports' && <Reports />}
           {page === 'budget' && can('budget.view') && <BudgetPage />}

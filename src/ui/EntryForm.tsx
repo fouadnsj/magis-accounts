@@ -56,7 +56,7 @@ const recall = (k: string) => {
 };
 
 /** A new entry with some choices already made (an envelope's Give / Spent / Put back). */
-export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null; /** a copy of this record (opens as a new entry, saved only when he presses Save) */ copyOf?: Trx; date?: string; /** an entry suggested by another part of the program (a payment of the calendar): the form opens with these filled in */ prefill?: { amount: number; currency: 'USD' | 'SYP'; explanation: string; receipt: string } }
+export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null; /** a copy of this record (opens as a new entry, saved only when he presses Save) */ copyOf?: Trx; date?: string; /** an entry suggested by another part of the program (a payment of the calendar): the form opens with these filled in */ prefill?: { amount: number; currency: 'USD' | 'SYP'; explanation: string; receipt: string; /** made from a payment of the calendar: the type, the date, the amount, the currency and the receipt number come from the payment and are not retyped */ locked?: boolean } }
 export type EntryStart = TrxType | Trx | NewEntry;
 const isPreset = (x: EntryStart): x is NewEntry => typeof x === 'object' && 'preset' in x;
 
@@ -82,6 +82,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
   // The other row of a keeper-to-keeper transfer, and the transfer as a whole.
   // (a copy is built from a record the same way an edit is, but saved as a NEW entry)
   const copyOf = isPreset(start) ? start.copyOf ?? null : null;
+  const fromPay = isPreset(start) && !!start.prefill?.locked;
   const source = editing ?? copyOf;
   const partner = editing?.transfer_group ? d.rows.find((r) => r.transfer_group === editing.transfer_group && r.id !== editing.id) ?? null : null;
   const srcPartner = source?.transfer_group ? d.rows.find((r) => r.transfer_group === source.transfer_group && r.id !== source.id) ?? null : null;
@@ -451,12 +452,12 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
 
       <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="row" style={{ marginBottom: 14 }}>
-          <Seg value={f.type} options={types.map((ty) => ({ value: ty, label: tx(TYPE_LABEL[ty]) }))} onChange={switchType} />
+          <Seg value={f.type} options={types.filter((ty) => !fromPay || ty === f.type).map((ty) => ({ value: ty, label: tx(TYPE_LABEL[ty]) }))} onChange={switchType} />
         </div>
 
         <div className="grid4">
           <Field label={t('التاريخ', 'Date')}>
-            <input type="date" value={f.date} onChange={(e) => set('date', e.target.value)} />
+            <input type="date" value={f.date} readOnly={fromPay} onChange={(e) => set('date', e.target.value)} />
           </Field>
           {f.type !== 'Transfer' ? (
             <Field label={t('الدفتر', 'Book')}>
@@ -518,9 +519,9 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
 
           {(f.type === 'Income' || f.type === 'Exp' || f.type === 'Transfer') && (
             <>
-              <Field label={t('العملة', 'Currency')}>{curSeg}</Field>
+              <Field label={t('العملة', 'Currency')}>{fromPay ? <Seg value={f.currency} options={[{ value: f.currency ?? 'USD', label: f.currency === 'USD' ? t('دولار', 'USD') : t('ليرة', 'SYP') }]} onChange={() => undefined} /> : curSeg}</Field>
               <Field label={f.type === 'Income' ? t('المبلغ المقبوض', 'Amount received') : f.type === 'Exp' ? t('المبلغ المدفوع', 'Amount paid') : t('المبلغ المحوَّل', 'Amount moved')}>
-                <input className="num" inputMode="decimal" value={f.amount} onChange={(e) => set('amount', e.target.value)} autoFocus={!editing}
+                <input className="num" inputMode="decimal" value={f.amount} readOnly={fromPay} onChange={(e) => set('amount', e.target.value)} autoFocus={!editing && !fromPay}
                   onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && save(true)} />
               </Field>
               <div className="span2 muted small" style={{ alignSelf: 'end', paddingBottom: 8 }}>
@@ -570,7 +571,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
             <Combo value={f.partyId} options={opts(L.parties, f.partyId)} onChange={(v) => set('partyId', v)} onAdd={addParty} />
           </Field>
           <Field label={t('رقم الوصل', 'Receipt')}>
-            <input value={f.receipt} onChange={(e) => set('receipt', e.target.value)} />
+            <input value={f.receipt} readOnly={fromPay} onChange={(e) => set('receipt', e.target.value)} />
           </Field>
         </div>
 

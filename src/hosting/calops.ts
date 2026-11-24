@@ -39,7 +39,54 @@ async function equipOf(c: { db: Db }): Promise<HostEquip[]> {
 
 /** the receipt numbers already made entries in the books (an income for money received, an expense for money given back) */
 async function enteredOf(c: { db: Db }): Promise<string[]> {
-  return (await c.db.query<{ receipt: string }>('SELECT DISTINCT receipt FROM trx WHERE receipt IS NOT NULL AND receipt IN (SELECT receipt_no FROM host_pay)')).map((x) => x.receipt);
+  return (await c.db.query<{ receipt: string }>('SELECT DISTINCT p.receipt_no AS receipt FROM host_pay p WHERE EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no)))')).map((x) => x.receipt);
+}
+
+/** what the books may see of a payment or a refund of the calendar: no price, no contact, no note (Fouad, M1 of the review) */
+export interface PayWaiting { receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: 'in' | 'back'; name: string; code: string }
+/** the payments and the refunds that are not yet an entry of the books (the taken-back ones are left out) */
+export async function paysWaiting(db: Db): Promise<PayWaiting[]> {
+  const rows = await db.query<{ receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: string | null; group_name: string; code: string; private: number | null }>(
+    "SELECT p.receipt_no, p.paid_on, p.amount, p.currency, p.kind, b.group_name, b.code, b.private FROM host_pay p JOIN host_booking b ON b.id = p.booking_id WHERE p.status <> 'refused' AND NOT EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no))) ORDER BY p.paid_on, p.id");
+  // a private booking shows "Reserved" to someone who has no right to the contacts, as everywhere in the calendar
+  return rows.map((r) => ({ receipt_no: r.receipt_no, paid_on: r.paid_on, amount: r.amount, currency: r.currency, kind: r.kind === 'back' ? 'back' : 'in', name: r.private ? 'Reserved · محجوز' : r.group_name, code: r.code }));
+}
+
+/**
+ * An entry of the books that carries the receipt number of a calendar payment (S3 of the review): there can be only one,
+ * and it must say what the payment says (an income for money received, an expense for money given back; the same amount in
+ * the same currency). Called when entries are saved; rows kept as they were are not asked again (older entries stay).
+ */
+export async function checkCalReceipts(
+  db: Db,
+  rows: { id: string; receipt: string | null; type: string | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }[],
+  old: Map<string, { receipt: string | null; type: string | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }>,
+  others: { id: string; receipt: string | null }[],
+): Promise<void> {
+  const norm = (x: string | null | undefined) => (x ?? '').trim().toLowerCase();
+  const sig = (r: { receipt: string | null; type: string | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }) => [norm(r.receipt), r.type, r.inc_usd, r.exp_usd, r.inc_syp, r.exp_syp].join('|');
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const key = norm(r.receipt);
+    if (!key) continue;
+    let p: HostPay | undefined;
+    try { p = (await db.query<HostPay>('SELECT * FROM host_pay WHERE lower(trim(receipt_no)) = ?', [key]))[0]; } catch { return; /* a file with no calendar */ }
+    if (!p) continue;
+    const before = old.get(r.id);
+    if (before && sig(before) === sig(r)) continue;
+    if (seen.has(key) || others.some((x) => x.id !== r.id && norm(x.receipt) === key))
+      throw err(`الوصل ${p.receipt_no} صار قيداً في الدفاتر: لا يُقيَّد مرتين`, `Receipt ${p.receipt_no} is already an entry of the books: it cannot be entered twice`, `Le reçu ${p.receipt_no} est déjà une écriture des livres : on ne l’écrit pas deux fois`);
+    seen.add(key);
+    if (p.status === 'refused') throw err(`الدفعة ${p.receipt_no} سُحبت: لا قيد لها`, `Payment ${p.receipt_no} was taken back: it has no entry`, `Le paiement ${p.receipt_no} a été retiré : pas d’écriture`);
+    const back = p.kind === 'back', usd = p.currency === 'USD';
+    const want = back ? 'Exp' : 'Income';
+    const got = (c: 'USD' | 'SYP') => (back ? (c === 'USD' ? r.exp_usd : r.exp_syp) : c === 'USD' ? r.inc_usd : r.inc_syp);
+    const other = got(usd ? 'SYP' : 'USD');
+    if (r.type !== want || Math.abs((got(p.currency) || 0) - p.amount) > 0.005 || (other || 0) !== 0)
+      throw err(`الوصل ${p.receipt_no} هو ${back ? 'مبلغ مُعاد' : 'دفعة مقبوضة'} ${p.amount} ${p.currency}: القيد يخالفه (النوع أو المبلغ أو العملة). اجعله قيداً من قائمة «مدفوعات تنتظر الدفاتر»، أو امسح رقم الوصل`,
+        `Receipt ${p.receipt_no} is ${back ? 'money given back' : 'money received'}: ${p.amount} ${p.currency} (${back ? 'an expense' : 'an income'}). The entry says something else (type, amount or currency). Make it from "Payments waiting for the books", or clear the receipt number`,
+        `Le reçu ${p.receipt_no} est ${back ? 'de l’argent rendu' : 'de l’argent reçu'} : ${p.amount} ${p.currency}. L’écriture dit autre chose (type, montant ou devise). Faites-la depuis « Paiements en attente des livres », ou effacez le numéro`);
+  }
 }
 
 /** everything the calendar holds, before it is cut to what this person may see */
@@ -643,13 +690,14 @@ async function history(c: OpCtx, a: { booking_id?: number } = {}) {
 async function addPay(c: OpCtx, a: { booking_id: number; amount: number; currency?: Currency; paid_on?: string; method?: string; note?: string | null }) {
   const b = await bookingOf(c, a.booking_id);
   if (b.status === 'cancelled') throw err('الحجز ملغى: لا تُسجَّل عليه دفعة', 'The booking is cancelled: no payment can be recorded', 'La réservation est annulée : aucun paiement');
-  const amount = money(a.amount);
+  const currency = cur(a.currency ?? b.currency);
+  // Syrian pounds are whole pounds: the receipt's figure and its words always say the same (S5 of the review)
+  const amount = currency === 'SYP' ? Math.round(money(a.amount) ?? 0) : money(a.amount);
   if (!amount) throw err('اكتب المبلغ', 'Write the amount', 'Écrivez le montant');
   const day = a.paid_on && isDay(a.paid_on) ? a.paid_on : today();
   if (day > today()) throw err('تاريخ الدفعة في المستقبل', 'The date of the payment is in the future', 'La date du paiement est dans le futur');
   const receipt = nextReceipt((await c.db.query<{ receipt_no: string }>('SELECT receipt_no FROM host_pay')).map((x) => x.receipt_no), Number(day.slice(0, 4)));
   const method = ['cash', 'transfer', 'other'].includes(String(a.method)) ? String(a.method) : 'cash';
-  const currency = cur(a.currency ?? b.currency);
   await c.db.batch([
     { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, method, receipt_no, note, who, at, kind) VALUES (?,?,?,?,?,?,?,?,?,'in')", params: [b.id, amount, currency, day, method, receipt, txt(a.note), c.who, nowIso()] },
     auditStmt(c.who, 'add', 'host_pay', receipt, null, { booking: b.code, amount, currency, paid_on: day, method }),
@@ -724,6 +772,9 @@ async function phoneCut(c: OpCtx, a: { id: string }) {
 }
 
 
+/** the prints are counted one after the other (see 'cal.paper.printed') */
+let printQueue: Promise<void> = Promise.resolve();
+
 export const CAL_OPS = {
   'cal.get': { check: need('view'), run: (c: OpCtx) => loadCal(c) },
   'cal.history': { check: need('history'), run: (c: OpCtx, a: { booking_id?: number }) => history(c, a) },
@@ -751,18 +802,26 @@ export const CAL_OPS = {
     },
   },
   /** money received for a booking, at any time, even before confirming: a suggestion for the books with its receipt number */
+  /** M1 of the review: the payments and refunds waiting for the books, for whoever writes entries; only what an entry needs */
+  'cal.pay.waiting': { check: (c: OpCtx) => { if (!c.profile.perms.includes('register.edit') && !c.profile.perms.includes('register.main')) throw refuse(); }, run: async (c: OpCtx) => ({ rows: await paysWaiting(c.db), ever: ((await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM host_pay'))?.n ?? 0) > 0 }) },
   'cal.pay.add': { check: need('money'), run: (c: OpCtx, a: Parameters<typeof addPay>[1]) => addPay(c, a) },
   /** a payment recorded by mistake, not yet in the books: taken back (kept, marked refused) */
   'cal.pay.cancel': { check: need('money'), run: (c: OpCtx, a: { id: number }) => cancelPay(c, a) },
   /** a receipt was printed: counted, so the next print carries the mark "copy"; returns how many times it was printed before */
   'cal.paper.printed': {
     check: (c: OpCtx) => { if (!seesPrices(rightsOf(c))) throw refuse(); },
-    run: async (c: OpCtx, a: { what: 'booking' | 'pay'; id: number }) => {
-      const [table, col] = a.what === 'pay' ? ['host_pay', 'printed'] : ['host_booking', 'receipt_printed'];
-      const row = await one<{ n: number }>(c.db, `SELECT ${col} AS n FROM ${table} WHERE id = ?`, [Number(a.id)]);
-      if (!row) throw err('غير موجود', 'Not found', 'Introuvable');
-      await c.db.batch([{ sql: `UPDATE ${table} SET ${col} = ${col} + 1 WHERE id = ?`, params: [Number(a.id)] }]);
-      return { before: row.n };
+    run: (c: OpCtx, a: { what: 'booking' | 'pay'; id: number }) => {
+      // one print at a time on this server: two people pressing print together get "before" 0 and 1, never 0 and 0
+      const go = async () => {
+        const [table, col] = a.what === 'pay' ? ['host_pay', 'printed'] : ['host_booking', 'receipt_printed'];
+        const row = await one<{ n: number }>(c.db, `SELECT ${col} AS n FROM ${table} WHERE id = ?`, [Number(a.id)]);
+        if (!row) throw err('غير موجود', 'Not found', 'Introuvable');
+        await c.db.batch([{ sql: `UPDATE ${table} SET ${col} = ${col} + 1 WHERE id = ?`, params: [Number(a.id)] }]);
+        return { before: row.n };
+      };
+      const result = printQueue.then(go, go);
+      printQueue = result.then(() => undefined, () => undefined);
+      return result;
     },
   },
   'cal.phone.add': { check: managesPhones, run: (c: OpCtx, a: Parameters<typeof phoneAdd>[1]) => phoneAdd(c, a) },
@@ -794,7 +853,7 @@ export const CAL_OPS = {
   'cal.import.orgs': { check: need('orgs'), run: (c: OpCtx, a: { rows: unknown[][]; dry?: boolean }) => importOrgs(c, a) },
 } as const;
 
-export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options', 'cal.phone.list'];
+export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options', 'cal.phone.list', 'cal.pay.waiting'];
 
 /** for the tests and the coming screens: who sees the amounts */
 export const calSeesPrices = (c: OpCtx) => seesPrices(rightsOf(c));

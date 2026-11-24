@@ -14,6 +14,7 @@ import { rateOn } from '../domain/compute';
 import { invEntries, pendingEntries } from '../inventory/inv';
 import { Envelopes } from './Envelopes';
 import { GuideLink } from '../guide/GuideView';
+import { PaysWaitingNotice } from './PaysWaiting';
 
 /** The sign of each kind of movement on its button. */
 export const TYPE_ICON: Record<TrxType, string> = { Exp: '−', Income: '+', Transfer: '⇄', Exchange: '💱' };
@@ -158,6 +159,7 @@ export function Home() {
           <button className="btn small" onClick={() => nav.door('inventory')}>{t('الجرد', 'Inventory')}</button>
         </div>
       )}
+      <PaysWaitingNotice />
       {toReview > 0 && (
         <div className="alert warn row" style={{ justifyContent: 'space-between' }}>
           <span>{t(`${toReview} سطراً بحاجة إلى مراجعة`, `${toReview} rows need review`)}</span>

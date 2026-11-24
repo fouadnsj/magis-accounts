@@ -333,9 +333,10 @@ type EditRow = ReceiptRow & { id: number; /** the stay (or the hall) line, price
 /** Opens with everything the booking holds; the number of people, the nights, the meals and every line can be changed, the amounts follow, then it is written as a PDF. */
 /** what the receipt window reads (the 0.12 page gives its data; the new calendar gives its own, step 4) */
 export type ReceiptData = Pick<HostData, 'pays' | 'lines' | 'allocs' | 'rooms' | 'buildings' | 'needs' | 'equip'>;
-export function ReceiptWindow({ data, booking: b, onClose, printed, onPrinted, rows0, nights: givenNights }: {
+export function ReceiptWindow({ data, booking: b, onClose, printed, onPrinted, claim, rows0, nights: givenNights }: {
   data: ReceiptData; booking: HostBooking; onClose: () => void;
   /** printed before: the mark "copy" */ printed?: number; onPrinted?: () => Promise<void>;
+  /** the server counts this print FIRST and says how many times it was printed before (so two people printing together never both get an original) */ claim?: () => Promise<number>;
   /** the calendar gives its own first lines (a price for each date) and its own count of dates (moved and cancelled ones) */
   rows0?: ReceiptRow[]; nights?: number;
 }) {
@@ -390,7 +391,7 @@ export function ReceiptWindow({ data, booking: b, onClose, printed, onPrinted, r
   const equip = data.needs.filter((n) => n.booking_id === b.id).map((n) => `${data.equip.find((e) => e.id === n.equip_id)?.name ?? ''} x ${n.qty}`);
 
   // the PDF as it is now (used by the preview and by the export)
-  const build = async (): Promise<Uint8Array> => {
+  const build = async (copy?: boolean): Promise<Uint8Array> => {
     const get = async (u: string) => new Uint8Array(await (await fetch(u)).arrayBuffer());
     // the Arabic title under the name: the one set in Admin → Appearance, else the house's usual one
     const custom = await s.api.call('brand.get').then((x) => x.receipt_title).catch(() => null);
@@ -401,7 +402,7 @@ export function ReceiptWindow({ data, booking: b, onClose, printed, onPrinted, r
       issuedOn: date, ref, kind: b.kind, billedTo: { name, contact, phone }, from_day: b.from_day, to_day: b.to_day, people: num(people), nights: num(nights), repeats: !!b.repeat_days,
       rooms: showRooms ? where : [], equipment: showEquip ? equip : [], rows: shown.rows.map(({ label, sub, qty, unit, currency }) => ({ label, sub, qty, unit, currency })),
       payments: shown.payments.map((p) => ({ paid_on: p.paid_on, receipt_no: p.receipt_no, amount: p.amount, currency: p.currency })), conversion: conv && shown.changed ? conv : undefined, note,
-      copy: (printed ?? 0) > 0,
+      copy: copy ?? (printed ?? 0) > 0,
     });
   };
   const rememberRate = () => { if (conv) { try { localStorage.setItem('magis-receipt-rate', String(rateNum)); } catch { /* the rate is only remembered for next time */ } } };
@@ -410,8 +411,10 @@ export function ReceiptWindow({ data, booking: b, onClose, printed, onPrinted, r
     setBusy(true);
     try {
       rememberRate();
-      const saved = await saveFile(`receipt_${ref.replace(/[^A-Za-z0-9-]+/g, '')}_${todayIso()}.pdf`, ['pdf'], await build(), t('احفظ وصل الاستلام', 'Save the receipt'));
-      if (saved !== null) await onPrinted?.();
+      // the print is counted first: the mark "copy" comes from what the server says, not from what this screen loaded earlier
+      const before = claim ? await claim() : null;
+      const saved = await saveFile(`receipt_${ref.replace(/[^A-Za-z0-9-]+/g, '')}_${todayIso()}.pdf`, ['pdf'], await build(before == null ? undefined : before > 0), t('احفظ وصل الاستلام', 'Save the receipt'));
+      if (saved !== null && !claim) await onPrinted?.();
       onClose();
     } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
   };

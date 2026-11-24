@@ -37,20 +37,37 @@ function useAllCentres() {
   return ok;
 }
 
-/** The tables shown in a part of the screen, as they are shown (a heading just before a table names its sheet). */
+/** The tables shown in a part of the screen, as they are shown: the tables, the big figures and the bar lists (a heading near each names its sheet). */
 function shownTables(root: HTMLElement | null, fallback: string): ShownTable[] {
   if (!root) return [];
   const text = (e: Element) => (e.textContent ?? '').replace(/\s+/g, ' ').trim();
-  const out: ShownTable[] = [];
-  root.querySelectorAll('table').forEach((tb, i) => {
-    let name = '';
-    for (let e: Element | null = tb.closest('table'); e && e !== root && !name; e = e.parentElement) {
-      for (let p = e.previousElementSibling; p && !name; p = p.previousElementSibling) if (/^H[1-4]$/.test(p.tagName)) name = text(p);
+  const titleOf = (e: Element) => { const c = e.cloneNode(true) as Element; c.querySelectorAll('.small, .muted').forEach((x) => x.remove()); return text(c); };
+  const headingNear = (start: Element): string => {
+    for (let e: Element | null = start; e && e !== root; e = e.parentElement) {
+      for (let p = e.previousElementSibling; p; p = p.previousElementSibling) if (/^H[1-4]$/.test(p.tagName)) return titleOf(p);
+      const own = e.parentElement && e.parentElement !== root ? [...e.parentElement.children].find((x) => /^H[1-4]$/.test(x.tagName)) : null;
+      if (own) return titleOf(own);
     }
+    return '';
+  };
+  const out: ShownTable[] = [];
+  const frames: string[][] = [];
+  root.querySelectorAll('.dash-frame').forEach((f) => {
+    const cur = titleOf(f.querySelector('.cur-head') ?? f);
+    f.querySelectorAll('.fig').forEach((g) => frames.push([cur, text(g.children[0] ?? g), text(g.children[1] ?? g)]));
+  });
+  if (frames.length) out.push({ name: t('الأرقام', 'Totals'), head: [t('الإطار', 'Frame'), '', ''], rows: frames });
+  const cards = [...root.querySelectorAll('.cards .card')].map((c) => [text(c.querySelector('.k') ?? c), text(c.querySelector('.v') ?? c), c.querySelector('.v2') ? text(c.querySelector('.v2')!) : '']);
+  if (cards.length) out.push({ name: t('الأرقام الرئيسية', 'Key figures'), head: ['', '', ''], rows: cards });
+  root.querySelectorAll('.barlist').forEach((bl, i) => {
+    const rows = [...bl.querySelectorAll('.bar-row')].map((r) => [text(r.querySelector('.bar-label') ?? r), text(r.querySelector('.bar-value') ?? r)]);
+    if (rows.length) out.push({ name: headingNear(bl) || `${fallback} ${i + 1}`, head: ['', t('المبلغ', 'Amount')], rows });
+  });
+  root.querySelectorAll('table').forEach((tb, i) => {
     const headRow = tb.querySelector('thead tr') ?? tb.querySelector('tr');
     const head = headRow ? [...headRow.children].map(text) : [];
     const rows = [...tb.querySelectorAll('tbody tr, tfoot tr')].filter((r) => r !== headRow && r.querySelector('td, th')).map((r) => [...r.children].map(text));
-    if (rows.length || head.length) out.push({ name: name || `${fallback} ${i + 1}`, head, rows });
+    if (rows.length || head.length) out.push({ name: headingNear(tb) || `${fallback} ${i + 1}`, head, rows });
   });
   return out;
 }

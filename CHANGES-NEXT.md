@@ -633,3 +633,28 @@ the keeper and the accountant must enter the value of each object, only the big 
   item table shows the value of each item ($240.00 for the chairs); "Test as" Bashar (Store keeper + Reception): no dollar sum anywhere on the home, no donor button.
 - **Not changed**: the Excel export of the inventory still has the value of each item and its line total ("Total value USD", quantity × unit) — it is the object's
   value, and it needs `inventory.values`. A **full copy** of the database (`backup.download`) holds everything, as in §21.
+
+## 27. The Accounts door: no city, the Export inside Reports, the projects inside the budget part (Fouad's third test, comments 1, 2, 3; 26 November 2026; NO database update — 78 stays free)
+Fouad answered "as you suggest" to Q1, Q2 and Q3 of `DECISIONS-BEFORE-BUILD.html`. Three commits, nothing stored is changed.
+- **1 · The city is no longer shown** (option A). Gone from the entry form (the value is filled from the book, then the default city, then the first city, so a
+  save still passes "City is required"), from Lists (the "Cities" tab, the Books column, the "City (default)" field of a book, the "Default city" setting) and
+  from the Compare screen (a row whose only difference is the city is not listed). Kept: the `city` table, `city_id` on every row and book, the Excel export
+  ("City" column) and import ("Cities" sheet). HR and the calendar are untouched. Files: `EntryForm.tsx`, `Compare.tsx`, `ListsPage.tsx`.
+- **2 · Export moves into Reports** (option A, each door keeps its own exports). The menu item "Export" and `Files.tsx` are removed.
+  - **Each report tab** has an "Excel" button next to the period: an Excel file of what is on the screen (the tables, the big figures and the bar lists of the
+    tab, one sheet each, with the title, the centre, the period and the date at the top; figures come back as numbers). New `src/io/tableExcel.ts`.
+    There is **no PDF button**: none of the reports prints today (to add later if Fouad wants it).
+  - **A new "Export" tab** in Reports (right `data.export`): today's Excel export of the register, with the period now "all / one month / from–to", a book,
+    a project, and the options lists / reports / confidential (donors and grants only for who has `lists.donors`). New `src/ui/ExportTab.tsx`.
+    A person with `data.export` but no report right still gets the Reports page (the Export tab).
+  - **The import** ("Start from the Excel workbook") moves to Settings, a tab shown only to who has `data.import` while the register is empty.
+  - The Home button "Export" (file holders only) now goes to Reports. Guide (Settings and Reports) and French updated.
+- **3 · Projects into the budget part** (option A, the word "Project" kept). Lists → "Projects" is gone; the same table, with its merge, dates and
+  "outside the budget" actions and its rules, is now a block "Special funds · projects" at the bottom of **Lists → Budget** (a Budget page in the menu is only
+  for reading the budget). Shown to the Administrator (`lists.donors`), or to anyone who reaches Lists when some project is outside the budget (it opens by
+  itself then). A private project with no outside-budget mark stays visible only to the Administrator: the other roles are not told which projects have a grant.
+- **Tests**: `tests/table-excel.test.ts` (3). 454 pass at this point (the inventory sessions add theirs).
+- **Tried in the side pane** on a COPY (own port, test123): as Fouad (Administrator): no "Export" in the menu, Reports has the Excel button (Summary and Monthly
+  files written) and the Export tab, Lists has no Projects or Cities tab, the block "Special funds · projects" is open under Budget, the Books table has no City
+  column, the entry form has no City, Settings has no "start" tab (794 rows); "Test as" Assem (Accountant): same, with the Export tab and the block in Lists.
+  Not tried: an entry saved with the hidden city, a PDF, an empty register.

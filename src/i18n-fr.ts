@@ -1076,6 +1076,9 @@ export const FR: Record<string, string> = {
   "This shows only while the register is empty.": "Ceci ne s'affiche que tant que le registre est vide.",
   "Special funds · projects": "Fonds spéciaux · projets",
   "A Transactions sheet with a TRX table in exactly the same column order — values, no formulas. For a report as shown on the screen, use the \"Excel\" button above it.": "Une feuille Transactions avec un tableau TRX dans exactement le même ordre de colonnes — des valeurs, sans formules. Pour un rapport tel qu'à l'écran, utilisez le bouton « Excel » au-dessus.",
+  "Totals": "Totaux",
+  "Key figures": "Chiffres clés",
+  "Frame": "Cadre",
 };
 
 export const FR_PATTERNS: [string, string][] = [

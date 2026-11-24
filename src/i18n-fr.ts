@@ -918,7 +918,7 @@ export const FR: Record<string, string> = {
   "To": "À",
   "To (receiver)": "À (celui qui reçoit)",
   "To confirm: did you receive this money?": "À confirmer : avez-vous reçu cet argent ?",
-  "To create a database: first sign in to an existing one as someone who manages users (the Superior), then in the menu choose \"Databases · new\". Or open this page on the server computer itself.": "Pour créer une base : connectez-vous d'abord à une base existante comme quelqu'un qui gère les utilisateurs (le Supérieur), puis dans le menu choisissez « Bases de données · nouvelle ». Ou ouvrez cette page sur l'ordinateur du serveur lui-même.",
+  "To create a database: first sign in to an existing one as the Administrator, then in the menu choose \"Databases · new\". Or open this page on the server computer itself.": "Pour créer une base : connectez-vous d'abord à une base existante comme l'Administrateur, puis dans le menu choisissez « Bases de données · nouvelle ». Ou ouvrez cette page sur l'ordinateur du serveur lui-même.",
   "To month": "Au mois",
   "To print or save as PDF: \"Print\", then \"Save as PDF\".": "Pour imprimer ou garder en PDF : « Imprimer », puis « Enregistrer en PDF ».",
   "To put a whole book back: choose the book here.": "Pour remettre toute une caisse : choisissez la caisse ici.",

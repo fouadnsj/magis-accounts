@@ -23,7 +23,7 @@ import { Admin } from './Admin';
 import { PeoplePage, RolesPage } from './People';
 import { SentencesPage } from './Sentences';
 import { TestAs } from './SignAs';
-import { peopleDoor } from '../roles';
+import { holdsControlsOf, peopleDoor } from '../roles';
 import { Calendar } from './Calendar';
 import { InventoryHome } from './InvHome';
 import { Guide } from './Guide';
@@ -232,7 +232,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
           <button onClick={() => choose('phone')}>📱 {t('عرض الهاتف', 'Phone view')}</button>
           <LangPick onChange={onToggleLang} />
           {lookOwn && <button onClick={() => setLookOpen(true)}>🎨 {t('لوني', 'My colour')}</button>}
-          {onDatabases && <button onClick={onDatabases}>{can('users.manage') ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
+          {onDatabases && <button onClick={onDatabases}>{holdsControlsOf(s.profile, can('users.manage')) ? t('قواعد البيانات · جديدة', 'Databases · new') : t('قواعد البيانات', 'Databases')}</button>}
           {onAllDatabases && <button onClick={onAllDatabases}>🏠 {t('الصفحة الأولى', 'Home page')}</button>}
           <button onClick={logout}>{t('خروج', 'Log out')}</button>
           {s.mode !== 'server' && <button onClick={onCloseDb} className="small">{t('إغلاق الملف', 'Close file')}</button>}

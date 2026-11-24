@@ -11,10 +11,14 @@ import { Field, Modal, Select, Tabs, confirmBox, promptBox, errText, fmtDate, fm
 import { GuideLink } from '../guide/GuideView';
 import { MainListTake, useMainAdmin } from './MainListTake';
 
-type Tab = 'budget' | 'city' | 'account' | 'party' | 'books' | 'settings';
+type Tab = 'budget' | 'party' | 'books' | 'settings';
 
 export function ListsPage() {
+  const { d, can } = useApp();
   const [tab, setTab] = useState<Tab>('budget');
+  // "Special funds · projects" (Fouad, 25 November 2026): out of the lists, into the budget part; for the Administrator,
+  // or for whoever sees it when some money is kept outside the centre's budget
+  const showFunds = can('lists.donors') || d.lists.accounts.some((a) => a.outside_budget);
   return (
     <>
       <div className="page-head"><h1>{t('القوائم', 'Lists')}<GuideLink id="lists" /></h1></div>
@@ -22,13 +26,17 @@ export function ListsPage() {
         { value: 'budget', label: t('الموازنة', 'Budget') },
         { value: 'books', label: t('الدفاتر والأمناء', 'Books & keepers') },
         { value: 'party', label: t('الجهات', 'Parties') },
-        { value: 'account', label: t('المشاريع', 'Projects') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
       {tab === 'budget' && <MainListTake />}
       {tab === 'budget' && <BudgetTab />}
+      {tab === 'budget' && showFunds && (
+        <details style={{ marginTop: 14 }} open={d.lists.accounts.some((a) => a.outside_budget)}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600, marginBottom: 8 }}>{t('أموال خاصة · مشاريع', 'Special funds · projects')}</summary>
+          <FundsTab />
+        </details>
+      )}
       {tab === 'party' && <SimpleTab table={tab} key={tab} />}
-      {tab === 'account' && <FundsTab />}
       {tab === 'books' && <BooksTab />}
       {tab === 'settings' && <SettingsTab />}
     </>

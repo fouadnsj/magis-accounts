@@ -173,3 +173,22 @@ Order that works: 1 → (2, 3, 4 in parallel, three sessions on different files)
 7. **Book holders and Accountant:** they stay as today, an Accountant creates Book holders only. *I recommend keeping it.*
 
 Nothing is built. When you say yes to these answers, the first job is step 1 of section 4.5.
+
+---
+
+## 7. Fouad's answers (24 November 2026)
+
+1. Administrator = Fouad on each of the three servers, **and a second person** per server in case he is away. (As suggested.)
+2. A Director may give the HR right to someone of his own centre. (As suggested.)
+3. The Administrator sees everything of HR, salaries included. (As suggested.)
+4. A Director sees the project and the amounts, **never the donor's name** nor the grant steps. (As suggested.)
+5. The word on screen is **Director**, directly (no "Superior" beside it).
+6. **The Administrator must see the three HR databases.** Work as soon as possible on a way for each server to share **the last copy** of its HR, so the Administrator has all three. (To design: see 8.)
+7. Accountant and Book holders: **needs reflection**. Today you must create a book AND a user; a simpler way would be welcome. (To design: see 8.)
+8. Fouad's proposal: **HR and Inventory stay roles** (HR keeper, Store keeper), and the Administrator and the Director can give **several roles to one person** (e.g. Accountant + HR keeper; Reception + Store keeper).
+
+## 8. Next design points (manager's notes, to confirm with Fouad)
+
+- **Several roles per person** (agreed in principle): a person's rights = all the ticks of all their roles together; doors come from that. Limits: only the Administrator gives Administrator or Director; the Respo book and Grants exist only in the Administrator role; an HR keeper role is always "of a centre". The ticks stay under "Advanced" for rare exceptions.
+- **Book and user in one step:** when a person gets the role Book holder (or "keeps a book"), the program makes their book with their name; one window, no separate "new book".
+- **The three HR for the Administrator:** HR data (salaries) is private and must **never** go through a cloud or a shared folder (Fouad's rule: real data stays off shared folders and clouds). Two stages proposed: (A) fast: each server makes a **locked copy file** of its HR (with a password), carried to the Administrator's server and opened **read-only** there, showing the date of the copy; (B) later: the servers send that copy to each other directly and securely over the network, if they can reach each other. Question for Fouad: can the three servers reach each other over the internet today?

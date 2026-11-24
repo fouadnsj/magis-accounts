@@ -364,3 +364,10 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".
+
+## 17. Guide and test checklists for the new Calendar and Inventory (calendar step 8, inventory step 5; 24 November 2026; no database update)
+- The built-in Guide (accounts) has two new sections written for centre staff, Arabic, English, French: **Calendar · التقويم** and **Inventory · الجرد**
+  (`src/guide/calendarInventory.ts`, 15 and 13 steps). Only what the screens do; "Receipt", "prepare". The two old sections are kept and renamed
+  "(the older page)" because their pages left the menu: they can be removed or merged later (Fouad to decide).
+- `CHECKLIST-CALENDAR.md` and `CHECKLIST-INVENTORY.md`: numbered tests for the side pane, with the points not yet tested marked.
+- Test: `tests/guide-calendar-inventory.test.ts`. Not done (postponed by Fouad): reports by organisation, optional reminders.

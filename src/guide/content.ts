@@ -3,6 +3,7 @@
 // says what the screens do.
 import { m, type Msg } from '../i18n';
 import { PHONE_INSTALL } from './phoneInstall';
+import { CALENDAR_GUIDE, INVENTORY_GUIDE } from './calendarInventory';
 
 export interface GuideStep { title: Msg; text: Msg }
 export interface GuideSection { id: string; icon: string; title: Msg; intro: Msg; steps: GuideStep[] }
@@ -139,8 +140,10 @@ export const ACCOUNTS_GUIDE: GuideSection[] = [
       s(m('في كل مركز', 'In each centre', 'Dans chaque centre'), m('القوائم ← الموازنة ← «خذ من القائمة الرئيسية…»: علّم البنود والخطوط التي يستعملها المركز. مركز على حاسوبه يأخذها من الملف. ما جاء منها يُوقف هنا فقط.', 'Lists → Budget → "Take from the main list…": tick the headings and lines the centre uses. A centre on its own computer takes them from the file. What came from it is only switched off here.', 'Listes → Budget → « Prendre de la liste principale… » : cochez les rubriques et lignes que le centre utilise. Un centre sur son ordinateur les prend du fichier. Ce qui en vient est seulement désactivé ici.')),
     ],
   },
+  CALENDAR_GUIDE,
+  INVENTORY_GUIDE,
   {
-    id: 'inventory', icon: '📦', title: m('الجرد', 'Inventory', 'Inventaire'),
+    id: 'inventory', icon: '📦', title: m('الجرد (الصفحة القديمة)', 'Inventory (the older page)', 'Inventaire (l’ancienne page)'),
     intro: m('ما يملكه المركز وأين هو وحالته، تحفظه المحاسبة وهو مرتبط بالمشتريات في السجل. كل مصروف على بند أثاث أو معدات يجب أن يصير غرضاً هنا.', 'What the centre owns, where it is and its state, kept by the finance and linked to the purchases of the register. Every expense on a furniture or equipment line must become an item here.', 'Ce que le centre possède, où cela se trouve et son état, tenu par la comptabilité et lié aux achats du registre. Chaque dépense sur une ligne mobilier ou équipement doit devenir un objet ici.'),
     steps: [
       s(m('البدء: بنود الجرد', 'Start: the inventory lines', 'Début : les lignes d’inventaire'), m('الجرد ← الإعدادات ← «بنود الجرد»: علّم عنوان الموازنة (أثاث ومعدات) أو خطاً واحداً. كل مصروف عليه يظهر في «مشتريات تُسجَّل» حتى يصير غرضاً.', 'Inventory → Settings → "Inventory lines": tick the budget heading (furniture and equipment) or a single line. Every expense on it shows in "To register" until it becomes an item.', 'Inventaire → Réglages → « Lignes d’inventaire » : cochez la rubrique du budget (mobilier et équipement) ou une seule ligne. Toute dépense dessus apparaît dans « À enregistrer » jusqu’à devenir un objet.')),
@@ -160,7 +163,7 @@ export const ACCOUNTS_GUIDE: GuideSection[] = [
     ],
   },
   {
-    id: 'hosting', icon: '📅', title: m('الإقامة والتقويم', 'Accommodation and calendar', 'Hébergement et calendrier'),
+    id: 'hosting', icon: '📅', title: m('الإقامة والتقويم (الصفحة القديمة)', 'Accommodation and calendar (the older page)', 'Hébergement et calendrier (l’ancienne page)'),
     intro: m('للمراكز التي تستضيف مجموعات (مثل الأرض): مبانٍ وغرف، حجوزات، وتقويم «الغرف حسب اليوم». قسم يُفعَّل لكل مركز.', 'For centres that host groups (like Al-Ard): buildings and rooms, bookings, and a "rooms by day" calendar. A section each centre switches on.', 'Pour les centres qui accueillent des groupes (comme Al-Ard) : bâtiments et chambres, réservations, et un calendrier « chambres par jour ». Une section que chaque centre active.'),
     steps: [
       s(m('التفعيل', 'Switching it on', 'L’activer'), m('الإدارة ← الأقسام: علّم «الإقامة والتقويم». عندها تظهر في القائمة صفحة «الإقامة والتقويم».', 'Admin → Sections: tick "Accommodation and calendar". The page then appears in the menu.', 'Administration → Sections : cochez « Hébergement et calendrier ». La page apparaît alors dans le menu.')),

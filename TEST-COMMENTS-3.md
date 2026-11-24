@@ -66,3 +66,10 @@
    (3) the origin chosen for the whole batch (as now), kept from room to room, changeable per room if needed.
    Question to confirm: by "with the origin" did Fouad mean exactly that the origin stays chosen from one room to the next, or that each room/row
    has its own origin? (The current screen has one origin for the whole save.)
+
+7. **City, a note (Fouad, 25 November):** "the city will be useful for merging the data, unless the records are flagged by the db name."
+   Analysis (manager): agreed, and compatible with what was built: the city is only HIDDEN on screen; the `city` table, every `city_id` and the Excel
+   export/import are untouched. In the Homs test copy all 800 register rows carry the city "Homs". For a later merge of several centres (central
+   server, or the three HR/accounts databases side by side) rows need an origin: either the city (works while each centre keeps its own city as default)
+   or a database name/identifier stamped on each row at merge time. Rule to keep: never remove `city_id`; keep each centre's default city set to its own
+   city; when the merge is designed, add the database name as the origin flag (so that two centres in the same city do not collide).

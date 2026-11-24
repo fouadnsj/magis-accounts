@@ -23,12 +23,11 @@ export function ListsPage() {
         { value: 'books', label: t('الدفاتر والأمناء', 'Books & keepers') },
         { value: 'party', label: t('الجهات', 'Parties') },
         { value: 'account', label: t('المشاريع', 'Projects') },
-        { value: 'city', label: t('المدن', 'Cities') },
         { value: 'settings', label: t('الإعدادات', 'Settings') },
       ]} />
       {tab === 'budget' && <MainListTake />}
       {tab === 'budget' && <BudgetTab />}
-      {(tab === 'city' || tab === 'party') && <SimpleTab table={tab} key={tab} />}
+      {tab === 'party' && <SimpleTab table={tab} key={tab} />}
       {tab === 'account' && <FundsTab />}
       {tab === 'books' && <BooksTab />}
       {tab === 'settings' && <SettingsTab />}
@@ -388,8 +387,6 @@ function BooksTab() {
   const act = useAct();
   const counts = useCounts();
   const [edit, setEdit] = useState<Partial<Book> | null>(null);
-  const L = d.lists;
-  const name = (arr: { id: number; name: string }[], id: number | null) => arr.find((x) => x.id === id)?.name ?? '';
   return (
     <div className="panel">
       <div className="row" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
@@ -397,12 +394,12 @@ function BooksTab() {
         <button className="btn primary" onClick={() => setEdit({ name: '' })}>＋ {t('دفتر جديد', 'New book')}</button>
       </div>
       <table className="t">
-        <thead><tr><th>{t('الدفتر', 'Book')}</th><th>{t('الأمين', 'Keeper')}</th><th>{t('المدينة', 'City')}</th><th className="n">{t('افتتاحي ل.س', 'Opening SYP')}</th><th className="n">{t('افتتاحي $', 'Opening USD')}</th><th className="n">{t('سطور', 'Rows')}</th><th /></tr></thead>
+        <thead><tr><th>{t('الدفتر', 'Book')}</th><th>{t('الأمين', 'Keeper')}</th><th className="n">{t('افتتاحي ل.س', 'Opening SYP')}</th><th className="n">{t('افتتاحي $', 'Opening USD')}</th><th className="n">{t('سطور', 'Rows')}</th><th /></tr></thead>
         <tbody>
           {d.shownBooks.map((b) => (
             <tr key={b.id} className={b.active ? '' : 'off'}>
               <td><b>{b.name}</b>{b.is_main ? <span className="muted small"> · {t('رئيسي', 'main')}</span> : null}{b.private ? <span className="muted small"> · 🔒 {t('خاص', 'private')}</span> : null}</td>
-              <td>{b.keeper_name}</td><td>{name(L.cities, b.city_id)}</td>
+              <td>{b.keeper_name}</td>
               <td className="n">{fmtSyp(b.opening_syp)}</td><td className="n">{fmtUsd(b.opening_usd)}</td><td className="n">{counts.book.get(b.id) ?? 0}</td>
               <td className="nowrap right">
                 <button className="btn small ghost" onClick={() => setEdit(b)}>✎</button>
@@ -426,18 +423,16 @@ function BooksTab() {
 }
 
 function BookModal({ book, onClose }: { book: Partial<Book>; onClose: () => void }) {
-  const { s, d } = useApp();
+  const { s } = useApp();
   const act = useAct();
   const [b, setB] = useState({ ...book, opening_syp: book.opening_syp ?? 0, opening_usd: book.opening_usd ?? 0 });
   const [os, setOs] = useState(String(b.opening_syp || ''));
   const [ou, setOu] = useState(String(b.opening_usd || ''));
-  const opts = (arr: { id: number; name: string; active: number }[]) => arr.filter((x) => x.active).map((x) => ({ value: x.id, label: x.name }));
   return (
     <Modal title={book.id ? t('تعديل دفتر', 'Edit book') : t('دفتر جديد', 'New book')} onClose={onClose} narrow>
       <div className="grid2">
         <Field label={t('اسم الدفتر', 'Book name')}><input value={b.name ?? ''} disabled={!!b.is_main} onChange={(e) => setB({ ...b, name: e.target.value })} /></Field>
         <Field label={t('الأمين', 'Keeper')}><input value={b.keeper_name ?? ''} onChange={(e) => setB({ ...b, keeper_name: e.target.value })} /></Field>
-        <Field label={t('المدينة (افتراضي)', 'City (default)')}><Select value={b.city_id ?? null} options={opts(d.lists.cities)} onChange={(v) => setB({ ...b, city_id: v })} /></Field>
         <Field label={t('رصيد افتتاحي ل.س', 'Opening SYP')}><input className="num" value={os} onChange={(e) => setOs(e.target.value)} /></Field>
         <Field label={t('رصيد افتتاحي $', 'Opening USD')}><input className="num" value={ou} onChange={(e) => setOu(e.target.value)} /></Field>
       </div>
@@ -487,7 +482,6 @@ function SettingsTab() {
             if (v > 0 && v / 100 !== st.exchange_tolerance) void act(() => s.api.call('settings.save', { exchange_tolerance: v / 100 }), t('حُفظ', 'Saved'));
           }} />
         </Field>
-        <Field label={t('المدينة الافتراضية', 'Default city')}><Select value={st.def_city_id} options={opt(d.lists.cities)} onChange={(v) => act(() => s.api.call('settings.save', { def_city_id: v }))} /></Field>
         <Field label={t('الدفتر الافتراضي', 'Default book')}><Select value={st.def_book_id} options={opt(d.lists.books)} onChange={(v) => act(() => s.api.call('settings.save', { def_book_id: v }))} /></Field>
         <Field label={t('بداية السنة المالية (لا تواريخ قبلها)', 'Fiscal year start (no dates before it)')}>
           <input type="date" value={fs} onChange={(e) => setFs(e.target.value)} onBlur={() => fs !== (st.fiscal_start ?? '') && act(() => s.api.call('settings.save', { fiscal_start: fs || null }), t('حُفظ', 'Saved'))} />

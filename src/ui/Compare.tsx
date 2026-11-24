@@ -104,7 +104,9 @@ export function CompareModal({ backup, onClose }: { backup: BackupFile; onClose:
     }
   };
 
-  const changed = diff?.changed.filter((x) => inBook(x.after) || inBook(x.before)) ?? [];
+  // the city is not shown: a row whose only difference is the city is left out
+  const changed = (diff?.changed ?? []).map((x) => ({ ...x, fields: x.fields.filter((f) => f !== 'city_id') }))
+    .filter((x) => x.fields.length > 0 && (inBook(x.after) || inBook(x.before)));
   const deleted = diff?.deleted.filter(inBook) ?? [];
   const added = diff?.added.filter(inBook) ?? [];
 

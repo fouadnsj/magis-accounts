@@ -234,7 +234,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     const formErrors: Msg[] = [];
     const base = (id?: string): Trx => ({
       ...(id ? d.rows.find((r) => r.id === id)! : blankTrx()),
-      city_id: f.cityId, account_id: fundOfRow(), date: f.date || null, type: f.type,
+      city_id: f.cityId ?? L.cities.find((c) => c.active)?.id ?? null, account_id: fundOfRow(), date: f.date || null, type: f.type,
       heading_id: f.headingId, line_id: f.lineId, explanation: f.explanation.trim() || null,
       party_id: f.partyId, receipt: f.receipt.trim() || null,
       inc_syp: 0, exp_syp: 0, inc_usd: 0, exp_usd: 0, trf_syp: 0, trf_usd: 0, review: null,
@@ -496,11 +496,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
               </select>
             </Field>
           )}
-          {f.type !== 'Transfer' && (
-            <Field label={t('المدينة', 'City')}>
-              <Select value={f.cityId} options={opts(L.cities, f.cityId)} onChange={(v) => set('cityId', v)} />
-            </Field>
-          )}
+          {/* the city is not asked any more: it is filled from the book, then the default, then the first city (the value stays in the register) */}
 
           {f.type === 'Transfer' ? (
             <Field label={t('البند والخط', 'Heading and line')} className="span2">

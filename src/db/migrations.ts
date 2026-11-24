@@ -2551,14 +2551,15 @@ INSERT INTO access_profile (name, perms, sort, kind)
   },
   {
     n: 78,
-    name: 'the TV welcome phrases of a centre: switched off, edited, or written by the centre; the interval is a setting',
+    name: 'the sentences of a centre: one pool for the doors page and the TV; switched off, edited, moved, or written by the centre; the TV interval is a setting',
     sql: `
--- (Fouad, 26 November 2026) The phrases of the TV screen live in the code (src/hosting/tvSentences.ts) and stay the default: a corrected
--- default reaches a centre that never edited it. This table holds only what the centre changed:
---  - a built-in phrase (builtin_key = its id in the code) that is switched off (active = 0) or edited (edited = 1, with its own ar/en/fr);
---  - a phrase written by the centre (builtin_key NULL).
--- The change interval is meta.tv_phrase_minutes (1-15, 5 when empty).
-CREATE TABLE cal_tv_phrase (
+-- (Fouad, 26 November 2026) The warm sentences live in the code (src/ui/doorSentences.ts) and stay the default pool: a corrected default reaches
+-- a centre that never changed it. This table holds only what the centre changed:
+--  - a built-in sentence (builtin_key = its id in the code) that is switched off (active = 0), edited (edited = 1, with its own ar/en/fr) or
+--    given other places (places = a JSON list of 'centre', 'accounts', 'calendar', 'inventory', 'hr', 'admin', 'tv');
+--  - a sentence written by the centre (builtin_key NULL, with its places).
+-- The change interval of the TV is meta.tv_phrase_minutes (1-15, 5 when empty).
+CREATE TABLE sentence (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   builtin_key TEXT,
   ar          TEXT,
@@ -2566,13 +2567,14 @@ CREATE TABLE cal_tv_phrase (
   fr          TEXT,
   active      INTEGER NOT NULL DEFAULT 1,
   edited      INTEGER NOT NULL DEFAULT 0,
+  places      TEXT,
   sort        INTEGER NOT NULL DEFAULT 0,
   created_by  TEXT,
   created_at  TEXT,
   edited_by   TEXT,
   edited_at   TEXT
 );
-CREATE UNIQUE INDEX cal_tv_phrase_key ON cal_tv_phrase (builtin_key) WHERE builtin_key IS NOT NULL;
+CREATE UNIQUE INDEX sentence_key ON sentence (builtin_key) WHERE builtin_key IS NOT NULL;
 `,
   },
 ];

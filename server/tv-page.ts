@@ -6,7 +6,8 @@
 //     clock and the date, and a welcome phrase that changes every few minutes, 5 by default (a setting of the centre; src/hosting/tvSentences.ts). Outside 08:00–22:00 a calm
 //     night screen. A gentle fade, a slow light on the busy tiles: nothing flashes.
 //   • the PLAIN page (halls hour by hour, calendar step 7): kept. It is shown by /tv?plain, and by itself if the map cannot be drawn.
-//   • ?l=fr (or ?l=ar) changes the language under the Arabic: English is the default, as in the program.
+//   • the language under the Arabic is a setting of the centre (Administration → Sentences): English, French, or Arabic alone; ?l=fr / ?l=ar on the
+//     page overrides it (to try).
 //   • ?at=14:30 shows the screen as at that hour of today (to see the TV at another time; the clock then goes on from there).
 
 export const TV_HTML = `<!doctype html>
@@ -80,7 +81,7 @@ body.map{background:#15171c;font-family:"Amiri","Geeza Pro","Noto Naskh Arabic",
 .m-tile .t{font-size:1.3em;font-weight:700;max-height:3.7em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
 .m-tile .t2{font-size:1.08em;font-weight:700;max-height:2.5em;overflow:hidden;color:#fff;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .m-tile .lab{font-size:.95em;opacity:.92}
-.m-tile .tm{font-weight:700;font-size:1.12em;letter-spacing:.02em;direction:ltr;display:inline-block;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+.m-tile .tm{white-space:nowrap;font-weight:700;font-size:1.12em;letter-spacing:.02em;direction:ltr;display:inline-block;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
 .m-tile .h{margin-top:.2em}
 .m-tile.busy .h .tm{background:rgba(0,0,0,.3);color:#fff;padding:.04em .5em;border-radius:.6em;font-size:1.22em}
 .m-tile.next .h .tm,.m-tile.maybe .h .tm{color:#ffe08a;font-size:1.22em}
@@ -166,7 +167,7 @@ export const TV_JS = `(function () {
   function refresh() {
     var key = localStorage.getItem(KEY);
     if (!key) return linkScreen();
-    post('/api/tv/screen', {}, key, function (j) { screen = j; offline = false; lastOk = new Date().toTimeString().slice(0, 5); draw(); }, function (s, m) {
+    post('/api/tv/screen', {}, key, function (j) { screen = j; if (!LGURL) LG = j.lang === 'fr' || j.lang === 'ar' ? j.lang : 'en'; offline = false; lastOk = new Date().toTimeString().slice(0, 5); draw(); }, function (s, m) {
       if (s === 401) { localStorage.removeItem(KEY); screen = null; return linkScreen(m); }
       offline = true; if (screen) draw(); else app.textContent = 'No connection · لا اتصال';
     });
@@ -217,7 +218,7 @@ export const TV_JS = `(function () {
   // ---------------------------------------------------------------- the map
   var QS = location.search || '';
   var PLAIN = /(^|[?&])plain(&|=|$)/.test(QS);
-  var LG = (/[?&]l=(ar|en|fr)/.exec(QS) || [])[1] || 'en';
+  var LGURL = (/[?&]l=(ar|en|fr)/.exec(QS) || [])[1] || '', LG = LGURL || 'en';
   var AT = /[?&]at=([0-2]?[0-9]):([0-5][0-9])/.exec(QS), atBase = new Date().getTime();
   function clockNow() { var n = new Date(); if (!AT) return n; var t = new Date(); t.setHours(+AT[1], +AT[2], 0, 0); return new Date(t.getTime() + (n.getTime() - atBase)); }
   // how long one welcome phrase stays, in minutes (the centre can change it in Calendar → Settings; this is only the start)

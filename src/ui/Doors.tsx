@@ -2,7 +2,8 @@
 // Large, calm badges in the style of the first page (the sun, the halo, each coming in one after the other), each with a warm
 // sentence drawn at random at every visit (doorSentences.ts: the charter, the logos, the concept note, the testimonies, or
 // plainly marked original). A person with a single door sees the same page: it would be a pity to avoid it.
-import { useMemo, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useApp } from '../state';
 import { CENTRES, type CentreKey } from '../brand';
 import { getLang, m, tx, type Msg } from '../i18n';
 import { DOOR_ORDER, type DoorKey } from '../doors';
@@ -46,8 +47,8 @@ function Said({ s, className }: { s: Sentence; className?: string }) {
   const l = getLang();
   return (
     <div className={`mg-said ${className ?? ''}`}>
-      <p className="ar" dir="rtl">{s.msg.ar}</p>
-      {l !== 'ar' && <p className="tr" dir="ltr">{l === 'fr' ? s.msg.fr ?? s.msg.en : s.msg.en}</p>}
+      {s.msg.ar && <p className="ar" dir="rtl">{s.msg.ar}</p>}
+      {(l !== 'ar' || !s.msg.ar) && <p className="tr" dir="ltr">{l === 'fr' ? s.msg.fr || s.msg.en : s.msg.en || s.msg.fr}</p>}
       {s.by && <p className="by">{l === 'ar' ? s.by.ar : l === 'fr' ? s.by.fr ?? s.by.en : s.by.en}</p>}
     </div>
   );
@@ -82,12 +83,21 @@ export function Doors({ doors, centre, centreName, mark, who, badges, onEnter, c
   /** under the doors: a note, a link */
   children?: ReactNode;
 }) {
-  // a different sentence at each visit: drawn when the page opens, never the one of the last visit
+  // the sentences come from the centre's ONE pool (Administration → Sentences: some switched off, edited, written by the centre; the code's
+  // list when the centre changed nothing or the pool cannot be read); a different sentence at each visit, never the one of the last visit
+  const { s } = useApp();
+  const [pool, setPool] = useState<Sentence[] | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    s.api.call('sentence.pool').then((x: Sentence[]) => live && setPool(x), () => live && setPool(null));
+    return () => { live = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const said = useMemo(() => {
-    const x = pickSentences(['centre', ...doors], centre, lastSeen);
+    if (pool === undefined) return null; // a moment, while the pool arrives
+    const x = pickSentences(['centre', ...doors], centre, lastSeen, Math.random, pool ?? undefined);
     for (const [k, v] of Object.entries(x)) lastSeen[k] = v.id;
     return x;
-  }, [doors.join(','), centre]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [doors.join(','), centre, pool]); // eslint-disable-line react-hooks/exhaustive-deps
   const ordered = DOOR_ORDER.filter((k) => doors.includes(k));
   const eyebrow = (centre in CENTRES ? tx(CENTRES[centre as CentreKey].name) : '');
   return (
@@ -96,7 +106,7 @@ export function Doors({ doors, centre, centreName, mark, who, badges, onEnter, c
         <div className="dr-mark"><span className="mg-hh-halo" /><img src={mark} alt="" /></div>
         <div className="mg-eyebrow">MAGIS{eyebrow ? ` · ${eyebrow}` : ''}</div>
         <h1 className="dr-name">{centreName}</h1>
-        <Said s={said.centre} className="dr-centre-said" />
+        {said?.centre && <Said s={said.centre} className="dr-centre-said" />}
         <div className="dr-who">{tx(m('أهلاً', 'Welcome', 'Bienvenue'))}, {who}</div>
       </header>
       {ordered.length > 0 ? (
@@ -114,7 +124,7 @@ export function Doors({ doors, centre, centreName, mark, who, badges, onEnter, c
                   <span className="dr-houses-note">{tx(HR_NOTE)}</span>
                 </span>
               )}
-              <Said s={said[k]} className="dr-said" />
+              {said?.[k] && <Said s={said[k]} className="dr-said" />}
               <span className="dr-go">{tx(ENTER)} ›</span>
             </button>
           ))}

@@ -699,38 +699,37 @@ and an original welcoming phrase." The plain page (§ "TV" above) is kept; `/tv`
   too), 9 spaces in one area. **Not tried:** a real TV or an old TV browser, a screen seen from 5 metres, the midnight change, a very long activity name
   (cut after 3 lines).
 
-## 29. TV: every area shows, one phrase every 5 minutes, the phrases page in the settings, more Arabic and clearer times (calendar step 7c, 25 November 2026; DATABASE UPDATE 78)
-Fouad liked the map; CompApp passed on three changes, and Fouad added: "focus on the Arabic, and make the time more clear".
-- **Every area shows.** The rule, now written in `src/hosting/caltv.ts` and tested: every ACTIVE area that has at least one bookable space (a space that is not a
-  bedroom and not "shown only in the inventory") is drawn with ALL its bookable spaces, whether or not anything happens there today; an area with only
-  bedrooms, only stores, or switched off is not drawn (the guests stay in the "In the house" line). **I found no area dropped by the old code that this rule
-  keeps:** the Homs test copy has only 2 areas, both drawn (one of its 6 spaces, "101", is a Store not shown in the calendar, and 3 are bedrooms). If Fouad's
-  own test server shows fewer areas than he typed, look at the areas' spaces there: a space with the "can be booked" tick off, a bedroom kind, or a
-  switched-off space makes it disappear. A space with nothing at all today now says **"لا نشاط اليوم · No activity today"** (after its last activity of the
-  day it still says "Free"). The crowded-centre layout (rows, shrinking type) is unchanged.
-- **One phrase every 5 minutes** (was 45 seconds), still with the gentle fade. The interval is a named constant `TV_PHRASE_MINUTES = 5` (limits 1–15) in
-  `src/hosting/tvSentences.ts`, sent to the TV as `phraseMinutes`; the page keeps a fallback `PHRASE_MINUTES = 5`.
-- **Database update 78** (`cal_tv_phrase`; one table, nothing else changes, idempotent, tested from a database at 77): **only what a centre changed** is stored:
-  a built-in phrase switched off or edited (`builtin_key`, `active`, `edited` + its own `ar/en/fr`), and the phrases the centre wrote (`builtin_key` NULL).
-  Nothing is "seeded": the code's list (`tvSentences.ts`, 38 phrases) stays the default, so **a corrected default reaches a centre that never edited it**, and a
-  new built-in phrase appears by itself. The interval is `meta.tv_phrase_minutes`. When the table is empty the TV shows the code's list; when the Director
-  switches everything off the TV shows no phrase (only the small greeting).
-- **Calendar → Settings → "TV phrases · عبارات الشاشة · Phrases de l'écran"** (`CalSettings.tsx`, only with the set-up tick `cal.setup`: the Director and the
-  Administrator): the interval (1–15), a preview like the screen, the list of ALL the phrases with their source or "Written by the centre", an on/off box on
-  each, **Edit** (Arabic, English, French; a live preview; typing the original back clears the edit), **Restore the original** (an edited built-in one),
-  **Write a phrase** (marked "written by the centre"), **Delete** (only a phrase the centre wrote; a built-in one can only be switched off or edited).
-  No check but the length (220 letters per language) and that something is written in at least one language; Arabic shows first, the other under it.
-  A centre's own logo sentences stay only on its own TV. A testimony is never in the list. Ops `cal.tv.get|save|delete|minutes`, all refused without
-  `cal.setup` (the Director and the Administrator have it; Reception, Coordinator, Team do not).
-- **The TV receives** only the phrases (`ar`, `en`, `fr`) and the interval; never the source, who edited or the ids (tested).
-- **More Arabic.** On the map every label (Next, Then, Free, Closed, to be confirmed, In the house, Outside, Updated, the greeting) has the Arabic first and
-  bigger, the other language small beside it (`?l=ar` shows Arabic alone); the Arabic date is bold and bigger.
-- **Clearer times.** Every time is a range with spaces, "16:00 – 18:00", bold and larger: on a busy tile in a dark pill, on a "next" tile in gold under the word
-  "التالي", and in the "then" line; the clock is bigger (6 vw). The night screen was made smaller to fit 1280×720.
-- **Tests:** `tests/tvphrases.test.ts` (10: update 78 from 77 and idempotent; nothing stored for the default; switch off/on; edit, restore, typed back as
-  original; write, edit, switch off, delete; a built-in one cannot be deleted; length and empty refused; interval 1–15; only `cal.setup` (Reception refused
-  everywhere); all off; the TV gets only phrases; every active area with a bookable space is drawn, bedrooms-only / stores-only / switched-off are not), pinned
-  lists extended with 78 in 6 test files. 
-- **Tried in the side pane** at 1920×1080 and 1280×720 on a COPY of the Homs test data: the settings tab (list, preview, writing a phrase), the map at 14:30 and
-  16:20 on a populated day (Arabic titles), the quiet areas, the night screen. **Not tried:** the update on a copy of each real database (it only creates one
-  empty table), the edit/restore/delete buttons by hand (the operations are tested), a real TV.
+## 29. TV: every area shows, one phrase every 5 minutes; ONE pool of sentences for the doors page and the TV, edited in Administration → Sentences; more Arabic, clearer times, a TV language setting (calendar step 7c, 25–26 November 2026; DATABASE UPDATE 78)
+Fouad liked the map; CompApp passed on changes, and Fouad added: "focus on the Arabic, and make the time more clear", "if you gather the sentences in a settings page for the
+Director, ALL the pages and the doors that run a random sentence must take from it", "can we have the possibility to select the language?".
+- **Every area shows.** The rule, now written in `src/hosting/caltv.ts` and tested: every ACTIVE area that has at least one bookable space (not a bedroom, not "shown only in
+  the inventory") is drawn with ALL its bookable spaces, whether or not anything happens there today; an area with only bedrooms, only stores, or switched off is not drawn (the
+  guests stay in "In the house"). **I found no area dropped by the old code that this rule keeps:** the Homs test copy has only 2 areas, both drawn (one of its 6 spaces, "101", is
+  a Store not shown in the calendar, and 3 are bedrooms). If Fouad's own test server shows fewer areas than he typed, look at the spaces there: a space with "can be booked" off, a
+  bedroom kind, or a switched-off space makes its area disappear. A space with nothing today says **"لا نشاط اليوم · No activity today"** (after its last activity: "Free").
+- **ONE pool of sentences** (`src/sentencePool.ts`, defaults in `src/ui/doorSentences.ts`, 59 = the 49 of the doors page + 10 original ones for the TV; 38 of them are marked for the TV,
+  28 of those shared with the doors page). Each sentence carries its **places**: the line under the centre's name, each door's line (Accounts, Calendar, Inventory, HR, Administration), the
+  TV. Nothing about places changed from today's behaviour: the doors sentences keep their doors; the TV ones keep the TV. A testimony can never get the TV.
+- **Database update 78** (table `sentence`, nothing else changes, idempotent, tested from a database at 77) stores **only what a centre changed**: a built-in sentence switched off, edited
+  (own ar/en/fr) or moved (a JSON list of places), and the sentences the centre wrote. Nothing is "seeded": the code stays the default, so **a corrected default reaches a centre that never
+  edited it** and a new built-in sentence appears by itself. Settings in `meta`: `tv_phrase_minutes` (1–15, 5) and `tv_language` (en / fr / ar). *(Update 78 was never built: it was changed
+  from the first draft, `cal_tv_phrase`, before any installer.)*
+- **Administration → Sentences** (a third page beside People and Roles; `src/ui/Sentences.tsx`; for the Administrator and the Director by the same rule, `peopleDoor`, **checked by the server**
+  in `src/sentenceOps.ts`): the whole list with its source and places, a filter by place, an on/off box, **Edit** (Arabic, English, French, the places as tick boxes, a live preview),
+  **Restore the original** (text and places), **Write a sentence** (marked "written by the centre", default on every place), **Delete** (only the centre's own; a built-in one is switched off or edited),
+  and, for the TV: **how many minutes a phrase stays** (1–15, default 5) and **the language under the Arabic** (English, French, Arabic only; `?l=` on the TV page still overrides, to try).
+  No check on a sentence but the length (220 letters per language) and that something is written in one language; Arabic shows first.
+- **Who draws from the pool.** (1) The doors page (`Doors.tsx`): it asks `sentence.pool` (any person signed in to the centre) when it opens and draws from what is ON; if the pool cannot be read it
+  falls back to the code's list; a place with nothing left shows no sentence. (2) The TV (`caltv.ts`, `server/calphone.ts`): the server cuts the TV's own phrases (`ar`/`en`/`fr` only) from the pool; with
+  nothing changed it is the code's list; all switched off = no phrase. I searched the program (`pickSentences`, `sentencesFor`, `Said`, `mg-said`, `Math.random`): **no other screen draws a random
+  sentence.** **The first page before signing in** (`FirstPage.tsx`, `Landing.tsx`: the sun, the houses' sentences, the Latin "AMDG") is at network level, with no centre database: **it stays in code**.
+- **One phrase every 5 minutes** (was 45 seconds), with the gentle fade: `TV_PHRASE_MINUTES = 5` (limits 1–15) in `src/sentencePool.ts`, sent as `phraseMinutes`; the page keeps `PHRASE_MINUTES = 5`.
+- **More Arabic.** Every label on the map has the Arabic first and bigger, the other language small beside it; the Arabic date is bold; the TV language is now a setting.
+- **Clearer times.** Every time is a range with spaces, "16:00 – 18:00", bold and larger: in a dark pill on a busy tile, in gold under "التالي" on a "next" tile, bold in the "then" line; a bigger clock (6 vw).
+- **Tests:** `tests/sentences.test.ts` (13): update 78 from 77 and idempotent; the default stores nothing and the pool equals the code's; off/on; edit/restore/typed back; the places (doors → TV, TV → off, a testimony
+  never on the TV); the doors page draws only from what is on and shows nothing in an empty place; own sentences written/edited/switched off/deleted; a built-in one cannot be deleted; length and empty refused;
+  interval and language; only the Administrator and the Director (Reception refused on every operation); all off; the TV gets only its phrases; every active area with a bookable space is drawn.
+  `tests/tvsentences.test.ts`, `tests/caltv.test.ts` and `tests/doors.test.ts` follow the pool; 78 added to the pinned lists in 6 test files.
+- **Guide** (Administration section: a "Sentences" step, in three languages); `DOORS-SENTENCES.md` and `TV-SENTENCES.md` regenerated and say they are the DEFAULTS. No checklist mentions sentences.
+- **Tried in the side pane** at 1920×1080 and 1280×720 on a COPY of the Homs test data (see the report at the end of the session). **Not tried:** the update on a copy of each real database (it only creates one empty
+  table), a real TV.

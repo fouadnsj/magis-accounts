@@ -5,9 +5,12 @@ name of the centre, and one on each door. **Rule:** every sentence is traced to 
 invented name, number, testimony or quote. A testimony never shows the name of the person. To change, remove or add a sentence, tell me,
 or edit `src/ui/doorSentences.ts`.
 
+**These are the DEFAULTS.** Since 26 November 2026 the sentences are ONE pool for the whole centre (the doors page and the TV): the Administrator and the Director
+can switch each one off, edit it, choose where it appears, or write their own in Administration → Sentences. A correction made here reaches a centre that never changed the sentence.
+
 "Translated" means the source is in another language and the sentence in this language was translated for the page: please read it.
 
-49 sentences.
+59 sentences.
 
 ## The MAGIS charter (9)
 
@@ -17,7 +20,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Despite everything, we believe that hope is possible.
 - French: Malgré tout, nous croyons que l’espérance est possible.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on hope
-- Shown on: the heading, Accounts
+- Shown on: the heading, Accounts, the TV
 
 ### ch-place
 
@@ -25,7 +28,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Every human being deserves to find their place in society.
 - French: Chaque être humain mérite de trouver sa place dans la société.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on every human being’s place
-- Shown on: HR, Calendar, 
+- Shown on: HR, Calendar, Administration, the TV
 
 ### ch-dignity
 
@@ -33,7 +36,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: The dignity of a person is not separable from that of others.
 - French: La dignité d’un individu n’est pas séparable de celle des autres.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on dignity
-- Shown on: HR, 
+- Shown on: HR, Administration, the TV
 
 ### ch-bridges
 
@@ -41,7 +44,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Our world needs bridges, trust and dialogue.
 - French: Notre monde a besoin de ponts, de confiance et de dialogue.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on bridges
-- Shown on: Accounts, Calendar, 
+- Shown on: Accounts, Calendar, Administration, the TV
 
 ### ch-home
 
@@ -57,7 +60,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: We dream of a space in which everyone can go further, deeper.
 - French: Nous rêvons d’espaces dans lesquels chacun puisse aller plus loin, davantage en profondeur.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the dream
-- Shown on: Calendar, the heading
+- Shown on: Calendar, the heading, the TV
 
 ### ch-trust
 
@@ -65,7 +68,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: “Trust and responsibility”: one of the five values of our charter.
 - French: « Confiance et responsabilité » : l’une des cinq valeurs de notre charte.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), “Our values” (the sentence around the value is ours)
-- Shown on: Accounts, 
+- Shown on: Accounts, Administration
 
 ### ch-simple
 
@@ -73,7 +76,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: “Simplicity and beauty”: one of the five values of our charter.
 - French: « Simplicité et beauté » : l’une des cinq valeurs de notre charte.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), “Our values” (the sentence around the value is ours)
-- Shown on: Accounts, Inventory
+- Shown on: Accounts, Inventory, the TV
 
 ### ch-host
 
@@ -81,7 +84,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: “Hospitality and sharing”: one of the five values of our charter.
 - French: « Hospitalité et partage » : l’une des cinq valeurs de notre charte.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), “Our values” (the sentence around the value is ours)
-- Shown on: Calendar
+- Shown on: Calendar, the TV
 
 ## The explanation of the centres’ logos (12)
 
@@ -91,7 +94,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: The diversity that is born from unity.
 - French: La diversité qui naît de l’unité.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, “The meaning of the colours”
-- Shown on: HR, the heading
+- Shown on: HR, the heading, the TV
 - Translated for the page: en, fr
 
 ### lg-all-sun
@@ -100,7 +103,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: A journey of light that rises and moves to reach everyone.
 - French: Une marche de lumière qui se lève et avance pour atteindre tout le monde.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, “The meaning of the colours” (the circle, the sun)
-- Shown on: the heading, HR
+- Shown on: the heading, HR, the TV
 - Translated for the page: en, fr
 
 ### lg-jar-gates
@@ -109,7 +112,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Gates that open only when a person is there.
 - French: Des portes qui ne s’ouvrent que lorsqu’une personne est là.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Damascus (Jaramana) centre
-- Shown on: the heading, Calendar · only with jaramana
+- Shown on: the heading, Calendar, the TV · only with jaramana
 - Translated for the page: en, fr
 
 ### lg-jar-grow
@@ -118,7 +121,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: As people come, the house grows.
 - French: Avec la présence des personnes, la maison grandit.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Damascus (Jaramana) centre
-- Shown on: the heading, HR · only with jaramana
+- Shown on: the heading, HR, the TV · only with jaramana
 - Translated for the page: en, fr
 
 ### lg-jar-hands
@@ -127,7 +130,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: People with open hands, ready to welcome.
 - French: Des personnes aux mains ouvertes, prêtes à accueillir.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Damascus (Jaramana) centre
-- Shown on: Calendar · only with jaramana
+- Shown on: Calendar, the TV · only with jaramana
 - Translated for the page: en, fr
 
 ### lg-jar-pyramid
@@ -145,7 +148,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: With the person, the place grows.
 - French: Avec la personne, le lieu grandit.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Aleppo centre
-- Shown on: the heading, HR · only with aleppo
+- Shown on: the heading, HR, the TV · only with aleppo
 - Translated for the page: en, fr
 
 ### lg-ale-gates
@@ -154,7 +157,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: The gates that open only when a person is there.
 - French: Les portes qui ne s’ouvrent que lorsqu’une personne est là.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Aleppo centre
-- Shown on: Calendar, the heading · only with aleppo
+- Shown on: Calendar, the heading, the TV · only with aleppo
 - Translated for the page: en, fr
 
 ### lg-ale-start
@@ -163,7 +166,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: The starting point for everyone who enters the place.
 - French: Le point de départ de quiconque entre dans le lieu.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Aleppo centre
-- Shown on: Calendar, Inventory · only with aleppo
+- Shown on: Calendar, Inventory, the TV · only with aleppo
 - Translated for the page: en, fr
 
 ### lg-hom-hands
@@ -172,7 +175,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Two open hands: the identity of this place rests on welcome.
 - French: Deux mains ouvertes : l’identité de ce lieu repose sur l’accueil.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Homs centre
-- Shown on: the heading, Calendar · only with homs
+- Shown on: the heading, Calendar, the TV · only with homs
 - Translated for the page: en, fr
 
 ### lg-hom-grow
@@ -181,7 +184,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: A person is present in every encounter, and with them the place grows.
 - French: La personne est présente dans chaque rencontre, et avec elle le lieu grandit.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Homs centre
-- Shown on: the heading, HR · only with homs
+- Shown on: the heading, HR, the TV · only with homs
 - Translated for the page: en, fr
 
 ### lg-hom-pyramid
@@ -201,7 +204,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Surrounded by farmed lands full of olive, walnut and almond trees.
 - French: Entourée de terres cultivées pleines d’oliviers, de noyers et d’amandiers.
 - Source: Report for the 3 sessions at Al-Ard (the place described on the first day)
-- Shown on: the heading, Inventory · only with alard
+- Shown on: the heading, Inventory, the TV · only with alard
 - Translated for the page: ar, fr
 
 ### ar-peace
@@ -237,7 +240,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: A patient, gentle approach to rebuilding trust.
 - French: Une approche patiente et douce pour rebâtir la confiance.
 - Source: The concept note (2026 draft, §1, a country between war and peace)
-- Shown on: Accounts, HR
+- Shown on: Accounts, HR, the TV
 - Translated for the page: ar, fr
 
 ### nt-network
@@ -246,7 +249,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: One charter, shared values and a shared way of working, while each centre keeps the freedom to answer the needs and character of its own city.
 - French: Une seule charte, des valeurs communes et une façon commune de travailler, chaque centre gardant la liberté de répondre aux besoins et au caractère de sa ville.
 - Source: The concept note (2026 draft, §3, from Jaramana to a network)
-- Shown on: HR, 
+- Shown on: HR, Administration
 - Translated for the page: ar, fr
 
 ### nt-direction
@@ -255,7 +258,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: From fear to freedom, from resignation to resistance, from inertia to initiative.
 - French: De la peur à la liberté, de la résignation à la résistance, de l’inertie à l’initiative.
 - Source: The concept note (2026 draft, §5) and the report for the 3 sessions at Al-Ard
-- Shown on: the heading, Calendar
+- Shown on: the heading, Calendar, the TV
 - Translated for the page: ar, fr
 
 ### nt-source
@@ -264,7 +267,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: A well-made community centre can become a real source of hope for young Syrians.
 - French: Un centre communautaire bien fait peut devenir une vraie source d’espérance pour les jeunes Syriens.
 - Source: The concept note (2026 draft, §11, conclusion)
-- Shown on: Calendar, the heading
+- Shown on: Calendar, the heading, the TV
 - Translated for the page: ar, fr
 
 ## A testimony (no name shown) (3)
@@ -307,7 +310,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Despite everything, hope is possible
 - French: Malgré tout, l’espérance est possible
 - Source: The first page of the program (the sentence of hope of the MAGIS animation)
-- Shown on: the heading, Accounts
+- Shown on: the heading, Accounts, the TV
 
 ### ap-jar
 
@@ -315,7 +318,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: In this house the door is open before you arrive
 - French: Dans cette maison, la porte est ouverte avant que tu arrives
 - Source: The first page of the program (the sentence of the Jaramana house)
-- Shown on: the heading · only with jaramana
+- Shown on: the heading, the TV · only with jaramana
 
 ### ap-ale
 
@@ -323,7 +326,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Everyone who comes through here is a beginning
 - French: Chaque personne qui entre ici est un commencement
 - Source: The first page of the program (the sentence of the Aleppo house)
-- Shown on: the heading · only with aleppo
+- Shown on: the heading, the TV · only with aleppo
 
 ### ap-hom
 
@@ -331,7 +334,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Open hands, after everything that was lost
 - French: Des mains ouvertes, après tout ce qui a été perdu
 - Source: The first page of the program (the sentence of the Homs house)
-- Shown on: the heading · only with homs
+- Shown on: the heading, the TV · only with homs
 
 ### ap-alard
 
@@ -339,9 +342,9 @@ or edit `src/ui/doorSentences.ts`.
 - English: Al-Ard: where we can go deep
 - French: Al-Ard : là où nous pouvons aller en profondeur
 - Source: The first page of the program (Fouad, 21 November 2026; English and French to be confirmed there too)
-- Shown on: the heading · only with alard
+- Shown on: the heading, the TV · only with alard
 
-## ORIGINAL (written for this page, same spirit, belongs to nobody) (12)
+## ORIGINAL (written for this page, same spirit, belongs to nobody) (22)
 
 ### og-acc-faith
 
@@ -373,7 +376,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: Behind every booking, someone is expected.
 - French: Derrière chaque réservation, quelqu’un est attendu.
 - Source: original
-- Shown on: Calendar
+- Shown on: Calendar, the TV
 
 ### og-cal-ready
 
@@ -381,7 +384,7 @@ or edit `src/ui/doorSentences.ts`.
 - English: A hall that is ready is a welcome said without words.
 - French: Une salle prête, c’est un accueil dit sans paroles.
 - Source: original
-- Shown on: Calendar
+- Shown on: Calendar, the TV
 
 ### og-cal-days
 
@@ -438,3 +441,83 @@ or edit `src/ui/doorSentences.ts`.
 - French: Une seule maison pour les personnes de tous les centres, et dedans une chambre pour chaque centre.
 - Source: original
 - Shown on: HR
+
+### tv-yours
+
+- Arabic: أهلاً بكم، البيت بيتكم
+- English: Welcome. This house is yours.
+- French: Bienvenue. Cette maison est la vôtre.
+- Source: original
+- Shown on: the TV
+
+### tv-expected
+
+- Arabic: كنّا ننتظركم، تفضّلوا
+- English: We were expecting you. Come in.
+- French: Nous vous attendions. Entrez.
+- Source: original
+- Shown on: the TV
+
+### tv-slow
+
+- Arabic: هنا نلتقي على مهلٍ
+- English: Here we meet without hurry.
+- French: Ici, on se rencontre sans se presser.
+- Source: original
+- Shown on: the TV
+
+### tv-table
+
+- Arabic: لكلّ واحدٍ مكانٌ على الطاولة
+- English: There is a place at the table for everyone.
+- French: Il y a une place à table pour chacun.
+- Source: original
+- Shown on: the TV
+
+### tv-asis
+
+- Arabic: الباب مفتوح، تعالَوا كما أنتم
+- English: The door is open. Come as you are.
+- French: La porte est ouverte. Venez comme vous êtes.
+- Source: original
+- Shown on: the TV
+
+### tv-patience
+
+- Arabic: ما نبنيه معاً يحتاج إلى وقتٍ وصبر
+- English: What we build together takes time and patience.
+- French: Ce que nous bâtissons ensemble demande du temps et de la patience.
+- Source: original
+- Shown on: the TV
+
+### tv-young
+
+- Arabic: للشباب هنا مكانٌ، وصوتٌ يُسمَع
+- English: Young people have a place here, and a voice that is heard.
+- French: Les jeunes ont ici une place, et une voix qu’on entend.
+- Source: original
+- Shown on: the TV
+
+### tv-hands
+
+- Arabic: نستقبل بيدٍ مفتوحة، ونُصغي بقلبٍ هادئ
+- English: We welcome with an open hand and listen with a quiet heart.
+- French: Nous accueillons la main ouverte et écoutons le cœur tranquille.
+- Source: original
+- Shown on: the TV
+
+### tv-listen
+
+- Arabic: قبل أن نتكلّم، نُصغي
+- English: Before we speak, we listen.
+- French: Avant de parler, nous écoutons.
+- Source: original
+- Shown on: the TV
+
+### tv-newday
+
+- Arabic: يومٌ جديد، ولقاءاتٌ جديدة
+- English: A new day, and new encounters.
+- French: Un jour nouveau, et de nouvelles rencontres.
+- Source: original
+- Shown on: the TV

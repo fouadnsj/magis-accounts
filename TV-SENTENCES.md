@@ -4,8 +4,9 @@ Fouad, these are all the phrases the TV can show under the name of the centre (2
 Arabic first and English (or French) under it; the order changes every day. **Rule:** every phrase is traced to a source below, or is marked
 ORIGINAL. Nothing is an invented name, number, testimony or quote. **No testimony is used on the TV** (a screen at the entrance is seen by
 everyone). A phrase taken from one centre's logo or house is shown only on that centre's TV. Most come from the doors page by name
-(`src/ui/doorSentences.ts`), so a correction made there is made here too; the ORIGINAL ones are in `src/hosting/tvSentences.ts`.
-The list below is the DEFAULT (the code). Each centre keeps its own changes in its database, so a correction made here reaches a centre that never edited the phrase.
+(`src/ui/doorSentences.ts`, which holds the whole default pool: the ones for the TV carry the place "tv").
+The list below is the DEFAULT (the code). Since 26 November 2026 the TV and the doors page draw from ONE pool of sentences for the centre (Administration → Sentences:
+the Administrator and the Director switch sentences off, edit them, choose where each appears, or write their own; the TV interval and language are set there too). Each centre keeps its own changes in its database, so a correction made here reaches a centre that never edited the phrase.
 
 Above the phrase, a small greeting by the hour: «صباح الخير · Good morning» (until 12:00), «أهلاً بكم · Welcome» (12:00–17:00), «مساء الخير · Good evening» (after 17:00).
 
@@ -19,7 +20,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Despite everything, we believe that hope is possible.
 - French: Malgré tout, nous croyons que l’espérance est possible.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on hope
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (centre, accounts)
 
 ### ch-place
 
@@ -27,7 +28,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Every human being deserves to find their place in society.
 - French: Chaque être humain mérite de trouver sa place dans la société.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on every human being’s place
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (hr, calendar, admin)
 
 ### ch-dignity
 
@@ -35,7 +36,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: The dignity of a person is not separable from that of others.
 - French: La dignité d’un individu n’est pas séparable de celle des autres.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on dignity
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (hr, admin)
 
 ### ch-bridges
 
@@ -43,7 +44,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Our world needs bridges, trust and dialogue.
 - French: Notre monde a besoin de ponts, de confiance et de dialogue.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the “because” on bridges
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (accounts, calendar, admin)
 
 ### ch-dream
 
@@ -51,15 +52,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: We dream of a space in which everyone can go further, deeper.
 - French: Nous rêvons d’espaces dans lesquels chacun puisse aller plus loin, davantage en profondeur.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), the dream
-- Shown on: every TV · same sentence as the doors page
-
-### ch-host
-
-- Arabic: «استقبالٌ ومشاركة»: إحدى قيمنا الخمس في الميثاق
-- English: “Hospitality and sharing”: one of the five values of our charter.
-- French: « Hospitalité et partage » : l’une des cinq valeurs de notre charte.
-- Source: The MAGIS charter (Reference/MAGIS-charter.md), “Our values” (the sentence around the value is ours)
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (calendar, centre)
 
 ### ch-simple
 
@@ -67,7 +60,15 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: “Simplicity and beauty”: one of the five values of our charter.
 - French: « Simplicité et beauté » : l’une des cinq valeurs de notre charte.
 - Source: The MAGIS charter (Reference/MAGIS-charter.md), “Our values” (the sentence around the value is ours)
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (accounts, inventory)
+
+### ch-host
+
+- Arabic: «استقبالٌ ومشاركة»: إحدى قيمنا الخمس في الميثاق
+- English: “Hospitality and sharing”: one of the five values of our charter.
+- French: « Hospitalité et partage » : l’une des cinq valeurs de notre charte.
+- Source: The MAGIS charter (Reference/MAGIS-charter.md), “Our values” (the sentence around the value is ours)
+- Shown on: every TV · also on the doors page (calendar)
 
 ## The explanation of the centres’ logos (10)
 
@@ -77,7 +78,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: The diversity that is born from unity.
 - French: La diversité qui naît de l’unité.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, “The meaning of the colours”
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (hr, centre)
 - Translated for the page: en, fr (please read)
 
 ### lg-all-sun
@@ -86,7 +87,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: A journey of light that rises and moves to reach everyone.
 - French: Une marche de lumière qui se lève et avance pour atteindre tout le monde.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, “The meaning of the colours” (the circle, the sun)
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (centre, hr)
 - Translated for the page: en, fr (please read)
 
 ### lg-jar-gates
@@ -95,7 +96,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Gates that open only when a person is there.
 - French: Des portes qui ne s’ouvrent que lorsqu’une personne est là.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Damascus (Jaramana) centre
-- Shown on: only the jaramana TV · same sentence as the doors page
+- Shown on: only the jaramana TV · also on the doors page (centre, calendar)
 - Translated for the page: en, fr (please read)
 
 ### lg-jar-grow
@@ -104,7 +105,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: As people come, the house grows.
 - French: Avec la présence des personnes, la maison grandit.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Damascus (Jaramana) centre
-- Shown on: only the jaramana TV · same sentence as the doors page
+- Shown on: only the jaramana TV · also on the doors page (centre, hr)
 - Translated for the page: en, fr (please read)
 
 ### lg-jar-hands
@@ -113,7 +114,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: People with open hands, ready to welcome.
 - French: Des personnes aux mains ouvertes, prêtes à accueillir.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Damascus (Jaramana) centre
-- Shown on: only the jaramana TV · same sentence as the doors page
+- Shown on: only the jaramana TV · also on the doors page (calendar)
 - Translated for the page: en, fr (please read)
 
 ### lg-ale-grow
@@ -122,7 +123,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: With the person, the place grows.
 - French: Avec la personne, le lieu grandit.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Aleppo centre
-- Shown on: only the aleppo TV · same sentence as the doors page
+- Shown on: only the aleppo TV · also on the doors page (centre, hr)
 - Translated for the page: en, fr (please read)
 
 ### lg-ale-gates
@@ -131,7 +132,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: The gates that open only when a person is there.
 - French: Les portes qui ne s’ouvrent que lorsqu’une personne est là.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Aleppo centre
-- Shown on: only the aleppo TV · same sentence as the doors page
+- Shown on: only the aleppo TV · also on the doors page (calendar, centre)
 - Translated for the page: en, fr (please read)
 
 ### lg-ale-start
@@ -140,7 +141,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: The starting point for everyone who enters the place.
 - French: Le point de départ de quiconque entre dans le lieu.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Aleppo centre
-- Shown on: only the aleppo TV · same sentence as the doors page
+- Shown on: only the aleppo TV · also on the doors page (calendar, inventory)
 - Translated for the page: en, fr (please read)
 
 ### lg-hom-hands
@@ -149,7 +150,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Two open hands: the identity of this place rests on welcome.
 - French: Deux mains ouvertes : l’identité de ce lieu repose sur l’accueil.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Homs centre
-- Shown on: only the homs TV · same sentence as the doors page
+- Shown on: only the homs TV · also on the doors page (centre, calendar)
 - Translated for the page: en, fr (please read)
 
 ### lg-hom-grow
@@ -158,7 +159,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: A person is present in every encounter, and with them the place grows.
 - French: La personne est présente dans chaque rencontre, et avec elle le lieu grandit.
 - Source: The explanation of the centres’ logos (Chart design / «رمزيات التصميم»), Arabic, the Homs centre
-- Shown on: only the homs TV · same sentence as the doors page
+- Shown on: only the homs TV · also on the doors page (centre, hr)
 - Translated for the page: en, fr (please read)
 
 ## The concept note / the Al-Ard report (4)
@@ -169,7 +170,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Surrounded by farmed lands full of olive, walnut and almond trees.
 - French: Entourée de terres cultivées pleines d’oliviers, de noyers et d’amandiers.
 - Source: Report for the 3 sessions at Al-Ard (the place described on the first day)
-- Shown on: only the alard TV · same sentence as the doors page
+- Shown on: only the alard TV · also on the doors page (centre, inventory)
 - Translated for the page: ar, fr (please read)
 
 ### nt-trust
@@ -178,7 +179,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: A patient, gentle approach to rebuilding trust.
 - French: Une approche patiente et douce pour rebâtir la confiance.
 - Source: The concept note (2026 draft, §1, a country between war and peace)
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (accounts, hr)
 - Translated for the page: ar, fr (please read)
 
 ### nt-direction
@@ -187,7 +188,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: From fear to freedom, from resignation to resistance, from inertia to initiative.
 - French: De la peur à la liberté, de la résignation à la résistance, de l’inertie à l’initiative.
 - Source: The concept note (2026 draft, §5) and the report for the 3 sessions at Al-Ard
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (centre, calendar)
 - Translated for the page: ar, fr (please read)
 
 ### nt-source
@@ -196,7 +197,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: A well-made community centre can become a real source of hope for young Syrians.
 - French: Un centre communautaire bien fait peut devenir une vraie source d’espérance pour les jeunes Syriens.
 - Source: The concept note (2026 draft, §11, conclusion)
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (calendar, centre)
 - Translated for the page: ar, fr (please read)
 
 ## The first page of the program (already approved there) (5)
@@ -207,7 +208,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Despite everything, hope is possible
 - French: Malgré tout, l’espérance est possible
 - Source: The first page of the program (the sentence of hope of the MAGIS animation)
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (centre, accounts)
 
 ### ap-jar
 
@@ -215,7 +216,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: In this house the door is open before you arrive
 - French: Dans cette maison, la porte est ouverte avant que tu arrives
 - Source: The first page of the program (the sentence of the Jaramana house)
-- Shown on: only the jaramana TV · same sentence as the doors page
+- Shown on: only the jaramana TV · also on the doors page (centre)
 
 ### ap-ale
 
@@ -223,7 +224,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Everyone who comes through here is a beginning
 - French: Chaque personne qui entre ici est un commencement
 - Source: The first page of the program (the sentence of the Aleppo house)
-- Shown on: only the aleppo TV · same sentence as the doors page
+- Shown on: only the aleppo TV · also on the doors page (centre)
 
 ### ap-hom
 
@@ -231,7 +232,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Open hands, after everything that was lost
 - French: Des mains ouvertes, après tout ce qui a été perdu
 - Source: The first page of the program (the sentence of the Homs house)
-- Shown on: only the homs TV · same sentence as the doors page
+- Shown on: only the homs TV · also on the doors page (centre)
 
 ### ap-alard
 
@@ -239,7 +240,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Al-Ard: where we can go deep
 - French: Al-Ard : là où nous pouvons aller en profondeur
 - Source: The first page of the program (Fouad, 21 November 2026; English and French to be confirmed there too)
-- Shown on: only the alard TV · same sentence as the doors page
+- Shown on: only the alard TV · also on the doors page (centre)
 
 ## ORIGINAL (written for this screen, same spirit, belongs to nobody) (12)
 
@@ -249,7 +250,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: Behind every booking, someone is expected.
 - French: Derrière chaque réservation, quelqu’un est attendu.
 - Source: original
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (calendar)
 
 ### og-cal-ready
 
@@ -257,7 +258,7 @@ Above the phrase, a small greeting by the hour: «صباح الخير · Good mo
 - English: A hall that is ready is a welcome said without words.
 - French: Une salle prête, c’est un accueil dit sans paroles.
 - Source: original
-- Shown on: every TV · same sentence as the doors page
+- Shown on: every TV · also on the doors page (calendar)
 
 ### tv-yours
 

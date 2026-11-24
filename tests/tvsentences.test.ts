@@ -14,7 +14,7 @@ describe('the TV welcome phrases', () => {
       expect(s.msg.en.length).toBeGreaterThan(5);
       expect((s.msg.fr ?? '').length).toBeGreaterThan(5);
       expect(s.source.length).toBeGreaterThan(0);
-      expect(s.kind === 'original' ? s.source.startsWith('original') || !!s.fromDoors : s.source.length > 10).toBe(true);
+      expect(s.kind === 'original' ? s.source === 'original' : s.source.length > 10).toBe(true);
     }
   });
 

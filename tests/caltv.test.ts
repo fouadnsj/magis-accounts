@@ -92,7 +92,7 @@ describe('the TV screen', () => {
     expect(homs.phrases.length).toBeGreaterThan(10);
     expect(Object.keys(homs.phrases[0]).sort()).toEqual(['ar', 'en', 'fr']);
     // the whole screen of the map holds only these keys: no price, contact, note, leader, status or id of a person
-    expect(Object.keys(homs).sort()).toEqual(['areas', 'asOf', 'color', 'day', 'from', 'logo', 'organisation', 'outside', 'period', 'phraseMinutes', 'phrases', 'staying', 'to']);
+    expect(Object.keys(homs).sort()).toEqual(['areas', 'asOf', 'color', 'day', 'from', 'lang', 'logo', 'organisation', 'outside', 'period', 'phraseMinutes', 'phrases', 'staying', 'to']);
     const s = await screen('director');
     expect(Object.keys(s.areas[0].spaces[0].items[0]).sort()).toEqual(['from', 'hold', 'people', 'title', 'to']);
   });

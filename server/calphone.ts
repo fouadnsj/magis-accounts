@@ -11,7 +11,7 @@ import { loadCalRaw } from '../src/hosting/calops';
 import { phoneCut, windowOf, shaHex, normCode, isPhoneRole, type CalPhonePack, type PhoneRole } from '../src/hosting/calphone';
 import type { CalRights } from '../src/hosting/calendar';
 import { tvScreen, type TvScreen } from '../src/hosting/caltv';
-import { clampPhraseMinutes, type TvPhraseRow } from '../src/hosting/tvSentences';
+import { clampPhraseMinutes, type SentenceRow } from '../src/sentencePool';
 
 export interface CalPhoneRow { id: string; name: string; role: PhoneRole; key_hash: string | null; revoked_at: string | null }
 
@@ -59,7 +59,7 @@ export async function tvPack(db: Db, p: CalPhoneRow, today: string): Promise<TvS
   await db.batch([{ sql: 'UPDATE cal_phone SET last_sync = ? WHERE id = ?', params: [asOf, p.id] }]);
   const brand = { centre: (await getMeta(db, 'centre')) ?? 'other', color: await getMeta(db, 'brand_color'), logo: await getMeta(db, 'brand_logo') };
   // what the centre changed in the welcome phrases (switched off, edited, its own) and how long one stays
-  const rows = await db.query<TvPhraseRow>('SELECT id, builtin_key, ar, en, fr, active, edited, sort FROM cal_tv_phrase ORDER BY sort, id');
+  const rows = await db.query<SentenceRow>('SELECT id, builtin_key, ar, en, fr, active, edited, places, sort FROM sentence ORDER BY sort, id');
   const minutes = clampPhraseMinutes((await getMeta(db, 'tv_phrase_minutes')) ?? undefined);
-  return tvScreen(phoneCut(all, 'team', today), today, (await getMeta(db, 'organisation')) ?? '', asOf, brand, { rows, minutes });
+  return tvScreen(phoneCut(all, 'team', today), today, (await getMeta(db, 'organisation')) ?? '', asOf, brand, { rows, minutes, lang: (await getMeta(db, 'tv_language')) ?? undefined });
 }

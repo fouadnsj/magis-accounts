@@ -1,4 +1,6 @@
-// The warm sentences of the doors page (Fouad, 24 November 2026).
+// The warm sentences of the centre: the doors page (Fouad, 24 November 2026) and the TV screen (26 November 2026) draw from ONE pool.
+// This file is the DEFAULT pool (the code); each centre may switch a sentence off, edit it, choose where it appears, or write its own
+// (Administration → Sentences; table `sentence`, update 78: only what the centre changed is stored, see src/sentencePool.ts).
 // RULE: every sentence is traceable to a source (the MAGIS charter, the explanation of the logos, the concept note, the
 // testimonies, the first page of the program) or is plainly marked "original" - written in the same spirit, never given to a
 // person. Nothing here is a made-up name, number, testimony or quote. A testimony shows no name ("a participant").
@@ -8,15 +10,18 @@ import { m, type Msg } from '../i18n';
 import type { CentreKey } from '../brand';
 import type { DoorKey } from '../doors';
 
-export type SentenceKind = 'charter' | 'logo' | 'note' | 'testimony' | 'app' | 'original';
+export type SentenceKind = 'charter' | 'logo' | 'note' | 'testimony' | 'app' | 'original' | 'centre';
+/** where a sentence may appear: the line under the centre's name on the doors page, a door's own line, or the TV screen */
+export type Place = DoorKey | 'centre' | 'tv';
+export const PLACES: Place[] = ['centre', 'accounts', 'calendar', 'inventory', 'hr', 'admin', 'tv'];
 export interface Sentence {
   id: string;
   msg: Msg;
   kind: SentenceKind;
   /** where it comes from, or "original" */
   source: string;
-  /** which doors it suits ('centre' = the heading of the page, under the centre's name); empty = any */
-  for: (DoorKey | 'centre')[];
+  /** where it may appear: the doors it suits, 'centre' = the heading of the doors page (under the centre's name), 'tv' = the TV screen (never a testimony) */
+  for: Place[];
   /** a sentence taken from one centre's logo or house: only shown with that centre */
   centre?: CentreKey;
   /** a testimony: who says it, as the source says it (never a name) */
@@ -30,7 +35,7 @@ const LOGO = 'The explanation of the centres’ logos (Chart design / «رمزي
 const NOTE = 'The concept note (2026 draft, §';
 const PARTICIPANT = m('— مشارك في «نار و نور»', '— a participant in “Nar w Nour”', '— un participant « Nar w Nour »');
 
-export const SENTENCES: Sentence[] = [
+const BASE: Sentence[] = [
   // ---- the charter (the three languages are the charter's own)
   { id: 'ch-hope', kind: 'charter', source: `${CHARTER}, the “because” on hope`, for: ['centre', 'accounts'], msg: m('نؤمن، بالرّغم من كلّ التحدّيات، بأنّ الرجاء ممكن', 'Despite everything, we believe that hope is possible.', 'Malgré tout, nous croyons que l’espérance est possible.') },
   { id: 'ch-place', kind: 'charter', source: `${CHARTER}, the “because” on every human being’s place`, for: ['hr', 'calendar', 'admin'], msg: m('كلّ إنسانٍ يستحقّ أن يجد مكانه في المجتمع', 'Every human being deserves to find their place in society.', 'Chaque être humain mérite de trouver sa place dans la société.') },
@@ -95,9 +100,37 @@ export const SENTENCES: Sentence[] = [
   { id: 'og-hr-one', kind: 'original', source: 'original', for: ['hr'], msg: m('بيتٌ واحدٌ لأهل المراكز كلّها، وفيه غرفةٌ لكلّ مركز', 'One house for the people of all the centres, and in it a room for each centre.', 'Une seule maison pour les personnes de tous les centres, et dedans une chambre pour chaque centre.') },
 ];
 
+/** the sentences of the doors page that the TV also shows (taken by name; no testimony, nothing about accounts, HR or the inventory) */
+const ON_TV = [
+  'ch-hope', 'ch-place', 'ch-dignity', 'ch-bridges', 'ch-dream', 'ch-host', 'ch-simple',
+  'lg-all-colours', 'lg-all-sun',
+  'lg-jar-gates', 'lg-jar-grow', 'lg-jar-hands', 'lg-ale-grow', 'lg-ale-gates', 'lg-ale-start', 'lg-hom-hands', 'lg-hom-grow',
+  'ap-hope', 'ap-jar', 'ap-ale', 'ap-hom', 'ap-alard',
+  'ar-trees',
+  'nt-trust', 'nt-direction', 'nt-source',
+  'og-cal-expected', 'og-cal-ready',
+];
+
+/** ORIGINAL, written for the TV (26 November 2026): welcome phrases in the same spirit, never given to a person */
+const TV_ONLY: Sentence[] = ([
+  ['tv-yours', 'أهلاً بكم، البيت بيتكم', 'Welcome. This house is yours.', 'Bienvenue. Cette maison est la vôtre.'],
+  ['tv-expected', 'كنّا ننتظركم، تفضّلوا', 'We were expecting you. Come in.', 'Nous vous attendions. Entrez.'],
+  ['tv-slow', 'هنا نلتقي على مهلٍ', 'Here we meet without hurry.', 'Ici, on se rencontre sans se presser.'],
+  ['tv-table', 'لكلّ واحدٍ مكانٌ على الطاولة', 'There is a place at the table for everyone.', 'Il y a une place à table pour chacun.'],
+  ['tv-asis', 'الباب مفتوح، تعالَوا كما أنتم', 'The door is open. Come as you are.', 'La porte est ouverte. Venez comme vous êtes.'],
+  ['tv-patience', 'ما نبنيه معاً يحتاج إلى وقتٍ وصبر', 'What we build together takes time and patience.', 'Ce que nous bâtissons ensemble demande du temps et de la patience.'],
+  ['tv-young', 'للشباب هنا مكانٌ، وصوتٌ يُسمَع', 'Young people have a place here, and a voice that is heard.', 'Les jeunes ont ici une place, et une voix qu’on entend.'],
+  ['tv-hands', 'نستقبل بيدٍ مفتوحة، ونُصغي بقلبٍ هادئ', 'We welcome with an open hand and listen with a quiet heart.', 'Nous accueillons la main ouverte et écoutons le cœur tranquille.'],
+  ['tv-listen', 'قبل أن نتكلّم، نُصغي', 'Before we speak, we listen.', 'Avant de parler, nous écoutons.'],
+  ['tv-newday', 'يومٌ جديد، ولقاءاتٌ جديدة', 'A new day, and new encounters.', 'Un jour nouveau, et de nouvelles rencontres.'],
+] as const).map(([id, ar, en, fr]) => ({ id, kind: 'original' as const, source: 'original', for: ['tv' as const], msg: m(ar, en, fr) }));
+
+/** the default pool: the doors page's sentences (those that suit the TV also say so) and the TV's own */
+export const SENTENCES: Sentence[] = [...BASE.map((x) => (ON_TV.includes(x.id) && x.kind !== 'testimony' ? { ...x, for: [...x.for, 'tv' as const] } : x)), ...TV_ONLY];
+
 /** The sentences that suit a door (or the heading of the page), for this centre: its own logo and house sentences first in the heading. */
-export function sentencesFor(slot: DoorKey | 'centre', centre: string): Sentence[] {
-  const mine = SENTENCES.filter((x) => x.for.includes(slot) && (!x.centre || x.centre === centre));
+export function sentencesFor(slot: Place, centre: string, pool: Sentence[] = SENTENCES): Sentence[] {
+  const mine = pool.filter((x) => x.for.includes(slot) && (!x.centre || x.centre === centre));
   if (slot !== 'centre') return mine;
   const own = mine.filter((x) => x.centre === centre);
   // the heading speaks with the centre's own words when it has some; otherwise with the charter and the note
@@ -108,14 +141,15 @@ export function sentencesFor(slot: DoorKey | 'centre', centre: string): Sentence
  * One sentence for each slot, drawn at random, never the same sentence twice on the page and never the one shown at the last
  * visit of the same slot (`last`). `rand` is Math.random, or a fixed one in the tests.
  */
-export function pickSentences(slots: (DoorKey | 'centre')[], centre: string, last: Partial<Record<string, string>> = {}, rand: () => number = Math.random): Record<string, Sentence> {
+export function pickSentences(slots: Place[], centre: string, last: Partial<Record<string, string>> = {}, rand: () => number = Math.random, pool: Sentence[] = SENTENCES): Record<string, Sentence> {
   const out: Record<string, Sentence> = {};
   const used = new Set<string>();
   for (const slot of slots) {
-    const pool = sentencesFor(slot, centre);
-    let fresh = pool.filter((x) => !used.has(x.id) && x.id !== last[slot]);
-    if (!fresh.length) fresh = pool.filter((x) => !used.has(x.id));
-    if (!fresh.length) fresh = pool;
+    const cands = sentencesFor(slot, centre, pool);
+    let fresh = cands.filter((x) => !used.has(x.id) && x.id !== last[slot]);
+    if (!fresh.length) fresh = cands.filter((x) => !used.has(x.id));
+    if (!fresh.length) fresh = cands;
+    if (!fresh.length) continue; // a centre that switched every sentence of this place off: nothing is shown there
     const s = fresh[Math.floor(rand() * fresh.length) % fresh.length];
     out[slot] = s;
     used.add(s.id);

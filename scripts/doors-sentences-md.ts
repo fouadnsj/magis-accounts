@@ -12,8 +12,9 @@ const KIND: Record<Sentence['kind'], string> = {
   testimony: 'A testimony (no name shown)',
   app: 'The first page of the program (already approved there)',
   original: 'ORIGINAL (written for this page, same spirit, belongs to nobody)',
+  centre: 'Written by the centre (never in the code)',
 };
-const SLOT: Record<string, string> = { centre: 'the heading', accounts: 'Accounts', calendar: 'Calendar', inventory: 'Inventory', hr: 'HR' };
+const SLOT: Record<string, string> = { centre: 'the heading', accounts: 'Accounts', calendar: 'Calendar', inventory: 'Inventory', hr: 'HR', admin: 'Administration', tv: 'the TV' };
 const lines: string[] = [
   '# The warm sentences of the doors page',
   '',
@@ -21,6 +22,9 @@ const lines: string[] = [
   'name of the centre, and one on each door. **Rule:** every sentence is traced to a source below, or is marked ORIGINAL. Nothing is an',
   'invented name, number, testimony or quote. A testimony never shows the name of the person. To change, remove or add a sentence, tell me,',
   'or edit `src/ui/doorSentences.ts`.',
+  '',
+  '**These are the DEFAULTS.** Since 26 November 2026 the sentences are ONE pool for the whole centre (the doors page and the TV): the Administrator and the Director',
+  'can switch each one off, edit it, choose where it appears, or write their own in Administration → Sentences. A correction made here reaches a centre that never changed the sentence.',
   '',
   '"Translated" means the source is in another language and the sentence in this language was translated for the page: please read it.',
   '',

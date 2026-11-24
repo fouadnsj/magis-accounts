@@ -4,6 +4,7 @@
 // The 0.12 hosting operations (ops.ts) stay as they are until the new screens replace them.
 import { nowIso, one, type Db, type Stmt } from '../db/db';
 import { auditStmt, UserError } from '../db/repo';
+import { payHint } from '../domain/incomeClass';
 import { m, type Msg } from '../i18n';
 import type { OpCtx } from '../ops';
 import { addDays, isDay, nextCode, nextReceipt, type Currency, type HostAlloc, type HostBuilding, type HostEquip, type HostLine, type HostNeed, type HostPay, type HostService } from './host';
@@ -63,7 +64,7 @@ export async function payBooksFor(c: Pick<OpCtx, 'db' | 'profile'>): Promise<{ o
 }
 
 /** what the books may see of a payment or a refund of the calendar: no price, no contact, no note (Fouad, M1 of the review) */
-export interface PayWaiting { receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: 'in' | 'back'; name: string; code: string; /** the book it belongs to (the Main book's id for the Main book) */ book_id: number; book: string }
+export interface PayWaiting { receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: 'in' | 'back'; name: string; code: string; /** the book it belongs to (the Main book's id for the Main book) */ book_id: number; book: string; /** what the booking is, to suggest the budget line (null: private or unknown) */ hint?: 'stay' | 'hall' | 'ours' | null }
 /**
  * The payments and the refunds that are not yet an entry of the books (the taken-back ones are left out), the ones of the books
  * THIS person may write in: a Book holder (who takes the money) his own books, the Accountant the Main book, the Administrator all.
@@ -75,13 +76,13 @@ export async function paysWaiting(c: Pick<OpCtx, 'db' | 'profile'>): Promise<{ r
   const books = await bookRows(c.db);
   const mainId = books.find((b) => !!b.is_main)?.id ?? 0;
   const mayBook = (id: number) => admin || (mainWriter && id === mainId) || (holder && id !== mainId && c.profile.books.includes(id));
-  const all = await c.db.query<{ receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: string | null; status: string; group_name: string; code: string; private: number | null; book_id: number | null; entered: number }>(
-    "SELECT p.receipt_no, p.paid_on, p.amount, p.currency, p.kind, p.status, p.book_id, b.group_name, b.code, b.private, EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no))) AS entered FROM host_pay p JOIN host_booking b ON b.id = p.booking_id ORDER BY p.paid_on, p.id");
+  const all = await c.db.query<{ receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: string | null; status: string; group_name: string; code: string; private: number | null; book_id: number | null; entered: number; origin: string | null; bkind: string | null }>(
+    "SELECT p.receipt_no, p.paid_on, p.amount, p.currency, p.kind, p.status, p.book_id, b.group_name, b.code, b.private, b.origin, b.kind AS bkind, EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no))) AS entered FROM host_pay p JOIN host_booking b ON b.id = p.booking_id ORDER BY p.paid_on, p.id");
   const mine = all.filter((r) => mayBook(r.book_id ?? mainId));
   const waiting = (r: { status: string; entered: number }) => r.status !== 'refused' && !r.entered;
   const nameOf = (id: number) => books.find((b) => b.id === id)?.name ?? '';
   // a private booking shows "Reserved" to someone who has no right to the contacts, as everywhere in the calendar
-  const rows: PayWaiting[] = mine.filter(waiting).map((r) => ({ receipt_no: r.receipt_no, paid_on: r.paid_on, amount: r.amount, currency: r.currency, kind: r.kind === 'back' ? 'back' : 'in', name: r.private ? 'Reserved · محجوز' : r.group_name, code: r.code, book_id: r.book_id ?? mainId, book: nameOf(r.book_id ?? mainId) }));
+  const rows: PayWaiting[] = mine.filter(waiting).map((r) => ({ receipt_no: r.receipt_no, paid_on: r.paid_on, amount: r.amount, currency: r.currency, kind: r.kind === 'back' ? 'back' : 'in', name: r.private ? 'Reserved · محجوز' : r.group_name, code: r.code, book_id: r.book_id ?? mainId, book: nameOf(r.book_id ?? mainId), hint: r.private ? null : payHint({ origin: r.origin, kind: r.bkind }) }));
   return { rows, ever: mine.length > 0, elsewhere: admin || !mainWriter ? 0 : all.filter((r) => !mayBook(r.book_id ?? mainId) && waiting(r)).length };
 }
 

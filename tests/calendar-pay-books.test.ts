@@ -141,7 +141,9 @@ describe('the list "Payments waiting for the books" is per person', () => {
     expect(w.rows.map((r) => r.amount)).toEqual([11, 12]);
     expect(w.rows.every((r) => r.book_id === bookN && r.book === 'Nagham book')).toBe(true);
     expect(w.elsewhere).toBe(0);
-    expect(Object.keys(w.rows[0]).sort()).toEqual(['amount', 'book', 'book_id', 'code', 'currency', 'kind', 'name', 'paid_on', 'receipt_no']);
+    expect(Object.keys(w.rows[0]).sort()).toEqual(['amount', 'book', 'book_id', 'code', 'currency', 'hint', 'kind', 'name', 'paid_on', 'receipt_no']);
+    // only what the entry needs: the booking is an outside hall booking, so the line suggested is Rent
+    expect(w.rows.every((r) => r.hint === 'hall')).toBe(true);
     expect(JSON.stringify(w)).not.toMatch(/SECRET|Person A|"rate"|500/);
   });
   it('the Accountant sees the Main book\'s payments, and only a plain count of the ones in holders\' books', async () => {

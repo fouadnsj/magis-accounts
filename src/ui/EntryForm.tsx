@@ -1,5 +1,6 @@
 // The entry form: the only way a movement enters the register.
 // Every rule of validate.ts is checked before saving; warnings need a second click.
+import { onlyIncomeClass } from '../domain/incomeClass';
 import { grantFlows } from '../domain/grants';
 import { needsApproval, needsDoc } from '../ops';
 import { draftFor, draftKey, dropDraft, keepDraft } from './draft';
@@ -56,7 +57,7 @@ const recall = (k: string) => {
 };
 
 /** A new entry with some choices already made (an envelope's Give / Spent / Put back). */
-export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; fromBook?: number | null; toBook?: number | null; /** a copy of this record (opens as a new entry, saved only when he presses Save) */ copyOf?: Trx; date?: string; /** an entry suggested by another part of the program (a payment of the calendar): the form opens with these filled in */ prefill?: { amount: number; currency: 'USD' | 'SYP'; explanation: string; receipt: string; /** made from a payment of the calendar: the type, the date, the amount, the currency and the receipt number come from the payment and are not retyped */ locked?: boolean } }
+export interface NewEntry { preset: true; type: TrxType; bookId?: number | null; /** the budget heading and line to start on (an income from the calendar) */ headingId?: number | null; lineId?: number | null; fromBook?: number | null; toBook?: number | null; /** a copy of this record (opens as a new entry, saved only when he presses Save) */ copyOf?: Trx; date?: string; /** an entry suggested by another part of the program (a payment of the calendar): the form opens with these filled in */ prefill?: { amount: number; currency: 'USD' | 'SYP'; explanation: string; receipt: string; /** made from a payment of the calendar: the type, the date, the amount, the currency and the receipt number come from the payment and are not retyped */ locked?: boolean } }
 export type EntryStart = TrxType | Trx | NewEntry;
 const isPreset = (x: EntryStart): x is NewEntry => typeof x === 'object' && 'preset' in x;
 
@@ -168,7 +169,8 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
     const type = pre ? pre.type : (start as TrxType);
     const bookId = pre?.bookId ?? ownBook ?? (restricted ? myBooks[0] ?? null : Number(recall('lastBook')) || L.settings.def_book_id || mainId);
     const book = L.books.find((b) => b.id === bookId);
-    const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
+    const [h0, l0] = type === 'Transfer' || type === 'Exchange' ? usual(type) : type === 'Income' ? onlyIncomeClass(L) : [null, null];
+    const h = pre?.headingId ?? h0, l = pre?.headingId != null ? pre.lineId ?? null : l0;
     return {
       type, date: pre?.date ?? recall('lastDate') ?? todayIso(), bookId,
       accountId: null,
@@ -229,7 +231,7 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
   const myBookOpts = restricted ? bookOpts.filter((o) => myBooks.includes(o.value)) : bookOpts;
 
   const switchType = (type: TrxType) => {
-    const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : [null, null];
+    const [h, l] = type === 'Transfer' || type === 'Exchange' ? usual(type) : type === 'Income' ? onlyIncomeClass(L) : [null, null];
     setF((x) => ({ ...x, type, headingId: h, lineId: l }));
     setErrors([]);
     setWarnings([]);

@@ -9,6 +9,7 @@ import { m, tx } from '../i18n';
 import type { PayWaiting } from '../hosting/calops';
 import { errText, fmtDate, toast } from './kit';
 import { useNav } from './Shell';
+import { incomeClassForPay } from '../domain/incomeClass';
 
 const L = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
 
@@ -64,8 +65,10 @@ export function PaysWaitingPage() {
   const move = async (p: PayWaiting, book: number) => {
     try { await s.api.call('cal.pay.book', { receipt_no: p.receipt_no, book_id: book }); await reload(); } catch (e) { toast(errText(e), true); }
   };
+  // money received: the Income heading, and the line when the booking says what it is; a refund: nothing is guessed
   const make = (p: PayWaiting) => nav.entry({
     preset: true, type: p.kind === 'back' ? 'Exp' : 'Income', date: p.paid_on, bookId: p.book_id,
+    ...(p.kind === 'back' ? {} : (([headingId, lineId]) => ({ headingId, lineId }))(incomeClassForPay(d.lists, p.hint ?? null))),
     prefill: { amount: p.amount, currency: p.currency, explanation: `${p.kind === 'back' ? 'Given back · مُعاد: ' : ''}${p.name} · ${p.code}`.trim(), receipt: p.receipt_no, locked: true },
   });
   return (

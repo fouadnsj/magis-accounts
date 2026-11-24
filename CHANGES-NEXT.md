@@ -545,3 +545,27 @@ server cut what it sends** (not only the screen).
 - Tried in the side pane on a COPY (own port, password test123): as Fouad (Administrator) the list shows all five other people, "Assem, See only"
   → Assem's doors page with the band and the way back; as Nagham (Director, made Director in the copy) the list has no Fouad, no other
   Director and not herself; "Julian, See and act" → Julian's doors page, band "written Nagham as Julian", log line "Nagham signed in as Julian (see and act)".
+
+## 24. "Sign in as" shows the databases of the person seen (bug found by Fouad, 25 November 2026; no database update)
+- **The bug**: signed in as Fouad (Coordinator/Administrator), "Sign in as" / "Test as…" Assem still gave Fouad's list of databases:
+  the HR door showed, the side menu "Databases" listed every database, and the Coordinator's space stayed on the first page.
+- **Now (server side)**: while "as" someone, `/api/hello` sends the databases that person would see **if they had signed in themselves**,
+  never the real person's. When "as" starts, the server works it out (`asViewOf` in `server/server.ts`): if the directory has an account of
+  the same name, what the directory gave them; otherwise their ring as at the first page: the databases of the same house (a community:
+  the Jesuits' door) where their name is, plus the HR databases where their name is (the password cannot be checked, the name is enough).
+  So: HR door only if they really have a place in an HR database; Databases list = those places only; no Coordinator space and no
+  "all databases" unless they are a directory administrator. `dir.person`, `ring`, "may create / manage", the communities' side, and the
+  directory pages all follow the same view (the directory pages answer 403 as someone who is not the directory administrator).
+- **Going to another database while "as"** (the HR door, or the list): allowed only to a database of that person's list; you stay "as" them
+  there (the band and the way back stay) and the real person needs an account of their own in it (else: "go back first"). It also works in
+  "see only" (it only changes database, nothing is saved). The way back puts you in your own account of that database.
+- **Direct sign-in is the same as "Test as"**: Assem signing in on the Homs door, or Fouad as Assem, give the same list (test below).
+  Not changed: "Databases · new" and "Manage databases" still show to anyone on the server computer itself (as before, also for a direct sign-in).
+- Test: `tests/signas-databases.test.ts` (2): from the first page as Fouad, then as Assem, Reception, Keeper, Director (Homs only, no HR, cannot
+  enter HR), as Hana who has an HR place (HR is there and she can go in, still "as"), the way back, direct sign-in = the same lists;
+  and the Coordinator (directory administrator) as someone without a directory account (only that database, no Coordinator space, directory
+  pages refused) and as someone with one. 445 tests pass.
+- Tried in the side pane on a COPY (own port, test123): as Fouad (Coordinator) the doors are Accounts, Calendar, Inventory, HR, Administration;
+  Test as Assem: Accounts, Calendar, Inventory and the Databases list shows only MAGIS Homs; as Nagham: Accounts; as Julian: Accounts, Calendar,
+  Inventory, no HR and no Administration. (The copy has no Reception person; Reception = one door is in `tests/doors.test.ts` and the new test.)
+- Note: Assem's old Accountant role in the test copy has "Sees the inventory" ticked, which is why he sees the Inventory door.

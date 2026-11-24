@@ -286,6 +286,9 @@ interface Centre {
   files: FileOps;
 }
 
+/** what the person seen "as" would see if they had signed in themselves (Fouad, 25 November 2026): their own ring of databases,
+ *  or the directory account of the same name. Never the databases of the person who is really signed in. */
+interface AsView { ring: { db: string; profileId: number; mustChange: boolean }[] | null; dir: DirPerson | null }
 interface Session {
   db: string; // slug of the database this session belongs to
   profile: Profile;
@@ -294,7 +297,7 @@ interface Session {
   ip: string;
   /** "sign in as" (Fouad, 31 October 2026): someone who manages the users sees the program as another person; 'view'
    *  saves nothing, 'act' acts as them, written "Fouad as Salim" */
-  as?: { byId: number; by: string; mode: 'view' | 'act' };
+  as?: { byId: number; by: string; mode: 'view' | 'act'; view: AsView };
   /** signed in from the first page with a house, a name and a password (Fouad, 31 October 2026): every database of
    *  that house (and HR) where this name has this password; the person goes from one to another without signing in again */
   ring?: { db: string; profileId: number; mustChange: boolean }[];
@@ -694,9 +697,38 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     return [sid, s, c];
   };
 
+  /** What this person would see had they signed in themselves (Fouad, 25 November 2026; "sign in as" / "Test as…"): the same
+   *  rules as /api/signin without the password. A person of the directory (the same name) sees what the directory gave them;
+   *  otherwise their ring: the databases of the house they are in (a community: the Jesuits' door) where their name is, and
+   *  the HR databases where their name is. `local`: the request comes from the server computer (when the directory is enforced
+   *  and it does not, a person without a directory account sees nothing but where they are). */
+  const asViewOf = async (c: Centre, target: Profile, local: boolean): Promise<AsView> => {
+    const name = target.name.trim().toLowerCase();
+    const dir = directory.people.find((q) => q.active && (q.name.toLowerCase() === name || q.grants[c.slug] === target.id)) ?? null;
+    if (dir) return { ring: null, dir };
+    const here = await describe(c);
+    const jesuits = here.kind === 'community' || here.kind === 'country';
+    const house = here.kind === 'centre' ? here.centre : null;
+    const ring: AsView['ring'] = [];
+    if (!(directory.enforced && !local)) {
+      for (const x of centres.values()) {
+        if ((config.inactive ?? []).includes(x.slug) || config.copies?.[x.slug] || (await setupNeeded(x))) continue;
+        const d = await describe(x);
+        if (x.slug !== c.slug && (jesuits ? !(d.kind === 'community' || d.kind === 'country') : !(d.kind === 'hr' || (d.kind === 'centre' && d.centre === house)))) continue;
+        const q = x.slug === c.slug ? { id: target.id } : (await listProfiles(x.handle.db)).find((y) => y.name.trim().toLowerCase() === name && !(jesuits && d.kind === 'community' && y.office));
+        if (!q) continue;
+        const item = { db: x.slug, profileId: q.id, mustChange: false };
+        if (d.kind === 'hr') ring.push(item);
+        else ring.unshift(item);
+      }
+    }
+    if (!ring.some((r) => r.db === c.slug)) ring.unshift({ db: c.slug, profileId: target.id, mustChange: false });
+    return { ring, dir: null };
+  };
+
   /** Creating or setting up a database: on the server computer itself, or by someone who manages users. */
   const mayCreate = (req: http.IncomingMessage, found: [string, Session, Centre] | null) =>
-    isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!dirPersonOf(req)?.admin;
+    isLocal(req) || (!!found && has(found[1].profile, 'users.manage')) || !!(found?.[1].as ? found[1].as.view.dir : dirPersonOf(req))?.admin;
 
   const send = (res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
     const text = JSON.stringify(body === undefined ? null : body);
@@ -879,21 +911,26 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const ip = ipOf(req);
     const found = await sessionOf(req);
     // signed in as someone else, to see only: nothing is saved (reading stays possible)
-    if (found?.[1].as?.mode === 'view' && method === 'POST' && !['/api/logout', '/api/as', '/api/as/back', '/api/me'].includes(url)) {
+    if (found?.[1].as?.mode === 'view' && method === 'POST' && !['/api/logout', '/api/as', '/api/as/back', '/api/me', '/api/signin/enter', '/api/dir/enter'].includes(url)) {
       const name = /^\/api\/op\/([\w.]+)$/.exec(url)?.[1];
       if (!name || !READ_ONLY.has(name)) throw new HttpError(403, { ar: 'تشاهد بحساب شخص آخر: لا يُحفظ شيء', en: "You are seeing as someone else: nothing can be saved", fr: "Vous voyez avec le compte d'un autre : rien ne peut être enregistré" });
     }
-    const dirPerson = dirPersonOf(req);
+    // while signed in as someone else, everything about "which databases may this person enter" is the TARGET's, exactly as if
+    // they had signed in themselves (Fouad, 25 November 2026): their ring, or their own directory account, never the real person's
+    const asNow = found?.[1].as;
+    const realDir = dirPersonOf(req); // (always read: it keeps the directory sign-in awake while seen as someone else)
+    const dirPerson = asNow ? asNow.view.dir : realDir;
+    const ringNow = asNow ? asNow.view.ring : found?.[1].ring;
     /** may this directory person enter this database? (the administrator: all) */
     const dirSees = (p: DirPerson, slug: string) => p.admin || Object.prototype.hasOwnProperty.call(p.grants, slug);
-    const dirInfo = () => ({ on: directory.people.length > 0, enforced: directory.enforced, person: dirPerson ? { name: dirPerson.name, admin: dirPerson.admin, mustChange: dirPerson.mustChange } : null });
+    const dirInfo = () => ({ on: directory.people.length > 0, enforced: directory.enforced, person: dirPerson ? { name: dirPerson.name, admin: dirPerson.admin, mustChange: asNow ? false : dirPerson.mustChange } : null });
     const isCtyKind = (k: string | null | undefined) => k === 'community' || k === 'country';
     // The communities' side shows only to someone signed in who is allowed there (Fouad, 21 November 2026: the extra
     // communities' password is gone; a name and a password are enough, and a person sees only the databases allowed to him):
     // the Coordinator (the directory's administrator), a person the directory gave a community, or someone signed in to one.
     const ctyOpen = (): boolean => {
       if (dirPerson && (dirPerson.admin || Object.keys(dirPerson.grants).some((x) => ctyKinds.get(x)))) return true;
-      return !!found && (ctyKinds.get(found[2].slug) === true || !!found[1].ring?.some((r) => ctyKinds.get(r.db) === true));
+      return !!found && (ctyKinds.get(found[2].slug) === true || !!ringNow?.some((r) => ctyKinds.get(r.db) === true));
     };
     const ctyKinds = new Map<string, boolean>();
     for (const c of centres.values()) ctyKinds.set(c.slug, isCtyKind(await getMeta(c.handle.db, 'kind')));
@@ -913,11 +950,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       // the communities are not even named until their password is given
       let dbs = (await Promise.all([...centres.values()].filter((x) => !(config.inactive ?? []).includes(x.slug) && !config.copies?.[x.slug]).map(describe))).filter((d) => ctyOpen() || !isCtyKind(d.kind));
       // the directory: a signed-in person sees only what was given to them; when it is enforced, nobody else sees anything
-      if (dirPerson) dbs = dbs.filter((d) => dirSees(dirPerson, d.slug));
-      else if (found?.[1].ring) dbs = dbs.filter((d) => found[1].ring!.some((r) => r.db === d.slug));
+      if (dirPerson) dbs = dbs.filter((d) => dirSees(dirPerson, d.slug) || (asNow && d.slug === found![1].db));
+      else if (ringNow) dbs = dbs.filter((d) => ringNow.some((r) => r.db === d.slug));
+      else if (asNow) dbs = dbs.filter((d) => d.slug === found![1].db); // seen as someone with no ring: only the database they are in
       else if (directory.enforced && !isLocal(req)) dbs = [];
       dbs.sort((a, b) => CENTRE_KEYS.indexOf(a.centre) - CENTRE_KEYS.indexOf(b.centre) || a.organisation.localeCompare(b.organisation));
-      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, ring: found?.[1].ring?.map((r) => r.db) ?? null, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: false, ctyOpen: ctyOpen(),
+      return send(res, 200, { server: true, version: SERVER_VERSION, local: isLocal(req), canCreate: mayCreate(req, found), canCreateCty: mayCreateCty(), canManage: mayManage(), dir: dirInfo(), dbs, ring: ringNow?.map((r) => r.db) ?? null, current: found ? found[1].db : null, idleMinutes: config.idleMinutes, ctyGate: false, ctyOpen: ctyOpen(),
         // only that there are communities (never which): the first page shows the Jesuits' door
         hasCommunities: [...centres.values()].some((x) => !(config.inactive ?? []).includes(x.slug) && !config.copies?.[x.slug] && ctyKinds.get(x.slug) === true) });
     }
@@ -1055,6 +1093,14 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!(dirPerson?.admin || (isLocal(req) && !directory.people.length))) throw new HttpError(403, { ar: 'لمدير الدليل فقط', en: 'For the directory administrator only' });
     };
     const publicPerson = (p: DirPerson) => ({ id: p.id, name: p.name, admin: p.admin, active: p.active, mustChange: p.mustChange, grants: p.grants });
+    /** going to another database while signed in as someone else: stays "as", and the real person needs an account of their own there */
+    const keepAs = async (s: Session | undefined, c: Centre): Promise<Session['as'] | null> => {
+      if (!s?.as) return null;
+      const me = s.as.by.trim().toLowerCase();
+      const mine = (await listProfiles(c.handle.db)).find((q) => !q.office && q.name.trim().toLowerCase() === me);
+      if (!mine) throw new HttpError(403, { ar: 'ليس لك حساب في قاعدة البيانات هذه: ارجع أولاً إلى حسابك', en: 'You have no account of your own in this database: first go back to your own account', fr: "Vous n'avez pas de compte à vous dans cette base : revenez d'abord à votre compte" });
+      return { ...s.as, byId: mine.id };
+    };
     /** the profile of a database this person enters as: the one chosen, else (for the administrator) its Superior */
     const dirProfile = async (p: DirPerson, c: Centre): Promise<Profile | null> => {
       const linked = p.grants[c.slug];
@@ -1119,6 +1165,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!dirPerson) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in' });
       dirTooMany();
       const body = (await readBody(req)) as { old?: string; password?: string };
+      if (asNow) throw new HttpError(403, { ar: 'ارجع أولاً إلى حسابك', en: 'First go back to your own account', fr: "Revenez d'abord à votre compte" });
       if (!(await verifySecret(dirPerson.salt, String(body.old ?? ''), dirPerson.hash)).ok) {
         dirFail();
         throw new HttpError(403, { ar: 'كلمة السر الحالية غير صحيحة', en: 'The current password is not right' });
@@ -1141,9 +1188,10 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (await setupNeeded(c)) throw new HttpError(409, { ar: 'لم تُعدّ هذه القاعدة بعد', en: 'This database is not set up yet' });
       const profile = await dirProfile(dirPerson, c);
       if (!profile) throw new HttpError(403, { ar: 'لا حساب لك في هذه القاعدة. اطلب من المدير ربطه.', en: 'You have no account in this database. Ask the administrator to link one.' });
+      const keep = await keepAs(found?.[1], c);
       if (found) sessions.delete(found[0]);
       const sid = randomBytes(32).toString('base64url');
-      sessions.set(sid, { db: c.slug, profile, mustChange: false, last: Date.now(), ip, person: personOf(profile) });
+      sessions.set(sid, { db: c.slug, profile, mustChange: false, last: Date.now(), ip, ...(keep ? { as: keep, ring: found![1].ring } : { person: personOf(profile) }) });
       log(`directory entry ${c.slug}: ${dirPerson.name} as ${profile.name} from ${ip}`);
       return send(res, 200, { profile, mustChange: false, install: 'office' }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
     }
@@ -2338,19 +2386,20 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       });
     }
     if (url === '/api/signin/enter' && method === 'POST') {
-      if (!found?.[1].ring) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in', fr: 'Connectez-vous' });
+      if (!found || !ringNow) throw new HttpError(401, { ar: 'سجّل الدخول', en: 'Please log in', fr: 'Connectez-vous' });
       const body = (await readBody(req)) as { db?: string };
-      const ring = found[1].ring;
+      const ring = ringNow;
       const r = ring.find((x) => x.db === body.db);
       if (!r) throw new HttpError(403, { ar: 'لا إذن لك في قاعدة البيانات هذه', en: 'You have no access to this database', fr: "Vous n'avez pas accès à cette base" });
       const c = centreOf(r.db);
       const profile = await loadProfile(c.handle.db, r.profileId);
       if (!profile) throw new HttpError(403, { ar: 'هذا الحساب موقوف', en: 'This account is switched off', fr: 'Ce compte est désactivé' });
+      const keep = await keepAs(found[1], c);
       sessions.delete(found[0]);
       const sid = randomBytes(32).toString('base64url');
-      sessions.set(sid, { db: c.slug, profile, mustChange: r.mustChange, last: Date.now(), ip, ring, person: personOf(profile) });
+      sessions.set(sid, { db: c.slug, profile, mustChange: keep ? false : r.mustChange, last: Date.now(), ip, ...(keep ? { as: keep, ring: found[1].ring } : { ring, person: personOf(profile) }) });
       log(`sign-in ${c.slug}: ${profile.name} from ${ip}`);
-      return send(res, 200, { profile, mustChange: r.mustChange }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
+      return send(res, 200, { profile, mustChange: keep ? false : r.mustChange }, { 'Set-Cookie': `magis_sid=${sid}; HttpOnly; SameSite=Lax; Path=/${viaHttps ? '; Secure' : ''}` });
     }
 
     if (url === '/api/profiles' && method === 'GET') {
@@ -2411,7 +2460,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (target.admin && !real.admin && target.id !== real.id) throw new HttpError(403, { ar: 'للمشرف فقط', en: 'For the Administrator only', fr: 'Pour l’Administrateur seulement' });
       if (target.id === real.id) { s.profile = real; s.as = undefined; return send(res, 200, { ok: true }); }
       s.profile = target;
-      s.as = { byId: real.id, by: real.name, mode };
+      s.as = { byId: real.id, by: real.name, mode, view: await asViewOf(c, target, isLocal(req)) };
       s.mustChange = false;
       await c.handle.db.batch([auditStmt(real.name, 'sign-as', 'profile', String(target.id), null, { as: target.name, mode })]);
       log(`${c.slug}: ${real.name} signed in as ${target.name} (${mode === 'act' ? 'see and act' : 'see only'})`);
@@ -2491,6 +2540,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         log(`${c.slug}: ${real.name} back from ${s.profile.name}`);
         s.profile = real;
         s.as = undefined;
+        s.person = personOf(real);
       }
       return send(res, 200, { ok: true });
     }

@@ -371,6 +371,17 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".
+- `scripts/test-data.ts` (J4): fills a COPY of a centre database with SAMPLE data of the new Calendar and Inventory, using the program's own
+  operations (so H…/HR… numbers, history and rules are the program's): the missing spaces (hall, classroom, 3 bedrooms, kitchen, store: what
+  exists is kept), 5 organisations with persons, 7 weekly activities (one date cancelled, one moved), a whole-centre open day, an activity
+  outside the centre, about 15 outside bookings (USD and SYP, services, the projector asked, holds with dates, one private, a stay of 3 nights
+  with breakfast, a stay going on, payments, ONE cancellation with a part kept and money given back), 31 items (a group of 40 chairs that
+  splits, a laptop with a holder, the projector shown in the calendar, 3 "to repair", 1 broken), one problem reported, a count of the classroom.
+  Everything is marked ("Sample…" names, notes "SAMPLE <key>") and never made twice (a second run adds nothing). It refuses any path with
+  `real-db`, and first copies the database to `dbs/<db>/backups/<time>_before-test-data.db`. The sample weeks start on the first Monday after
+  today and after any space closed for repairs. Stop the server of that folder first. Test: `tests/test-data.test.ts`. Run:
+  `node_modules/.bin/esbuild scripts/test-data.ts --bundle --platform=node --format=esm --banner:js="import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" --log-level=error --outfile=/tmp/test-data.mjs`
+  then `node --no-warnings /tmp/test-data.mjs ../test-servers/next-test magis-homs`.
 
 ## 17. Guide and test checklists for the new Calendar and Inventory (calendar step 8, inventory step 5; 24 November 2026; no database update)
 - The built-in Guide (accounts) has two new sections written for centre staff, Arabic, English, French: **Calendar · التقويم** and **Inventory · الجرد**

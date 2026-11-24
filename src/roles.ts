@@ -158,3 +158,17 @@ export function booksSwitchedOffWith(
   const inside = books.filter((b) => own(b) && b.parent_id != null && ids.has(b.parent_id) && !ids.has(b.id));
   return [...main, ...inside].map((b) => ({ id: b.id, name: b.name }));
 }
+
+/**
+ * "Test as…" (26 November 2026): the people one may open the program as, from the top of Administration. The same rule as
+ * the 👁 button on People: the active people of this centre, never oneself, and — unless one is the Administrator — never the
+ * Administrator or Director lines (the server refuses those too).
+ */
+export function testAsChoices<U extends { id: number; active: number; roles?: number[]; access_id?: number | null }>(
+  users: U[], access: Pick<RoleLike, 'id' | 'kind'>[], myId: number, iAmAdmin: boolean,
+): (U & { roleRows: Pick<RoleLike, 'id' | 'kind'>[] })[] {
+  return users
+    .filter((u) => u.active && u.id !== myId)
+    .map((u) => ({ ...u, roleRows: (u.roles?.length ? u.roles : u.access_id != null ? [u.access_id] : []).map((id) => access.find((a) => a.id === id)).filter((a): a is Pick<RoleLike, 'id' | 'kind'> => !!a) }))
+    .filter((u) => iAmAdmin || !u.roleRows.some((a) => !!a.kind && ADMIN_GIVES.includes(a.kind as RoleKind)));
+}

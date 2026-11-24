@@ -530,3 +530,18 @@ server cut what it sends** (not only the screen).
   → book made and password shown; switched off with the book.
 - **Not done / for later**: the Guide does not mention it yet (step 9). The old button "Create accounts for all book keepers" (accounts for books made
   before) stays as it is.
+
+## 23. "Test as…" at the top of Administration (26 November 2026; no database update)
+- Fouad tests the roles and wanted to open the program as any person quickly. At the top of every page of the Administration door
+  (People, Roles) there is now a small control **"Test as… · الدخول باسم…"**: a list of the people of this centre (name and role names),
+  **See only / See and act** (default "See only", remembered while the program is open) and a **Go** button. It uses the same function
+  as the 👁 button (`serverSignAs`, `/api/as`): same server rules, same history line ("Fouad as X"), the band at the top with the way back.
+  New in the screen only: after signing in the person lands on **their own doors page**, not on the Administration page it was chosen from.
+- **Who is in the list**: active people, never oneself, and unless one is the Administrator never the Administrator and Director lines
+  (the same as the 👁 buttons on People; the server refuses them too). Shown only to whoever may use "sign in as" (`maySignAs`), nothing
+  when signed in as someone else. The 👁 buttons on the person lines are unchanged.
+- Code: `testAsChoices` in `src/roles.ts`, `TestAs` in `src/ui/SignAs.tsx`, placed in `src/ui/Shell.tsx`, a few lines in `src/styles.css`.
+  Test: `tests/test-as.test.ts` (3). 443 tests pass.
+- Tried in the side pane on a COPY (own port, password test123): as Fouad (Administrator) the list shows all five other people, "Assem, See only"
+  → Assem's doors page with the band and the way back; as Nagham (Director, made Director in the copy) the list has no Fouad, no other
+  Director and not herself; "Julian, See and act" → Julian's doors page, band "written Nagham as Julian", log line "Nagham signed in as Julian (see and act)".

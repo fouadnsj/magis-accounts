@@ -21,6 +21,7 @@ import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
 import { PeoplePage, RolesPage } from './People';
+import { TestAs } from './SignAs';
 import { peopleDoor } from '../roles';
 import { Calendar } from './Calendar';
 import { InventoryHome } from './InvHome';
@@ -242,6 +243,7 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
               {door === 'admin' && <span className="door-here">{tx(m('الإدارة', 'Administration', 'Administration'))}</span>}
             </div>
           )}
+          {door === 'admin' && page !== 'doors' && <TestAs s={s} />}
           {page === 'doors' && (
             <Doors doors={doors} centre={s.centre ?? 'other'} centreName={s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')} mark={st.mark ?? '/brand/magis-sun.png'} who={s.profile.name}
               badges={{ accounts: toReview, inventory: (d.problems?.open ?? 0) + toInventory }} onEnter={nav.door} />

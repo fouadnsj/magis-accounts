@@ -297,3 +297,16 @@ Order: 1 → (2+3 together, 4, 6 each in its own session, different files) → 5
 6. **Who is the second Administrator** on each server (name)? Needed before the update, to avoid locking everyone out while Fouad is away. *I recommend one trusted person per server, written in the update note.*
 
 Nothing is built. When these are answered, the first job is step 1 (roles as data).
+
+---
+
+## 10. Fouad's answers to §9.6 (25 November 2026)
+
+1. Yes: the Coordinator takes the attendance of the animators of his centre only (names and activities, never pay).
+2. Yes: the calendar only suggests, the Coordinator confirms.
+3. Yes, but: **who enters an animator?** Proposal (manager): **HR enters the animator** (a person of the centre, category tutor, as today); when a workshop is created in the calendar, its leader is **picked from the list of the centre's animators in HR** (names only), typed only if not there (as the inventory's "with staff" holder). This replaces the "this is Rima" matching. To confirm with Fouad.
+4. HR makes the locked copy. **But HR still needs more reflection:** a general look across several HR databases, and **one project shared by two centres** (e.g. Homs and Aleppo) need the data joined. Fouad: keep the HR database as it is now, each HR keeper controls his centre; how to join them later is open. → **HR parts are paused** (step 4 HR roles on the person, step 6 locked copy, step 7 sessions from the calendar) until a separate HR reflection.
+5. Yes: removing a person switches the book off, never deleted.
+6. Administrators: **Fouad = the main Administrator everywhere.** Second Administrators: Alvaro (Aleppo), Julian (Homs and/or Aleppo: Fouad wrote "the secondary in Aleppo Alvaro in Homs and Aleppo Julian" — to confirm, and Jaramana's second is not named yet).
+
+**So now:** step 1 (roles as data, several roles per person) can start; then steps 2, 3, 5. The HR steps wait for the HR reflection.

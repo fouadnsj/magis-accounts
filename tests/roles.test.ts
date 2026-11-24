@@ -242,7 +242,7 @@ describe('who gives what (roles step 3)', () => {
         const name = `${who} gives ${k.kind}`;
         const res = runOp(c, 'user.save', { name, roles: [r.id], books: [], pin: pin() });
         if (why) await expect(res, name).rejects.toThrow();
-        else await expect(res, name).resolves.toBeUndefined();
+        else await expect(res, name).resolves.toMatchObject({ id: expect.any(Number) });
       }
     }
     // in words: the Administrator gives all; the Director all but Administrator and Director; the Accountant a Book holder only

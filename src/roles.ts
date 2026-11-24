@@ -130,3 +130,31 @@ export function peopleDoor(roles: { kind?: string | null }[] | undefined, can: (
   if (roles?.some((r) => r.kind === 'administrator' || r.kind === 'director')) return true;
   return !roles?.some((r) => r.kind) && can('users.manage');
 }
+
+// ---- the book made with the person (roles step 5, 25 November 2026; ROLES-AND-SIGNIN-ANALYSIS.md §9.3)
+// A person with the role Book holder "keeps a cash book": the program makes the book with their name (not private, in the
+// Main book's city and account), links it to them, and shows the temporary password once. Switching the person off switches
+// their book off with them (never deleted: its rows stay).
+
+export const KEEPS_BOOK = m('يمسك دفتر صندوق', 'keeps a cash book', 'tient un livre de caisse');
+
+/** a role that keeps a book of its own (the Book holder) */
+export const keepsBook = (perms: readonly string[]) => perms.includes('book.own');
+
+/**
+ * The books that go off with this person: the books they keep that nobody else active keeps, never the Main book, never a
+ * private book (the Respo book), never a community's book; and the envelopes inside them.
+ */
+export function booksSwitchedOffWith(
+  personId: number,
+  users: { id: number; active: number; books: number[] }[],
+  books: { id: number; name: string; active: number; is_main: number; private?: number; parent_id?: number | null; cty_kind?: string | null }[],
+): { id: number; name: string }[] {
+  const mine = users.find((u) => u.id === personId)?.books ?? [];
+  const others = new Set(users.filter((u) => u.active && u.id !== personId).flatMap((u) => u.books));
+  const own = (b: (typeof books)[number]) => b.active && !b.is_main && !b.private && !b.cty_kind;
+  const main = books.filter((b) => own(b) && mine.includes(b.id) && !others.has(b.id));
+  const ids = new Set(main.map((b) => b.id));
+  const inside = books.filter((b) => own(b) && b.parent_id != null && ids.has(b.parent_id) && !ids.has(b.id));
+  return [...main, ...inside].map((b) => ({ id: b.id, name: b.name }));
+}

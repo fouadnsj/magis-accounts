@@ -5,11 +5,11 @@ import { useEffect, useState } from 'react';
 import { SignAsButton } from './SignAs';
 import { useApp } from '../state';
 import type { Profile } from '../auth';
-import type { AccessRow, UserRow } from '../ops';
+import type { AccessRow, SavedUser, UserRow } from '../ops';
 import { PERM_GROUPS, withImplied, type Perm } from '../perms';
 import { READY_ROLES, doorsOf } from '../doors';
 import { doorName } from './Doors';
-import { ADMIN_GIVES, ADMIN_ONLY, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, type RoleLike } from '../roles';
+import { ADMIN_GIVES, ADMIN_ONLY, KEEPS_BOOK, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, booksSwitchedOffWith, keepsBook, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, type RoleLike } from '../roles';
 import { m, tx, type Msg } from '../i18n';
 import { Field, Modal, biName, confirmBox, errText, t, toast } from './kit';
 import { GuideLink } from '../guide/GuideView';
@@ -66,8 +66,16 @@ function doorsLine(roles: RoleLike[], extra: Perm[], hasBook: boolean, inventory
   return ds.length ? ds.map((k) => tx(doorName(k))).join(' · ') : '—';
 }
 
+/** The question before switching a person off: their book goes off with them (never deleted: its rows stay). */
+function switchOffText(u: UserRow, users: UserRow[], books: Parameters<typeof booksSwitchedOffWith>[2]): string {
+  const off = booksSwitchedOffWith(u.id, users, books).map((b) => b.name).join(', ');
+  return off
+    ? tx(m(`إيقاف ${u.name}؟ لن يستطيع الدخول، ويُوقف دفتره معه: ${off}. القيود تبقى ولا يُحذف شيء.`, `Switch off ${u.name}? They will no longer be able to sign in, and their book is switched off with them: ${off}. Its rows stay; nothing is deleted.`, `Désactiver ${u.name} ? Cette personne ne pourra plus se connecter, et son livre est désactivé avec elle : ${off}. Ses écritures restent ; rien n’est supprimé.`))
+    : tx(m(`إيقاف ${u.name}؟ لن يستطيع الدخول. دفاتره تبقى كما هي.`, `Switch off ${u.name}? They will no longer be able to sign in. Their books stay as they are.`, `Désactiver ${u.name} ? Cette personne ne pourra plus se connecter. Ses livres restent tels quels.`));
+}
+
 function People() {
-  const { s, d, can } = useApp();
+  const { s, d, can, reload } = useApp();
   const [list, setList] = useState<UserRow[]>([]);
   const [access, setAccess] = useState<AccessRow[]>([]);
   const [edit, setEdit] = useState<Partial<UserRow> | null>(null);
@@ -78,6 +86,11 @@ function People() {
     setList(await s.api.call('users.list'));
     if (manage) setAccess(await s.api.call('access.list'));
   };
+  // after a change the books may have changed too (a book made with a person, a book switched off with them)
+  const changed = async () => {
+    await reload();
+    await refresh();
+  };
   const hasKinds = access.some((a) => a.kind);
   // the Administrator's line and the Directors' lines are the Administrator's to change (the server refuses it too)
   const adminsLine = (u: UserRow) => hasKinds && !admin && u.id !== s.profile.id && rolesOfUser(u, access).some((a) => !!a.kind && ADMIN_GIVES.includes(a.kind as never));
@@ -87,7 +100,7 @@ function People() {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const bookName = (id: number) => d.lists.books.find((b) => b.id === id)?.name ?? '?';
-  const [created, setCreated] = useState<{ name: string; book: string; password: string }[] | null>(null);
+  const [created, setCreated] = useState<{ name: string; book: string; password: string; note?: string }[] | null>(null);
   const keptIds = new Set(list.filter((u) => u.active).flatMap((u) => u.books));
   const unkept = d.lists.books.filter((b) => b.active && !b.is_main && !keptIds.has(b.id));
   const createKeepers = async () => {
@@ -95,16 +108,17 @@ function People() {
     if (!(await confirmBox(t(`إنشاء حساب «أمين صندوق» لكل من: ${names}؟\nلكلٍّ كلمة سر مؤقتة يغيّرها عند أول دخول.`, `Create a "Book holder" account for: ${names}?\nEach gets a temporary password, to change at first login.`)))) return;
     try {
       setCreated(await s.api.call('users.createKeepers'));
-      await refresh();
+      await changed();
     } catch (e) {
       toast(errText(e), true);
     }
   };
   const deactivate = async (u: UserRow) => {
-    if (!(await confirmBox(tx(m(`إيقاف ${u.name}؟ لن يستطيع الدخول. دفاتره تبقى كما هي.`, `Switch off ${u.name}? They will no longer be able to sign in. Their books stay as they are.`, `Désactiver ${u.name} ? Cette personne ne pourra plus se connecter. Ses livres restent tels quels.`)), true))) return;
+    if (!(await confirmBox(switchOffText(u, list, d.lists.books), true))) return;
     try {
-      await s.api.call('user.deactivate', { id: u.id });
-      await refresh();
+      const r = (await s.api.call('user.deactivate', { id: u.id })) as { books?: string[] } | undefined;
+      if (r?.books?.length) toast(tx(m(`أُوقف أيضاً: ${r.books.join('، ')}`, `Also switched off: ${r.books.join(', ')}`, `Désactivé aussi : ${r.books.join(', ')}`)));
+      await changed();
     } catch (e) {
       toast(errText(e), true);
     }
@@ -176,7 +190,7 @@ function People() {
         </div>
       )}
       {created && <CreatedModal rows={created} onClose={() => setCreated(null)} />}
-      {edit && <UserModal user={edit} access={access} onClose={() => setEdit(null)} onDone={refresh} />}
+      {edit && <UserModal user={edit} access={access} onClose={() => setEdit(null)} onDone={changed} onSaved={(r, n, np) => setCreated(createdRows(r, n, np))} />}
       {pinFor && <PinModal p={{ id: pinFor.id, name: pinFor.name }} onClose={() => setPinFor(null)} />}
     </div>
   );
@@ -184,11 +198,12 @@ function People() {
 
 /** The Accountant's own window ("Adds book holders"): the book holders only — their name, their book, their password, switched off. */
 function HolderUsers() {
-  const { s, d, can } = useApp();
+  const { s, d, can, reload } = useApp();
   const [list, setList] = useState<UserRow[]>([]);
   const [access, setAccess] = useState<AccessRow[]>([]);
   const [edit, setEdit] = useState<Partial<UserRow> | null>(null);
   const [pinFor, setPinFor] = useState<UserRow | null>(null);
+  const [created, setCreated] = useState<{ name: string; book: string; password: string; note?: string }[] | null>(null);
   const refresh = async () => {
     setList(await s.api.call('users.list'));
     setAccess(await s.api.call('access.list')); // (the server sends the book holders' roles only)
@@ -196,16 +211,21 @@ function HolderUsers() {
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const changed = async () => {
+    await reload();
+    await refresh();
+  };
   const bookName = (id: number) => d.lists.books.find((b) => b.id === id)?.name ?? '?';
   const isHolder = (u: UserRow) => u.id !== s.profile.id && !u.extra?.length && (u.roles?.length ? u.roles : [u.access_id]).every((id) => access.some((a) => a.id === id));
   const holders = list.filter((u) => u.active && isHolder(u));
   const others = list.filter((u) => u.active && !isHolder(u) && u.id !== s.profile.id);
   const me = list.find((u) => u.id === s.profile.id);
   const deactivate = async (u: UserRow) => {
-    if (!(await confirmBox(tx(m(`إيقاف ${u.name}؟ لن يستطيع الدخول. دفتره يبقى كما هو.`, `Switch off ${u.name}? They will no longer be able to sign in. The book stays as it is.`, `Désactiver ${u.name} ? Cette personne ne pourra plus se connecter. Le livre reste tel quel.`)), true))) return;
+    if (!(await confirmBox(switchOffText(u, list, d.lists.books), true))) return;
     try {
-      await s.api.call('user.deactivate', { id: u.id });
-      await refresh();
+      const r = (await s.api.call('user.deactivate', { id: u.id })) as { books?: string[] } | undefined;
+      if (r?.books?.length) toast(tx(m(`أُوقف أيضاً: ${r.books.join('، ')}`, `Also switched off: ${r.books.join(', ')}`, `Désactivé aussi : ${r.books.join(', ')}`)));
+      await changed();
     } catch (e) {
       toast(errText(e), true);
     }
@@ -248,14 +268,15 @@ function HolderUsers() {
           </div>
         </details>
       )}
-      {edit && <HolderModal user={edit} access={access} onClose={() => setEdit(null)} onDone={refresh} />}
+      {edit && <HolderModal user={edit} access={access} onClose={() => setEdit(null)} onDone={changed} onSaved={(r, n, np) => setCreated(createdRows(r, n, np))} />}
+      {created && <CreatedModal rows={created} onClose={() => setCreated(null)} />}
       {pinFor && <PinModal p={{ id: pinFor.id, name: pinFor.name }} onClose={() => setPinFor(null)} />}
     </div>
   );
 }
 
 /** Add or change a book holder: name, book, password given once. The role is the book holder's (nothing else to choose). */
-function HolderModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void> }) {
+function HolderModal({ user, access, onClose, onDone, onSaved }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void>; onSaved: (r: SavedUser, name: string, newPassword: boolean) => void }) {
   const { s, d } = useApp();
   const [name, setName] = useState(user.name ?? '');
   const first = (access.find((a) => a.kind === 'holder') ?? access[0])?.id ?? null;
@@ -265,10 +286,15 @@ function HolderModal({ user, access, onClose, onDone }: { user: Partial<UserRow>
   const [pin, setPin] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const toggle = (id: number) => setBooks((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
+  // "keeps a cash book": the program makes the book with the person (a new person: on; a known person with no book: offered)
+  const [make, setMake] = useState<boolean | null>(null);
+  const canMake = !!access.find((a) => a.id === roleId && keepsBook(a.perms)) && (!user.id || books.length === 0);
+  const makeBook = canMake && (make ?? !user.id);
   const save = async () => {
     try {
       if (roleId == null) return setErr(tx(m('اختر دوراً', 'Choose a role', 'Choisissez un rôle')));
-      await s.api.call('user.save', { id: user.id, name, roles: [roleId], books, pin: newPin && pin ? pin : undefined });
+      const r = (await s.api.call('user.save', { id: user.id, name, roles: [roleId], books, makeBook, pin: newPin && pin ? pin : undefined })) as SavedUser;
+      onSaved(r, name.trim(), !user.id || (newPin && !!pin));
       await onDone();
       onClose();
     } catch (e) {
@@ -285,8 +311,9 @@ function HolderModal({ user, access, onClose, onDone }: { user: Partial<UserRow>
           </select>
         </Field>
       )}
+      <KeepsBookLine show={canMake} name={name} on={makeBook} setOn={setMake} isNew={!user.id} />
       <PasswordOnce isNew={!user.id} open={newPin} setOpen={setNewPin} pin={pin} setPin={setPin} />
-      <h3 style={{ marginTop: 14 }}>{tx(m('الدفتر', 'The book', 'La caisse'))}</h3>
+      <h3 style={{ marginTop: 14 }}>{makeBook ? tx(m('دفاتر أخرى (اختياري)', 'Other books (optional)', 'Autres livres (facultatif)')) : tx(m('الدفتر', 'The book', 'La caisse'))}</h3>
       <div className="chips">
         {d.lists.books.filter((b) => b.active && !b.is_main && (!b.private || books.includes(b.id))).map((b) => (
           <button key={b.id} type="button" className={`chip ${books.includes(b.id) ? 'on' : ''}`} onClick={() => toggle(b.id)}>{b.name}</button>
@@ -301,6 +328,28 @@ function HolderModal({ user, access, onClose, onDone }: { user: Partial<UserRow>
   );
 }
 
+/** "Keeps a cash book": the program makes the person's book with their name (roles step 5). */
+function KeepsBookLine({ show, name, on, setOn, isNew }: { show: boolean; name: string; on: boolean; setOn: (b: boolean) => void; isNew: boolean }) {
+  if (!show) return null;
+  const n = name.trim() ? ` «${name.trim()}»` : '';
+  return (
+    <label className="row" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', margin: '10px 0 4px', padding: '8px 10px', background: 'var(--chip, #f4f1ea)', borderRadius: 6 }}>
+      <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} style={{ marginTop: 3 }} />
+      <span className="small">
+        <b>{tx(KEEPS_BOOK)}</b>
+        <br />
+        {isNew
+          ? tx(m(`يصنع البرنامج دفتره باسمه${n}، ويربطه به.`, `The program makes their book with their name${n} and links it to them.`, `Le programme crée leur livre à leur nom${n} et le leur relie.`))
+          : tx(m(`ليس له دفتر بعد: اصنع دفتره${n} وأربطه به.`, `They have no book yet: make their book${n} and link it.`, `Pas encore de livre : créer leur livre${n} et le leur relier.`))}
+      </span>
+    </label>
+  );
+}
+
+/** What to show once after saving a person: the book made and the password the program made (never shown again). */
+const createdRows = (r: SavedUser | undefined, name: string, newPassword: boolean) =>
+  r && (r.book || r.password) ? [{ name, book: r.book?.name ?? '', password: r.password ?? '', note: newPassword ? tx(m('التي أعطيتها', 'the one you gave', 'celui que vous avez donné')) : tx(m('لم تتغيّر', 'not changed', 'inchangé')) }] : null;
+
 /** The password, given once: for a new person it is asked; for a known person a button opens the field. */
 function PasswordOnce({ isNew, open, setOpen, pin, setPin, self }: { isNew: boolean; open: boolean; setOpen: (b: boolean) => void; pin: string; setPin: (v: string) => void; self?: boolean }) {
   if (!open)
@@ -310,7 +359,7 @@ function PasswordOnce({ isNew, open, setOpen, pin, setPin, self }: { isNew: bool
       </div>
     );
   return (
-    <Field label={self ? tx(m('كلمة سرّي الجديدة (6 على الأقل)', 'My new password (6 or more)', 'Mon nouveau mot de passe (6 ou plus)')) : isNew ? tx(m('كلمة السر التي تعطيها له (6 على الأقل)', 'The password you give (6 or more)', 'Le mot de passe que vous donnez (6 ou plus)')) : tx(m('كلمة السر الجديدة التي تعطيها له (6 على الأقل)', 'The new password you give (6 or more)', 'Le nouveau mot de passe que vous donnez (6 ou plus)'))}>
+    <Field label={self ? tx(m('كلمة سرّي الجديدة (6 على الأقل)', 'My new password (6 or more)', 'Mon nouveau mot de passe (6 ou plus)')) : isNew ? tx(m('كلمة السر التي تعطيها له (6 على الأقل) — أو اتركها فارغة ويصنع البرنامج واحدة', 'The password you give (6 or more) — or leave it empty and the program makes one', 'Le mot de passe que vous donnez (6 ou plus) — ou laissez vide : le programme en crée un')) : tx(m('كلمة السر الجديدة التي تعطيها له (6 على الأقل)', 'The new password you give (6 or more)', 'Le nouveau mot de passe que vous donnez (6 ou plus)'))}>
       <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="new-password" />
       {!self && <div className="muted small">{tx(m('تُعطى مرة واحدة: عند أول دخول يختار كلمة سره.', 'Given once: at the first sign-in the person chooses their own.', 'Donné une fois : à la première connexion la personne choisit le sien.'))}</div>}
     </Field>
@@ -354,15 +403,18 @@ function BecauseOf({ roles, extra }: { roles: RoleLike[]; extra: Perm[] }) {
 }
 
 /** The temporary passwords, shown once: to hand to each person (or print). */
-function CreatedModal({ rows, onClose }: { rows: { name: string; book: string; password: string }[]; onClose: () => void }) {
+function CreatedModal({ rows, onClose }: { rows: { name: string; book: string; password: string; note?: string }[]; onClose: () => void }) {
+  const some = rows.some((r) => r.password);
   return (
     <Modal title={t('الحسابات الجديدة', 'New accounts')} onClose={onClose} narrow>
-      <div className="alert warn small">
-        {t('اكتب كلمات السر المؤقتة الآن: لن تظهر مرة أخرى. عند أول دخول يختار كل واحد كلمة سره.', 'Write these temporary passwords down now: they will not be shown again. At first login, each person chooses his own password.')}
-      </div>
+      {some && (
+        <div className="alert warn small">
+          {t('اكتب كلمات السر المؤقتة الآن: لن تظهر مرة أخرى. عند أول دخول يختار كل واحد كلمة سره.', 'Write these temporary passwords down now: they will not be shown again. At first login, each person chooses his own password.')}
+        </div>
+      )}
       <table className="t">
         <thead><tr><th>{t('الاسم', 'Name')}</th><th>{t('الدفتر', 'Book')}</th><th>{t('كلمة السر المؤقتة', 'Temporary password')}</th></tr></thead>
-        <tbody>{rows.map((r) => <tr key={r.name}><td><b>{r.name}</b></td><td>{r.book}</td><td className="code" style={{ fontSize: 16 }}>{r.password}</td></tr>)}</tbody>
+        <tbody>{rows.map((r) => <tr key={r.name}><td><b>{r.name}</b></td><td>{r.book || '—'}</td><td className="code" style={{ fontSize: 16 }}>{r.password || <span className="muted small">{r.note ?? '—'}</span>}</td></tr>)}</tbody>
       </table>
       <div className="modal-foot">
         <button className="btn" onClick={() => window.print()}>{t('طباعة', 'Print')}</button>
@@ -373,7 +425,7 @@ function CreatedModal({ rows, onClose }: { rows: { name: string; book: string; p
 }
 
 /** Add or change a person (for who manages the users): name, password given once, roles as chips, "because of", exceptions folded. */
-function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void> }) {
+function UserModal({ user, access, onClose, onDone, onSaved }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void>; onSaved: (r: SavedUser, name: string, newPassword: boolean) => void }) {
   const { s, d, can } = useApp();
   const admin = !!s.profile.admin;
   const self = !!user.id && user.id === s.profile.id;
@@ -409,10 +461,15 @@ function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; 
     const w = why(a);
     if (w && !roles.includes(a.id)) greyed.set(tx(w), [...(greyed.get(tx(w)) ?? []), roleName(a)]);
   }
+  // "keeps a cash book": the program makes the book with the person (a new person: on; a known person with no book: offered)
+  const [make, setMake] = useState<boolean | null>(null);
+  const canMake = chosen.some((a) => keepsBook(a.perms)) && (!user.id || books.length === 0);
+  const makeBook = canMake && (make ?? !user.id);
   const save = async () => {
     try {
       if (!roles.length) return setErr(tx(m('اختر دوراً واحداً على الأقل', 'Choose at least one role', 'Choisissez au moins un rôle')));
-      await s.api.call('user.save', { id: user.id, name, roles, extra: ownExtra, books, pin: newPin && pin ? pin : undefined });
+      const r = (await s.api.call('user.save', { id: user.id, name, roles, extra: ownExtra, books, makeBook, pin: newPin && pin ? pin : undefined })) as SavedUser;
+      onSaved(r, name.trim(), !user.id || (newPin && !!pin));
       await onDone();
       onClose();
     } catch (e) {
@@ -449,7 +506,8 @@ function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; 
       )}
       <p className="muted small">{tx(m('حقوق الشخص هي كل علامات أدواره معاً؛ كل دور يضيف فقط.', 'The rights of the person are all the ticks of their roles together; each role only adds.', 'Les droits de la personne sont toutes les cases de ses rôles ensemble ; chaque rôle ne fait qu’ajouter.'))}</p>
       <BecauseOf roles={chosen} extra={ownExtra} />
-      <div className="small" style={{ marginTop: 4 }}>{tx(m('الأبواب:', 'Doors:', 'Portes :'))} {doorsLine(chosen, ownExtra, books.length > 0, !!d.inv)}</div>
+      <KeepsBookLine show={canMake} name={name} on={makeBook} setOn={setMake} isNew={!user.id} />
+      <div className="small" style={{ marginTop: 4 }}>{tx(m('الأبواب:', 'Doors:', 'Portes :'))} {doorsLine(chosen, ownExtra, books.length > 0 || makeBook, !!d.inv)}</div>
       {hasKinds && (
         <details style={{ marginTop: 10 }}>
           <summary className="small">{tx(m('متقدّم: استثناءات على هذا الشخص', 'Advanced: exceptions on this person', 'Avancé : exceptions pour cette personne'))}{ownExtra.length > 0 ? ` (+${ownExtra.length})` : ''}</summary>
@@ -473,7 +531,7 @@ function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; 
           ))}
         </details>
       )}
-      <h3 style={{ marginTop: 14 }}>{t('الدفاتر التي يحملها', 'Books this person keeps')}</h3>
+      <h3 style={{ marginTop: 14 }}>{makeBook ? tx(m('دفاتر أخرى يحملها (اختياري)', 'Other books this person keeps (optional)', 'Autres livres tenus par cette personne (facultatif)')) : t('الدفاتر التي يحملها', 'Books this person keeps')}</h3>
       <div className="chips">
         {d.lists.books.filter((b) => b.active && (admin || !b.private || books.includes(b.id))).map((b) => (
           <button key={b.id} type="button" className={`chip ${books.includes(b.id) ? 'on' : ''}`} onClick={() => toggle(b.id)}>{b.name}</button>

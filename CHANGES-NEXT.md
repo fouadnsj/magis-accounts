@@ -500,3 +500,33 @@ server cut what it sends** (not only the screen).
   everything, grants included: give that tick only to the Administrator. A private book's monthly expense totals ("Private expenses") stay visible as
   before. The phone app already sent only the books a person keeps. Writing in the Respo book by a custom role with `register.edit` but without
   `register.private` is not refused (nobody has that today; to decide with the roles screen, step 3).
+
+## 22. The book made with the person, in one window (roles step 5, 25 November 2026; no database update — 78 stays free)
+- **Add a person (Administration → People, and the Accountant's Book holders window)**: when the role **Book holder** is ticked (alone or with other roles),
+  a line appears: **"keeps a cash book — the program makes their book with their name and links it to them"** (ticked for a new person). On Save the program
+  makes the book **in the same step as the person** (both or neither): the book has the person's name (also as keeper), **not private**, in the **Main book's
+  city and account**, no opening money, and is linked to the person. A new window then shows the **temporary password once** (and the book made).
+  No separate "new book" step any more. Lists → Books stays for renaming or switching a book off.
+- **The password**: a new person's password may be **left empty**: the program makes 6 digits and shows them once (still typed by the giver if he wants;
+  then it is not shown again). The person changes it at the first sign-in, as before. (`user.save` now answers `{ id, book, password }`.)
+- **A Director or the Administrator** gives Book holder + other roles in one step (e.g. Book holder + Reception + Store keeper): works, same limits as
+  before (only the Administrator gives Director/Administrator).
+- **Giving the Book holder role later** to a person who has no book: in the person window the same line is offered (not ticked); ticked, the book is made.
+  A person who already keeps a book is not offered one. The name of an existing book is refused with a clear sentence (nothing is made).
+- **Switching a person off switches their book off**, never deletes it (its rows, its history stay; the link stays too). Only the books **nobody else
+  active keeps**; **never the Main book, never a private book (the Respo book), never a community's book**; the envelopes inside it go with it. The question
+  says which book(s) go off; a short message says it after. Same in the Accountant's window. Books already linked to existing people: nothing changes
+  until that person is switched off.
+- **The Accountant's window stays limited**: Book holder role only, no other role, no exception, never the Main book, never a private book, never a
+  person who is not a book holder (the server refuses it; the book made is his own, not private).
+- **Code**: `src/roles.ts` (`KEEPS_BOOK`, `keepsBook`, `booksSwitchedOffWith`, same rule as the server for the screen), `src/ops.ts` (`saveUser` `makeBook`,
+  `booksOffWith`, `user.deactivate`), `src/ui/People.tsx` (`KeepsBookLine`, `CreatedModal`, both modals).
+- **Tests**: `tests/book-with-person.test.ts` (7: book made with the user; typed password not given back; no tick = no book; roles that keep no book refused; same
+  name refused with nothing made; Director gives several roles with the book; book later for an existing person; switched off with the person, shared book
+  stays, Main and Respo stay; Accountant limits; existing books untouched). All 440 tests pass.
+- **Tried** in the side pane on a COPY (own port, password test123): as Fouad (Administrator) a new person with Book holder + Reception → the line, the
+  book "Karim Test", the temporary password shown once, "Keeps: Karim Test" in the list; switched off → the question names the book, the book goes off;
+  an existing Book holder without a book (Karim): the offer, ticked, the book made, password "not changed". As Assem (Accountant): "New book holder"
+  → book made and password shown; switched off with the book.
+- **Not done / for later**: the Guide does not mention it yet (step 9). The old button "Create accounts for all book keepers" (accounts for books made
+  before) stays as it is.

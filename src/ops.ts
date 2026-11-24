@@ -13,7 +13,7 @@ import {
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, personPerms, rolesOf, roleFor, type Profile } from './auth';
-import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_NOT_SELF, cleanExtra, isHolderRole } from './roles';
+import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_NOT_SELF, cleanExtra, isHolderRole, keepsBook } from './roles';
 import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
@@ -1319,6 +1319,26 @@ async function holderOnly(c: OpCtx, id: number) {
   if (!perms || !holderRole(c, perms)) throw new UserError(m('لأمناء الصناديق فقط', 'For book holders only', 'Pour les teneurs de caisse seulement'));
 }
 
+/** The books that go off with this person: the ones only they keep (never the Main book, a private book or a community's book), and the envelopes inside them. */
+async function booksOffWith(db: Db, id: number): Promise<{ id: number; name: string }[]> {
+  try {
+    const mine = await db.query<{ id: number; name: string }>(
+      `SELECT b.id, b.name FROM book b JOIN user_book ub ON ub.book_id = b.id
+        WHERE ub.profile_id = ? AND b.active = 1 AND b.is_main = 0 AND b.private = 0 AND b.cty_kind IS NULL
+          AND NOT EXISTS (SELECT 1 FROM user_book o JOIN profile p ON p.id = o.profile_id WHERE o.book_id = b.id AND o.profile_id <> ? AND p.active = 1)`,
+      [id, id],
+    );
+    if (!mine.length) return [];
+    const inside = await db.query<{ id: number; name: string }>(
+      `SELECT id, name FROM book WHERE active = 1 AND is_main = 0 AND private = 0 AND cty_kind IS NULL AND parent_id IN (${mine.map(() => '?').join(',')})`,
+      mine.map((b) => b.id),
+    );
+    return [...mine, ...inside.filter((b) => !mine.some((x) => x.id === b.id))];
+  } catch {
+    return []; // (a database without books)
+  }
+}
+
 /** At least one active person must keep the right to manage users, or nobody could ever fix anything. */
 async function keepAManager(c: OpCtx) {
   let ok = false;
@@ -1374,7 +1394,10 @@ function wholeHr(c: OpCtx) {
   if (c.profile.hrCentres?.length) throw new UserError(m('من صفحة المستخدمين في الموارد البشرية', 'From the users page of HR', 'Depuis la page des utilisateurs des RH'));
 }
 
-async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: number; roles?: number[]; extra?: string[]; books: number[]; pin?: string }) {
+/** what saving a person gives back: the book made with them and the password the program made, shown once (roles step 5) */
+export interface SavedUser { id: number; book: { id: number; name: string } | null; password: string | null }
+
+async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: number; roles?: number[]; extra?: string[]; books: number[]; pin?: string; makeBook?: boolean }): Promise<SavedUser> {
   need(c, 'users.manage', 'users.holders');
   // several roles (roles step 1): "roles" is the whole list; an older caller sends one access_id
   const wanted = [...new Set((a.roles?.length ? a.roles : a.access_id != null ? [a.access_id] : []).map(Number).filter(Number.isInteger))];
@@ -1434,6 +1457,27 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
   const books = [...new Set(a.books)];
   const stmts: Stmt[] = [];
   let id = a.id;
+  // (roles step 5) the person who keeps a cash book: the program makes the book with their name, in the Main book's city and
+  // account, not private, and links it to them (same batch: both or neither)
+  let made: { id: number; name: string } | null = null;
+  if (a.makeBook) {
+    if (!roles.some((r) => keepsBook(r.perms))) throw new UserError(m('هذا الدور لا يمسك دفتر صندوق', 'These roles do not keep a cash book', 'Ces rôles ne tiennent pas de livre de caisse'));
+    if (await one(c.db, 'SELECT 1 FROM book WHERE name = ?', [name]))
+      throw new UserError(m(`دفتر «${name}» موجود مسبقاً: اخترْه من الدفاتر أو غيّر الاسم`, `A book "${name}" already exists: choose it under the books, or change the name`, `Un livre « ${name} » existe déjà : choisissez-le dans les livres ou changez le nom`));
+    const mainBook = await one<{ city_id: number | null; account_id: number | null }>(c.db, 'SELECT city_id, account_id FROM book WHERE is_main = 1');
+    const bookId = ((await one<{ m: number | null }>(c.db, 'SELECT MAX(id) AS m FROM book'))?.m ?? 0) + 1;
+    const sort = ((await one<{ s: number | null }>(c.db, 'SELECT MAX(sort) AS s FROM book'))?.s ?? 0) + 1;
+    stmts.push({ sql: 'INSERT INTO book (id, name, keeper_name, city_id, account_id, is_main, private, active, sort) VALUES (?,?,?,?,?,0,0,1,?)', params: [bookId, name, name, mainBook?.city_id ?? null, mainBook?.account_id ?? null, sort] });
+    stmts.push(auditStmt(c.who, 'add', 'book', String(bookId), null, { name, keeper_name: name, madeWith: 'person' }));
+    made = { id: bookId, name };
+    books.unshift(bookId);
+  }
+  // a new person: the password given, or one the program makes (6 digits, shown once)
+  let password: string | null = null;
+  if (!a.id && !a.pin) {
+    password = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
+    a = { ...a, pin: password };
+  }
   if (id) {
     stmts.push({ sql: 'UPDATE profile SET name = ?, access_id = ?, role = ?, book_id = ? WHERE id = ?', params: [name, first.id, role, books[0] ?? null, id] });
     if (a.pin) {
@@ -1442,13 +1486,12 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
       stmts.push({ sql: 'UPDATE profile SET pin_salt = ?, pin_hash = ?, must_change = ? WHERE id = ?', params: [salt, await hashSecret(salt, a.pin), id === c.profile.id ? 0 : 1, id] });
     }
   } else {
-    if (!a.pin) throw new UserError(m('كلمة السر مطلوبة', 'A password is required'));
-    checkSecretShape(a.pin);
+    checkSecretShape(a.pin!);
     id = ((await one<{ m: number | null }>(c.db, 'SELECT MAX(id) AS m FROM profile'))?.m ?? 0) + 1;
     const salt = crypto.randomUUID();
     stmts.push({
       sql: 'INSERT INTO profile (id, name, role, pin_salt, pin_hash, book_id, access_id, must_change) VALUES (?,?,?,?,?,?,?,1)',
-      params: [id, name, role, salt, await hashSecret(salt, a.pin), books[0] ?? null, first.id],
+      params: [id, name, role, salt, await hashSecret(salt, a.pin!), books[0] ?? null, first.id],
     });
   }
   if (on) {
@@ -1470,10 +1513,13 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
       const back: Stmt[] = [{ sql: 'UPDATE profile SET access_id = ?, role = ?, book_id = ?, extra_perms = ? WHERE id = ?', params: [u.access_id, u.role, u.book_id, u.extra_perms, a.id] as never }];
       back.push({ sql: 'DELETE FROM profile_role WHERE profile_id = ?', params: [a.id] });
       for (const r of before.roles.slice(1)) back.push({ sql: 'INSERT INTO profile_role (profile_id, access_id) VALUES (?, ?)', params: [a.id, r.id] });
+      // the book just made with this person goes too (it has no row yet)
+      if (made) back.push({ sql: 'DELETE FROM user_book WHERE book_id = ?', params: [made.id] }, { sql: 'DELETE FROM book WHERE id = ?', params: [made.id] });
       await c.db.batch(back);
     }
     throw e;
   }
+  return { id: id!, book: made, password };
 }
 
 /**
@@ -1995,7 +2041,7 @@ export const OPS = {
 
   // ---------------------------------------------------------------- users and permission profiles
   // (in the HR database, someone who sees some centres only manages users on the HR users page, within their centres)
-  'user.save': { check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; access_id?: number; roles?: number[]; extra?: string[]; books: number[]; pin?: string }) => saveUser(c, a) },
+  'user.save': { check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; access_id?: number; roles?: number[]; extra?: string[]; books: number[]; pin?: string; makeBook?: boolean }) => saveUser(c, a) },
   'users.createKeepers': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx) => createKeepers(c) },
   'user.deactivate': {
     check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); },
@@ -2004,13 +2050,21 @@ export const OPS = {
       if (!can(c, 'users.manage')) await holderOnly(c, a.id);
       // the Administrator and the Directors are switched off by the Administrator only
       await guardTarget(c, a.id, 'roles');
-      await c.db.batch([{ sql: 'UPDATE profile SET active = 0 WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'deactivate', 'profile', String(a.id), null, null)]);
+      // (roles step 5, Fouad 25 November 2026) their book goes off with them: the books only they keep (never the Main book, never a
+      // private one); never deleted, its rows stay
+      const off = await booksOffWith(c.db, a.id);
+      await c.db.batch([
+        { sql: 'UPDATE profile SET active = 0 WHERE id = ?', params: [a.id] },
+        auditStmt(c.who, 'deactivate', 'profile', String(a.id), null, off.length ? { books: off.map((b) => b.id) } : null),
+        ...off.flatMap((b) => [{ sql: 'UPDATE book SET active = 0 WHERE id = ?', params: [b.id] }, auditStmt(c.who, 'deactivate', 'book', String(b.id), null, null)]),
+      ]);
       try {
         await keepAManager(c);
       } catch (e) {
-        await c.db.batch([{ sql: 'UPDATE profile SET active = 1 WHERE id = ?', params: [a.id] }]);
+        await c.db.batch([{ sql: 'UPDATE profile SET active = 1 WHERE id = ?', params: [a.id] }, ...off.map((b) => ({ sql: 'UPDATE book SET active = 1 WHERE id = ?', params: [b.id] }))]);
         throw e;
       }
+      return { books: off.map((b) => b.name) };
     },
   },
   'profile.setPin': {

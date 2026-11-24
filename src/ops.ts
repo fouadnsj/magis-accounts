@@ -12,7 +12,8 @@ import {
   moveRow, renameRow, saveBook, saveDonor, saveRule, saveSettings, saveTrxRows, setActive, setHeadingTypes, setProjectFund,
   UserError, type SimpleList,
 } from './db/repo';
-import { changePin, checkSecretShape, hashSecret, has, listProfiles, roleFor, type Profile } from './auth';
+import { changePin, checkSecretShape, hashSecret, has, listProfiles, personPerms, rolesOf, roleFor, type Profile } from './auth';
+import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, cleanExtra } from './roles';
 import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
@@ -160,7 +161,7 @@ export const needsDoc = (s: Settings, r: Trx, usd: number) =>
   s.doc_required_usd > 0 && r.type === 'Exp' && !r.private_total && usd >= s.doc_required_usd && (!s.doc_since || (r.created_at ?? '') >= s.doc_since);
 
 /** May this person approve large expenses? The profile named in the settings, or whoever manages users. */
-const mayApprove = (c: OpCtx, s: Settings) => (s.approval_profile_id ? c.profile.access_id === s.approval_profile_id : can(c, 'users.manage'));
+const mayApprove = (c: OpCtx, s: Settings) => (s.approval_profile_id ? c.profile.access_id === s.approval_profile_id || !!c.profile.roles?.some((r) => r.id === s.approval_profile_id) : can(c, 'users.manage'));
 
 /** What a book holds at the end of a month (SYP and USD). */
 function balanceAt(rows: Trx[], books: Book[], bookId: number, month: string) {
@@ -205,8 +206,10 @@ export interface CashCountRow {
   counted_at: string | null;
 }
 
-export interface UserRow { id: number; name: string; access_id: number | null; access_name: string; books: number[]; active: number }
-export interface AccessRow { id: number; name: string; perms: Perm[]; users: number }
+/** roles: every role of the person (the first one is access_id); extra: his "Advanced" exceptions */
+export interface UserRow { id: number; name: string; access_id: number | null; access_name: string; books: number[]; active: number; roles: number[]; extra: Perm[] }
+/** kind: the ready-made role it is (administrator, director, ...); null = a Custom role */
+export interface AccessRow { id: number; name: string; perms: Perm[]; users: number; kind: string | null }
 export interface AuditRow { id: number; at: string; who: string; action: string; tbl: string; row_id: string | null; before: string | null; after: string | null }
 export interface ImportLogRow { id: number; at: string; who: string; kind: string; file_name: string; added: number; skipped: number }
 
@@ -1240,12 +1243,16 @@ async function addDocument(c: OpCtx, a: { trxId: string; base64: string; mime: s
 // ---------------------------------------------------------------- users and permission profiles
 
 async function usersList(c: OpCtx): Promise<UserRow[]> {
-  const rows = await c.db.query<Omit<UserRow, 'books'>>(
+  const rows = await c.db.query<Omit<UserRow, 'books' | 'roles' | 'extra'>>(
     `SELECT p.id, p.name, p.access_id, COALESCE(a.name, '') AS access_name, p.active FROM profile p
        LEFT JOIN access_profile a ON a.id = p.access_id ORDER BY p.active DESC, a.sort, p.name`,
   );
   const ub = await c.db.query<{ profile_id: number; book_id: number }>('SELECT * FROM user_book');
-  const users = rows.map((r) => ({ ...r, books: ub.filter((x) => x.profile_id === r.id).map((x) => x.book_id) }));
+  const users: UserRow[] = [];
+  for (const r of rows) {
+    const more = await rolesOf(c.db, r.id, r.access_id);
+    users.push({ ...r, books: ub.filter((x) => x.profile_id === r.id).map((x) => x.book_id), roles: more ? more.roles.map((x) => x.id) : r.access_id != null ? [r.access_id] : [], extra: more?.extra ?? [] });
+  }
   // (who may reset passwords sees the list of names, to choose whose password)
   return can(c, 'users.manage') || can(c, 'users.passwords') || can(c, 'users.holders') ? users : users.filter((u) => u.id === c.profile.id);
 }
@@ -1256,14 +1263,6 @@ async function usersList(c: OpCtx): Promise<UserRow[]> {
 const NOT_A_HOLDER = ['register.edit', 'register.main', 'users.manage', 'users.holders', 'users.passwords', 'data.backup', 'data.restore', 'data.import', 'month.reopen', 'lists.manage', 'lists.donors', 'budget.edit'];
 /** a role this person may give: a book holder's (keeps a book, no office right), and nothing he has not himself */
 const holderRole = (c: OpCtx, perms: string[]) => perms.includes('book.own') && !perms.some((p) => NOT_A_HOLDER.includes(p)) && perms.every((p) => p === 'book.own' || can(c, p as Perm));
-async function rolePerms(db: Db, accessId: number | null | undefined): Promise<string[] | null> {
-  const a = accessId == null ? null : await one<{ perms: string }>(db, 'SELECT perms FROM access_profile WHERE id = ?', [accessId]);
-  return a ? cleanPerms(JSON.parse(a.perms)) : null;
-}
-async function personPerms(db: Db, id: number): Promise<string[] | null> {
-  const p = await one<{ access_id: number | null }>(db, 'SELECT access_id FROM profile WHERE id = ?', [id]);
-  return p ? rolePerms(db, p.access_id) : null;
-}
 /** may this person (with "Adds book holders") act on that user? a book holder only */
 async function holderOnly(c: OpCtx, id: number) {
   const perms = await personPerms(c.db, id);
@@ -1272,11 +1271,47 @@ async function holderOnly(c: OpCtx, id: number) {
 
 /** At least one active person must keep the right to manage users, or nobody could ever fix anything. */
 async function keepAManager(c: OpCtx) {
-  const r = await one<{ c: number }>(
-    c.db,
-    `SELECT COUNT(*) AS c FROM profile p JOIN access_profile a ON a.id = p.access_id WHERE p.active = 1 AND a.perms LIKE '%"users.manage"%'`,
-  );
-  if (!r?.c) throw new UserError(m('يجب أن يبقى مستخدم واحد على الأقل يدير المستخدمين', 'At least one active user must keep "Users and permission profiles"'));
+  let ok = false;
+  for (const p of await c.db.query<{ id: number }>('SELECT id FROM profile WHERE active = 1'))
+    if ((await personPerms(c.db, p.id))?.includes('users.manage')) { ok = true; break; }
+  if (!ok) throw new UserError(m('يجب أن يبقى مستخدم واحد على الأقل يدير المستخدمين', 'At least one active user must keep "Users and permission profiles"'));
+  // (roles step 1) where roles are data, an active person keeps the Administrator role: nobody is locked out
+  if (await rolesOn(c.db)) {
+    const r = await one<{ c: number }>(c.db,
+      `SELECT COUNT(*) AS c FROM profile p WHERE p.active = 1 AND (p.access_id IN (SELECT id FROM access_profile WHERE kind = 'administrator')
+          OR EXISTS (SELECT 1 FROM profile_role r JOIN access_profile a ON a.id = r.access_id WHERE r.profile_id = p.id AND a.kind = 'administrator'))`);
+    if (!r?.c) throw new UserError(m('يجب أن يبقى شخص واحد على الأقل يحمل دور المشرف', 'At least one active person must keep the role Administrator', 'Au moins une personne active doit garder le rôle Administrateur'));
+  }
+}
+
+// ---- roles as data (roles step 1, 25 November 2026; ROLES-AND-SIGNIN-ANALYSIS.md §9.1): the limits, checked here
+/** a centre database where the roles are data (update 77 gave it the Administrator role) */
+async function rolesOn(db: Db): Promise<boolean> {
+  try {
+    return !!(await one(db, "SELECT 1 AS x FROM access_profile WHERE kind = 'administrator'"));
+  } catch {
+    return false;
+  }
+}
+const isAdmin = (c: OpCtx) => !!c.profile.admin;
+const onlyAdmin = () => new UserError(m('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement'));
+const adminOnlyTick = () =>
+  new UserError(m('دفتر المسؤول والدفاتر الخاصة، والمنح والمانحون: لدور المشرف فقط', 'The Respo book and private books, grants and donors: only in the role Administrator', 'Le livre du Respo et les livres privés, les subventions et les bailleurs : seulement dans le rôle Administrateur'));
+const notMore = () => new UserError(m('لا تعطي أكثر مما عندك', 'You cannot give more than you have yourself', 'Vous ne pouvez pas donner plus que ce que vous avez'));
+async function roleRows(db: Db, ids: number[]): Promise<{ id: number; name: string; kind: string | null; perms: Perm[] }[]> {
+  if (!ids.length) return [];
+  const rows = await db.query<{ id: number; name: string; kind: string | null; perms: string }>(`SELECT id, name, kind, perms FROM access_profile WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+  return rows.map((r) => ({ ...r, perms: cleanPerms(JSON.parse(r.perms)) }));
+}
+/** does this person hold one of these kinds of role? */
+async function holdsKind(db: Db, id: number, kinds: string[]): Promise<boolean> {
+  const more = await rolesOf(db, id);
+  return !!more?.roles.some((r) => r.kind && kinds.includes(r.kind));
+}
+/** a person who is not the Administrator never changes, switches off nor resets the Administrator (nor a Director's roles) */
+async function guardTarget(c: OpCtx, id: number, what: 'roles' | 'person') {
+  if (isAdmin(c) || !(await rolesOn(c.db))) return;
+  if (await holdsKind(c.db, id, what === 'roles' ? ADMIN_GIVES : ['administrator'])) throw onlyAdmin();
 }
 
 /** refuses a user of the HR database who sees only some centres (they manage users on the HR users page) */
@@ -1284,26 +1319,61 @@ function wholeHr(c: OpCtx) {
   if (c.profile.hrCentres?.length) throw new UserError(m('من صفحة المستخدمين في الموارد البشرية', 'From the users page of HR', 'Depuis la page des utilisateurs des RH'));
 }
 
-async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) {
+async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: number; roles?: number[]; extra?: string[]; books: number[]; pin?: string }) {
   need(c, 'users.manage', 'users.holders');
+  // several roles (roles step 1): "roles" is the whole list; an older caller sends one access_id
+  const wanted = [...new Set((a.roles?.length ? a.roles : a.access_id != null ? [a.access_id] : []).map(Number).filter(Number.isInteger))];
+  if (!wanted.length) throw new UserError(m('اختر دوراً واحداً على الأقل', 'Choose at least one role', 'Choisissez au moins un rôle'));
+  const roles = await roleRows(c.db, wanted);
+  if (roles.length !== wanted.length) throw new UserError(m('اختر ملف الصلاحيات', 'Choose a permission profile'));
+  roles.sort((x, y) => wanted.indexOf(x.id) - wanted.indexOf(y.id));
+  const on = await rolesOn(c.db);
+  const before = a.id ? await rolesOf(c.db, a.id) : null;
+  const hadRoles = new Set(before?.roles.map((r) => r.id) ?? []);
+  const extraIn = a.extra === undefined ? undefined : cleanPerms(a.extra);
+  if (extraIn?.some((p) => ADMIN_ONLY.includes(p))) throw adminOnlyTick();
+  const extra = extraIn === undefined ? before?.extra ?? [] : cleanExtra(extraIn);
+  if (!on && (roles.length > 1 || extra.length)) throw new UserError(m('حدّث قاعدة البيانات أولاً', 'Update the database first', 'Mettez d’abord la base à jour'));
   if (!can(c, 'users.manage')) {
     // a book holder's role only, for a new user or one who is a book holder already
-    const perms = await rolePerms(c.db, a.access_id);
-    if (!perms || !holderRole(c, perms)) throw new UserError(m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement'));
+    if (roles.length !== 1 || !holderRole(c, roles[0].perms)) throw new UserError(m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement'));
+    if (extraIn?.length) throw new UserError(m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement'));
     if (a.id) await holderOnly(c, a.id);
+  }
+  if (on) {
+    const added = roles.filter((r) => !hadRoles.has(r.id));
+    const removed = [...hadRoles].filter((id) => !wanted.includes(id));
+    const removedRows = await roleRows(c.db, removed);
+    const exAdded = extra.filter((p) => !(before?.extra ?? []).includes(p));
+    for (const r of added) {
+      if (r.kind !== 'administrator' && r.perms.some((p) => ADMIN_ONLY.includes(p))) throw adminOnlyTick();
+    }
+    if (!isAdmin(c)) {
+      // the Administrator's and the Directors' roles are given and taken away by the Administrator only
+      if ([...added, ...removedRows].some((r) => r.kind && ADMIN_GIVES.includes(r.kind as never))) throw onlyAdmin();
+      const changed = added.length > 0 || removed.length > 0 || JSON.stringify([...extra].sort()) !== JSON.stringify([...(before?.extra ?? [])].sort());
+      if (a.id) await guardTarget(c, a.id, changed ? 'roles' : 'person');
+      // nobody gives himself a role or an exception
+      if (a.id === c.profile.id && (added.length > 0 || exAdded.length > 0)) throw notMore();
+      // a ready-made role a Director gives; a Custom role or an exception only within what he has himself
+      for (const r of added) {
+        if (r.kind && DIRECTOR_GIVES.includes(r.kind as never)) continue;
+        if (r.perms.some((p) => !can(c, p))) throw notMore();
+      }
+      if (exAdded.some((p) => !can(c, p))) throw notMore();
+    }
   }
   const name = a.name.trim();
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
-  const acc = await one<{ perms: string }>(c.db, 'SELECT perms FROM access_profile WHERE id = ?', [a.access_id]);
-  if (!acc) throw new UserError(m('اختر ملف الصلاحيات', 'Choose a permission profile'));
   if (await one(c.db, 'SELECT 1 FROM profile WHERE name = ? AND active = 1 AND id <> ?', [name, a.id ?? -1]))
     throw new UserError(m(`"${name}" موجود مسبقاً`, `"${name}" already exists`));
-  const role = roleFor(cleanPerms(JSON.parse(acc.perms)));
+  const first = roles[0];
+  const role = roleFor([...new Set(roles.flatMap((r) => r.perms))]);
   const books = [...new Set(a.books)];
   const stmts: Stmt[] = [];
   let id = a.id;
   if (id) {
-    stmts.push({ sql: 'UPDATE profile SET name = ?, access_id = ?, role = ?, book_id = ? WHERE id = ?', params: [name, a.access_id, role, books[0] ?? null, id] });
+    stmts.push({ sql: 'UPDATE profile SET name = ?, access_id = ?, role = ?, book_id = ? WHERE id = ?', params: [name, first.id, role, books[0] ?? null, id] });
     if (a.pin) {
       checkSecretShape(a.pin);
       const salt = crypto.randomUUID();
@@ -1316,14 +1386,32 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id: num
     const salt = crypto.randomUUID();
     stmts.push({
       sql: 'INSERT INTO profile (id, name, role, pin_salt, pin_hash, book_id, access_id, must_change) VALUES (?,?,?,?,?,?,?,1)',
-      params: [id, name, role, salt, await hashSecret(salt, a.pin), books[0] ?? null, a.access_id],
+      params: [id, name, role, salt, await hashSecret(salt, a.pin), books[0] ?? null, first.id],
     });
+  }
+  if (on) {
+    stmts.push({ sql: 'DELETE FROM profile_role WHERE profile_id = ?', params: [id] });
+    for (const r of roles.slice(1)) stmts.push({ sql: 'INSERT INTO profile_role (profile_id, access_id) VALUES (?, ?)', params: [id, r.id] });
+    stmts.push({ sql: 'UPDATE profile SET extra_perms = ? WHERE id = ?', params: [extra.length ? JSON.stringify(extra) : null, id] });
   }
   stmts.push({ sql: 'DELETE FROM user_book WHERE profile_id = ?', params: [id] });
   for (const b of books) stmts.push({ sql: 'INSERT INTO user_book (profile_id, book_id) VALUES (?, ?)', params: [id, b] });
-  stmts.push(auditStmt(c.who, a.id ? 'edit' : 'add', 'profile', String(id), null, { name, access_id: a.access_id, books }));
+  stmts.push(auditStmt(c.who, a.id ? 'edit' : 'add', 'profile', String(id), before ? { roles: before.roles.map((r) => r.id), extra: before.extra } : null, { name, access_id: first.id, roles: roles.map((r) => r.id), extra, books }));
+  const undo = a.id ? await c.db.query<Record<string, unknown>>('SELECT access_id, role, book_id, extra_perms FROM profile WHERE id = ?', [a.id]).catch(() => null) : null;
   await c.db.batch(stmts);
-  await keepAManager(c);
+  try {
+    await keepAManager(c);
+  } catch (e) {
+    // put back what was there (the last manager, the last Administrator)
+    if (a.id && undo?.[0] && before) {
+      const u = undo[0];
+      const back: Stmt[] = [{ sql: 'UPDATE profile SET access_id = ?, role = ?, book_id = ?, extra_perms = ? WHERE id = ?', params: [u.access_id, u.role, u.book_id, u.extra_perms, a.id] as never }];
+      back.push({ sql: 'DELETE FROM profile_role WHERE profile_id = ?', params: [a.id] });
+      for (const r of before.roles.slice(1)) back.push({ sql: 'INSERT INTO profile_role (profile_id, access_id) VALUES (?, ?)', params: [a.id, r.id] });
+      await c.db.batch(back);
+    }
+    throw e;
+  }
 }
 
 /**
@@ -1354,11 +1442,16 @@ async function createKeepers(c: OpCtx): Promise<{ name: string; book: string; pa
 }
 
 async function accessList(c: OpCtx): Promise<AccessRow[]> {
-  const rows = await c.db.query<{ id: number; name: string; perms: string; users: number }>(
-    `SELECT a.id, a.name, a.perms, (SELECT COUNT(*) FROM profile p WHERE p.access_id = a.id AND p.active = 1) AS users
-       FROM access_profile a ORDER BY a.sort, a.name`,
+  const on = await rolesOn(c.db);
+  const rows = await c.db.query<{ id: number; name: string; perms: string; users: number; kind: string | null }>(
+    on
+      ? `SELECT a.id, a.name, a.perms, a.kind, (SELECT COUNT(*) FROM profile p WHERE p.active = 1 AND (p.access_id = a.id
+            OR EXISTS (SELECT 1 FROM profile_role r WHERE r.profile_id = p.id AND r.access_id = a.id))) AS users
+           FROM access_profile a ORDER BY a.sort, a.name`
+      : `SELECT a.id, a.name, a.perms, NULL AS kind, (SELECT COUNT(*) FROM profile p WHERE p.access_id = a.id AND p.active = 1) AS users
+           FROM access_profile a ORDER BY a.sort, a.name`,
   );
-  return rows.map((r) => ({ ...r, perms: cleanPerms(JSON.parse(r.perms)) }));
+  return rows.map((r) => ({ ...r, kind: r.kind ?? null, perms: cleanPerms(JSON.parse(r.perms)) }));
 }
 
 async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: string[] }) {
@@ -1367,8 +1460,21 @@ async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: strin
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
   if (await one(c.db, 'SELECT 1 FROM access_profile WHERE name = ? AND id <> ?', [name, a.id ?? -1]))
     throw new UserError(m(`"${name}" موجود مسبقاً`, `"${name}" already exists`));
-  const perms = JSON.stringify(withImplied(cleanPerms(a.perms)));
-  const before = a.id ? await one(c.db, 'SELECT * FROM access_profile WHERE id = ?', [a.id]) : null;
+  const list = withImplied(cleanPerms(a.perms));
+  const perms = JSON.stringify(list);
+  const before = a.id ? await one<{ name: string; perms: string; kind?: string | null }>(c.db, 'SELECT * FROM access_profile WHERE id = ?', [a.id]) : null;
+  if (a.id && !before) throw new UserError(m('اختر ملف الصلاحيات', 'Choose a permission profile'));
+  if (await rolesOn(c.db)) {
+    // (roles step 1) the limits: the Respo book and the grants stay in the Administrator role; the Administrator's and the
+    // Director's roles are changed by the Administrator only; anyone else adds only ticks he has himself
+    const had = before ? cleanPerms(JSON.parse(before.perms)) : [];
+    const addedTicks = list.filter((p) => !had.includes(p));
+    if (before?.kind !== 'administrator' && addedTicks.some((p) => ADMIN_ONLY.includes(p))) throw adminOnlyTick();
+    if (!isAdmin(c)) {
+      if (before?.kind && ADMIN_GIVES.includes(before.kind as never)) throw onlyAdmin();
+      if (addedTicks.some((p) => !can(c, p))) throw notMore();
+    }
+  }
   if (a.id) {
     await c.db.batch([
       { sql: 'UPDATE access_profile SET name = ?, perms = ? WHERE id = ?', params: [name, perms, a.id] },
@@ -1821,14 +1927,22 @@ export const OPS = {
 
   // ---------------------------------------------------------------- users and permission profiles
   // (in the HR database, someone who sees some centres only manages users on the HR users page, within their centres)
-  'user.save': { check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; access_id: number; books: number[]; pin?: string }) => saveUser(c, a) },
+  'user.save': { check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; access_id?: number; roles?: number[]; extra?: string[]; books: number[]; pin?: string }) => saveUser(c, a) },
   'users.createKeepers': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx) => createKeepers(c) },
   'user.deactivate': {
     check: (c: OpCtx) => { need(c, 'users.manage', 'users.holders'); wholeHr(c); },
     run: async (c: OpCtx, a: { id: number }) => {
       if (a.id === c.profile.id) throw new UserError(m('لا توقف نفسك', 'You cannot deactivate yourself'));
       if (!can(c, 'users.manage')) await holderOnly(c, a.id);
+      // the Administrator and the Directors are switched off by the Administrator only
+      await guardTarget(c, a.id, 'roles');
       await c.db.batch([{ sql: 'UPDATE profile SET active = 0 WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'deactivate', 'profile', String(a.id), null, null)]);
+      try {
+        await keepAManager(c);
+      } catch (e) {
+        await c.db.batch([{ sql: 'UPDATE profile SET active = 1 WHERE id = ?', params: [a.id] }]);
+        throw e;
+      }
     },
   },
   'profile.setPin': {
@@ -1840,10 +1954,12 @@ export const OPS = {
       if (a.id !== c.profile.id && !can(c, 'users.manage') && can(c, 'users.holders') && !can(c, 'users.passwords')) await holderOnly(c, a.id);
       else if (a.id !== c.profile.id && !can(c, 'users.manage')) {
         need(c, 'users.passwords');
-        const target = await one<{ perms: string | null }>(c.db, 'SELECT a.perms FROM profile p LEFT JOIN access_profile a ON a.id = p.access_id WHERE p.id = ?', [a.id]);
-        if (!target || cleanPerms(JSON.parse(target.perms ?? '[]')).includes('users.manage'))
+        const target = await personPerms(c.db, a.id);
+        if (!target || target.includes('users.manage'))
           throw new UserError(m('كلمة سر من يدير المستخدمين يغيّرها فقط من يدير المستخدمين', 'Only someone who manages users resets the password of someone who manages users', "Seul celui qui gère les utilisateurs réinitialise le mot de passe d'un autre gestionnaire"));
       }
+      // the Administrator's password: only the Administrator changes it (roles step 1)
+      if (a.id !== c.profile.id) await guardTarget(c, a.id, 'person');
       return changePin(c.db, a.id, a.pin, c.who, a.id !== c.profile.id);
     },
   },
@@ -1852,6 +1968,11 @@ export const OPS = {
     check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); },
     run: async (c: OpCtx, a: { id: number }) => {
       if (await one(c.db, 'SELECT 1 FROM profile WHERE access_id = ?', [a.id])) throw new UserError(m('مستعمل لمستخدمين', 'Some users have this profile'));
+      if (await rolesOn(c.db)) {
+        if (await one(c.db, 'SELECT 1 FROM profile_role WHERE access_id = ?', [a.id])) throw new UserError(m('مستعمل لمستخدمين', 'Some users have this profile'));
+        if (await one(c.db, 'SELECT 1 FROM access_profile WHERE id = ? AND kind IS NOT NULL', [a.id]))
+          throw new UserError(m('الأدوار الجاهزة تبقى', 'The ready-made roles stay', 'Les rôles prêts restent'));
+      }
       await c.db.batch([{ sql: 'DELETE FROM access_profile WHERE id = ?', params: [a.id] }, auditStmt(c.who, 'delete', 'access_profile', String(a.id), null, null)]);
     },
   },

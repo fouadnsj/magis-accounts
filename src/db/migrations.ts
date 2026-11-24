@@ -2484,4 +2484,69 @@ CREATE TABLE cal_phone (
 );
 `,
   },
+  {
+    n: 77,
+    name: 'roles as data: the ready-made roles in each centre, several roles per person, exceptions on a person',
+    sql: `
+-- (Fouad, 24-25 November 2026, ROLES-AND-SIGNIN-ANALYSIS.md section 9.1) A role is a named set of ticks, as before
+-- (access_profile). The ready-made roles now carry a kind; a role without a kind is "Custom" and keeps working as it is.
+ALTER TABLE access_profile ADD COLUMN kind TEXT;
+CREATE UNIQUE INDEX access_profile_kind ON access_profile (kind) WHERE kind IS NOT NULL;
+-- A person keeps his role (profile.access_id) and may hold MORE roles here: his rights are all their ticks together.
+CREATE TABLE profile_role (
+  profile_id INTEGER NOT NULL REFERENCES profile(id),
+  access_id  INTEGER NOT NULL REFERENCES access_profile(id),
+  PRIMARY KEY (profile_id, access_id)
+);
+-- "Advanced" exceptions on one person (a JSON list of ticks added to his roles; never the Administrator-only ones).
+ALTER TABLE profile ADD COLUMN extra_perms TEXT;
+
+-- In a centre database only (not HR, not a community, not the country). Nobody loses anything: the old roles are
+-- marked, never changed. The Superior (the role that manages users) becomes the Administrator role, with the same
+-- ticks; the built-in Accountant and Book holder become those ready-made roles when they are still what they were.
+UPDATE access_profile SET kind = 'administrator'
+ WHERE id = (SELECT id FROM access_profile WHERE perms LIKE '%"users.manage"%' ORDER BY (id = 1) DESC, sort, id LIMIT 1)
+   AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country'));
+UPDATE access_profile SET name = 'المشرف · Administrator'
+ WHERE kind = 'administrator' AND name IN ('الرئيس · Superior', 'Superior · الرئيس')
+   AND NOT EXISTS (SELECT 1 FROM access_profile WHERE name = 'المشرف · Administrator');
+UPDATE access_profile SET kind = 'accountant'
+ WHERE id = 2 AND kind IS NULL AND perms LIKE '%"register.view"%' AND (perms LIKE '%"register.main"%' OR perms LIKE '%"register.edit"%')
+   AND perms NOT LIKE '%"users.manage"%' AND perms NOT LIKE '%"lists.donors"%' AND perms NOT LIKE '%"register.private"%'
+   AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'accountant');
+UPDATE access_profile SET kind = 'holder'
+ WHERE id = 3 AND kind IS NULL AND perms LIKE '%"book.own"%' AND perms NOT LIKE '%"register.view"%'
+   AND perms NOT LIKE '%"users.manage"%' AND perms NOT LIKE '%"lists.donors"%' AND perms NOT LIKE '%"register.private"%'
+   AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'holder');
+-- The ready-made roles still missing are added (given to nobody yet).
+INSERT INTO access_profile (name, perms, sort, kind)
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM access_profile WHERE name = 'المشرف · Administrator') THEN 'المشرف · Administrator (2)' ELSE 'المشرف · Administrator' END, '["book.own","register.view","register.private","register.main","register.edit","reports.summary","reports.monthly","reports.accounts","reports.exchange","reports.cash","reports.funding","budget.view","budget.manage","lists.manage","lists.donors","inventory.view","inventory.values","inventory.manage","hosting.view","hosting.book","hosting.prices","hosting.keep","cal.view","cal.contacts","cal.programme","cal.outside","cal.orgs","cal.arrive","cal.prices","cal.money","cal.whole","cal.setup","cal.history","month.close","month.reopen","users.manage","users.holders","users.passwords","data.backup","data.download","data.restore","data.export","data.import","audit.view"]',
+         (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile), 'administrator'
+   WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'administrator');
+INSERT INTO access_profile (name, perms, sort, kind)
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM access_profile WHERE name = 'المدير · Director') THEN 'المدير · Director (2)' ELSE 'المدير · Director' END, '["register.view","reports.summary","reports.monthly","reports.accounts","reports.exchange","reports.cash","reports.funding","budget.view","audit.view","users.manage","cal.view","cal.contacts","cal.programme","cal.outside","cal.orgs","cal.arrive","cal.prices","cal.money","cal.whole","cal.setup","cal.history","inventory.view","inventory.values"]',
+         (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile), 'director'
+   WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'director');
+INSERT INTO access_profile (name, perms, sort, kind)
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM access_profile WHERE name = 'المحاسب · Accountant') THEN 'المحاسب · Accountant (2)' ELSE 'المحاسب · Accountant' END, '["book.own","register.view","register.main","reports.summary","reports.monthly","reports.accounts","reports.exchange","reports.cash","lists.manage","month.close","users.holders","users.passwords","data.backup","data.export","data.import","audit.view","cal.view"]',
+         (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile), 'accountant'
+   WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'accountant');
+INSERT INTO access_profile (name, perms, sort, kind)
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM access_profile WHERE name = 'أمين صندوق · Book holder') THEN 'أمين صندوق · Book holder (2)' ELSE 'أمين صندوق · Book holder' END, '["book.own","reports.summary","reports.monthly"]',
+         (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile), 'holder'
+   WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'holder');
+INSERT INTO access_profile (name, perms, sort, kind)
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM access_profile WHERE name = 'الاستقبال · Reception') THEN 'الاستقبال · Reception (2)' ELSE 'الاستقبال · Reception' END, '["cal.view","cal.contacts","cal.outside","cal.orgs","cal.arrive"]',
+         (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile), 'reception'
+   WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'reception');
+INSERT INTO access_profile (name, perms, sort, kind)
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM access_profile WHERE name = 'المنسّق · Coordinator (workshops)') THEN 'المنسّق · Coordinator (workshops) (2)' ELSE 'المنسّق · Coordinator (workshops)' END, '["cal.view","cal.contacts","cal.programme","cal.outside","cal.orgs","cal.prices","cal.money","inventory.view"]',
+         (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile), 'coordinator'
+   WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'coordinator');
+INSERT INTO access_profile (name, perms, sort, kind)
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM access_profile WHERE name = 'أمين المخزن · Store keeper') THEN 'أمين المخزن · Store keeper (2)' ELSE 'أمين المخزن · Store keeper' END, '["inventory.view","inventory.values","inventory.manage"]',
+         (SELECT COALESCE(MAX(sort), 0) + 1 FROM access_profile), 'keeper'
+   WHERE NOT EXISTS (SELECT 1 FROM meta WHERE key = 'kind' AND value IN ('hr', 'community', 'country')) AND NOT EXISTS (SELECT 1 FROM access_profile WHERE kind = 'keeper');
+`,
+  },
 ];

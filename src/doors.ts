@@ -63,7 +63,8 @@ export const READY_ROLES: ReadyRole[] = [
     key: 'director',
     name: 'المدير · Director',
     about: m('يرى كل شيء ويدير التقويم كله، ويرى الجرد وقيمه والحسابات؛ لا يكتب في الدفاتر.', 'Sees everything and keeps the whole calendar; looks at the inventory with its values and at the books, without writing in them.', 'Voit tout et tient tout le calendrier ; regarde l’inventaire avec ses valeurs et les comptes, sans écrire dans les livres.'),
-    perms: ['register.view', 'reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.cash', 'reports.funding', 'budget.view', 'lists.donors', 'audit.view', ...CAL_ALL, 'inventory.view', 'inventory.values'],
+    // (roles step 1) no donors: grants and donors stay in the Administrator role; the Director gives the other roles
+    perms: ['register.view', 'reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.cash', 'reports.funding', 'budget.view', 'audit.view', 'users.manage', ...CAL_ALL, 'inventory.view', 'inventory.values'],
   },
   {
     key: 'accountant',

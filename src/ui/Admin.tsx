@@ -6,6 +6,7 @@ import type { Profile } from '../auth';
 import type { AccessRow, AuditRow, BackupFile, UserRow } from '../ops';
 import { PERM_GROUPS, withImplied, type Perm } from '../perms';
 import { READY_ROLES } from '../doors';
+import { ADMIN_GIVES, ADMIN_ONLY, ROLE_KINDS, kindInfo, sensitiveOf, unionPerms, type RoleLike } from '../roles';
 import { m, tx } from '../i18n';
 import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast } from './kit';
 import type { CashCountRow } from '../ops';
@@ -540,8 +541,10 @@ function Users() {
     if (manage || holders) setAccess(await s.api.call('access.list'));
   };
   /** may this person change that user? (with "Adds book holders": a book holder only; the list holds their roles only) */
-  const mine = (u: UserRow) => manage || (holders && access.some((a) => a.id === u.access_id));
-  const pinOk = (u: UserRow) => manage || u.id === s.profile.id || mine(u) || can('users.passwords');
+  // (roles step 1) the Administrator is changed by the Administrator only, a Director switched off by him only (the server refuses it too)
+  const holdsKind = (u: UserRow, kinds: string[]) => !s.profile.admin && u.id !== s.profile.id && (u.roles ?? []).some((id) => kinds.includes(access.find((a) => a.id === id)?.kind ?? ''));
+  const mine = (u: UserRow) => (manage || (holders && (u.roles?.length ? u.roles : [u.access_id]).every((id) => access.some((a) => a.id === id)))) && !holdsKind(u, ['administrator']);
+  const pinOk = (u: UserRow) => (manage || u.id === s.profile.id || mine(u) || can('users.passwords')) && !holdsKind(u, ['administrator']);
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -571,16 +574,16 @@ function Users() {
   return (
     <div className="panel" style={{ maxWidth: 900 }}>
       <table className="t">
-        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{t('ملف الصلاحيات', 'Permission profile')}</th><th>{t('الدفاتر', 'Books kept')}</th><th /></tr></thead>
+        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{tx(m('الأدوار', 'Roles', 'Rôles'))}</th><th>{t('الدفاتر', 'Books kept')}</th><th /></tr></thead>
         <tbody>
           {list.filter((u) => u.active).map((u) => (
             <tr key={u.id}>
-              <td><b>{u.name}</b></td><td>{biName(u.access_name)}</td><td>{u.books.map(bookName).join('، ') || '—'}</td>
+              <td><b>{u.name}</b></td><td><RolesCell u={u} access={access} /></td><td>{u.books.map(bookName).join('، ') || '—'}</td>
               <td className="right nowrap">
                 <SignAsButton s={s} profileId={u.id} name={u.name} small />{' '}
                 {mine(u) && <button className="btn small" onClick={() => setEdit(u)}>✎</button>}{' '}
                 {pinOk(u) && <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>}{' '}
-                {mine(u) && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)}>✕</button>}
+                {mine(u) && u.id !== s.profile.id && !holdsKind(u, ['director']) && <button className="btn small ghost" onClick={() => deactivate(u)}>✕</button>}
               </td>
             </tr>
           ))}
@@ -609,6 +612,43 @@ function Users() {
   );
 }
 
+/** A role's name on screen: the ready-made ones in the reader's language, the others as they were typed ("Custom"). */
+export const roleName = (a: Pick<AccessRow, 'name' | 'kind'>) => (a.kind && kindInfo(a.kind) ? tx(kindInfo(a.kind)!.label) : biName(a.name));
+
+/** For each sensitive thing the person has, which role brings it ("Sees: prices — because of: Coordinator"), one line per role. */
+function BecauseOf({ roles, extra }: { roles: RoleLike[]; extra: Perm[] }) {
+  const why = sensitiveOf(roles, extra);
+  if (!why.length) return null;
+  const lines = new Map<string, { by: string; what: string[] }>();
+  for (const w of why) {
+    const by = w.roles.length ? w.roles.map((r) => roleName(r)).join(' + ') : tx(m('استثناء', 'an exception', 'une exception'));
+    const l = lines.get(by) ?? { by, what: [] };
+    l.what.push(tx(w.label));
+    lines.set(by, l);
+  }
+  return (
+    <div className="muted small">
+      {[...lines.values()].map((l) => (
+        <div key={l.by}>{tx(m('يرى:', 'Sees:', 'Voit :'))} {l.what.join(' · ')} — {tx(m('بسبب:', 'because of:', 'à cause de :'))} {l.by}</div>
+      ))}
+    </div>
+  );
+}
+
+/** The roles of a person in the list, his exceptions ("Exceptions: +2"), and what brings each sensitive right. */
+function RolesCell({ u, access }: { u: UserRow; access: AccessRow[] }) {
+  const ids = u.roles?.length ? u.roles : u.access_id != null ? [u.access_id] : [];
+  const rs = ids.map((id) => access.find((a) => a.id === id)).filter((a): a is AccessRow => !!a);
+  if (!rs.length) return <>{biName(u.access_name)}</>;
+  return (
+    <>
+      {rs.map((a) => roleName(a)).join(' + ')}
+      {u.extra?.length > 0 && <span className="pill" style={{ marginInlineStart: 6, background: '#FFF1CC' }} title={u.extra.join(', ')}>{tx(m('استثناءات', 'Exceptions', 'Exceptions'))}: +{u.extra.length}</span>}
+      <BecauseOf roles={rs} extra={u.extra ?? []} />
+    </>
+  );
+}
+
 /** The temporary passwords, shown once: to hand to each person (or print). */
 function CreatedModal({ rows, onClose }: { rows: { name: string; book: string; password: string }[]; onClose: () => void }) {
   return (
@@ -629,17 +669,35 @@ function CreatedModal({ rows, onClose }: { rows: { name: string; book: string; p
 }
 
 function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void> }) {
-  const { s, d } = useApp();
+  const { s, d, can } = useApp();
+  const manage = can('users.manage');
+  const admin = !!s.profile.admin;
   const [name, setName] = useState(user.name ?? '');
   const [accessId, setAccessId] = useState<number | null>(user.access_id ?? access.find((a) => a.id === 3)?.id ?? access[0]?.id ?? null);
+  // several roles (roles step 1): the whole list; the first one is the person's first role
+  const [roles, setRoles] = useState<number[]>(user.roles?.length ? user.roles : user.access_id != null ? [user.access_id] : []);
+  const [extra, setExtra] = useState<Perm[]>(user.extra ?? []);
   const [books, setBooks] = useState<number[]>(user.books ?? []);
   const [pin, setPin] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const toggle = (id: number) => setBooks((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
+  const toggleRole = (id: number) => setRoles((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
+  const toggleExtra = (p: Perm) => setExtra((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p]));
+  // roles in their order: the ready-made ones first, then the Custom ones
+  const order = (a: AccessRow) => (a.kind ? ROLE_KINDS.findIndex((k) => k.kind === a.kind) : 100 + a.id);
+  const sorted = [...access].sort((a, b) => order(a) - order(b));
+  const chosen = roles.map((id) => access.find((a) => a.id === id)).filter((a): a is AccessRow => !!a);
+  const fromRoles = new Set(unionPerms(chosen, []));
+  const hasKinds = access.some((a) => a.kind);
   const save = async () => {
-    if (accessId == null) return setErr(t('اختر ملف الصلاحيات', 'Choose a permission profile'));
     try {
-      await s.api.call('user.save', { id: user.id, name, access_id: accessId, books, pin: pin || undefined });
+      if (manage) {
+        if (!roles.length) return setErr(tx(m('اختر دوراً واحداً على الأقل', 'Choose at least one role', 'Choisissez au moins un rôle')));
+        await s.api.call('user.save', { id: user.id, name, roles, extra: extra.filter((p) => !fromRoles.has(p)), books, pin: pin || undefined });
+      } else {
+        if (accessId == null) return setErr(t('اختر ملف الصلاحيات', 'Choose a permission profile'));
+        await s.api.call('user.save', { id: user.id, name, access_id: accessId, books, pin: pin || undefined });
+      }
       await onDone();
       onClose();
     } catch (e) {
@@ -650,15 +708,57 @@ function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; 
     <Modal title={user.id ? t('تعديل مستخدم', 'Edit user') : t('مستخدم جديد', 'New user')} onClose={onClose} narrow>
       <div className="grid2">
         <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <Field label={t('ملف الصلاحيات', 'Permission profile')}>
-          <select value={accessId ?? ''} onChange={(e) => setAccessId(Number(e.target.value))}>
-            {access.map((a) => <option key={a.id} value={a.id}>{biName(a.name)}</option>)}
-          </select>
-        </Field>
+        {!manage && (
+          <Field label={t('ملف الصلاحيات', 'Permission profile')}>
+            <select value={accessId ?? ''} onChange={(e) => setAccessId(Number(e.target.value))}>
+              {access.map((a) => <option key={a.id} value={a.id}>{roleName(a)}</option>)}
+            </select>
+          </Field>
+        )}
         <Field label={user.id ? t('كلمة سر جديدة (اتركها فارغة إن لم تتغير)', 'New password (empty = unchanged)') : t('كلمة السر (6 على الأقل)', 'Password (6+)')} className="span2">
           <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} />
         </Field>
       </div>
+      {manage && (
+        <>
+          <h3 style={{ marginTop: 14 }}>{tx(m('الأدوار (واحد أو أكثر)', 'Roles (one or several)', 'Rôles (un ou plusieurs)'))}</h3>
+          <div className="chips">
+            {sorted.map((a) => {
+              const locked = hasKinds && !admin && !!a.kind && ADMIN_GIVES.includes(a.kind as never);
+              return (
+                <button key={a.id} type="button" disabled={locked} title={locked ? tx(m('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement')) : a.kind ? tx(kindInfo(a.kind)!.about) : tx(m('دور خاص', 'Custom role', 'Rôle personnalisé'))}
+                  className={`chip ${roles.includes(a.id) ? 'on' : ''}`} style={locked ? { opacity: 0.45 } : undefined} onClick={() => toggleRole(a.id)}>
+                  {roleName(a)}{!a.kind && hasKinds ? ` · ${tx(m('خاص', 'Custom', 'Personnalisé'))}` : ''}
+                </button>
+              );
+            })}
+          </div>
+          <p className="muted small">{tx(m('حقوق الشخص هي كل علامات أدواره معاً؛ كل دور يضيف فقط.', 'The rights of the person are all the ticks of his roles together; each role only adds.', 'Les droits de la personne sont toutes les cases de ses rôles ensemble ; chaque rôle ne fait qu’ajouter.'))}</p>
+          <BecauseOf roles={chosen} extra={extra} />
+          {hasKinds && (
+            <details style={{ marginTop: 10 }}>
+              <summary className="small">{tx(m('متقدّم: استثناءات على هذا الشخص', 'Advanced: exceptions on this person', 'Avancé : exceptions pour cette personne'))}{extra.filter((p) => !fromRoles.has(p)).length > 0 ? ` (+${extra.filter((p) => !fromRoles.has(p)).length})` : ''}</summary>
+              <p className="muted small">{tx(m('علامة تُضاف لهذا الشخص وحده، فوق أدواره. دفتر المسؤول والمنح للمشرف فقط.', 'A tick added for this person only, on top of his roles. The Respo book and the grants are for the Administrator only.', 'Une case ajoutée pour cette personne seule, en plus de ses rôles. Le livre du Respo et les subventions sont pour l’Administrateur seul.'))}</p>
+              {PERM_GROUPS.map((g) => (
+                <div key={g.key} style={{ marginBottom: 6 }}>
+                  <b className="small">{tx(g.label)}</b>
+                  {g.perms.map((p) => {
+                    const byRole = fromRoles.has(p.key);
+                    const adminOnly = ADMIN_ONLY.includes(p.key);
+                    const notMine = !admin && !can(p.key);
+                    return (
+                      <label key={p.key} className="row small" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', opacity: byRole || adminOnly || notMine ? 0.55 : 1 }}>
+                        <input type="checkbox" checked={byRole || extra.includes(p.key)} disabled={byRole || adminOnly || (notMine && !extra.includes(p.key))} onChange={() => toggleExtra(p.key)} style={{ marginTop: 3 }} />
+                        <span>{tx(p.label)}{byRole ? ` · ${tx(m('من دور', 'from a role', 'par un rôle'))}` : adminOnly ? ` · ${tx(m('للمشرف فقط', 'Administrator only', 'Administrateur seulement'))}` : ''}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ))}
+            </details>
+          )}
+        </>
+      )}
       <h3 style={{ marginTop: 14 }}>{t('الدفاتر التي يحملها', 'Books this person keeps')}</h3>
       <div className="chips">
         {d.lists.books.filter((b) => b.active).map((b) => (
@@ -742,7 +842,7 @@ function AccessProfiles() {
   };
   return (
     <div className="panel">
-      <p className="muted small">{t('ماذا يستطيع كل ملف صلاحيات: «اطّلاع» يعرض فقط، و«تعديل» يغيّر شيئاً. كل مستخدم يأخذ ملفاً واحداً؛ تغيير علامة يغيّر صلاحيات كل من يحمل الملف، عند دخوله التالي.', 'What each permission profile may do. "View" only shows; "modify" changes something. Each user has one profile; a tick changes the rights of everybody who has it, at their next sign-in.')}</p>
+      <p className="muted small">{tx(m('ماذا يستطيع كل دور: «اطّلاع» يعرض فقط، و«تعديل» يغيّر شيئاً. قد يحمل الشخص عدة أدوار: حقوقه كل علاماتها معاً. تغيير علامة يغيّر حقوق كل من يحمل الدور، عند دخوله التالي.', 'What each role may do. "View" only shows; "modify" changes something. A person may hold several roles: his rights are all their ticks together. A tick changes the rights of everybody who has the role, at their next sign-in.', 'Ce que chaque rôle peut faire. « Voir » montre seulement ; « modifier » change quelque chose. Une personne peut avoir plusieurs rôles : ses droits sont toutes leurs cases ensemble. Une case change les droits de tous ceux qui ont le rôle, à leur prochaine connexion.'))}</p>
       <div style={{ overflowX: 'auto' }}>
         <table className="t roles-matrix">
           <thead>
@@ -750,11 +850,12 @@ function AccessProfiles() {
               <th />
               {list.map((a) => (
                 <th key={a.id} className="c">
-                  {biName(a.name)}
+                  {roleName(a)}
+                  {list.some((x) => x.kind) && <div className="muted small">{a.kind ? tx(m('دور جاهز', 'ready-made', 'rôle prêt')) : tx(m('خاص', 'Custom', 'Personnalisé'))}</div>}
                   <div className="muted small">{a.users} {t('مستخدم', 'users')}</div>
                   <div className="nowrap">
                     <button className="btn small ghost" onClick={() => setEdit(a)} title={t('الاسم وكل العلامات', 'Name and all ticks')}>✎</button>
-                    {a.users === 0 && <button className="btn small ghost" onClick={() => remove(a)}>✕</button>}
+                    {a.users === 0 && !a.kind && <button className="btn small ghost" onClick={() => remove(a)}>✕</button>}
                   </div>
                 </th>
               ))}

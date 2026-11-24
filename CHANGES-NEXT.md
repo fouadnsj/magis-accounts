@@ -378,3 +378,30 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   "(the older page)" because their pages left the menu: they can be removed or merged later (Fouad to decide).
 - `CHECKLIST-CALENDAR.md` and `CHECKLIST-INVENTORY.md`: numbered tests for the side pane, with the points not yet tested marked.
 - Test: `tests/guide-calendar-inventory.test.ts`. Not done (postponed by Fouad): reports by organisation, optional reminders.
+
+## 18. Roles as data, several roles per person (roles step 1, 25 November 2026; database update 77)
+- **The ready-made roles are now real roles in each centre database**: Administrator, Director, Accountant, Book holder, Reception,
+  Coordinator (workshops), Store keeper (`src/roles.ts`). A role made by hand stays a **"Custom"** role and works as before.
+  HR keeper and HR Sessions are NOT made yet (the HR parts wait for Fouad's HR reflection).
+- **A person may hold several roles** (Admin → Users → ✎: the roles are chips, one or several). Their rights = all the ticks of all their roles
+  together; each role only adds. The doors come from that (Reception + Store keeper → Calendar and Inventory). Under **"Advanced: exceptions on
+  this person"** a tick can be added for one person only; the list shows it as "Exceptions: +1".
+- **For each sensitive thing, the screen says which role brings it**: "Sees: prices — because of: Coordinator (workshops)" (prices, inventory values,
+  salaries, donors and grants, the Respo book), in the Users list and in the person's window.
+- **Limits checked by the server** (not only hidden): only the Administrator gives (or takes away) Administrator and Director, and only he changes,
+  switches off, resets the password of, or "signs in as" the Administrator; the Respo book and private books (`register.private`) and grants/donors
+  (`lists.donors`) are refused in any role but the Administrator's and in every exception, even when the Administrator asks; a Director gives the
+  other ready-made roles, but a Custom role, an exception or a new tick in a role only within what he has himself; nobody gives himself a role;
+  at least one active person keeps the role Administrator. The Director role has no donors and no Respo (it manages the users of the centre).
+- **Nobody is locked out by update 77**: nothing is taken from anyone. The old Superior (the role that manages users) becomes the role
+  **Administrator** with exactly its ticks (its name "الرئيس · Superior" becomes "المشرف · Administrator"); the built-in Accountant and Book holder
+  become those ready-made roles with their own ticks; the four missing roles are added, given to nobody; HR, the communities and the country get
+  nothing. Rehearsed on copies of the five test databases (demo, magis-homs, hr-sj, a community, syria): every person's rights equal before and
+  after, a second run does nothing. Tests: `tests/roles.test.ts` (union, limits, nobody locked out, sign in as).
+- A Custom role made before that still has donors or Respo keeps them for its people (nobody locked out), but cannot be given to anyone new;
+  step 2 (Respo and Grants for the Administrator only) will look at these.
+- Tried in the side pane on a copy (own port): Fouad gives Darine Book holder + Reception + Coordinator and one exception; Nagham made Director:
+  her doors, her Users list (no buttons on the Administrator's line, Administrator and Director chips greyed), and as her the server refused:
+  giving Director, Fouad's password, a donors exception, a tick she lacks; giving Reception worked. The roles page shows the seven roles.
+- Not done here (later steps): the full Users window and "who gives what" (step 3), Respo/Grants hiding pass (step 2), the book with the user (step 5),
+  the HR roles (paused).

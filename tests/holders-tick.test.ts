@@ -20,7 +20,7 @@ describe('the tick "Adds book holders"', () => {
     const roles = (await runOp(sup, 'access.list', {})) as { id: number; name: string; perms: string[] }[];
     const accountant = roles.find((r) => r.name.includes('Accountant'))!;
     const holder = roles.find((r) => r.name.includes('Book holder'))!;
-    const supRole = roles.find((r) => r.name.includes('Superior'))!;
+    const supRole = roles.find((r) => r.name.includes('Administrator'))!;
     // without the tick: nothing
     let com = await ctxOf('Com');
     await expect(runOp(com, 'user.save', { name: 'Rami', access_id: holder.id, books: [], pin: 'rami-pass-1' })).rejects.toThrow();

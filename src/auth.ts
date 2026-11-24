@@ -7,6 +7,7 @@ import { auditStmt, UserError } from './db/repo';
 import { m } from './i18n';
 import type { Role } from './domain/types';
 import { cleanPerms, type Perm } from './perms';
+import { cleanExtra, unionPerms, type RoleLike } from './roles';
 
 /** A person who can log in: his permission profile's ticks and the books he keeps. */
 export interface Profile {
@@ -25,6 +26,12 @@ export interface Profile {
   held_by?: string | null;
   /** in the HR database: the centres this person sees (codes: jaramana, aleppo, homs, other); null = every centre */
   hrCentres?: string[] | null;
+  /** (roles step 1) every role this person holds: his first role (access_id) and the others; perms = all their ticks together */
+  roles?: { id: number; name: string; kind: string | null }[];
+  /** the "Advanced" exceptions on this person (ticks added to his roles) */
+  extra?: Perm[];
+  /** holds the Administrator role (only he gives Administrator or Director) */
+  admin?: boolean;
 }
 
 export const has = (p: Pick<Profile, 'perms'>, perm: Perm) => p.perms.includes(perm);
@@ -41,7 +48,44 @@ export async function loadProfile(db: Db, id: number): Promise<Profile | null> {
   const books = (await db.query<{ book_id: number }>('SELECT book_id FROM user_book WHERE profile_id = ? ORDER BY book_id', [id])).map((b) => b.book_id);
   const { hr_centres, ...rest } = r;
   const hrCentres = hr_centres ? (JSON.parse(hr_centres) as string[]).filter((x) => typeof x === 'string') : null;
-  return { ...rest, access_name: r.access_name ?? '', perms: cleanPerms(r.perms ? JSON.parse(r.perms) : []), books, book_id: books[0] ?? r.book_id, hrCentres: hrCentres?.length ? hrCentres : null };
+  const base = { ...rest, access_name: r.access_name ?? '', perms: cleanPerms(r.perms ? JSON.parse(r.perms) : []), books, book_id: books[0] ?? r.book_id, hrCentres: hrCentres?.length ? hrCentres : null };
+  const more = await rolesOf(db, id, r.access_id);
+  if (!more) return base; // a database from before update 77
+  return { ...base, perms: unionPerms(more.roles, more.extra), roles: more.roles.map(({ id: rid, name, kind }) => ({ id: rid, name, kind })), extra: more.extra, admin: more.roles.some((x) => x.kind === 'administrator') };
+}
+
+/**
+ * A person's roles (his first role and the others) and exceptions; null for a database from before update 77.
+ * Does not look at "active" (the screens also ask about people switched off).
+ */
+export async function rolesOf(db: Db, id: number, accessId?: number | null): Promise<{ roles: RoleLike[]; extra: Perm[] } | null> {
+  let rows: { id: number; name: string; kind: string | null; perms: string }[];
+  let extra: string | null;
+  try {
+    const first = accessId === undefined ? (await one<{ access_id: number | null }>(db, 'SELECT access_id FROM profile WHERE id = ?', [id]))?.access_id ?? null : accessId;
+    rows = await db.query(
+      `SELECT a.id, a.name, a.kind, a.perms FROM access_profile a
+        WHERE a.id = ? OR a.id IN (SELECT access_id FROM profile_role WHERE profile_id = ?) ORDER BY a.id = ? DESC, a.sort, a.id`,
+      [first ?? -1, id, first ?? -1],
+    );
+    extra = (await one<{ extra_perms: string | null }>(db, 'SELECT extra_perms FROM profile WHERE id = ?', [id]))?.extra_perms ?? null;
+  } catch (e) {
+    if (/no such (table|column)/i.test(String((e as Error)?.message ?? e))) return null;
+    throw e;
+  }
+  let ex: Perm[] = [];
+  try { ex = extra ? cleanExtra(JSON.parse(extra)) : []; } catch { ex = []; }
+  return { roles: rows.map((x) => ({ id: x.id, name: x.name, kind: x.kind, perms: cleanPerms(JSON.parse(x.perms)) })), extra: ex };
+}
+
+/** A person's rights (all roles and exceptions together), active or not; null if unknown. */
+export async function personPerms(db: Db, id: number): Promise<Perm[] | null> {
+  const p = await one<{ access_id: number | null }>(db, 'SELECT access_id FROM profile WHERE id = ?', [id]);
+  if (!p) return null;
+  const more = await rolesOf(db, id, p.access_id);
+  if (more) return unionPerms(more.roles, more.extra);
+  const a = p.access_id == null ? null : await one<{ perms: string }>(db, 'SELECT perms FROM access_profile WHERE id = ?', [p.access_id]);
+  return a ? cleanPerms(JSON.parse(a.perms)) : [];
 }
 
 /** The old role column, guessed from the ticks (only older parts of the program read it). */

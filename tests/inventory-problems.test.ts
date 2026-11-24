@@ -44,7 +44,7 @@ describe('update 75 on a database at 74', () => {
     await db.batch([{ sql: 'CREATE TABLE schema_migration (n INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)' }]);
     for (const mg of MIGRATIONS.filter((x) => x.n <= 74)) await db.batch([...splitSql(mg.sql).map((sql) => ({ sql })), { sql: 'INSERT INTO schema_migration (n, name, applied_at) VALUES (?, ?, ?)', params: [mg.n, mg.name, 'x'] }]);
     const items = JSON.stringify(await db.query('SELECT * FROM inv_item'));
-    expect(await migrate(db)).toEqual([75, 76]);
+    expect(await migrate(db)).toEqual([75, 76, 77]);
     expect((await db.query<{ n: number }>('SELECT COUNT(*) AS n FROM inv_problem'))[0].n).toBe(0);
     expect(JSON.stringify(await db.query('SELECT * FROM inv_item'))).toBe(items);
     expect(await migrate(db)).toEqual([]);

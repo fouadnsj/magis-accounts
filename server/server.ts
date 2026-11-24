@@ -2407,6 +2407,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       const target = await loadProfile(c.handle.db, Number(body.profileId));
       if (!target) throw new HttpError(400, { ar: 'المستخدم غير موجود أو موقوف', en: 'This user does not exist or is switched off', fr: "Cet utilisateur n'existe pas ou est désactivé" });
       const mode = body.mode === 'act' ? 'act' : 'view';
+      // (roles step 1) only the Administrator signs in as the Administrator: nobody climbs through "sign in as"
+      if (target.admin && !real.admin && target.id !== real.id) throw new HttpError(403, { ar: 'للمشرف فقط', en: 'For the Administrator only', fr: 'Pour l’Administrateur seulement' });
       if (target.id === real.id) { s.profile = real; s.as = undefined; return send(res, 200, { ok: true }); }
       s.profile = target;
       s.as = { byId: real.id, by: real.name, mode };

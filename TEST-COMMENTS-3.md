@@ -32,3 +32,13 @@
    Proposal: take "Projects" out of Lists and put it inside the Budget section (Lists → Budget, or the Budget page) as a small block "Special funds ·
    projects" shown only when the Administrator has grants or private projects (or always for the Administrator, hidden for the others); keep the
    data and the rules as they are (no update). To discuss: the word "Project" vs "Fund".
+
+4. **Calendar for everyone, view only.** "The calendar must appear for everyone, view only."
+   Analysis (manager, nothing changed): today the Calendar door shows only for someone with a calendar tick (`cal.view`, `src/doors.ts`
+   line 38). The ready-made roles that have it: Director and Administrator (all), Reception, Coordinator (workshops), and the Accountant
+   ("calendar view only, no prices"). A Book holder and a Store keeper (and an HR keeper later) have none, so they see no Calendar door.
+   Proposal: every person of the centre gets the calendar to LOOK at (activities, spaces, who is where, "To prepare today"), with no prices, no
+   money, no contacts (a private booking stays "Reserved · محجوز"), and cannot change anything: i.e. `cal.view` becomes part of EVERY role
+   (and of a Custom role by default), and the server/screen already hides contacts and prices without their ticks. Question: does "everyone"
+   include the phones of the calendar (already view only) and a person with no role at all? Recommendation: every person with an account of the
+   centre, yes; no account = no.

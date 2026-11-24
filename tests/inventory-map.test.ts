@@ -51,8 +51,8 @@ describe('the rules (pure)', () => {
   });
 
   it('the rights: look, values, keep; everyone reports a problem', () => {
-    expect(invRights([])).toEqual({ look: false, values: false, keep: false, report: true });
-    expect(invRights(['inventory.view'])).toEqual({ look: true, values: false, keep: false, report: true });
+    expect(invRights([])).toEqual({ look: false, values: false, totals: false, keep: false, report: true });
+    expect(invRights(['inventory.view'])).toEqual({ look: true, values: false, totals: false, keep: false, report: true });
     expect(invRights(['inventory.values'])).toMatchObject({ look: true, values: true, keep: false });
     expect(invRights(['inventory.manage'])).toMatchObject({ look: true, values: true, keep: true });
     // on a role, keeping brings the values, the values bring looking
@@ -242,7 +242,7 @@ describe('the operations of step 1', () => {
 
   it('who looks without the values tick gets every item without any amount; the keeper sees them', async () => {
     const mine = await get(reception);
-    expect(mine.rights).toEqual({ look: true, values: false, keep: false, report: true });
+    expect(mine.rights).toEqual({ look: true, values: false, totals: false, keep: false, report: true });
     expect(mine.items.length).toBeGreaterThan(0);
     expect(mine.items.every((i) => i.value_usd == null && i.value_note == null)).toBe(true);
     expect((await get()).items.some((i) => i.value_usd === 12)).toBe(true);

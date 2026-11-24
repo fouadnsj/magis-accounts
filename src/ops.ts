@@ -13,7 +13,7 @@ import {
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, personPerms, rolesOf, roleFor, type Profile } from './auth';
-import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_NOT_SELF, cleanExtra, isHolderRole, keepsBook } from './roles';
+import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_ADMIN_TICK, MSG_NOT_SELF, cleanExtra, isHolderRole, keepsBook, rolePerms } from './roles';
 import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
@@ -1365,8 +1365,7 @@ async function rolesOn(db: Db): Promise<boolean> {
 }
 const isAdmin = (c: OpCtx) => !!c.profile.admin;
 const onlyAdmin = () => new UserError(m('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement'));
-const adminOnlyTick = () =>
-  new UserError(m('دفتر المسؤول والدفاتر الخاصة، والمنح والمانحون: لدور المشرف فقط', 'The Respo book and private books, grants and donors: only in the role Administrator', 'Le livre du Respo et les livres privés, les subventions et les bailleurs : seulement dans le rôle Administrateur'));
+const adminOnlyTick = () => new UserError(MSG_ADMIN_TICK);
 const notMore = () => new UserError(m('لا تعطي أكثر مما عندك', 'You cannot give more than you have yourself', 'Vous ne pouvez pas donner plus que ce que vous avez'));
 async function roleRows(db: Db, ids: number[]): Promise<{ id: number; name: string; kind: string | null; perms: Perm[] }[]> {
   if (!ids.length) return [];
@@ -1559,7 +1558,7 @@ async function accessList(c: OpCtx): Promise<AccessRow[]> {
       : `SELECT a.id, a.name, a.perms, NULL AS kind, (SELECT COUNT(*) FROM profile p WHERE p.access_id = a.id AND p.active = 1) AS users
            FROM access_profile a ORDER BY a.sort, a.name`,
   );
-  return rows.map((r) => ({ ...r, kind: r.kind ?? null, perms: cleanPerms(JSON.parse(r.perms)) }));
+  return rows.map((r) => ({ ...r, kind: r.kind ?? null, perms: rolePerms(r.kind, cleanPerms(JSON.parse(r.perms))) }));
 }
 
 async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: string[] }) {

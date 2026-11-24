@@ -594,3 +594,42 @@ server cut what it sends** (not only the screen).
 - Tried in the side pane on a COPY (own port, test123), as Fouad on Homs: Sample Bedroom 2 "room 2 of 3" → Bed 2, Cupboard 1 → "Record and next room"
   → Sample Bedroom 3 "room 3 of 3", numbers empty, button "Done"; there "Same in several rooms" → Select all (3 rooms) → Bed 2 + a Laptop row (quantity 1):
   Laptop ⛔ skipped with the sentence; "Record in 3 rooms" → 3 items, one in each room, message "not copied (serial number): Laptop".
+
+## 26. The Calendar for every person with an account, and the inventory totals for the Administrator only (Fouad's third test, comments 4 and 5; 26 November 2026; NO database update — 78 stays free)
+Fouad's answers: (4) "A: every person with an account sees the calendar, view only"; (5) "B: only hide the total on the home page", with his note:
+the keeper and the accountant must enter the value of each object, only the big total is overwhelming.
+- **Calendar for everyone, by a rule in the code** (`src/roles.ts` `EVERYONE`, `withEveryone`; applied in `src/auth.ts` `loadProfile`): in a **centre's database**
+  every person with an account has the tick `cal.view` (not in HR, a community, the country or the province databases). Nothing is stored: no role, no
+  person, no database changes, nobody's other rights change, and a Custom role made later has it too. The Book holder, the Store keeper and the Accountant
+  now see the **Calendar door**; they look at the activities, the spaces, who is where and "To prepare today". The server and the screen already hid what
+  the other calendar ticks give: **no prices, no money, no contacts** (a private booking stays "Reserved · محجوز"), no list of organisations, and every
+  change (`cal.booking.save/cancel/status/money`, payments, closing a space, organisations, settings, phones) is **refused by the server** without its own
+  tick. A person with no account sees nothing; the calendar phones stay view only as before. The "Users" window and the ready-made Store keeper start
+  list now show/include the Calendar. Roles page: `cal.view` reads "(every person with an account has this)".
+- **Inventory: the value of each object stays, the big totals go** (new tick `inventory.totals`, **Administrator only**, like the Respo book and the grants):
+  - The Store keeper, the Director and the accountant with the keeper ticks keep seeing and writing **the value of each item** (`inventory.values`
+    is untouched). Item pages, the item table, Quick add, the entries to register: as before.
+  - The **sums** are now worked out by the **server** (`src/inventory/totals.ts`, sent with `inv.get` as `totals`) and sent **only to the Administrator**; everyone
+    else receives `totals: null`. The screens show them from there: the big figure on the inventory home, the sum on each area and space card, the Stores
+    view, the "Value" line on a space page (and the old page's figure). Nobody else sees a sum.
+  - The **donor report** (PDF and Excel, "Report for a donor") is now the Administrator's alone: the button shows only with the tick and the server
+    operation `inv.report.project` is refused to everyone else. It keeps the value of each item and its project total.
+  - `inventory.totals` is in `ADMIN_ONLY`: refused by the server in any role but the Administrator's, in every exception and in a copy of a role (same sentence
+    as the Respo book, now naming the inventory totals). The role Administrator **always has it** (`rolePerms`, read when the roles are loaded) — that is why no
+    database update is needed: the stored ticks of the old Administrator role are not touched.
+  - To say to Fouad: the server cannot hide a sum from someone who is allowed to see every value (the keeper could add them up himself); the totals are
+    removed from what the server sends and from the screens, which is what Fouad asked ("the big total is overwhelming").
+- **Words**: the sentences of the roles (Administrator, Director, Accountant, Book holder, Store keeper), the tick names, the "sensitive things" list
+  ("the value of each inventory item" / "the inventory totals") and the Guide (calendar intro, inventory intro, home, space page, donor report) were updated.
+- **Tests**: `tests/everyone-calendar-totals.test.ts` (10): every ready-made role and a Custom role have the Calendar door; the rule adds one tick only and the
+  stored roles are unchanged; a Book holder, a Store keeper and an Accountant get no price, no phone, no organisation, a private booking "Reserved", and the
+  server refuses every change; no account / HR database: nothing; the keepers see the value of each item (and the accountant with keeper ticks writes one) and
+  receive no total; the Administrator (and a second Administrator) receive the totals, worked out by the server; the tick is refused in a role, a copy and an
+  exception; the donor report is refused to Director, keeper, coordinator and the accountant. Pinned changes in `tests/doors.test.ts`, `tests/roles.test.ts`
+  (the old Superior gains only `inventory.totals`), `tests/inventory-map.test.ts` (`totals` in the rights). 464 tests pass.
+- **Tried in the side pane** on a COPY (own port, test123): as Fouad (Administrator) the inventory home shows "$4,230.00 value", the sums on each area and space
+  card and "Report for a donor"; "Test as" Roula (Book holder): the doors page now has Calendar and Accounts, the Calendar opens (week, "To prepare today",
+  no button to book); signed in as Assem (Accountant with the keeper ticks): the Inventory home has no value figure, no sums and no donor report, but the
+  item table shows the value of each item ($240.00 for the chairs); "Test as" Bashar (Store keeper + Reception): no dollar sum anywhere on the home, no donor button.
+- **Not changed**: the Excel export of the inventory still has the value of each item and its line total ("Total value USD", quantity × unit) — it is the object's
+  value, and it needs `inventory.values`. A **full copy** of the database (`backup.download`) holds everything, as in §21.

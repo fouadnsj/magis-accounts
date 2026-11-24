@@ -13,7 +13,7 @@ describe('which doors a person sees', () => {
     expect(doorsFor(role('director').perms, { hr: true })).toEqual(['accounts', 'calendar', 'inventory', 'hr']);
     expect(doorsFor(role('accountant').perms, { hasBook: true })).toEqual(['accounts', 'calendar']);
     expect(doorsFor(role('reception').perms)).toEqual(['calendar']);
-    expect(doorsFor(role('keeper').perms)).toEqual(['inventory']);
+    expect(doorsFor(role('keeper').perms)).toEqual(['calendar', 'inventory']); // the store keeper looks at the calendar too (Fouad, 26 November 2026)
     expect(doorsFor(role('coordinator').perms)).toEqual(['calendar', 'inventory']);
   });
   it('the doors come in the page’s order, and a person with nothing has none', () => {
@@ -27,7 +27,7 @@ describe('which doors a person sees', () => {
     expect(doorsFor([], { people: true })).toEqual(['admin']);
   });
   it('the inventory door needs the inventory in this database; HR needs a place in an HR database', () => {
-    expect(doorsFor(role('keeper').perms, { inventoryOn: false })).toEqual([]);
+    expect(doorsFor(role('keeper').perms, { inventoryOn: false })).toEqual(['calendar']);
     expect(doorsFor([], { hr: true })).toEqual(['hr']);
   });
   it('a book holder sees Accounts; an old 0.12 calendar tick alone opens no new door', () => {

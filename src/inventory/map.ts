@@ -172,8 +172,10 @@ export function findByLabel<T extends Pick<InvItem, 'code'>>(items: T[], scanned
 export interface InvRights {
   /** looks at the map, the spaces, the items */
   look: boolean;
-  /** sees the values ($) */
+  /** sees the value of each item ($) */
   values: boolean;
+  /** sees the big totals ($) and makes the donor report: the Administrator only (tick `inventory.totals`) */
+  totals: boolean;
   /** the keeper: adds, moves, counts, takes out, sets the state, gives to a staff member */
   keep: boolean;
   /** reports a problem: everyone (no tick) */
@@ -181,7 +183,8 @@ export interface InvRights {
 }
 export function invRights(perms: readonly string[]): InvRights {
   const keep = perms.includes('inventory.manage');
-  return { keep, values: keep || perms.includes('inventory.values'), look: keep || perms.includes('inventory.values') || perms.includes('inventory.view'), report: true };
+  const values = keep || perms.includes('inventory.values');
+  return { keep, values, totals: values && perms.includes('inventory.totals'), look: keep || perms.includes('inventory.values') || perms.includes('inventory.view'), report: true };
 }
 
 /** What a person who does not see the values receives: the same items without any amount. */

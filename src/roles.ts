@@ -17,19 +17,39 @@ export interface RoleKindInfo {
 
 /** The ready-made roles, in the order they are shown. (HR keeper and HR Sessions wait for the HR reflection: not here yet.) */
 export const ROLE_KINDS: RoleKindInfo[] = [
-  { kind: 'administrator', label: m('المشرف', 'Administrator', 'Administrateur'), about: m('كل شيء، ومعه وحده دفتر المسؤول والمنح والمانحون؛ يعطي دور المدير.', 'Everything; he alone has the Respo book, the grants and the donors; he gives the role Director.', 'Tout ; lui seul a le livre du Respo, les subventions et les bailleurs ; il donne le rôle Directeur.') },
-  { kind: 'director', label: m('المدير', 'Director', 'Directeur'), about: m('يرى الحسابات والتقارير والموازنة من دون أن يكتب، والتقويم كله، والجرد وقيمه؛ يعطي الأدوار الأخرى لأشخاص مركزه.', 'Looks at the books, reports and budget without writing, keeps the whole calendar, looks at the inventory and its values; gives the other roles to the people of the centre.', 'Regarde les comptes, rapports et budget sans écrire, tient tout le calendrier, regarde l’inventaire et ses valeurs ; donne les autres rôles aux personnes du centre.') },
-  { kind: 'accountant', label: m('المحاسب', 'Accountant', 'Comptable'), about: m('يكتب في الدفتر الرئيسي ويغلق الأشهر.', 'Writes in the Main book and closes the months.', 'Écrit dans le livre principal et clôt les mois.') },
-  { kind: 'holder', label: m('أمين صندوق', 'Book holder', 'Teneur de caisse'), about: m('يكتب في دفتره ويعدّ نقده.', 'Writes in his own book and counts his cash.', 'Écrit dans sa caisse et compte son argent.') },
+  { kind: 'administrator', label: m('المشرف', 'Administrator', 'Administrateur'), about: m('كل شيء، ومعه وحده دفتر المسؤول والمنح والمانحون ومجاميع الجرد؛ يعطي دور المدير.', 'Everything; he alone has the Respo book, the grants, the donors and the inventory totals; he gives the role Director.', 'Tout ; lui seul a le livre du Respo, les subventions, les bailleurs et les totaux de l’inventaire ; il donne le rôle Directeur.') },
+  { kind: 'director', label: m('المدير', 'Director', 'Directeur'), about: m('يرى الحسابات والتقارير والموازنة من دون أن يكتب، والتقويم كله، والجرد وقيمة كل غرض (من دون المجاميع)؛ يعطي الأدوار الأخرى لأشخاص مركزه.', 'Looks at the books, reports and budget without writing, keeps the whole calendar, looks at the inventory and the value of each item (not the totals); gives the other roles to the people of the centre.', 'Regarde les comptes, rapports et budget sans écrire, tient tout le calendrier, regarde l’inventaire et la valeur de chaque objet (pas les totaux) ; donne les autres rôles aux personnes du centre.') },
+  { kind: 'accountant', label: m('المحاسب', 'Accountant', 'Comptable'), about: m('يكتب في الدفتر الرئيسي ويغلق الأشهر؛ ويرى التقويم من دون أسعار.', 'Writes in the Main book and closes the months; looks at the calendar, without prices.', 'Écrit dans le livre principal et clôt les mois ; regarde le calendrier, sans prix.') },
+  { kind: 'holder', label: m('أمين صندوق', 'Book holder', 'Teneur de caisse'), about: m('يكتب في دفتره ويعدّ نقده؛ ويرى التقويم.', 'Writes in his own book and counts his cash; looks at the calendar.', 'Écrit dans sa caisse et compte son argent ; regarde le calendrier.') },
   { kind: 'reception', label: m('الاستقبال', 'Reception', 'Accueil'), about: m('يرى التقويم وجهات الاتصال، يحجز للخارج، يستقبل الضيوف؛ لا يرى الأسعار.', 'Sees the calendar and its contacts, books outside groups, welcomes the guests; no prices.', 'Voit le calendrier et ses contacts, réserve pour l’extérieur, accueille les hôtes ; pas de prix.') },
   { kind: 'coordinator', label: m('المنسّق (الورش)', 'Coordinator (workshops)', 'Coordinateur (ateliers)'), about: m('برنامجنا والحجوزات والأسعار والدفعات؛ يرى الجرد من دون قيمه.', 'Our programme, bookings, prices and payments; looks at the inventory without its values.', 'Notre programme, les réservations, les prix et les paiements ; regarde l’inventaire sans ses valeurs.') },
-  { kind: 'keeper', label: m('أمين المخزن', 'Store keeper', 'Magasinier'), about: m('يمسك الجرد ويرى قيمه.', 'Keeps the inventory and sees its values.', 'Tient l’inventaire et voit ses valeurs.') },
+  { kind: 'keeper', label: m('أمين المخزن', 'Store keeper', 'Magasinier'), about: m('يمسك الجرد ويكتب قيمة كل غرض؛ ويرى التقويم.', 'Keeps the inventory and writes the value of each item; looks at the calendar.', 'Tient l’inventaire et note la valeur de chaque objet ; regarde le calendrier.') },
 ];
 
 export const kindInfo = (k: string | null | undefined) => ROLE_KINDS.find((x) => x.kind === k) ?? null;
 
 /** Only the Administrator role carries these: the Respo book and private books; grants, donors, coverage. Refused anywhere else. */
-export const ADMIN_ONLY: Perm[] = ['register.private', 'lists.donors'];
+export const ADMIN_ONLY: Perm[] = ['register.private', 'lists.donors', 'inventory.totals'];
+
+/**
+ * (Fouad, 26 November 2026) What every person with an account in a centre has, whatever their roles: to LOOK at the calendar
+ * (activities, spaces, who is where, "To prepare today"): no prices, no money, no contacts, nothing to change. A rule in the
+ * code, not a stored tick: no database is touched, nobody's other rights change, and a role made later has it too.
+ */
+export const EVERYONE: Perm[] = ['cal.view'];
+
+/** a person's rights with what everyone has (only in a centre's database: not in HR, a community, the country) */
+export function withEveryone(perms: readonly Perm[]): Perm[] {
+  return [...new Set<Perm>([...perms, ...EVERYONE])];
+}
+
+/**
+ * The ticks of a role as the program reads them: the role Administrator always has the totals of the inventory (the big
+ * figures; Fouad, 26 November 2026), also in a database where its stored ticks do not list it yet. No database update.
+ */
+export function rolePerms<P extends string>(kind: string | null | undefined, perms: P[]): (P | 'inventory.totals')[] {
+  return kind === 'administrator' && !perms.includes('inventory.totals' as P) ? [...perms, 'inventory.totals'] : perms;
+}
 
 /** Roles only the Administrator gives (and takes away). */
 export const ADMIN_GIVES: RoleKind[] = ['administrator', 'director'];
@@ -40,7 +60,8 @@ export const DIRECTOR_GIVES: RoleKind[] = ['accountant', 'holder', 'reception', 
 /** The sensitive things: for each, the screen says which role brings it ("Sees prices because of: Coordinator"). */
 export const SENSITIVE: { key: string; label: Msg; perms: Perm[] }[] = [
   { key: 'prices', label: m('الأسعار', 'prices', 'prix'), perms: ['cal.prices', 'cal.money', 'hosting.prices'] },
-  { key: 'values', label: m('قيم الجرد', 'inventory values', 'valeurs de l’inventaire'), perms: ['inventory.values'] },
+  { key: 'values', label: m('قيمة كل غرض في الجرد', 'the value of each inventory item', 'la valeur de chaque objet de l’inventaire'), perms: ['inventory.values'] },
+  { key: 'totals', label: m('مجاميع الجرد الكبيرة', 'the inventory totals', 'les totaux de l’inventaire'), perms: ['inventory.totals'] },
   { key: 'salaries', label: m('الرواتب', 'salaries', 'salaires'), perms: ['hr.salary'] },
   { key: 'donors', label: m('المانحون والمنح', 'donors and grants', 'bailleurs et subventions'), perms: ['lists.donors'] },
   { key: 'respo', label: m('دفتر المسؤول', 'Respo book', 'livre du Respo'), perms: ['register.private'] },
@@ -104,7 +125,7 @@ export interface Giver {
 }
 
 export const MSG_ADMIN_ONLY = m('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement');
-export const MSG_ADMIN_TICK = m('دفتر المسؤول والدفاتر الخاصة، والمنح والمانحون: لدور المشرف فقط', 'The Respo book and private books, grants and donors: only in the role Administrator', 'Le livre du Respo et les livres privés, les subventions et les bailleurs : seulement dans le rôle Administrateur');
+export const MSG_ADMIN_TICK = m('دفتر المسؤول والدفاتر الخاصة، والمنح والمانحون، ومجاميع الجرد: لدور المشرف فقط', 'The Respo book and private books, grants, donors and the inventory totals: only in the role Administrator', 'Le livre du Respo et les livres privés, les subventions, les bailleurs et les totaux de l’inventaire : seulement dans le rôle Administrateur');
 export const MSG_NOT_MORE = m('لا تعطي أكثر مما عندك', 'You cannot give more than you have yourself', 'Vous ne pouvez pas donner plus que ce que vous avez');
 export const MSG_HOLDERS = m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement');
 export const MSG_NOT_SELF = m('لا أحد يعطي نفسه دوراً', 'Nobody gives himself a role', 'Personne ne se donne un rôle à soi-même');

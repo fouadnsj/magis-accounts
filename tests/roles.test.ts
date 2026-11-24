@@ -44,7 +44,8 @@ describe('update 77: nobody is locked out', () => {
     const rolesBefore = await db.query('SELECT id, perms FROM access_profile ORDER BY id');
 
     expect(await migrate(db)).toEqual([77]);
-    for (const n of names) expect(await rightsOf(db, await idOf(db, n))).toEqual(before[n]);
+    // only one thing is new: the Administrator role (the old Superior) has the totals of the inventory (Fouad, 26 November 2026)
+    for (const n of names) expect(await rightsOf(db, await idOf(db, n))).toEqual(n === 'Sup' ? [...before[n], 'inventory.totals'].sort() : before[n]);
     // no tick of an old role changed
     expect(await db.query('SELECT id, perms FROM access_profile WHERE id <= ? ORDER BY id', [custom])).toEqual(rolesBefore);
     // the Superior is the Administrator role; Accountant and Book holder are the ready-made ones; the secretary's role is Custom
@@ -314,7 +315,7 @@ describe('who gives what (roles step 3)', () => {
     expect(copy.kind).toBe(null);
     await expect(runOp(dina, 'access.delete', { id: copy.id })).rejects.toThrow(/Administrator only/);
     await expect(runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms })).rejects.toThrow(/only in the role Administrator/);
-    await runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms.filter((p) => p !== 'lists.donors' && p !== 'register.private') });
+    await runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms.filter((p) => p !== 'lists.donors' && p !== 'register.private' && p !== 'inventory.totals') });
     await runOp(sup, 'access.delete', { id: copy.id });
     // who sees the door "Administration": the Administrator and the Director, not the Accountant
     expect(peopleDoor((await ctxOf('Sup')).profile.roles, () => true)).toBe(true);

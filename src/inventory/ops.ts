@@ -11,6 +11,7 @@ import {
   CONDITIONS, nextCodes, prefixFor, QR_FIELDS,
   isSourceLine, type InvEntry, type InvCategory, type InvOriginRow, type InvData, type InvImportRow, type InvItem, type InvMove, type InvPhoto, type InvPlace, type InvSkip, type InvSource,
 } from './inv';
+import { invTotals } from './totals';
 import { cleanReport, spaceOfWhere, type InvProblem, type ProblemResult, type ProblemSpace } from './problems';
 import { INV_AREA, invRights, splitLabels, splitProblem, withoutValues, type InRoom, type InvReady, type MapArea, type MapKind, type MapSpace } from './map';
 
@@ -31,7 +32,7 @@ async function prefixOf(c: OpCtx): Promise<string> {
 
 async function load(c: OpCtx): Promise<InvData> {
   const rights = invRights(c.profile.perms);
-  return withoutValues({
+  const data = {
     categories: await c.db.query<InvCategory>('SELECT * FROM inv_category ORDER BY sort, name'),
     places: await c.db.query<InvPlace>('SELECT * FROM inv_place ORDER BY sort, name'),
     origins: await c.db.query<InvOriginRow>('SELECT * FROM inv_origin ORDER BY sort, id'),
@@ -47,7 +48,9 @@ async function load(c: OpCtx): Promise<InvData> {
     kinds: await c.db.query<MapKind>('SELECT id, name, code, active, sort FROM host_kind ORDER BY sort, name'),
     ready: await c.db.query<InvReady>('SELECT id, kind_id, name, category_id, sort FROM inv_ready ORDER BY kind_id, sort, id'),
     rights,
-  }, rights.values);
+  };
+  // the value of each item goes to whoever keeps the inventory; the sums only to the Administrator
+  return { ...withoutValues(data, rights.values), totals: rights.totals ? invTotals(data) : null };
 }
 
 /** problems may be reported in a centre's database whose inventory section is on (by everyone: no tick) */
@@ -504,11 +507,11 @@ export const INV_OPS = {
 
   /**
    * What a project bought (baseline 1.1 section 5): the items bought with the entries of the project (the fund of an expense
-   * comes from its budget line), dated in the chosen months. Only for who sees the values; never an entry of a private book.
+   * comes from its budget line), dated in the chosen months. Only for the Administrator (Fouad, 26 November 2026: it carries the project's total); never an entry of a private book.
    * The screens build the pages from this and from the inventory they already have.
    */
   'inv.report.project': {
-    check: (c: OpCtx) => { if (!invRights(c.profile.perms).values) throw refuse(); },
+    check: (c: OpCtx) => { if (!invRights(c.profile.perms).totals) throw refuse(); },
     run: async (c: OpCtx, a: { account_id: number; from: string; to: string }) => {
       const ym = /^\d{4}-\d{2}$/;
       if (!ym.test(String(a.from)) || !ym.test(String(a.to)) || a.from > a.to) throw new UserError(m('الفترة غير صالحة', 'Not a valid period', 'Période non valide'));

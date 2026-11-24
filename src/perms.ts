@@ -54,7 +54,8 @@ export const PERM_GROUPS = [
     label: m('الجرد', 'Inventory'),
     perms: [
       { key: 'inventory.view', label: m('يرى الجرد: الأغراض وأماكنها وحالتها', 'Sees the inventory: the items, where they are, their state') },
-      { key: 'inventory.values', label: m('يرى قيم الجرد ($)', 'Sees the values of the inventory ($)', 'Voit les valeurs de l’inventaire ($)') },
+      { key: 'inventory.values', label: m('يرى ويكتب قيمة كل غرض ($)', 'Sees and writes the value of each item ($)', 'Voit et note la valeur de chaque objet ($)') },
+      { key: 'inventory.totals', label: m('يرى مجاميع الجرد الكبيرة والتقرير للمانح (للمشرف فقط)', 'Sees the big totals of the inventory and makes the donor report (Administrator only)', 'Voit les grands totaux de l’inventaire et fait le rapport pour un bailleur (Administrateur seulement)') },
       { key: 'inventory.manage', label: m('يدير الجرد: يسجّل المشتريات والهدايا، ينقل، يعدّ، يخرج غرضاً', 'Keeps the inventory: lists the purchases and gifts, moves, counts, takes an item out') },
     ],
   },
@@ -73,7 +74,7 @@ export const PERM_GROUPS = [
     key: 'calendar',
     label: m('التقويم', 'Calendar', 'Calendrier'),
     perms: [
-      { key: 'cal.view', label: m('يرى التقويم و«للتحضير اليوم»', 'Sees the calendar and "To prepare today"', 'Voit le calendrier et « À préparer aujourd’hui »') },
+      { key: 'cal.view', label: m('يرى التقويم و«للتحضير اليوم» (لكل من له حساب)', 'Sees the calendar and "To prepare today" (every person with an account has this)', 'Voit le calendrier et « À préparer aujourd’hui » (toute personne avec un compte l’a)') },
       { key: 'cal.contacts', label: m('يرى جهات الاتصال (المسؤول والهاتف)', 'Sees the contacts (person in charge, phone)', 'Voit les contacts (responsable, téléphone)') },
       { key: 'cal.programme', label: m('يضيف ويعدّل برنامجنا', 'Adds or changes our programme', 'Ajoute ou modifie notre programme') },
       { key: 'cal.outside', label: m('يضيف ويعدّل الحجوزات الخارجية', 'Adds or changes outside bookings', 'Ajoute ou modifie les réservations extérieures') },

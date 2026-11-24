@@ -9,7 +9,7 @@ import type { AccessRow, SavedUser, UserRow } from '../ops';
 import { PERM_GROUPS, withImplied, type Perm } from '../perms';
 import { READY_ROLES, doorsOf } from '../doors';
 import { doorName } from './Doors';
-import { ADMIN_GIVES, ADMIN_ONLY, KEEPS_BOOK, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, booksSwitchedOffWith, keepsBook, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, type RoleLike } from '../roles';
+import { ADMIN_GIVES, ADMIN_ONLY, KEEPS_BOOK, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, booksSwitchedOffWith, keepsBook, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, withEveryone, type RoleLike } from '../roles';
 import { m, tx, type Msg } from '../i18n';
 import { Field, Modal, biName, confirmBox, errText, t, toast } from './kit';
 import { GuideLink } from '../guide/GuideView';
@@ -61,7 +61,7 @@ const permLabel = (p: Perm) => {
 
 /** the doors this person gets from his roles and exceptions (HR is given from the HR database, not here) */
 function doorsLine(roles: RoleLike[], extra: Perm[], hasBook: boolean, inventoryOn: boolean): string {
-  const all = unionPerms(roles, extra);
+  const all = withEveryone(unionPerms(roles, extra)); // everyone with an account looks at the calendar
   const ds = doorsOf({ can: (p) => all.includes(p), hasBook, inventoryOn, hr: false, people: peopleDoor(roles, (p) => all.includes(p)) });
   return ds.length ? ds.map((k) => tx(doorName(k))).join(' · ') : '—';
 }

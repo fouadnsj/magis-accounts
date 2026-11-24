@@ -114,14 +114,13 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
   const [open, setOpen] = useState(false);
   const [paper, setPaper] = useState<'count' | 'donor' | null>(null);
   const live = inv.items.filter(inUse);
-  const map = useMemo(() => invMap(inv, { values: r.values }), [inv, r.values]);
-  const stores = useMemo(() => invMap(inv, { values: r.values, only: (x) => isStore(x, inv.kinds) }), [inv, r.values]);
+  const map = useMemo(() => invMap(inv, { values: false }), [inv]);
+  const stores = useMemo(() => invMap(inv, { values: false, only: (x) => isStore(x, inv.kinds) }), [inv]);
   const left = withSomeoneWhoLeft(inv.items, people);
   const waitingProblems = (problems ?? []).filter((x) => x.status === 'new').length;
   const attention = live.filter((i) => i.condition !== 'good').length;
   const staff = live.filter((i) => i.holder).length;
   const asks = live.filter((i) => itemAsks(i, inv.categories, inv.photos).length).length;
-  const value = live.reduce((a, i) => a + itemTotal(i), 0);
   const found = q.trim() ? searchItems(inv, q) : null;
 
   const tile = (n: string | number, label: string, v: View | null, red = false) => (
@@ -133,7 +132,7 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
     <>
       <div className="cal-strip">
         {tile(live.length, `${L('غرضاً', 'items', 'objets')} · ${live.reduce((a, i) => a + i.qty, 0)} ${L('قطعة', 'units', 'unités')}`, 'all')}
-        {r.values && tile(fmtUsd(value), L('القيمة (مشتراة أو مقدَّرة)', 'value (bought or estimated)', 'valeur (achat ou estimation)'), null)}
+        {inv.totals && tile(fmtUsd(inv.totals.all), L('القيمة (مشتراة أو مقدَّرة)', 'value (bought or estimated)', 'valeur (achat ou estimation)'), null)}
         {r.keep && tile(pending, L('مشتريات تُسجَّل', 'purchases to register', 'achats à enregistrer'), 'register', pending > 0)}
         {tile(attention, L('تحتاج إصلاحاً أو معطّلة', 'to repair or broken', 'à réparer ou cassés'), 'attention', attention > 0)}
         {tile(staff, L('مع الموظفين', 'with staff', 'chez le personnel'), 'staff')}
@@ -150,7 +149,7 @@ function Home({ inv, view, setView, q, setQ, go, pending, pendingRows, refresh, 
         <input className="inp cal-search" placeholder={L('بحث: رمز، اسم، رقم تسلسلي، شخص…', 'Search: label, name, serial, person…', 'Chercher : étiquette, nom, n° de série, personne…')} value={q} onChange={(e) => setQ(e.target.value)} />
         <ReportButton className="btn" />
         {r.keep && <button className="btn" onClick={() => setPaper('count')}>☑ {L('قائمة للعدّ', 'Counting list', 'Liste de comptage')}</button>}
-        {r.values && <button className="btn" onClick={() => setPaper('donor')}>📄 {L('تقرير للمانح', 'Report for a donor', 'Rapport pour un bailleur')}</button>}
+        {r.totals && <button className="btn" onClick={() => setPaper('donor')}>📄 {L('تقرير للمانح', 'Report for a donor', 'Rapport pour un bailleur')}</button>}
         {r.keep && <button className="btn" onClick={() => go({ k: 'quick', spaceId: null })}>⚡ {L('تسجيل سريع', 'Quick add', 'Ajout rapide')}</button>}
         {r.keep && <button className="btn primary" onClick={() => setOpen(true)}>＋ {L('غرض', 'Item', 'Objet')}</button>}
       </div>
@@ -176,17 +175,16 @@ function searchItems(inv: InvData, q: string): InvItem[] {
 }
 
 function MapView({ inv, map, go }: { inv: InvData; map: ReturnType<typeof invMap>; go: (x: Screen) => void }) {
-  const r = inv.rights;
   if (!map.areas.length) return <p className="muted">{L('لا أماكن بعد: تُضاف المناطق والأماكن في إعدادات التقويم، والمخازن في قوائم الجرد.', 'No spaces yet: the areas and spaces are added in the calendar\'s settings, the stores in the inventory\'s lists.', 'Pas encore d’espaces : les zones et espaces s’ajoutent dans les réglages du calendrier, les réserves dans les listes de l’inventaire.')}</p>;
   return (
     <>
       {map.areas.map(({ area, spaces }) => {
         const items = spaces.reduce((n, c) => n + c.items, 0);
-        const val = spaces.reduce((n, c) => n + (c.value ?? 0), 0);
+        const val = spaces.reduce((n, c) => n + (inv.totals?.spaces[c.space.id] ?? 0), 0);
         return (
           <section key={area.id} className="inv-area">
             <div className="inv-ah"><i style={{ background: area.color ?? 'var(--line)' }} />{biName(area.name)}
-              <small>{spaces.length} {L('مكاناً', 'spaces', 'espaces')} · {items} {L('غرضاً', 'items', 'objets')}{r.values ? ` · ${fmtUsd(val)}` : ''}</small></div>
+              <small>{spaces.length} {L('مكاناً', 'spaces', 'espaces')} · {items} {L('غرضاً', 'items', 'objets')}{inv.totals ? ` · ${fmtUsd(val)}` : ''}</small></div>
             <div className="inv-cards">{spaces.map((c) => <SpaceCard key={c.space.id} c={c} inv={inv} onOpen={() => go({ k: 'space', id: c.space.id })} />)}</div>
           </section>
         );
@@ -198,7 +196,6 @@ function MapView({ inv, map, go }: { inv: InvData; map: ReturnType<typeof invMap
 
 /** the stores (Fouad's first test, comment 3): only the spaces whose kind is "Store", each with what is in it */
 function StoresView({ inv, map, go }: { inv: InvData; map: ReturnType<typeof invMap>; go: (x: Screen) => void }) {
-  const r = inv.rights;
   const cards = map.areas.flatMap((x) => x.spaces);
   if (!cards.length) return <p className="muted">{L('لا مستودع بعد: اختر النوع «مستودع» لمكان (في صفحة المكان إن كان في الجرد فقط، أو في إعدادات التقويم).', 'No store yet: give a space the kind "Store" (on the space\'s page if it is only in the inventory, or in the calendar\'s settings).', 'Pas encore de réserve : donnez à un espace le type « Réserve » (sur la page de l’espace s’il est seulement dans l’inventaire, ou dans les réglages du calendrier).')}</p>;
   const live = inv.items.filter(inUse);
@@ -209,7 +206,7 @@ function StoresView({ inv, map, go }: { inv: InvData; map: ReturnType<typeof inv
         const items = live.filter((i) => c.space.place_id != null && i.place_id === c.space.place_id);
         return (
           <section key={c.space.id} className="inv-area">
-            <div className="inv-ah"><button className="linkish" onClick={() => go({ k: 'space', id: c.space.id })}>{c.label}</button><small>{items.length} {L('غرضاً', 'items', 'objets')} · {c.units} {L('قطعة', 'units', 'unités')}{r.values && c.value != null ? ` · ${fmtUsd(c.value)}` : ''}</small></div>
+            <div className="inv-ah"><button className="linkish" onClick={() => go({ k: 'space', id: c.space.id })}>{c.label}</button><small>{items.length} {L('غرضاً', 'items', 'objets')} · {c.units} {L('قطعة', 'units', 'unités')}{inv.totals ? ` · ${fmtUsd(inv.totals.spaces[c.space.id] ?? 0)}` : ''}</small></div>
             {items.length ? <ItemTable inv={inv} items={items} go={go} hidePlace /> : <p className="small muted">{L('فارغ', 'Empty', 'Vide')}</p>}
           </section>
         );
@@ -225,7 +222,7 @@ function SpaceCard({ c, inv, onOpen }: { c: MapCard; inv: InvData; onOpen: () =>
       <Thumb id={c.photo} sign={c.bookable ? '🚪' : '📦'} />
       <div className="inv-bd">
         <b>{c.space.name}</b>
-        <small>{c.items} {L('غرضاً', 'items', 'objets')}{inv.rights.values && c.value != null ? ` · ${fmtUsd(c.value)}` : ''}</small>
+        <small>{c.items} {L('غرضاً', 'items', 'objets')}{inv.totals ? ` · ${fmtUsd(inv.totals.spaces[c.space.id] ?? 0)}` : ''}</small>
         <div className="inv-dots">
           {counted && <span className={`inv-dot ${c.lastCount ? 'ok' : 'w'}`}>{counted}</span>}
           {c.attention > 0 && <span className="inv-dot e">{c.attention} {L('تحتاج انتباهاً', 'need attention', 'à voir')}</span>}
@@ -379,7 +376,7 @@ function SpacePage({ inv, cal, spaceId, go, back, refresh, people }: { inv: InvD
             </select>
           ) : biName(inv.kinds.find((k) => k.id === sp.kind_id)?.name ?? '—')}</li>
           <li><span>{L('الأغراض', 'Items', 'Objets')}</span>{here.length} · {here.reduce((n, i) => n + i.qty, 0)} {L('قطعة', 'units', 'unités')}</li>
-          {r.values && <li><span>{L('القيمة', 'Value', 'Valeur')}</span>{fmtUsd(here.reduce((n, i) => n + itemTotal(i), 0))}</li>}
+          {inv.totals && <li><span>{L('القيمة', 'Value', 'Valeur')}</span>{fmtUsd(inv.totals.spaces[sp.id] ?? here.reduce((n, i) => n + itemTotal(i), 0))}</li>}
           <li><span>{L('آخر عدّ', 'Last count', 'Dernier comptage')}</span>{lastCount ? fmtDate(lastCount) : L('لم يُعدّ', 'not counted', 'pas compté')}</li>
           <li><span>{L('انتباه', 'Attention', 'À voir')}</span>{attention.length ? attention.map((i) => `${i.name} (${COND_LABEL[i.condition]()})`).join('، ') : '—'}</li>
           {sp.bookable ? <li><span>{L('دائماً في المكان', 'Always in the room', 'Toujours dans la salle')}</span>{always.length ? always.map((x) => (x.qty > 1 ? `${x.name} ×${x.qty}` : x.name)).join('، ') : (sp.fixed || '—')}</li> : null}

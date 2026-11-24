@@ -5,6 +5,7 @@
 // Pure functions here (shared by the server operations, the screens and the tests).
 import type { Lists, Trx } from '../domain/types';
 import type { InvReady, InvRights, MapArea, MapKind, MapSpace } from './map';
+import type { InvTotals } from './totals';
 
 export interface InvCategory { id: number; name: string; serial: number; /** a photo and a label are asked for its items */ valuable: number; /** its items are "always in the room" in the calendar */ in_calendar: number; active: number; sort: number }
 export interface InvOriginRow { id: number; name: string; bought: number; active: number; sort: number }
@@ -76,6 +77,8 @@ export interface InvData {
   ready: InvReady[];
   /** what this person may do (values: false = every amount is left out) */
   rights: InvRights;
+  /** the big totals: only the Administrator receives them (null for everyone else) */
+  totals: InvTotals | null;
 }
 
 /** What the main `data` call carries, for the badge, the entry form and the list of purchases still to register. */

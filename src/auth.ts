@@ -3,11 +3,11 @@
 // Older databases hold a quick SHA-256 of a 4-digit PIN: still accepted, but
 // reported as "weak" so the network server asks for a new password.
 import { type Db, one } from './db/db';
-import { auditStmt, UserError } from './db/repo';
+import { auditStmt, getMeta, UserError } from './db/repo';
 import { m } from './i18n';
 import type { Role } from './domain/types';
 import { cleanPerms, type Perm } from './perms';
-import { cleanExtra, unionPerms, type RoleLike } from './roles';
+import { cleanExtra, rolePerms, unionPerms, withEveryone, type RoleLike } from './roles';
 
 /** A person who can log in: his permission profile's ticks and the books he keeps. */
 export interface Profile {
@@ -50,8 +50,11 @@ export async function loadProfile(db: Db, id: number): Promise<Profile | null> {
   const hrCentres = hr_centres ? (JSON.parse(hr_centres) as string[]).filter((x) => typeof x === 'string') : null;
   const base = { ...rest, access_name: r.access_name ?? '', perms: cleanPerms(r.perms ? JSON.parse(r.perms) : []), books, book_id: books[0] ?? r.book_id, hrCentres: hrCentres?.length ? hrCentres : null };
   const more = await rolesOf(db, id, r.access_id);
-  if (!more) return base; // a database from before update 77
-  return { ...base, perms: unionPerms(more.roles, more.extra), roles: more.roles.map(({ id: rid, name, kind }) => ({ id: rid, name, kind })), extra: more.extra, admin: more.roles.some((x) => x.kind === 'administrator') };
+  // (26 November 2026) in a centre's database every person with an account looks at the calendar (src/roles.ts EVERYONE)
+  const kind = await getMeta(db, 'kind');
+  const everyone = (ps: Perm[]) => (kind === 'community' || kind === 'country' || kind === 'hr' || kind === 'province' ? ps : withEveryone(ps));
+  if (!more) return { ...base, perms: everyone(base.perms) }; // a database from before update 77
+  return { ...base, perms: everyone(unionPerms(more.roles, more.extra)), roles: more.roles.map(({ id: rid, name, kind }) => ({ id: rid, name, kind })), extra: more.extra, admin: more.roles.some((x) => x.kind === 'administrator') };
 }
 
 /**
@@ -75,7 +78,7 @@ export async function rolesOf(db: Db, id: number, accessId?: number | null): Pro
   }
   let ex: Perm[] = [];
   try { ex = extra ? cleanExtra(JSON.parse(extra)) : []; } catch { ex = []; }
-  return { roles: rows.map((x) => ({ id: x.id, name: x.name, kind: x.kind, perms: cleanPerms(JSON.parse(x.perms)) })), extra: ex };
+  return { roles: rows.map((x) => ({ id: x.id, name: x.name, kind: x.kind, perms: rolePerms(x.kind, cleanPerms(JSON.parse(x.perms))) })), extra: ex };
 }
 
 /** A person's rights (all roles and exceptions together), active or not; null if unknown. */

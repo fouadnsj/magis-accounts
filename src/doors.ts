@@ -27,7 +27,7 @@ export interface DoorFacts {
  * The doors this person sees, in their usual order. A person with a single door still sees the page (Fouad: "it would be a
  * pity to avoid it"); a person with no door sees a gentle note.
  * - Accounts: keeps a book, looks at the books, the reports or the budget, the donors, the lists, the exports, closes months.
- * - Calendar: "Sees the calendar" (every calendar tick brings it).
+ * - Calendar: "Sees the calendar" (every calendar tick brings it, and every person with an account has it: src/roles.ts EVERYONE).
  * - Inventory: "Sees the inventory".
  * - HR: there is an HR database this person may enter (HR is one for all the centres, separated inside).
  */
@@ -66,7 +66,7 @@ export const READY_ROLES: ReadyRole[] = [
   {
     key: 'director',
     name: 'المدير · Director',
-    about: m('يرى كل شيء ويدير التقويم كله، ويرى الجرد وقيمه والحسابات؛ لا يكتب في الدفاتر.', 'Sees everything and keeps the whole calendar; looks at the inventory with its values and at the books, without writing in them.', 'Voit tout et tient tout le calendrier ; regarde l’inventaire avec ses valeurs et les comptes, sans écrire dans les livres.'),
+    about: m('يرى كل شيء ويدير التقويم كله، ويرى الجرد وقيمة كل غرض (من دون المجاميع) والحسابات؛ لا يكتب في الدفاتر.', 'Sees everything and keeps the whole calendar; looks at the inventory and the value of each item (not the totals) and at the books, without writing in them.', 'Voit tout et tient tout le calendrier ; regarde l’inventaire et la valeur de chaque objet (pas les totaux) et les comptes, sans écrire dans les livres.'),
     // (roles step 1) no donors: grants and donors stay in the Administrator role; the Director gives the other roles
     perms: ['register.view', 'reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.cash', 'reports.funding', 'budget.view', 'audit.view', 'users.manage', ...CAL_ALL, 'inventory.view', 'inventory.values'],
   },
@@ -85,8 +85,8 @@ export const READY_ROLES: ReadyRole[] = [
   {
     key: 'keeper',
     name: 'أمين المخزن · Store keeper',
-    about: m('يمسك الجرد: يضيف وينقل ويعدّ ويُخرج غرضاً، ويرى القيم.', 'Keeps the inventory: adds, moves, counts, takes an item out, sees the values.', 'Tient l’inventaire : ajoute, déplace, compte, sort un objet, voit les valeurs.'),
-    perms: ['inventory.view', 'inventory.values', 'inventory.manage'],
+    about: m('يمسك الجرد: يضيف وينقل ويعدّ ويُخرج غرضاً، ويكتب قيمة كل غرض؛ ويرى التقويم.', 'Keeps the inventory: adds, moves, counts, takes an item out, writes the value of each item; looks at the calendar.', 'Tient l’inventaire : ajoute, déplace, compte, sort un objet, note la valeur de chaque objet ; regarde le calendrier.'),
+    perms: ['inventory.view', 'inventory.values', 'inventory.manage', 'cal.view'],
   },
   {
     key: 'coordinator',

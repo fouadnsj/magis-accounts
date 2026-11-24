@@ -105,7 +105,6 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
     return !s || [i.code, i.name, i.brand, i.model, i.serial, i.holder, i.note].some((x) => (x ?? '').toLowerCase().includes(s));
   });
   const live = inv.items.filter(inUse);
-  const total = live.reduce((a, i) => a + itemTotal(i), 0);
   const noSerial = live.filter(needSerial).length;
   const attention = live.filter((i) => i.condition !== 'good').length;
 
@@ -131,7 +130,7 @@ function ItemsTab({ inv, manage, refresh }: { inv: InvData; manage: boolean; ref
     <>
       <div className="row" style={{ gap: 18, marginBottom: 10 }}>
         <div><b>{live.length}</b> <span className="muted small">{t('غرضاً', 'items')} · {live.reduce((a, i) => a + i.qty, 0)} {t('قطعة', 'units')}</span></div>
-        <div><b>{fmtUsd(total)}</b> <span className="muted small">{t('القيمة (مشتراة أو مقدَّرة)', 'value (bought or estimated)')}</span></div>
+        {inv.totals && <div><b>{fmtUsd(inv.totals.all)}</b> <span className="muted small">{t('القيمة (مشتراة أو مقدَّرة)', 'value (bought or estimated)')}</span></div>}
         {attention > 0 && <div className="small" style={{ color: 'var(--err)' }}>⚠ {attention} {t('تحتاج انتباهاً', 'need attention')}</div>}
         {noSerial > 0 && <div className="small" style={{ color: 'var(--err)' }}>⚠ {noSerial} {t('بلا رقم تسلسلي', 'without a serial number')}</div>}
       </div>

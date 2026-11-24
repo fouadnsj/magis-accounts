@@ -771,3 +771,24 @@ Tests: `tests/calendar-pay-books.test.ts` (22), `calendar-books.test.ts` (keys o
   - Guide lines (Calendar: payments, cancelling) and the checklist lines 15 and 17 are updated.
 - **Tried by hand** on a COPY of `test-servers/next-test` (own port): update 79 ran on open; all old payments stay in the Main book. As Fouad (Administrator): the choices are only the Main book (his books are private). "Test as" Nagham (see only): the choices are the Main book and "Nagham" (her envelope is not offered), "Nagham" proposed; her list was empty until Fouad moved H2026-0007 to her book; then her Accounts home said "1 payment waiting for the books" and "Make the entry" opened the entry with the book "Nagham" locked (not saved: see only). Assem (Accountant, see only): the 9 Main payments and the count 1 in a holder's book. Moving to the Respo book: refused. Update 79 also ran once, then nothing, on copies of the newest real files (Homs, Homs St François Régis, Al-Ard, Aleppo, HR, Syria; no payment in them). The pay window itself was not opened on screen.
 - **For Fouad to decide / know:** (a) Nagham's list needs her role to hold **`cal.money`** (the Coordinator (workshops) role does). (b) The Calendar's own payment table does not yet show the book of each payment (the waiting page does). (c) What the holder's book counts as cash: the payment is only a suggestion until she makes the entry, as for the Accountant before.
+
+## 33. "Where am I" line and the Guide button always in the same place (Fouad: "he feels lost in the wide app"; 25 November 2026; no database update)
+- **One top bar on every page inside a door (Accounts, Calendar, Inventory, Administration):** the back button "→ MAGIS · الأبواب" on the start side, then the
+  line **"Door › Page › Part"** (e.g. *Accounts › Reports › Monthly*, *Accounts › Settings › Month closing*, *Administration › People*, *Calendar › Settings*,
+  *Inventory › Spaces › Sample Bedroom 2*, an item: *Inventory › its space › the item*), then the **Guide button on the end side**. Small calm type; the last
+  step (where one is) is darker; the others are links when they lead somewhere: the door to its first page, the page (or the door, for Calendar and Inventory
+  whose page has the door's name) back to its list, the space of an item to the space. Arabic reads right to left with "‹"; English and French left to right.
+  On a narrow screen (≤ 640 px) only the last two steps show, on one line (cut with "…" if still too long), never wrapping over the page.
+- **The names are the menus' own** (`pageLabel` in `src/ui/Shell.tsx`); the steps inside a page come from **one small function every page calls**: `useTrail([...labels], pageGo)`
+  in `src/trail.ts` (nothing declared = nothing added). `Tabs` takes `trail` (used by Reports and Settings: the open tab is a step). Calendar and Inventory
+  declare their settings, spaces and items. `buildTrail` (pure, tested) assembles the line.
+- **The Guide button is in the bar only**: a page's `GuideLink id="…"` now only says *which section* the bar's button opens (the same sections as before, e.g. Settings →
+  month closing); the copies next to the page titles are gone. Without a section a door opens its own (Accounts "Getting started", Calendar, Inventory, Administration "People").
+  `GuideLink here` keeps the button in place for a window or a part of a page (the project sheet, Phones). The Guide page itself has no Guide button. The menu entry "Guide" stays.
+- The calendar's and inventory's own "Calendar › Settings" crumb in the page title is now just the page title ("Calendar settings"); their "Back to…" buttons stay.
+- **Not done**: HR keeps its own screens (own bar and Guide buttons: it does not use this shell); communities, the phone window, the first-visit tour, the menu words and a search box are untouched.
+- **Code**: `src/trail.ts` (new), `src/ui/Shell.tsx`, `src/guide/GuideView.tsx` (`GuideSlotCtx`, `GuideButton`, `GuideLink here`), `src/ui/kit.tsx` (`Tabs trail`), `Reports.tsx`, `Admin.tsx`,
+  `Calendar.tsx`, `InvHome.tsx`, `ProjectSheet.tsx`, `Phones.tsx`, `src/styles.css` (`.door-trail`, `.door-guide`). Test: `tests/trail.test.ts` (4). 574 tests pass.
+- **Tried** in the side pane on a COPY (own port, test123) as Fouad: every door (Accounts: Home, Reports › Monthly, Settings › Month closing; Calendar and its settings, the crumb leads back;
+  Inventory: map, a space, an item, its crumbs; Administration: People, Roles; the Guide), the Guide button opens the right section (Inventory), Arabic + English, English alone (narrow 560 px)
+  and Arabic alone (narrow 480 px, "Reports › Monthly" shortened, right to left). Not tried by eye: French; Calendar and Inventory in Arabic alone.

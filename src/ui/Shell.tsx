@@ -1,12 +1,13 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { Fragment, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state';
 import { LangPick } from './LangPick';
 import type { Perm } from '../perms';
 import { Modal, t } from './kit';
-import { getLang, m, tx } from '../i18n';
+import { getLang, m, tx, type Msg } from '../i18n';
 import type { DbInfo } from '../net';
 import { doorsOf, type DoorKey } from '../doors';
-import { Doors } from './Doors';
+import { Doors, doorName } from './Doors';
+import { TrailCtx, buildTrail, type Crumb, type TrailReg } from '../trail';
 import { applyLook, brandStyle, type MyLook } from '../brand';
 import { MyLookWindow } from './MyLook';
 import { Home } from './Home';
@@ -27,7 +28,7 @@ import { holdsControlsOf, peopleDoor } from '../roles';
 import { Calendar } from './Calendar';
 import { InventoryHome } from './InvHome';
 import { Guide } from './Guide';
-import { GuideCtx, GuideSun } from '../guide/GuideView';
+import { GuideButton, GuideCtx, GuideSlotCtx, GuideSun } from '../guide/GuideView';
 import { draftFor, draftKey } from './draft';
 import { PhoneShell } from './Phone';
 import { ReportButton } from './InvProblem';
@@ -50,6 +51,17 @@ export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'repo
 export type Page = 'doors' | 'home' | 'register' | 'paywait' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'admin' | 'guide' | 'people' | 'roles' | 'sentences';
 
 /** "← MAGIS · الأبواب": the way back to the doors page, the arrow turned the way the language reads */
+/** the name each page has in the menus (the line "where am I" uses the same words) */
+const pageLabel = (p: Page, limited: boolean): string => tx(({
+  doors: m('الأبواب', 'Doors', 'Portes'), home: m('الرئيسية', 'Home', 'Accueil'), register: limited ? m('قيودي', 'My entries', 'Mes écritures') : m('السجل', 'Register', 'Registre'),
+  paywait: m('مدفوعات تنتظر الدفاتر', 'Payments waiting for the books', 'Paiements en attente des livres'), cash: m('النقد', 'Cash', 'Caisse'), reports: m('التقارير', 'Reports', 'Rapports'),
+  budget: m('الموازنة', 'Budget', 'Budget'), grants: m('المنح', 'Grants', 'Subventions'), invmap: m('الجرد', 'Inventory', 'Inventaire'), calendar: m('التقويم', 'Calendar', 'Calendrier'),
+  lists: m('القوائم', 'Lists', 'Listes'), admin: m('الإعدادات', 'Settings', 'Réglages'), guide: m('الدليل', 'Guide', 'Guide'), people: m('الأشخاص', 'People', 'Personnes'),
+  roles: m('الأدوار', 'Roles', 'Rôles'), sentences: m('العبارات', 'Sentences', 'Phrases'),
+} as Record<Page, Msg>)[p]);
+/** the guide section the button of the top bar opens on a page that names none */
+const DOOR_GUIDE: Record<DoorKey, string> = { accounts: 'start', calendar: 'calendar', inventory: 'inventory-new', hr: 'start', admin: 'people' };
+
 const backLabel = () => { const l = getLang(); return l === 'ar' || l === 'both' ? '→ MAGIS · الأبواب' : l === 'fr' ? '← MAGIS · Portes' : '← MAGIS · Doors'; };
 
 const PAGES: Page[] = ['doors', 'home', 'register', 'paywait', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'admin', 'guide', 'people', 'roles', 'sentences'];
@@ -85,6 +97,10 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
   here.current = { page, door };
   const [hrPick, setHrPick] = useState(false);
   const [guideSection, setGuideSection] = useState<string | null>(null);
+  // the line "Door › Page › …" and the Guide button in the top bar (src/trail.ts, GuideSlotCtx)
+  const [reg, setReg] = useState<TrailReg | null>(null);
+  const [barGuide, setBarGuide] = useState<string | null>(null);
+  const guideSlot = useCallback((id: string) => { setBarGuide(id); return () => setBarGuide((c) => (c === id ? null : c)); }, []);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [bookOnly, setBookOnly] = useState<number | null>(null);
   // an entry left half-typed at a sign-out for inactivity comes back
@@ -182,8 +198,12 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
       </GuideCtx.Provider></NavCtx.Provider>
     );
 
+  // where one is: the door, the page (the menus' own names), then what the page says it shows inside
+  const doorCrumb: Crumb | null = door && door !== 'hr' ? { label: tx(doorName(door)), go: () => nav.door(door) } : null;
+  const pageCrumb: Crumb | null = page === 'doors' ? null : { label: pageLabel(page, limited) };
+  const trail = buildTrail(doorCrumb, pageCrumb, reg);
   return (
-    <NavCtx.Provider value={nav}><GuideCtx.Provider value={(id) => { setGuideSection(id); nav.go('guide'); }}>
+    <NavCtx.Provider value={nav}><GuideCtx.Provider value={(id) => { setGuideSection(id); nav.go('guide'); }}><GuideSlotCtx.Provider value={guideSlot}><TrailCtx.Provider value={setReg}>
       <div style={theme}>
       <div className="shell">
         <nav className={`side ${menuOpen ? 'open' : ''}`} onClick={(e) => (e.target as HTMLElement).closest('button:not(.menu-toggle)') && setMenuOpen(false)}>
@@ -242,10 +262,14 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
           {page !== 'doors' && (
             <div className="door-bar">
               <button className="door-back" onClick={() => nav.go('doors')} title={backTitle}>{backLabel()}</button>
-              {door === 'accounts' && <span className="door-here">{tx(m('الحسابات', 'Accounts', 'Comptes'))}</span>}
-              {door === 'calendar' && <span className="door-here">{tx(m('التقويم', 'Calendar', 'Calendrier'))}</span>}
-              {door === 'inventory' && <span className="door-here">{tx(m('الجرد', 'Inventory', 'Inventaire'))}</span>}
-              {door === 'admin' && <span className="door-here">{tx(m('الإدارة', 'Administration', 'Administration'))}</span>}
+              <nav className="door-trail" aria-label={tx(m('أين أنا', 'Where you are', 'Où vous êtes'))}>
+                {trail.map((c, i) => (
+                  <Fragment key={i}>
+                    {c.go ? <button type="button" className="crumb link" onClick={c.go}>{c.label}</button> : <span className="crumb" aria-current={i === trail.length - 1 ? 'page' : undefined}>{c.label}</span>}
+                  </Fragment>
+                ))}
+              </nav>
+              {page !== 'guide' && <GuideButton id={barGuide ?? DOOR_GUIDE[door ?? 'accounts']} className="door-guide" />}
             </div>
           )}
           {door === 'admin' && page !== 'doors' && <TestAs s={s} />}
@@ -279,6 +303,6 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
         </Modal>
       )}
       </div>
-    </GuideCtx.Provider></NavCtx.Provider>
+    </TrailCtx.Provider></GuideSlotCtx.Provider></GuideCtx.Provider></NavCtx.Provider>
   );
 }

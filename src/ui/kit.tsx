@@ -1,6 +1,7 @@
 // Small building blocks shared by every screen.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { tx, type Msg } from '../i18n';
+import { useTrail } from '../trail';
 
 /** Bilingual text: "عربي · English" (or English only, by setting). */
 export function T({ ar, en }: { ar: string; en: string }) {
@@ -173,7 +174,8 @@ export function Seg<V extends string>({ value, options, onChange }: { value: V |
   );
 }
 
-export function Tabs<V extends string>({ value, tabs, onChange }: { value: V; tabs: { value: V; label: string; hidden?: boolean }[]; onChange: (v: V) => void }) {
+export function Tabs<V extends string>({ value, tabs, onChange, trail }: { value: V; tabs: { value: V; label: string; hidden?: boolean }[]; onChange: (v: V) => void; /** the open tab is a step of the line "where am I" (src/trail.ts) */ trail?: boolean }) {
+  useTrail(trail ? [{ label: tabs.find((x) => x.value === value)?.label ?? '' }].filter((c) => c.label) : []);
   return (
     <div className="tabs">
       {tabs.filter((x) => !x.hidden).map((x) => (

@@ -1,6 +1,6 @@
 // The guide's screen, the same in the accounts and in HR (Fouad, 2026-11-02): the sections on one side, the chosen
 // section on the other; and the "Guide" button on each page (the MAGIS sun), which opens it at that page's section.
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { m, tx } from '../i18n';
 import type { GuideSection } from './content';
 
@@ -12,16 +12,31 @@ export function GuideSun({ size = 18, light = false }: { size?: number; light?: 
   return <img src="/brand/magis-sun.png" alt="" style={{ width: size, height: size, objectFit: 'contain', verticalAlign: 'middle', filter: light ? 'brightness(0) invert(1)' : undefined }} />;
 }
 
-/** The guide's button on a page: the MAGIS sun and "Guide", in the welcome page's colours; opens its section. */
-export function GuideLink({ id }: { id: string }) {
+/**
+ * (25 November 2026) Inside a door the Guide button is always at the same place, in the top bar (Shell): a page's GuideLink then
+ * only says which section it opens, and the bar shows the button. Outside (HR, communities, windows) the button stays where it is.
+ */
+export const GuideSlotCtx = createContext<((id: string) => () => void) | null>(null);
+
+/** The Guide button itself (the top bar, or in place on a page without the bar). */
+export function GuideButton({ id, className, style }: { id?: string | null; className?: string; style?: React.CSSProperties }) {
   const open = useContext(GuideCtx);
   return (
-    <button type="button" onClick={() => open(id)} title={tx(m('الدليل: كيف تعمل هذه الصفحة', 'Guide: how this page works', 'Guide : comment fonctionne cette page'))}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginInlineStart: 10, verticalAlign: 'middle', padding: '2px 10px 2px 6px', borderRadius: 999,
-        border: '1px solid #B8891B', background: '#FBF7EE', color: '#8A6A1A', font: 'inherit', fontSize: 13, fontWeight: 600, lineHeight: '20px', cursor: 'pointer' }}>
+    <button type="button" className={className} onClick={() => open(id ?? '')} title={tx(m('الدليل: كيف تعمل هذه الصفحة', 'Guide: how this page works', 'Guide : comment fonctionne cette page'))}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px 2px 6px', borderRadius: 999,
+        border: '1px solid #B8891B', background: '#FBF7EE', color: '#8A6A1A', font: 'inherit', fontSize: 13, fontWeight: 600, lineHeight: '20px', cursor: 'pointer', whiteSpace: 'nowrap', ...style }}>
       <GuideSun size={20} />{tx(m('الدليل', 'Guide', 'Guide'))}
     </button>
   );
+}
+
+/** The guide's button on a page: the MAGIS sun and "Guide", in the welcome page's colours; opens its section. */
+export function GuideLink({ id, here }: { id: string; /** keep the button in place (a window, a part of a page) */ here?: boolean }) {
+  const slot = useContext(GuideSlotCtx);
+  const inBar = !!slot && !here;
+  useEffect(() => (inBar ? slot!(id) : undefined), [inBar, slot, id]);
+  if (inBar) return null;
+  return <GuideButton id={id} style={{ marginInlineStart: 10, verticalAlign: 'middle' }} />;
 }
 
 export function GuideView({ sections, initial }: { sections: GuideSection[]; initial?: string | null }) {

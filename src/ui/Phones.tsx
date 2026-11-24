@@ -26,7 +26,7 @@ export function Phones() {
   const old = (p: PhoneInfo) => Date.now() > Date.parse(p.last_sync ?? p.created_at) + DAYS * 86_400_000;
   return (
     <div className="panel" style={{ marginTop: 14 }}>
-      <h3 style={{ marginTop: 0 }}>📱 {t3('الهواتف', 'Phones', 'Téléphones')}<GuideLink id="phone-install" /></h3>
+      <h3 style={{ marginTop: 0 }}>📱 {t3('الهواتف', 'Phones', 'Téléphones')}<GuideLink here id="phone-install" /></h3>
       <p className="muted small">
         {t3('من يكتب في دفتر يسجّل النفقات والإيرادات من هاتفه، بعيداً عن المركز، والهاتف يرسلها حين يعود إلى شبكة المركز.', "Someone who writes in a book can record expenses and income on a phone, away from the centre; the phone sends them when it is back on the centre's network.", "Qui écrit dans un livre peut noter dépenses et recettes sur un téléphone, loin du centre ; le téléphone les envoie de retour sur le réseau du centre.")}
       </p>

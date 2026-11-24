@@ -56,7 +56,7 @@ export function ProjectSheet({ projectId, onClose }: { projectId: number; onClos
   };
 
   return (
-    <Modal title={<>{acc.name}<GuideLink id="grant-steps" /></>} onClose={onClose}>
+    <Modal title={<>{acc.name}<GuideLink here id="grant-steps" /></>} onClose={onClose}>
       <div className="muted small ltr" style={{ marginTop: -6 }}>{acc.start_date ?? '…'} → {acc.end_date ?? '…'}{b?.budget ? ` · ${b.budget.name}` : ''}</div>
       <Tabs value={sec} onChange={setSec} tabs={[
         { value: 'overview', label: t('نظرة عامة', 'Overview') },

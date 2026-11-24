@@ -131,7 +131,7 @@ export function Reports() {
         {tab !== 'export' && period}
         {tab !== 'export' && <button className="btn" disabled={busy} onClick={excelOfScreen} title={t('ملف Excel لما على الشاشة، بفترته', 'An Excel file of what is on the screen, with its period')}>⬇ {t('تصدير', 'Export')} Excel</button>}
       </div>
-      <Tabs value={tab} onChange={setTab} tabs={[
+      <Tabs trail value={tab} onChange={setTab} tabs={[
         { value: 'summary', label: t('الملخص', 'Summary'), hidden: !can('reports.summary') },
         { value: 'explore', label: t('التحليل', 'Explore'), hidden: !can('reports.summary') },
         { value: 'quarters', label: t('الفصول والبنود', 'Quarters & categories'), hidden: !can('reports.summary') },

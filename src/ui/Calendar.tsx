@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../state';
 import { Field, Modal, Seg, Tabs, biName, confirmBox, errText, parseAmount, promptBox, t, toast, todayIso } from './kit';
+import { useTrail } from '../trail';
 import { m, tx, monthWord } from '../i18n';
 import { addDays, colorOf, type Currency } from '../hosting/host';
 import { calTotals, givenBack, holdDate, holdPassed, inCalendar, mayChange, occurrences, received, seesPrices, sleepsIn, type CalBooking, type CalData, type CalOrg, type CalSpace, type Totals } from '../hosting/calendar';
@@ -66,14 +67,15 @@ export function Calendar() {
     try { setData(await s.api.call('cal.get')); } catch (e) { toast(errText(e), true); }
   }, [s]);
   useEffect(() => { void load(); }, [load, d]);
+  const setup = !!data && (data.rights.setup || data.rights.whole);
+  useTrail(screen === 'settings' && setup ? [{ label: L('الإعدادات', 'Settings', 'Réglages') }] : [], () => setScreen('calendar'));
   if (!data) return <p className="muted">…</p>;
-  const setup = data.rights.setup || data.rights.whole;
   return (
     <>
       {/* calendar ↔ settings, easy to see both ways (Fouad's first test, 23 November 2026) */}
       {screen === 'settings' && setup ? (
         <div className="page-head">
-          <h1><button className="linkish cal-crumb" onClick={() => setScreen('calendar')}>{L('التقويم', 'Calendar', 'Calendrier')}</button> <span className="muted">›</span> {L('الإعدادات', 'Settings', 'Réglages')}</h1>
+          <h1>{L('إعدادات التقويم', 'Calendar settings', 'Réglages du calendrier')}</h1>
           <button className="btn primary cal-back" onClick={() => setScreen('calendar')}>{L('رجوع إلى التقويم', 'Back to the calendar', 'Retour au calendrier')}</button>
         </div>
       ) : (

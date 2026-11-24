@@ -21,6 +21,7 @@ import { QuickAddRoom, ReadyLists } from './InvQuick';
 import { ProblemsView, ReportButton } from './InvProblem';
 import { CountListWindow, DonorReportWindow, SpacePrint } from './InvPaper';
 import type { InvProblem } from '../inventory/problems';
+import { useTrail } from '../trail';
 
 const L = (ar: string, en: string, fr: string) => tx(m(ar, en, fr));
 /** an amount in dollars, with its sign */
@@ -78,6 +79,20 @@ export function InventoryHome() {
   const er = useEntries();
   const pending = useMemo(() => pendingEntries(er.rows, d.lists, d.inv), [er, d.lists, d.inv]);
 
+  // the line "where am I": Inventory › Spaces › Sample Bedroom 3 (an item: › its space › the item)
+  const trailExtra = (() => {
+    if (!inv) return [];
+    if (screen.k === 'settings') return [{ label: L('الإعدادات', 'Settings', 'Réglages') }];
+    if (screen.k === 'quick') return [{ label: L('إضافة غرفة', 'Add a room', 'Ajouter une salle') }];
+    if (screen.k === 'space') { const sp = inv.spaces.find((x) => x.id === screen.id); return sp ? [{ label: L('الأماكن', 'Spaces', 'Espaces'), go: () => setScreen({ k: 'home' }) }, { label: sp.name }] : []; }
+    if (screen.k === 'item') {
+      const it = inv.items.find((x) => x.id === screen.id);
+      const sp = it ? spaceOfPlace(inv.spaces, it.place_id) : null;
+      return it ? [...(sp ? [{ label: sp.name, go: () => setScreen({ k: 'space', id: sp.id }) }] : []), { label: it.name }] : [];
+    }
+    return [];
+  })();
+  useTrail(trailExtra, () => setScreen({ k: 'home' }));
   if (!inv) return <p className="muted">…</p>;
   const go = (x: Screen) => { setScreen(x); window.scrollTo(0, 0); };
   const home = () => go({ k: 'home' });
@@ -87,7 +102,7 @@ export function InventoryHome() {
       {/* the inventory ↔ its settings, easy to see both ways (Fouad's first test, 23 November 2026), as in the calendar */}
       {screen.k === 'settings' && keep ? (
         <div className="page-head">
-          <h1><button className="linkish cal-crumb" onClick={home}>{L('الجرد', 'Inventory', 'Inventaire')}</button> <span className="muted">›</span> {L('الإعدادات', 'Settings', 'Réglages')}</h1>
+          <h1>{L('إعدادات الجرد', 'Inventory settings', 'Réglages de l’inventaire')}</h1>
           <button className="btn primary cal-back" onClick={home}>{L('رجوع إلى الجرد', 'Back to the inventory', 'Retour à l’inventaire')}</button>
         </div>
       ) : (

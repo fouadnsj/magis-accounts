@@ -55,7 +55,7 @@ export function Admin() {
     <>
       <div className="page-head"><h1>{t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' || tab === 'checks' ? 'months' : 'admin'} /></h1></div>
       {s.mode === 'desktop' && <p className="muted small ltr" style={{ textAlign: 'start' }}>{s.dbPath}</p>}
-      <Tabs value={tab} onChange={setTab} tabs={tabs} />
+      <Tabs trail value={tab} onChange={setTab} tabs={tabs} />
       {tab === 'start' && can('data.import') && !d.rows.length && <StartFromWorkbook />}
       {tab === 'months' && <Months />}
       {tab === 'checks' && <Checks />}

@@ -1240,3 +1240,19 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .tvprev .a { font-family: var(--serif-ar, 'Amiri', serif); font-size: 24px; font-weight: 700; color: #f3d98a; line-height: 1.5; }
 .tvprev .e { font-family: Georgia, serif; font-style: italic; font-size: 16px; color: #d4cfc2; }
 tr.sel td { background: rgba(224, 185, 74, .12); }
+
+/* "Where am I" line and the Guide button in the top bar of every door (25 November 2026): back button | trail | Guide, always in this order */
+.door-bar { min-width: 0; }
+.door-trail { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; font-size: 13px; color: var(--soft); }
+.door-trail .crumb { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.door-trail .crumb + .crumb::before { content: '›'; margin-inline-end: 6px; color: var(--soft); opacity: .7; }
+:root[dir="rtl"] .door-trail .crumb + .crumb::before { content: '‹'; }
+.door-trail button.crumb { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.door-trail button.crumb:hover { color: var(--ink); text-decoration: underline; }
+.door-trail .crumb:last-child { color: var(--ink); font-weight: 600; }
+.door-guide { flex: 0 0 auto; margin-inline-start: auto; }
+@media (max-width: 640px) {
+  /* narrow: only the last two steps, never wrapping over the page */
+  .door-trail .crumb:not(:nth-last-child(-n+2)) { display: none; }
+  .door-trail .crumb:nth-last-child(2)::before { display: none; }
+}

@@ -459,3 +459,33 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   Administrator only; who sees the door). 424 tests pass.
 - Tried in the side pane on a copy: Fouad sees five doors, Administration → People and Roles with "Advanced"; Nagham
   (Director) has People and Roles, no "Advanced"; Assem (Accountant) has no Administration door and keeps Settings → Book holders.
+
+## 21. Respo book and Grants for the Administrator only (roles step 2, 25 November 2026; no database update)
+Fouad's decision: the Respo book (and every private book) and the grants/donors are the Administrator's alone. A Director sees the centre's own
+money, the **project** and the amounts, **never the donor's name nor the grant steps**. The two ticks (`register.private`, `lists.donors`) were
+already refused in every role but the Administrator's (step 1). This step goes through every place that sent or showed them, and makes **the
+server cut what it sends** (not only the screen).
+- **What the server no longer sends** to someone without `lists.donors` / `register.private` (tested through the real server, `tests/respo-admin-only.test.ts`):
+  the donors, grants, grant parts and shares (as before); the **link to a grant** (`grant_id`) on every row; the Respo book's **opening money**
+  (its name stays: the transfers it makes name it); the months closed for it; the **documents** of its rows (`doc.get` refused); the other leg of a
+  transfer from it shows the amount, not why; in the **audit trail** every line about grants, donors and Province sends, and every line about a
+  row of a private book; in **Province sends** the donor, the contract and the text written (date, amount, project stay); in the **lists file** for
+  the holders the Respo book's opening money and what is written on its transfers; **backup compare** (same rules as the register).
+- **Writing**: a person without the grants can neither link nor unlink a grant when saving a row (the row keeps the grant it had); only the
+  Administrator makes a book private or public again (`book.setPrivate` needed only `users.manage`, so a Director could have opened the Respo book);
+  a private book you do not see is not changed by Lists → Books (`book.save` refused); "All centres" on a server without a directory now needs the grants
+  tick as well as the users tick (the Director has `users.manage`).
+- **Screens**: Reports → *By project* (Grant, Received, Left columns) and *Funding* ("Reached the Respo", "With the Respo", grants / other in) only for
+  the Administrator; Budget → *Projects* (Grant, the project's money, Difference) and the project page (grant share, received) only for the Administrator;
+  the book lists (Register filter, Files, Quarters, Lists → Books, Excel Books and Holders sheets) show the books you may see (the Respo book is not
+  listed for others). A Director sees the project, its budget lines and what it spent.
+- **Old Custom roles** that still carry donors or the Respo book (kept by step 1 so nobody is locked out): Admin → Users shows the Administrator a
+  short notice listing them (name, how many people, which of the two). Nothing is removed automatically; they cannot be given to anyone new.
+  (`src/ui/OldRolesNotice.tsx`, shown on the People page above the users list.)
+- **Tried** on a COPY of the test data (own port, password test123) as Administrator and as a new Director: the Director's data has 0 grants,
+  0 donors, 0 `grant_id`, no Respo income rows (4 transfers only, no explanation), opening money 0, no donor/grant line in the audit trail, Reports and
+  Budget screens without the grant columns; the Administrator sees everything as before and the notice lists the old role "Secretary (old)".
+- **Not changed / for Fouad to know**: a full **copy** of the database (`backup.download`, tick "Takes a copy", asked a copy password) always holds
+  everything, grants included: give that tick only to the Administrator. A private book's monthly expense totals ("Private expenses") stay visible as
+  before. The phone app already sent only the books a person keeps. Writing in the Respo book by a custom role with `register.edit` but without
+  `register.private` is not refused (nobody has that today; to decide with the roles screen, step 3).

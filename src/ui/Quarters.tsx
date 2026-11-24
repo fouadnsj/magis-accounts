@@ -57,7 +57,7 @@ export function QuartersTab() {
     : lines.map((l) => ({ key: l.id, label: `${icons.line(l.id)} ${l.name}`, value: q(now, qsel, (r) => r.line_id === l.id) }))
   ).filter((p) => p.value > 0);
   // which book: each book's share of the chosen heading in the chosen quarter, and in the year
-  const books = d.lists.books.filter((b) => now.some((r) => r.book_id === b.id));
+  const books = d.shownBooks.filter((b) => now.some((r) => r.book_id === b.id));
   const who = books.map((b) => ({ b, q: q(now, qsel, (r) => r.book_id === b.id && inSel(r)), year: sum(now, (r) => r.book_id === b.id && inSel(r)) })).filter((x) => x.q || x.year);
 
   const table = sel == null

@@ -993,6 +993,8 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
   const { d, can } = useApp();
   const { assigned, books } = useAssignment(b);
   const mayFund = can('budget.manage') && can('lists.donors');
+  // the grant, the project's money from it and the difference: the Administrator's alone (a Director sees the project, its lines and what it spent)
+  const donorsOn = can('lists.donors');
   const [giving, setGiving] = useState<number | null>(null);
   // a project's row opens to show its lines and the items inside them (where an item goes)
   const [open, setOpen] = useState<number | null>(null);
@@ -1025,10 +1027,10 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
           <thead>
             <tr>
               <th>{t('المشروع', 'Project')}</th>
-              <th>{t('المنحة', 'Grant')}</th>
-              <th className="n">{t('مال المشروع هنا', "The project's money here")} $</th>
+              {donorsOn && <th>{t('المنحة', 'Grant')}</th>}
+              {donorsOn && <th className="n">{t('مال المشروع هنا', "The project's money here")} $</th>}
               <th className="n">{t('خطوطه في الموازنة', 'Its lines in the budget')} $</th>
-              <th>{t('الفرق', 'Difference')}</th>
+              {donorsOn && <th>{t('الفرق', 'Difference')}</th>}
               <th className="n">{t('صُرف على خطوطه', 'Spent on its lines')} $</th>
               {mayFund && <th />}
             </tr>
@@ -1046,15 +1048,15 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
               return [
                 <tr key={f.id} className="click" onClick={() => setOpen(open === f.id ? null : f.id)}>
                   <td><b>{mine.length ? (open === f.id ? '▾ ' : '▸ ') : ''}{f.name}</b> <button className="btn small ghost" title={t('صفحة المشروع', 'The project page')} onClick={(e) => { e.stopPropagation(); setSheet(f.id); }}>📄</button>{f.start_date || f.end_date ? <div className="muted small ltr">{f.start_date ?? '…'} → {f.end_date ?? '…'}</div> : null}</td>
-                  <td className="small">{mo ? <>{d.lists.donors.find((x) => x.id === mo.grant.donor_id)?.name}{mo.grant.reference ? <span className="muted"> · {mo.grant.reference}</span> : null}{mo.grant.currency === 'EUR' ? <span className="muted ltr"> · €{fmtUsd(mo.share)}</span> : null}</> : <span className="muted">{t('خاص', 'Private')}</span>}</td>
-                  <td className="n">{mo ? fmtUsd(mo.usd) : '—'}</td>
+                  {donorsOn && <td className="small">{mo ? <>{d.lists.donors.find((x) => x.id === mo.grant.donor_id)?.name}{mo.grant.reference ? <span className="muted"> · {mo.grant.reference}</span> : null}{mo.grant.currency === 'EUR' ? <span className="muted ltr"> · €{fmtUsd(mo.share)}</span> : null}</> : <span className="muted">{t('خاص', 'Private')}</span>}</td>}
+                  {donorsOn && <td className="n">{mo ? fmtUsd(mo.usd) : '—'}</td>}
                   <td className="n">{fmtUsd(lines)}</td>
-                  <td className="small">
+                  {donorsOn && <td className="small">
                     {diff == null ? '' : diff < -0.5
                       ? <span className="bad">{t('ينقص', 'Short by')} <span className="ltr">{usd(-diff)}</span></span>
                       : diff > 0.5 ? <span>{t('لم يُعطَ لخطوط بعد', 'Not yet given to lines')} <span className="ltr">{usd(diff)}</span></span>
                       : <span className="ok">✓ {t('مطابق', 'Matches')}</span>}
-                  </td>
+                  </td>}
                   <td className="n">{fmtUsd(spentOf(f.id))}</td>
                   {mayFund && <td className="right" onClick={(e) => e.stopPropagation()}><button className="btn small" onClick={() => setGiving(f.id)}>{t('أعطه خطوطاً…', 'Give it lines…')}</button></td>}
                 </tr>,
@@ -1063,12 +1065,12 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
                   const its = b.items.filter((i) => i.line_id === r.line_id);
                   return (
                     <tr key={`${f.id}-${r.line_id}`} className="sub">
-                      <td colSpan={3} style={{ paddingInlineStart: 22 }}>
+                      <td colSpan={donorsOn ? 3 : 1} style={{ paddingInlineStart: 22 }}>
                         {d.lists.headings.find((h) => h.id === r.heading_id)?.name} › <b>{line?.name}</b>
                         {its.length ? <div className="muted small">{its.map((i) => `${i.name} (${usd(itemTotal(i))})`).join(' · ')}</div> : null}
                       </td>
                       <td className="n">{fmtUsd(r.budget)}</td>
-                      <td />
+                      {donorsOn && <td />}
                       <td className="n">{fmtUsd(r.spent)}</td>
                       {mayFund && <td />}
                     </tr>
@@ -1078,15 +1080,15 @@ function FundsTab({ b, reload }: { b: BudgetPayload; reload: () => Promise<void>
             })}
             <tr className="group">
               <td><b className="bad">{t('غير ممول', 'Not funded')}</b></td>
-              <td /><td />
+              {donorsOn && <><td /><td /></>}
               <td className="n"><b>{fmtUsd(notFunded)}</b></td>
-              <td /><td className="n">{fmtUsd(spentOf(NOFUND))}</td>
+              {donorsOn && <td />}<td className="n">{fmtUsd(spentOf(NOFUND))}</td>
               {mayFund && <td />}
             </tr>
           </tbody>
         </table>
       </div>
-      <p className="muted small">{t('مال المنحة هنا = حصة هذا المركز في صفحة المنح (اليورو بسعر الموازنة). المشروع الخاص بلا مبلغ محدد.', "A grant's money here = this centre's share on the Grants page (euros at the budget's rate). A private project has no set amount.")}</p>
+      {donorsOn && <p className="muted small">{t('مال المنحة هنا = حصة هذا المركز في صفحة المنح (اليورو بسعر الموازنة). المشروع الخاص بلا مبلغ محدد.', "A grant's money here = this centre's share on the Grants page (euros at the budget's rate). A private project has no set amount.")}</p>}
       {sheet != null && <ProjectSheet projectId={sheet} onClose={() => setSheet(null)} />}
       {giving != null && <GiveLines b={b} fundId={giving} onClose={() => setGiving(null)} onDone={async () => { setGiving(null); await reload(); }} />}
       {!mayFund && <p className="muted small">{t('يعطي المشاريعَ للخطوط من يحفظ المنح.', 'Projects are given to lines by who keeps the grants.')}</p>}

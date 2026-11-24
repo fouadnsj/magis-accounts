@@ -399,7 +399,7 @@ function BooksTab() {
       <table className="t">
         <thead><tr><th>{t('الدفتر', 'Book')}</th><th>{t('الأمين', 'Keeper')}</th><th>{t('المدينة', 'City')}</th><th className="n">{t('افتتاحي ل.س', 'Opening SYP')}</th><th className="n">{t('افتتاحي $', 'Opening USD')}</th><th className="n">{t('سطور', 'Rows')}</th><th /></tr></thead>
         <tbody>
-          {L.books.map((b) => (
+          {d.shownBooks.map((b) => (
             <tr key={b.id} className={b.active ? '' : 'off'}>
               <td><b>{b.name}</b>{b.is_main ? <span className="muted small"> · {t('رئيسي', 'main')}</span> : null}{b.private ? <span className="muted small"> · 🔒 {t('خاص', 'private')}</span> : null}</td>
               <td>{b.keeper_name}</td><td>{name(L.cities, b.city_id)}</td>

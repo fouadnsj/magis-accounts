@@ -15,7 +15,7 @@ type Sec = 'overview' | 'lines' | 'grant' | 'expenses';
 const usd = (n: number | null | undefined) => (n == null ? '—' : `$${fmtUsd(n)}`);
 
 export function ProjectSheet({ projectId, onClose }: { projectId: number; onClose: () => void }) {
-  const { s, d } = useApp();
+  const { s, d, can } = useApp();
   const names = useNames();
   const [sec, setSec] = useState<Sec>('overview');
   const acc = d.lists.accounts.find((a) => a.id === projectId)!;
@@ -66,10 +66,10 @@ export function ProjectSheet({ projectId, onClose }: { projectId: number; onClos
       ]} />
       {sec === 'overview' && (
         <div className="cards" style={{ marginTop: 10 }}>
-          <div className="card"><div className="k">{t('حصة المنحة هنا', "The grant's share here")}</div><div className="v ltr">{usd(shareUsd)}</div></div>
+          {can('lists.donors') && <div className="card"><div className="k">{t('حصة المنحة هنا', "The grant's share here")}</div><div className="v ltr">{usd(shareUsd)}</div></div>}
           <div className="card"><div className="k">{t('خطوطه في الموازنة', 'Its lines in the budget')}</div><div className="v ltr">{usd(linesTotal)}</div>
-            <div className="muted small">{shareUsd == null ? '' : Math.abs(shareUsd - linesTotal) <= 0.5 ? `✓ ${t('مطابق', 'Matches')}` : shareUsd > linesTotal ? `${t('لم يُعطَ لخطوط بعد', 'Not yet given to lines')} ${usd(shareUsd - linesTotal)}` : `${t('ينقص', 'Short by')} ${usd(linesTotal - shareUsd)}`}</div></div>
-          <div className="card"><div className="k">{t('وصل باليد', 'Received in hand')}</div><div className="v ltr">{usd(p?.received)}</div></div>
+            <div className="muted small">{shareUsd == null || !can('lists.donors') ? '' : Math.abs(shareUsd - linesTotal) <= 0.5 ? `✓ ${t('مطابق', 'Matches')}` : shareUsd > linesTotal ? `${t('لم يُعطَ لخطوط بعد', 'Not yet given to lines')} ${usd(shareUsd - linesTotal)}` : `${t('ينقص', 'Short by')} ${usd(linesTotal - shareUsd)}`}</div></div>
+          {can('lists.donors') && <div className="card"><div className="k">{t('وصل باليد', 'Received in hand')}</div><div className="v ltr">{usd(p?.received)}</div></div>}
           <div className="card"><div className="k">{t('صُرف', 'Spent')}</div><div className="v ltr">{usd(p?.spentAll ?? 0)}</div>
             <div className="muted small">{p?.left != null ? `${t('باقٍ', 'Left')} ${usd(p.left)}` : ''}</div></div>
         </div>

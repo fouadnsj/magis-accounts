@@ -1221,8 +1221,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
 
     // ---- HR: fill the lists (centre, accounts, budget lines) from the budget of a centre database. Names and codes only.
     // who may see every centre together (Fouad, 2026-11-02): the administrator only — the directory's administrator; a
-    // server with no directory yet: whoever manages the users, on the server computer itself
-    const allCentresAllowed = () => !!dirPerson?.admin || (!directory.people.length && isLocal(req) && !!found && has(found[1].profile, 'users.manage'));
+    // server with no directory yet: whoever manages the users and keeps the grants (the Administrator), on the server computer itself
+    const allCentresAllowed = () => !!dirPerson?.admin || (!directory.people.length && isLocal(req) && !!found && has(found[1].profile, 'users.manage') && has(found[1].profile, 'lists.donors'));
     if (url === '/api/all-centres/allowed' && method === 'GET') return send(res, 200, { allowed: !!found && allCentresAllowed() });
 
     // ---- The main lists of headings and lines (Fouad, 2026-11-03; several, one per kind of project, 2026-11-07): kept on

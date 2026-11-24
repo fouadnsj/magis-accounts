@@ -38,7 +38,7 @@ function OfficeFiles() {
   const doExport = async () => {
     setBusy(true);
     try {
-      const bytes = await exportWorkbook(d.rows, d.comp, d.lists, {
+      const bytes = await exportWorkbook(d.rows, d.comp, { ...d.lists, books: d.shownBooks }, {
         period: allPeriod ? null : { from, to }, bookId: book, accountId: account, registerOnly, withLists, withReports,
         confidential: isSup && confidential, grants: isSup && confidential ? d.grants : [], grantParts: isSup && confidential ? d.grantParts : [], organisation: s.organisation,
       });
@@ -68,7 +68,7 @@ function OfficeFiles() {
     }
   };
 
-  const books = d.lists.books.map((b) => ({ value: b.id, label: b.name }));
+  const books = d.shownBooks.map((b) => ({ value: b.id, label: b.name }));
   const accounts = d.lists.accounts.map((b) => ({ value: b.id, label: b.name }));
 
   return (

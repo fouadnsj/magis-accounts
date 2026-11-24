@@ -530,6 +530,8 @@ function ProjectsTab({ p }: { p: Period }) {
   const total = inside.reduce((t, x) => t + x.spent, 0);
   const notFunded = report.find((x) => x.id == null)?.spent ?? 0;
   const money = (n: number, cur: string) => `${cur === 'EUR' ? '€' : '$'}${fmtUsd(n)}`;
+  // the grant (its donor), what was received and what is left: the Administrator's alone; a Director sees the project and what it spent
+  const donorsOn = can('lists.donors');
   const label = (x: ProjectRow) => (x.id == null ? t('غير ممول', 'Not funded') : x.name);
   const excel = async (x: ProjectRow) => {
     try {
@@ -550,18 +552,18 @@ function ProjectsTab({ p }: { p: Period }) {
           <button className="btn small ghost" onClick={() => setOpen(open === k ? null : k)}>{open === k ? '▾' : '▸'}</button>{' '}
           <b className={x.id == null ? 'bad' : ''}>{label(x)}</b>
         </td>
-        <td className="small">
+        {donorsOn && <td className="small">
           {x.grant ? <>{names.donor(x.grant.donor_id)}{x.grant.reference ? <span className="muted"> · {x.grant.reference}</span> : null}{x.share != null ? <span className="muted ltr"> · {money(x.share, x.grant.currency)}</span> : null}</> : x.id == null || !can('lists.donors') ? '' : <span className="muted">{t('خاص', 'Private')}</span>}
-        </td>
-        <td className="n">{x.received == null ? '—' : fmtUsd(x.received)}</td>
+        </td>}
+        {donorsOn && <td className="n">{x.received == null ? '—' : fmtUsd(x.received)}</td>}
         <td className="n">{fmtUsd(x.spent)}</td>
         <td className="n muted">{fmtUsd(x.spentAll)}</td>
-        <td className={`n ${x.left != null && x.left < -0.5 ? 'bad' : ''}`}>{x.left == null ? '—' : fmtUsd(x.left)}</td>
+        {donorsOn && <td className={`n ${x.left != null && x.left < -0.5 ? 'bad' : ''}`}>{x.left == null ? '—' : fmtUsd(x.left)}</td>}
         <td className="right"><button className="btn small" disabled={!x.expenses.length} onClick={() => excel(x)}>Excel</button></td>
       </tr>,
       open === k ? (
         <tr key={`${k}-lines`} className="items-row">
-          <td colSpan={7}>
+          <td colSpan={donorsOn ? 7 : 4}>
             <table className="t">
               <tbody>
                 {x.lines.map((l) => (
@@ -581,8 +583,8 @@ function ProjectsTab({ p }: { p: Period }) {
   };
   const head = (
     <thead><tr>
-      <th>{t('المشروع', 'Project')}</th><th>{t('المنحة', 'Grant')}</th><th className="n">{t('استُلم باليد', 'Received in hand')} $</th>
-      <th className="n">{t('صُرف في الفترة', 'Spent in the period')} $</th><th className="n">{t('صُرف منذ البداية', 'Spent since the beginning')} $</th><th className="n">{t('الباقي', 'Left')} $</th><th />
+      <th>{t('المشروع', 'Project')}</th>{donorsOn && <th>{t('المنحة', 'Grant')}</th>}{donorsOn && <th className="n">{t('استُلم باليد', 'Received in hand')} $</th>}
+      <th className="n">{t('صُرف في الفترة', 'Spent in the period')} $</th><th className="n">{t('صُرف منذ البداية', 'Spent since the beginning')} $</th>{donorsOn && <th className="n">{t('الباقي', 'Left')} $</th>}<th />
     </tr></thead>
   );
   return (
@@ -601,7 +603,9 @@ function ProjectsTab({ p }: { p: Period }) {
           <div className="tbl-wrap"><table className="t">{head}<tbody>{outside.flatMap(rowOf)}</tbody></table></div>
         </>
       )}
-      <p className="muted small">{t('الليرات بالدولار بسعر كل نفقة. «الباقي» = ما استُلم باليد ناقص كل ما صُرف على المشروع منذ البداية. مصروف المشروع يأتي من خط الموازنة.', 'Pounds are in dollars at the rate of each expense. "Left" = what was received in hand minus all that was spent on the project since the beginning. A project\'s spending comes from the budget line.')}</p>
+      <p className="muted small">{donorsOn
+        ? t('الليرات بالدولار بسعر كل نفقة. «الباقي» = ما استُلم باليد ناقص كل ما صُرف على المشروع منذ البداية. مصروف المشروع يأتي من خط الموازنة.', 'Pounds are in dollars at the rate of each expense. "Left" = what was received in hand minus all that was spent on the project since the beginning. A project\'s spending comes from the budget line.')
+        : t('الليرات بالدولار بسعر كل نفقة. مصروف المشروع يأتي من خط الموازنة.', "Pounds are in dollars at the rate of each expense. A project's spending comes from the budget line.")}</p>
     </>
   );
 }
@@ -710,7 +714,9 @@ function ExchangeTab({ p, names }: { p: Period; names: ReturnType<typeof useName
 }
 
 function FundingTab({ p }: { p: Period }) {
-  const { d } = useApp();
+  const { d, can } = useApp();
+  // what reached the Respo book and what it holds: only for who sees that book (the Administrator); the others see what it sent to the centre
+  const respoOn = can('register.private');
   const f = funding(d.rows, d.comp, d.lists, d.grantsBookId, p);
   const s = f.total;
   const pct = (x: number) => fmtPct(x);
@@ -720,14 +726,14 @@ function FundingTab({ p }: { p: Period }) {
         'سرّي · نفقات المركز (كل الدفاتر، ومنها دفترك) وكيف تُدفع: بإيراد المركز الذاتي، وبما يرسله دفتر المسؤول (المنح، الرهبنة). دفتر المسؤول خارج المركز.',
         "Confidential · The centre's expenses (every book, yours too) and how they are paid: by the centre's own income, and by what the Respo book sends (grants, the Province). The Respo book is outside the centre.")}
         {' '}{t('(لمعرفة ما صُرف من كل منحة ومشروع: «حسب المشروع».)', '(For what each grant and project spent: "By project".)')}</div>
-      {d.grantsBookId == null && <div className="alert warn small">{t('لا دفتر للمسؤول بعد', 'No Respo book yet')}</div>}
+      {respoOn && d.grantsBookId == null && <div className="alert warn small">{t('لا دفتر للمسؤول بعد', 'No Respo book yet')}</div>}
       <div className="cards">
         <Card k={t('نفقات المركز', "Centre's expenses")} v={fmtUsd(s.expenses)} />
         <Card k={t('إيراد ذاتي', 'Own income')} v={fmtUsd(s.own)} sub={pct(s.pctOwn)} />
         <Card k={t('من المسؤول', 'From the Respo')} v={fmtUsd(s.fromRespo)} sub={pct(s.pctRespo)} />
         <Card k={t('فائض / (عجز)', 'Surplus / (shortfall)')} v={fmtUsd(s.surplus)} sub={s.expenses ? `${pct(Math.max(0, 1 - s.pctOwn - s.pctRespo))} ${t('غير مغطى', 'not covered')}` : undefined} />
-        <Card k={t('وصل إلى المسؤول', 'Reached the Respo')} v={fmtUsd(s.respoGrants + s.respoOther)} sub={`${t('منح', 'grants')} ${fmtUsd(s.respoGrants)} · ${t('غيرها', 'other')} ${fmtUsd(s.respoOther)}`} />
-        <Card k={t('لدى المسؤول', 'With the Respo')} v={`${fmtUsd(f.respoUsd)} USD`} sub={`${fmtSyp(f.respoSyp)} SYP`} />
+        {respoOn && <Card k={t('وصل إلى المسؤول', 'Reached the Respo')} v={fmtUsd(s.respoGrants + s.respoOther)} sub={`${t('منح', 'grants')} ${fmtUsd(s.respoGrants)} · ${t('غيرها', 'other')} ${fmtUsd(s.respoOther)}`} />}
+        {respoOn && <Card k={t('لدى المسؤول', 'With the Respo')} v={`${fmtUsd(f.respoUsd)} USD`} sub={`${fmtSyp(f.respoSyp)} SYP`} />}
       </div>
       <h3 style={{ marginTop: 18 }}>{t('حسب الشهر', 'By month')} (USD-eq)</h3>
       <div className="tbl-wrap">
@@ -735,7 +741,7 @@ function FundingTab({ p }: { p: Period }) {
           <thead><tr>
             <th>{t('الشهر', 'Month')}</th><th className="n">{t('نفقات', 'Expenses')}</th><th className="n">{t('إيراد ذاتي', 'Own income')}</th><th className="n">% {t('ذاتي', 'own')}</th>
             <th className="n">{t('من المسؤول', 'From the Respo')}</th><th className="n">% {t('المسؤول', 'Respo')}</th><th className="n">{t('فائض/(عجز)', 'Surplus')}</th>
-            <th className="n">{t('منح وصلت', 'Grants in')}</th><th className="n">{t('غيرها وصل', 'Other in')}</th>
+            {respoOn && <th className="n">{t('منح وصلت', 'Grants in')}</th>}{respoOn && <th className="n">{t('غيرها وصل', 'Other in')}</th>}
           </tr></thead>
           <tbody>
             {[...f.byMonth, s].map((m) => (
@@ -744,7 +750,7 @@ function FundingTab({ p }: { p: Period }) {
                 <td className="n">{fmtUsd(m.expenses)}</td><td className="n">{fmtUsd(m.own)}</td><td className="n">{m.expenses ? pct(m.pctOwn) : ''}</td>
                 <td className="n">{fmtUsd(m.fromRespo)}</td><td className="n">{m.expenses ? pct(m.pctRespo) : ''}</td>
                 <td className={`n ${m.surplus < -0.5 ? 'bad' : ''}`}>{fmtUsd(m.surplus)}</td>
-                <td className="n">{fmtUsd(m.respoGrants)}</td><td className="n">{fmtUsd(m.respoOther)}</td>
+                {respoOn && <td className="n">{fmtUsd(m.respoGrants)}</td>}{respoOn && <td className="n">{fmtUsd(m.respoOther)}</td>}
               </tr>
             ))}
           </tbody>

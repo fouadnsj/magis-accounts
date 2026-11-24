@@ -285,14 +285,31 @@ async function putBackRow(c: OpCtx, a: { path: string; id: string; reason: strin
 /** The Superior (and whoever has the tick "Sees the private books") sees every private book: status and records. */
 const seesPrivate = (c: OpCtx) => can(c, 'register.private');
 
+/** Donors and grants (and their steps) are the Administrator's alone (roles step 2, 25 November 2026). */
+const seesDonors = (c: OpCtx) => can(c, 'lists.donors');
+
+/** A private book this person neither keeps nor may see (the Respo book, for everybody but the Administrator). */
+const hiddenBook = (c: OpCtx, lists: Pick<Lists, 'books'>, bookId: number | null | undefined) =>
+  bookId != null && !!lists.books.find((b) => b.id === bookId)?.private && !keeps(c, bookId) && !seesPrivate(c);
+
+/** A row as this person may see it: the link to a grant is cut for those who do not see the grants. */
+const cutGrant = (c: OpCtx, r: Trx): Trx => (r.grant_id && !seesDonors(c) ? { ...r, grant_id: null } : r);
+
+/** The transfers one of whose legs is in a private book this person does not see: the other leg shows the amount, not why. */
+function hiddenLegs(c: OpCtx, lists: Pick<Lists, 'books'>, rows: Trx[]): Set<string> {
+  return new Set(rows.filter((r) => r.type === 'Transfer' && r.transfer_group && hiddenBook(c, lists, r.book_id)).map((r) => r.transfer_group!));
+}
+const cutLeg = (legs: Set<string>, r: Trx): Trx => (r.type === 'Transfer' && r.transfer_group && legs.has(r.transfer_group) ? { ...r, explanation: null } : r);
+
 /** Rows as this person may see them: a private book's rows only for its keepers and the Superior (others: its transfers, without explanation). */
 function privateView(c: OpCtx, lists: Lists, rows: Trx[]): Trx[] {
   const priv = new Set(lists.books.filter((b) => b.private).map((b) => b.id));
   const all = can(c, 'register.view');
+  const legs = hiddenLegs(c, lists, rows);
   return rows.flatMap((r): Trx[] => {
     if (!all && !keeps(c, r.book_id)) return [];
-    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id) || seesPrivate(c)) return [r];
-    return r.type === 'Transfer' ? [{ ...r, explanation: null, receipt: null, party_id: null, private_book: true }] : [];
+    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id) || seesPrivate(c)) return [cutLeg(legs, cutGrant(c, r))];
+    return r.type === 'Transfer' ? [{ ...cutGrant(c, r), explanation: null, receipt: null, party_id: null, private_book: true }] : [];
   });
 }
 
@@ -354,9 +371,10 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   // A private book (the Superior's) is seen only by its keepers; others see only its
   // transfers (marked), so the receiver can confirm and Main's balance stays right.
   const priv = new Set(lists.books.filter((b) => b.private).map((b) => b.id));
+  const legs = hiddenLegs(c, lists, allRows);
   const shown = allRows.flatMap((r): Trx[] => {
-    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id) || seesPrivate(c)) return [r];
-    return r.type === 'Transfer' ? [{ ...r, explanation: null, receipt: null, party_id: null, private_book: true }] : [];
+    if (r.book_id == null || !priv.has(r.book_id) || keeps(c, r.book_id) || seesPrivate(c)) return [cutLeg(legs, cutGrant(c, r))];
+    return r.type === 'Transfer' ? [{ ...cutGrant(c, r), explanation: null, receipt: null, party_id: null, private_book: true }] : [];
   });
   // ...and its expenses as one total a month (no detail)
   const totals = new Map<string, Trx>();
@@ -381,18 +399,22 @@ async function loadData(c: OpCtx): Promise<DataPayload> {
   const allTransfers = buildTransfers(allRows, lists.books).map((t) =>
     [t.from, t.to].some((id) => id != null && priv.has(id) && !keeps(c, id) && !seesPrivate(c)) ? { ...t, explanation: null } : t);
   const transfers = all ? allTransfers : allTransfers.filter((t) => keeps(c, t.from) || keeps(c, t.to));
-  const donors = can(c, 'lists.donors');
+  const donors = seesDonors(c);
   if (!donors) lists.donors = [];
+  // a private book this person does not see (the Respo book): its name stays (the transfers it makes name it), not its opening money
+  const hidden = new Set(lists.books.filter((b) => hiddenBook(c, lists, b.id)).map((b) => b.id));
+  if (hidden.size) lists.books = lists.books.map((b) => (hidden.has(b.id) ? { ...b, opening_syp: 0, opening_usd: 0 } : b));
   const grants = donors ? await db.query<GrantCard>('SELECT * FROM grant_card ORDER BY COALESCE(hand_on, bank_on, transferred_on, approved_on, promised_on, created_at) DESC') : [];
   const grantParts = donors ? await db.query<GrantPart>('SELECT * FROM grant_part') : [];
   const grantShares = donors ? await db.query<GrantShare>('SELECT * FROM grant_share') : [];
   const receipts = c.install === 'holder' ? await db.query<HolderReceipt>('SELECT * FROM holder_receipt ORDER BY date') : [];
   const ot = await getMeta(db, 'office_transfers');
-  const visible = new Set(rows.map((r) => r.id));
+  // (the documents of a private book's rows stay with those who see that book)
+  const visible = new Set(rows.filter((r) => !r.private_book).map((r) => r.id));
   const attachments = (await db.query<AttachmentRow>('SELECT id, trx_id, name, mime, size, created_at, created_by FROM attachment WHERE deleted_at IS NULL ORDER BY created_at'))
     .filter((a) => visible.has(a.trx_id));
   return {
-    lists, rows, closed: [...closed], bookMonths: all ? bm : bm.filter((b) => keeps(c, b.book_id)), transfers, keptBooks: kept,
+    lists, rows, closed: [...closed], bookMonths: (all ? bm : bm.filter((b) => keeps(c, b.book_id))).filter((b) => !hidden.has(b.book_id)), transfers, keptBooks: kept,
     closedYears: (await c.db.query<{ year: number }>('SELECT year FROM closed_year')).map((x) => x.year),
     grants, grantParts, grantShares, receipts, officeTransfers: ot ? JSON.parse(ot) : {}, listsVersion: await getMeta(db, 'lists_version'), attachments,
     grantsBookId: Number(await getMeta(db, 'grants_book_id')) || null,
@@ -418,6 +440,8 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
   const lists = await loadLists(c.db);
   const editAll = can(c, 'register.edit');
   if (!editAll) need(c, 'book.own', 'register.main');
+  // who does not see the grants neither links nor unlinks one: a row keeps the grant it had
+  if (!seesDonors(c)) a = { ...a, rows: a.rows.map((r) => ({ ...r, grant_id: byId.get(r.id)?.grant_id ?? null })) };
 
   const mainId = lists.books.find((b) => b.is_main)?.id ?? null;
   const touched = [...a.rows, ...deletes.map((id) => byId.get(id)).filter((r): r is Trx => !!r)];
@@ -617,6 +641,32 @@ async function answerTransfer(c: OpCtx, a: { id: string; ok: boolean; note?: str
   }));
   stmts.push(auditStmt(c.who, a.ok ? 'confirm' : 'dispute', 'trx', t.key, null, { note: a.note ?? null }));
   await c.db.batch(stmts);
+}
+
+// ---------------------------------------------------------------- the audit trail, as this person may read it
+
+/** The tables of donors and grants: their lines are the Administrator's alone. */
+const DONOR_TABLES = ['grant_card', 'grant_part', 'grant_share', 'donor', 'province_send'];
+
+/**
+ * The last 500 lines of the audit trail that this person may read: without the donors and grants, no line about them;
+ * without the private books, no line about a row of a private book (the Respo book); no link to a grant in what is left.
+ */
+async function auditFor(c: OpCtx): Promise<AuditRow[]> {
+  const donors = seesDonors(c);
+  const skip = donors ? [] : DONOR_TABLES;
+  const rows = await c.db.query<AuditRow>(
+    `SELECT * FROM audit_log ${skip.length ? `WHERE tbl NOT IN (${skip.map(() => '?').join(',')})` : ''} ORDER BY id DESC LIMIT ${donors && seesPrivate(c) ? 500 : 3000}`, skip);
+  if (donors && seesPrivate(c)) return rows;
+  const lists = await loadLists(c.db);
+  const bookOf = (json: string | null) => {
+    try { const o = json ? JSON.parse(json) : null; return o && typeof o === 'object' && 'book_id' in o ? (o.book_id as number | null) : undefined; } catch { return undefined; }
+  };
+  const plain = (json: string | null) => (json && !donors ? json.replace(/"grant_id":"[^"]*"/g, '"grant_id":null') : json);
+  return rows
+    .filter((r) => r.tbl !== 'trx' || !(hiddenBook(c, lists, bookOf(r.before) ?? null) || hiddenBook(c, lists, bookOf(r.after) ?? null)))
+    .slice(0, 500)
+    .map((r) => (donors ? r : { ...r, before: plain(r.before), after: plain(r.after) }));
 }
 
 // ---------------------------------------------------------------- month closing (two steps)
@@ -1199,6 +1249,8 @@ async function docRights(c: OpCtx, trxId: string, write: boolean): Promise<Trx> 
   const r = await one<Trx>(c.db, 'SELECT * FROM trx WHERE id = ?', [trxId]);
   if (!r) throw new UserError(m('السطر غير موجود', 'Row not found'));
   if (!can(c, 'register.view') && !keeps(c, r.book_id)) throw refuse();
+  // a private book's documents (the Respo book) stay with its keepers and the Administrator
+  if (hiddenBook(c, await loadLists(c.db), r.book_id)) throw refuse();
   if (!write) return r;
   const month = ym(r.date);
   if (month && (await closedMonths(c.db)).has(month)) throw new UserError(m(`الشهر ${month} مغلق`, `Month ${month} is closed`));
@@ -1549,7 +1601,7 @@ export const OPS = {
       return rows.filter((r) => keeps(c, r.book_id) || (mayAll && (!priv.has(r.book_id) || seesPrivate(c))));
     },
   },
-  'audit.list': { check: (c: OpCtx) => need(c, 'audit.view'), run: (c: OpCtx) => c.db.query<AuditRow>('SELECT * FROM audit_log ORDER BY id DESC LIMIT 500') },
+  'audit.list': { check: (c: OpCtx) => need(c, 'audit.view'), run: (c: OpCtx) => auditFor(c) },
   'importLog.list': { check: (c: OpCtx) => need(c, 'data.import'), run: (c: OpCtx) => c.db.query<ImportLogRow>('SELECT * FROM import_log ORDER BY id DESC LIMIT 30') },
   'users.list': { check: anyone, run: (c: OpCtx) => usersList(c) },
   // (who adds book holders sees the book holders' roles only)
@@ -1711,7 +1763,14 @@ export const OPS = {
   'heading.types': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number; types: TrxType[] }) => setHeadingTypes(c.db, a.id, a.types, c.who) },
   'line.add': { check: (c: OpCtx) => need(c, 'lists.manage'), run: async (c: OpCtx, a: { headingId: number; name: string }) => { await notOnMainList(c); return addLine(c.db, a.headingId, a.name, c.who); } },
   'line.fund': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number; on: boolean }) => setProjectFund(c.db, a.id, a.on, c.who) },
-  'book.save': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: Partial<Book> & { name: string }) => saveBook(c.db, a, c.who) },
+  'book.save': {
+    check: (c: OpCtx) => need(c, 'lists.manage'),
+    // (a private book this person does not see, the Respo book, is not changed by him: its opening money is not even sent to him)
+    run: async (c: OpCtx, a: Partial<Book> & { name: string }) => {
+      if (a.id && hiddenBook(c, await loadLists(c.db), a.id)) throw refuse();
+      return saveBook(c.db, a, c.who);
+    },
+  },
   'donor.save': { check: (c: OpCtx) => need(c, 'lists.donors'), run: (c: OpCtx, a: { id?: number; name: string; default_project_id: number | null }) => saveDonor(c.db, a, c.who) },
   'rule.save': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id?: number; project_id: number; account_id: number; heading_id: number | null }) => saveRule(c.db, a, c.who) },
   'rule.delete': { check: (c: OpCtx) => need(c, 'lists.manage'), run: (c: OpCtx, a: { id: number }) => deleteRule(c.db, a.id, c.who) },
@@ -1995,7 +2054,19 @@ export const OPS = {
       return importEntries(c.db, a.text, a.fileName, c.who);
     },
   },
-  'lists.export': { check: (c: OpCtx) => need(c, 'data.import'), run: (c: OpCtx): Promise<ListsPackage> => exportListsPackage(c.db, c.who) },
+  'lists.export': {
+    check: (c: OpCtx) => need(c, 'data.import'),
+    run: async (c: OpCtx): Promise<ListsPackage> => {
+      const pkg = await exportListsPackage(c.db, c.who);
+      // (a private book this person does not see, the Respo book: no opening money, nothing written on its transfers)
+      const lists = await loadLists(c.db);
+      const hidden = new Set(lists.books.filter((b) => hiddenBook(c, lists, b.id)).map((b) => b.id));
+      if (!hidden.size) return pkg;
+      pkg.tables.book = pkg.tables.book.map((b) => (hidden.has(Number(b.id)) ? { ...b, opening_syp: 0, opening_usd: 0 } : b));
+      for (const k of Object.keys(pkg.transfers)) if (hidden.has(Number(k))) pkg.transfers[k] = pkg.transfers[k].map((x) => ({ ...x, explanation: null }));
+      return pkg;
+    },
+  },
   'lists.apply': {
     check: fileHolderOnly,
     run: async (c: OpCtx, a: { pkg: ListsPackage }) => {
@@ -2088,7 +2159,8 @@ export const OPS = {
   },
   /** A private book (the Superior's): only its keepers see it; others see only the transfers it makes. */
   'book.setPrivate': {
-    check: (c: OpCtx) => need(c, 'users.manage'),
+    // (roles step 2: who makes a book private, or public again, is who sees the private books: the Administrator; a Director could otherwise open the Respo book)
+    check: (c: OpCtx) => { need(c, 'users.manage'); need(c, 'register.private'); },
     run: (c: OpCtx, a: { id: number; private: boolean }) =>
       c.db.batch([
         { sql: 'UPDATE book SET private = ? WHERE (id = ? OR parent_id = ?) AND is_main = 0', params: [a.private ? 1 : 0, a.id, a.id] },
@@ -2121,7 +2193,11 @@ export const OPS = {
   /** money sent by the Province (Fouad, 2026-11-07): what arrived for this centre, and its answers */
   'province.sends': {
     check: (c: OpCtx) => need(c, 'lists.donors', 'register.view'),
-    run: (c: OpCtx) => c.db.query<ProvinceSend>('SELECT * FROM province_send ORDER BY date DESC, id'),
+    // (who does not see the donors sees the date, the amount and the project, not the donor nor what was written about it)
+    run: async (c: OpCtx) => {
+      const rows = await c.db.query<ProvinceSend>('SELECT * FROM province_send ORDER BY date DESC, id');
+      return seesDonors(c) ? rows : rows.map((x) => ({ ...x, donor: null, reference: null, explanation: null }));
+    },
   },
   /**
    * The centre answers a send of the Province, as the receiver of a transfer: accepted, it becomes an income in the

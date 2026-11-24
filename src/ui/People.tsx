@@ -14,12 +14,14 @@ import { m, tx, type Msg } from '../i18n';
 import { Field, Modal, biName, confirmBox, errText, t, toast } from './kit';
 import { GuideLink } from '../guide/GuideView';
 import { Phones } from './Phones';
+import { OldRolesNotice } from './OldRolesNotice';
 
 /** The page "People": everyone of this centre, with their roles, doors and exceptions; the phones under it. */
 export function PeoplePage() {
   return (
     <>
       <div className="page-head"><h1>{tx(m('الأشخاص', 'People', 'Personnes'))}<GuideLink id="people" /></h1></div>
+      <OldRolesNotice />
       <Users />
       <Phones />
     </>

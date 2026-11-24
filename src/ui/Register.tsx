@@ -204,7 +204,7 @@ export function Register() {
         </select>
         {!holder && (
           <div style={{ minWidth: 190, width: 'auto' }} className="field">
-            <Select value={book} options={d.lists.books.map((b) => ({ value: b.id, label: b.name }))} onChange={setBook} placeholder={t('كل الدفاتر', 'All books')} />
+            <Select value={book} options={d.shownBooks.map((b) => ({ value: b.id, label: b.name }))} onChange={setBook} placeholder={t('كل الدفاتر', 'All books')} />
           </div>
         )}
         <div style={{ minWidth: 190, width: 'auto' }} className="field">

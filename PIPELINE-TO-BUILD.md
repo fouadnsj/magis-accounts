@@ -21,3 +21,10 @@ checks the commit + tests, `npm run build:server`, restarts the preview `magis-n
 ## Notes
 - Calendar phone: tested comments done (be72374, 89ba6c6, 3d414f8). TV real design (map of areas) = later (step 9).
 - Next free database update number: 77 unused, 78 maybe used by nobody yet (check migrations.ts).
+
+## Changes decided with Fouad on 24 November 2026 (after the doors page test)
+- J2 shrinks: reports by organisation / free use and the optional reminders are LATER (not before the build). J2 = the calendar's guide + checklist only.
+- J3 (inventory guide + checklist) joins J2 in ONE light Sonnet job "guides and checklists" (calendar + inventory).
+- NEW J1b: no way back inside a door -> an always visible "<- MAGIS . Doors" on every page of a door (J1's session, Opus).
+- NEW J6: sign-in + roles made simpler (design with Fouad first; see the proposal in the conversation): one person, one password, ONE ready-made role (a bundle of door ticks) per person on each server; doors come from the role; HR = one tick; every centre's server is its own boss (its Director is the admin), the Coordinator only looks/signs in as; no central admin needed. Build only after Fouad agrees.
+- J4 (test data) and J5 (final check) stay as planned, after J6.

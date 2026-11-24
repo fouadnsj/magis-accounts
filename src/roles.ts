@@ -85,3 +85,45 @@ export function sensitiveOf(roles: RoleLike[], extra: Perm[]): { key: string; la
     return { key: s.key, label: s.label, roles: rs, exception: !rs.length && why.some((w) => w.exception) };
   });
 }
+
+// ---- who gives what (roles step 3, 25 November 2026; ROLES-AND-SIGNIN-ANALYSIS.md §4.2, §9.1)
+// The Administrator gives every role (Administrator and Director included). Whoever manages the users of the centre (the
+// Director) gives the other ready-made roles, and a Custom role only within what he has himself. Whoever "adds book holders"
+// (the Accountant) gives a book holder's role only. Nobody gives himself a role. The server checks all of it (src/ops.ts).
+
+/** rights a book holder's role never has */
+export const NOT_A_HOLDER: string[] = ['register.edit', 'register.main', 'users.manage', 'users.holders', 'users.passwords', 'data.backup', 'data.restore', 'data.import', 'month.reopen', 'lists.manage', 'lists.donors', 'budget.edit'];
+
+/** a book holder's role: keeps a book, no office right, nothing the giver has not himself */
+export const isHolderRole = (perms: string[], can: (p: Perm) => boolean) => perms.includes('book.own') && !perms.some((p) => NOT_A_HOLDER.includes(p)) && perms.every((p) => p === 'book.own' || can(p as Perm));
+
+export interface Giver {
+  /** holds the role Administrator */
+  admin: boolean;
+  can: (p: Perm) => boolean;
+}
+
+export const MSG_ADMIN_ONLY = m('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement');
+export const MSG_ADMIN_TICK = m('دفتر المسؤول والدفاتر الخاصة، والمنح والمانحون: لدور المشرف فقط', 'The Respo book and private books, grants and donors: only in the role Administrator', 'Le livre du Respo et les livres privés, les subventions et les bailleurs : seulement dans le rôle Administrateur');
+export const MSG_NOT_MORE = m('لا تعطي أكثر مما عندك', 'You cannot give more than you have yourself', 'Vous ne pouvez pas donner plus que ce que vous avez');
+export const MSG_HOLDERS = m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement');
+export const MSG_NOT_SELF = m('لا أحد يعطي نفسه دوراً', 'Nobody gives himself a role', 'Personne ne se donne un rôle à soi-même');
+
+/** Why this person may not give that role (null: he may). Used by the Users window; the server says the same. */
+export function whyNotGive(g: Giver, r: Pick<RoleLike, 'kind' | 'perms'>): Msg | null {
+  if (r.kind !== 'administrator' && r.perms.some((p) => ADMIN_ONLY.includes(p))) return MSG_ADMIN_TICK;
+  if (g.admin) return null;
+  if (r.kind && ADMIN_GIVES.includes(r.kind as RoleKind)) return MSG_ADMIN_ONLY;
+  if (g.can('users.manage')) {
+    if (r.kind && DIRECTOR_GIVES.includes(r.kind as RoleKind)) return null;
+    return r.perms.every((p) => g.can(p)) ? null : MSG_NOT_MORE;
+  }
+  if (g.can('users.holders')) return isHolderRole(r.perms, g.can) ? null : MSG_HOLDERS;
+  return MSG_ADMIN_ONLY;
+}
+
+/** The ticks a new Custom role may hold when it is made as a copy of a ready-made role ("Make a copy to adapt"). */
+export function mayCopy(g: Giver, from: Pick<RoleLike, 'kind' | 'perms'>): boolean {
+  if (g.admin) return true;
+  return !!from.kind && DIRECTOR_GIVES.includes(from.kind as RoleKind) && g.can('users.manage');
+}

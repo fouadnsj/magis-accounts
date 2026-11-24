@@ -5,9 +5,10 @@ import { useApp } from '../state';
 import type { Profile } from '../auth';
 import type { AccessRow, AuditRow, BackupFile, UserRow } from '../ops';
 import { PERM_GROUPS, withImplied, type Perm } from '../perms';
-import { READY_ROLES } from '../doors';
-import { ADMIN_GIVES, ADMIN_ONLY, ROLE_KINDS, kindInfo, sensitiveOf, unionPerms, type RoleLike } from '../roles';
-import { m, tx } from '../i18n';
+import { READY_ROLES, doorsOf } from '../doors';
+import { doorName } from './Doors';
+import { ADMIN_GIVES, ADMIN_ONLY, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, kindInfo, mayCopy, sensitiveOf, unionPerms, whyNotGive, type RoleLike } from '../roles';
+import { m, tx, type Msg } from '../i18n';
 import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast } from './kit';
 import type { CashCountRow } from '../ops';
 import { ServerTab } from './ServerTab';
@@ -41,7 +42,7 @@ export function Admin() {
     { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
     { value: 'backups', label: t('النسخ الاحتياطية', 'Backups'), hidden: !(can('data.backup') || can('data.restore') || (can('data.export') && s.mode === 'server')) || s.mode === 'preview' },
     { value: 'users', label: can('users.manage') ? t('المستخدمون', 'Users') : can('users.holders') ? t('أمناء الصناديق', 'Book holders') : can('users.passwords') ? t('كلمات السر', 'Passwords') : t('كلمة السر', 'Password') },
-    { value: 'access', label: t('الأدوار والصلاحيات', 'Roles and permissions'), hidden: !can('users.manage') },
+    { value: 'access', label: tx(m('الأدوار', 'Roles', 'Rôles')), hidden: !can('users.manage') },
     { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
     { value: 'lists', label: t('قوائم الموازنة', 'Budget lists'), hidden: !listsHere },
@@ -527,24 +528,49 @@ function Backups() {
 
 // ---------------------------------------------------------------- users
 
+// (roles step 3, 25 November 2026) The Users window, for people who are not technical: one line per person
+// "Name · Roles · Doors · Exceptions". The Administrator gives every role; the Director adds and removes the people of his
+// centre and gives the other ready-made roles; the Accountant ("Adds book holders") has his own small window, book holders only.
 function Users() {
+  const { can } = useApp();
+  if (!can('users.manage') && can('users.holders')) return <HolderUsers />;
+  return <People />;
+}
+
+/** a person's roles, as rows of the roles list (his first role, then the others) */
+const rolesOfUser = (u: Pick<UserRow, 'roles' | 'access_id'>, access: AccessRow[]) =>
+  (u.roles?.length ? u.roles : u.access_id != null ? [u.access_id] : []).map((id) => access.find((a) => a.id === id)).filter((a): a is AccessRow => !!a);
+
+/** the name of a tick, for the exceptions */
+const permLabel = (p: Perm) => {
+  const x = PERM_GROUPS.flatMap((g) => [...g.perms] as { key: Perm; label: Msg }[]).find((q) => q.key === p);
+  return x ? tx(x.label) : p;
+};
+
+/** the doors this person gets from his roles and exceptions (HR is given from the HR database, not here) */
+function doorsLine(roles: RoleLike[], extra: Perm[], hasBook: boolean, inventoryOn: boolean): string {
+  const all = unionPerms(roles, extra);
+  const ds = doorsOf({ can: (p) => all.includes(p), hasBook, inventoryOn, hr: false });
+  return ds.length ? ds.map((k) => tx(doorName(k))).join(' · ') : '—';
+}
+
+function People() {
   const { s, d, can } = useApp();
   const [list, setList] = useState<UserRow[]>([]);
   const [access, setAccess] = useState<AccessRow[]>([]);
   const [edit, setEdit] = useState<Partial<UserRow> | null>(null);
   const [pinFor, setPinFor] = useState<UserRow | null>(null);
   const manage = can('users.manage');
-  // "Adds book holders" (Fouad, 14 November 2026): the book holders only — never the Superior, never a role
-  const holders = !manage && can('users.holders');
+  const admin = !!s.profile.admin;
   const refresh = async () => {
     setList(await s.api.call('users.list'));
-    if (manage || holders) setAccess(await s.api.call('access.list'));
+    if (manage) setAccess(await s.api.call('access.list'));
   };
-  /** may this person change that user? (with "Adds book holders": a book holder only; the list holds their roles only) */
-  // (roles step 1) the Administrator is changed by the Administrator only, a Director switched off by him only (the server refuses it too)
-  const holdsKind = (u: UserRow, kinds: string[]) => !s.profile.admin && u.id !== s.profile.id && (u.roles ?? []).some((id) => kinds.includes(access.find((a) => a.id === id)?.kind ?? ''));
-  const mine = (u: UserRow) => (manage || (holders && (u.roles?.length ? u.roles : [u.access_id]).every((id) => access.some((a) => a.id === id)))) && !holdsKind(u, ['administrator']);
-  const pinOk = (u: UserRow) => (manage || u.id === s.profile.id || mine(u) || can('users.passwords')) && !holdsKind(u, ['administrator']);
+  const hasKinds = access.some((a) => a.kind);
+  // the Administrator's line and the Directors' lines are the Administrator's to change (the server refuses it too)
+  const adminsLine = (u: UserRow) => hasKinds && !admin && u.id !== s.profile.id && rolesOfUser(u, access).some((a) => !!a.kind && ADMIN_GIVES.includes(a.kind as never));
+  const mine = (u: UserRow) => manage && !adminsLine(u);
+  const pinOk = (u: UserRow) => (manage || u.id === s.profile.id || can('users.passwords')) && !adminsLine(u);
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -563,7 +589,7 @@ function Users() {
     }
   };
   const deactivate = async (u: UserRow) => {
-    if (!(await confirmBox(t(`إيقاف ${u.name}؟ لن يستطيع الدخول.`, `Deactivate ${u.name}? They will no longer be able to log in.`), true))) return;
+    if (!(await confirmBox(tx(m(`إيقاف ${u.name}؟ لن يستطيع الدخول. دفاتره تبقى كما هي.`, `Switch off ${u.name}? They will no longer be able to sign in. Their books stay as they are.`, `Désactiver ${u.name} ? Cette personne ne pourra plus se connecter. Ses livres restent tels quels.`)), true))) return;
     try {
       await s.api.call('user.deactivate', { id: u.id });
       await refresh();
@@ -571,29 +597,61 @@ function Users() {
       toast(errText(e), true);
     }
   };
+  const off = list.filter((u) => !u.active);
   return (
-    <div className="panel" style={{ maxWidth: 900 }}>
+    <div className="panel" style={{ maxWidth: 1000 }}>
+      {manage && hasKinds && (
+        <p className="muted small">
+          {admin
+            ? tx(m('أنت المشرف: تعطي كل الأدوار، ومنها المدير والمشرف. المدير يضيف أشخاص مركزه ويعطيهم الأدوار الأخرى. لا أحد يعطي نفسه دوراً.', 'You are the Administrator: you give every role, Director and Administrator included. The Director adds the people of the centre and gives them the other roles. Nobody gives himself a role.', 'Vous êtes l’Administrateur : vous donnez tous les rôles, Directeur et Administrateur compris. Le Directeur ajoute les personnes du centre et leur donne les autres rôles. Personne ne se donne un rôle.'))
+            : tx(m('تضيف أشخاص مركزك وتوقفهم وتعطيهم الأدوار. المشرف وحده يعطي دور المدير ودور المشرف، ويغيّر سطورهما.', 'You add and switch off the people of your centre and give them their roles. Only the Administrator gives the roles Director and Administrator, and changes their lines.', 'Vous ajoutez et désactivez les personnes de votre centre et leur donnez leurs rôles. Seul l’Administrateur donne les rôles Directeur et Administrateur, et change leurs lignes.'))}
+        </p>
+      )}
       <table className="t">
-        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{tx(m('الأدوار', 'Roles', 'Rôles'))}</th><th>{t('الدفاتر', 'Books kept')}</th><th /></tr></thead>
+        <thead>
+          <tr>
+            <th>{t('الاسم', 'Name')}</th>
+            <th>{tx(m('الأدوار', 'Roles', 'Rôles'))}</th>
+            {manage && <th>{tx(m('الأبواب', 'Doors', 'Portes'))}</th>}
+            {manage && hasKinds && <th>{tx(m('استثناءات', 'Exceptions', 'Exceptions'))}</th>}
+            <th />
+          </tr>
+        </thead>
         <tbody>
-          {list.filter((u) => u.active).map((u) => (
-            <tr key={u.id}>
-              <td><b>{u.name}</b></td><td><RolesCell u={u} access={access} /></td><td>{u.books.map(bookName).join('، ') || '—'}</td>
-              <td className="right nowrap">
-                <SignAsButton s={s} profileId={u.id} name={u.name} small />{' '}
-                {mine(u) && <button className="btn small" onClick={() => setEdit(u)}>✎</button>}{' '}
-                {pinOk(u) && <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>}{' '}
-                {mine(u) && u.id !== s.profile.id && !holdsKind(u, ['director']) && <button className="btn small ghost" onClick={() => deactivate(u)}>✕</button>}
-              </td>
-            </tr>
-          ))}
+          {list.filter((u) => u.active).map((u) => {
+            const rs = rolesOfUser(u, access);
+            return (
+              <tr key={u.id}>
+                <td>
+                  <b>{u.name}</b>
+                  {u.books.length > 0 && <div className="muted small">{tx(m('يحمل:', 'Keeps:', 'Tient :'))} {u.books.map(bookName).join('، ')}</div>}
+                </td>
+                <td>
+                  {rs.length ? <RoleChips roles={rs} /> : biName(u.access_name)}
+                  {rs.length > 0 && <BecauseOf roles={rs} extra={u.extra ?? []} />}
+                </td>
+                {manage && <td className="small">{doorsLine(rs, u.extra ?? [], u.books.length > 0, !!d.inv)}</td>}
+                {manage && hasKinds && (
+                  <td className="small">
+                    {u.extra?.length ? <span className="pill" style={{ background: '#FFF1CC' }} title={u.extra.map(permLabel).join('\n')}>+{u.extra.length}</span> : '—'}
+                  </td>
+                )}
+                <td className="right nowrap">
+                  {!adminsLine(u) && <SignAsButton s={s} profileId={u.id} name={u.name} small />}{' '}
+                  {mine(u) && <button className="btn small" onClick={() => setEdit(u)} title={tx(m('تعديل', 'Change', 'Modifier'))}>✎</button>}{' '}
+                  {pinOk(u) && <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>}{' '}
+                  {mine(u) && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)} title={tx(m('إيقاف', 'Switch off', 'Désactiver'))}>✕</button>}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
-      {holders && s.install === 'office' && (
-        <div className="modal-foot">
-          <span className="muted small" style={{ marginInlineEnd: 'auto' }}>{t('تضيف أمناء الصناديق وتغيّر كلمات سرهم ودفاترهم. الأدوار والآخرون للرئيس.', 'You add book holders and change their passwords and books. Roles and the others are for the Superior.')}</span>
-          <button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {t('أمين صندوق', 'Book holder')}</button>
-        </div>
+      {manage && off.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary className="small muted">{tx(m(`موقوفون (${off.length})`, `Switched off (${off.length})`, `Désactivés (${off.length})`))}</summary>
+          <p className="small muted">{off.map((u) => u.name).join('، ')}</p>
+        </details>
       )}
       {manage && s.install === 'office' && (
         <div className="modal-foot">
@@ -602,7 +660,7 @@ function Users() {
               {t(`إنشاء حسابات لكل أمناء الدفاتر (${unkept.length})`, `Create accounts for all book keepers (${unkept.length})`)}
             </button>
           )}
-          <button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {t('مستخدم', 'User')}</button>
+          <button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {tx(m('شخص', 'Person', 'Personne'))}</button>
         </div>
       )}
       {created && <CreatedModal rows={created} onClose={() => setCreated(null)} />}
@@ -612,8 +670,156 @@ function Users() {
   );
 }
 
+/** The Accountant's own window ("Adds book holders"): the book holders only — their name, their book, their password, switched off. */
+function HolderUsers() {
+  const { s, d, can } = useApp();
+  const [list, setList] = useState<UserRow[]>([]);
+  const [access, setAccess] = useState<AccessRow[]>([]);
+  const [edit, setEdit] = useState<Partial<UserRow> | null>(null);
+  const [pinFor, setPinFor] = useState<UserRow | null>(null);
+  const refresh = async () => {
+    setList(await s.api.call('users.list'));
+    setAccess(await s.api.call('access.list')); // (the server sends the book holders' roles only)
+  };
+  useEffect(() => {
+    void refresh();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const bookName = (id: number) => d.lists.books.find((b) => b.id === id)?.name ?? '?';
+  const isHolder = (u: UserRow) => u.id !== s.profile.id && !u.extra?.length && (u.roles?.length ? u.roles : [u.access_id]).every((id) => access.some((a) => a.id === id));
+  const holders = list.filter((u) => u.active && isHolder(u));
+  const others = list.filter((u) => u.active && !isHolder(u) && u.id !== s.profile.id);
+  const me = list.find((u) => u.id === s.profile.id);
+  const deactivate = async (u: UserRow) => {
+    if (!(await confirmBox(tx(m(`إيقاف ${u.name}؟ لن يستطيع الدخول. دفتره يبقى كما هو.`, `Switch off ${u.name}? They will no longer be able to sign in. The book stays as it is.`, `Désactiver ${u.name} ? Cette personne ne pourra plus se connecter. Le livre reste tel quel.`)), true))) return;
+    try {
+      await s.api.call('user.deactivate', { id: u.id });
+      await refresh();
+    } catch (e) {
+      toast(errText(e), true);
+    }
+  };
+  return (
+    <div className="panel" style={{ maxWidth: 800 }}>
+      <p className="muted small">{tx(m('تضيف أمناء الصناديق: الاسم، دفتره، وكلمة سر تعطيها له مرة واحدة (يختار كلمته عند أول دخول). وتوقفهم. الأشخاص الآخرون والأدوار للمدير.', 'You add the book holders: the name, the book, and a password you give once (they choose their own at the first sign-in). You switch them off too. The other people and the roles are for the Director.', 'Vous ajoutez les teneurs de caisse : le nom, la caisse, et un mot de passe donné une fois (ils choisissent le leur à la première connexion). Vous les désactivez aussi. Les autres personnes et les rôles sont pour le Directeur.'))}</p>
+      <table className="t">
+        <thead><tr><th>{t('الاسم', 'Name')}</th><th>{tx(m('الدفتر', 'Book', 'Caisse'))}</th><th /></tr></thead>
+        <tbody>
+          {holders.map((u) => (
+            <tr key={u.id}>
+              <td><b>{u.name}</b></td>
+              <td>{u.books.map(bookName).join('، ') || '—'}</td>
+              <td className="right nowrap">
+                <button className="btn small" onClick={() => setEdit(u)} title={tx(m('تعديل', 'Change', 'Modifier'))}>✎</button>{' '}
+                <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>{' '}
+                <button className="btn small ghost" onClick={() => deactivate(u)} title={tx(m('إيقاف', 'Switch off', 'Désactiver'))}>✕</button>
+              </td>
+            </tr>
+          ))}
+          {!holders.length && <tr><td colSpan={3} className="muted small">{tx(m('لا أمين صندوق بعد.', 'No book holder yet.', 'Pas encore de teneur de caisse.'))}</td></tr>}
+        </tbody>
+      </table>
+      {s.install === 'office' && access.length > 0 && (
+        <div className="modal-foot">
+          <button className="btn primary" onClick={() => setEdit({ books: [] })}>＋ {t('أمين صندوق', 'Book holder')}</button>
+        </div>
+      )}
+      {me && (
+        <p className="small" style={{ marginTop: 10 }}>
+          {tx(m('كلمة سرّي:', 'My password:', 'Mon mot de passe :'))} <button className="btn small" onClick={() => setPinFor(me)}>{tx(m('أغيّرها', 'Change it', 'Le changer'))}</button>
+        </p>
+      )}
+      {can('users.passwords') && others.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary className="small">{tx(m('كلمة سر شخص آخر (ليس من يدير المستخدمين)', 'Password of another person (not someone who manages users)', 'Mot de passe d’une autre personne (pas un gestionnaire)'))}</summary>
+          <div className="chips" style={{ marginTop: 6 }}>
+            {others.map((u) => <button key={u.id} type="button" className="chip" onClick={() => setPinFor(u)}>{u.name}</button>)}
+          </div>
+        </details>
+      )}
+      {edit && <HolderModal user={edit} access={access} onClose={() => setEdit(null)} onDone={refresh} />}
+      {pinFor && <PinModal p={{ id: pinFor.id, name: pinFor.name }} onClose={() => setPinFor(null)} />}
+    </div>
+  );
+}
+
+/** Add or change a book holder: name, book, password given once. The role is the book holder's (nothing else to choose). */
+function HolderModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void> }) {
+  const { s, d } = useApp();
+  const [name, setName] = useState(user.name ?? '');
+  const first = (access.find((a) => a.kind === 'holder') ?? access[0])?.id ?? null;
+  const [roleId, setRoleId] = useState<number | null>(user.roles?.[0] ?? user.access_id ?? first);
+  const [books, setBooks] = useState<number[]>(user.books ?? []);
+  const [newPin, setNewPin] = useState(!user.id);
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const toggle = (id: number) => setBooks((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
+  const save = async () => {
+    try {
+      if (roleId == null) return setErr(tx(m('اختر دوراً', 'Choose a role', 'Choisissez un rôle')));
+      await s.api.call('user.save', { id: user.id, name, roles: [roleId], books, pin: newPin && pin ? pin : undefined });
+      await onDone();
+      onClose();
+    } catch (e) {
+      setErr(errText(e));
+    }
+  };
+  return (
+    <Modal title={user.id ? tx(m('تعديل أمين صندوق', 'Change a book holder', 'Modifier un teneur de caisse')) : tx(m('أمين صندوق جديد', 'New book holder', 'Nouveau teneur de caisse'))} onClose={onClose} narrow>
+      <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      {access.length > 1 && (
+        <Field label={tx(m('الدور', 'Role', 'Rôle'))}>
+          <select value={roleId ?? ''} onChange={(e) => setRoleId(Number(e.target.value))}>
+            {access.map((a) => <option key={a.id} value={a.id}>{roleName(a)}</option>)}
+          </select>
+        </Field>
+      )}
+      <PasswordOnce isNew={!user.id} open={newPin} setOpen={setNewPin} pin={pin} setPin={setPin} />
+      <h3 style={{ marginTop: 14 }}>{tx(m('الدفتر', 'The book', 'La caisse'))}</h3>
+      <div className="chips">
+        {d.lists.books.filter((b) => b.active && !b.is_main && (!b.private || books.includes(b.id))).map((b) => (
+          <button key={b.id} type="button" className={`chip ${books.includes(b.id) ? 'on' : ''}`} onClick={() => toggle(b.id)}>{b.name}</button>
+        ))}
+      </div>
+      {err && <div className="alert err" style={{ marginTop: 10 }}>{err}</div>}
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
+        <button className="btn primary" disabled={!name.trim()} onClick={save}>{t('احفظ', 'Save')}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** The password, given once: for a new person it is asked; for a known person a button opens the field. */
+function PasswordOnce({ isNew, open, setOpen, pin, setPin, self }: { isNew: boolean; open: boolean; setOpen: (b: boolean) => void; pin: string; setPin: (v: string) => void; self?: boolean }) {
+  if (!open)
+    return (
+      <div style={{ marginTop: 8 }}>
+        <button type="button" className="btn small" onClick={() => setOpen(true)}>{self ? tx(m('أغيّر كلمة سرّي', 'Change my password', 'Changer mon mot de passe')) : tx(m('أعطي كلمة سر جديدة', 'Give a new password', 'Donner un nouveau mot de passe'))}</button>
+      </div>
+    );
+  return (
+    <Field label={self ? tx(m('كلمة سرّي الجديدة (6 على الأقل)', 'My new password (6 or more)', 'Mon nouveau mot de passe (6 ou plus)')) : isNew ? tx(m('كلمة السر التي تعطيها له (6 على الأقل)', 'The password you give (6 or more)', 'Le mot de passe que vous donnez (6 ou plus)')) : tx(m('كلمة السر الجديدة التي تعطيها له (6 على الأقل)', 'The new password you give (6 or more)', 'Le nouveau mot de passe que vous donnez (6 ou plus)'))}>
+      <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="new-password" />
+      {!self && <div className="muted small">{tx(m('تُعطى مرة واحدة: عند أول دخول يختار كلمة سره.', 'Given once: at the first sign-in the person chooses their own.', 'Donné une fois : à la première connexion la personne choisit le sien.'))}</div>}
+    </Field>
+  );
+}
+
 /** A role's name on screen: the ready-made ones in the reader's language, the others as they were typed ("Custom"). */
 export const roleName = (a: Pick<AccessRow, 'name' | 'kind'>) => (a.kind && kindInfo(a.kind) ? tx(kindInfo(a.kind)!.label) : biName(a.name));
+
+/** The roles of a person as chips (a Custom role says so). */
+function RoleChips({ roles }: { roles: RoleLike[] }) {
+  return (
+    <span className="chips" style={{ display: 'inline-flex' }}>
+      {roles.map((a) => (
+        <span key={a.id} className="chip on" style={{ cursor: 'default' }} title={a.kind && kindInfo(a.kind) ? tx(kindInfo(a.kind)!.about) : tx(m('دور خاص', 'Custom role', 'Rôle personnalisé'))}>
+          {roleName(a)}{!a.kind ? ` · ${tx(m('خاص', 'Custom', 'Personnalisé'))}` : ''}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /** For each sensitive thing the person has, which role brings it ("Sees: prices — because of: Coordinator"), one line per role. */
 function BecauseOf({ roles, extra }: { roles: RoleLike[]; extra: Perm[] }) {
@@ -632,20 +838,6 @@ function BecauseOf({ roles, extra }: { roles: RoleLike[]; extra: Perm[] }) {
         <div key={l.by}>{tx(m('يرى:', 'Sees:', 'Voit :'))} {l.what.join(' · ')} — {tx(m('بسبب:', 'because of:', 'à cause de :'))} {l.by}</div>
       ))}
     </div>
-  );
-}
-
-/** The roles of a person in the list, his exceptions ("Exceptions: +2"), and what brings each sensitive right. */
-function RolesCell({ u, access }: { u: UserRow; access: AccessRow[] }) {
-  const ids = u.roles?.length ? u.roles : u.access_id != null ? [u.access_id] : [];
-  const rs = ids.map((id) => access.find((a) => a.id === id)).filter((a): a is AccessRow => !!a);
-  if (!rs.length) return <>{biName(u.access_name)}</>;
-  return (
-    <>
-      {rs.map((a) => roleName(a)).join(' + ')}
-      {u.extra?.length > 0 && <span className="pill" style={{ marginInlineStart: 6, background: '#FFF1CC' }} title={u.extra.join(', ')}>{tx(m('استثناءات', 'Exceptions', 'Exceptions'))}: +{u.extra.length}</span>}
-      <BecauseOf roles={rs} extra={u.extra ?? []} />
-    </>
   );
 }
 
@@ -668,16 +860,17 @@ function CreatedModal({ rows, onClose }: { rows: { name: string; book: string; p
   );
 }
 
+/** Add or change a person (for who manages the users): name, password given once, roles as chips, "because of", exceptions folded. */
 function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; access: AccessRow[]; onClose: () => void; onDone: () => Promise<void> }) {
   const { s, d, can } = useApp();
-  const manage = can('users.manage');
   const admin = !!s.profile.admin;
+  const self = !!user.id && user.id === s.profile.id;
   const [name, setName] = useState(user.name ?? '');
-  const [accessId, setAccessId] = useState<number | null>(user.access_id ?? access.find((a) => a.id === 3)?.id ?? access[0]?.id ?? null);
-  // several roles (roles step 1): the whole list; the first one is the person's first role
+  // several roles: the whole list; the first one is the person's first role
   const [roles, setRoles] = useState<number[]>(user.roles?.length ? user.roles : user.access_id != null ? [user.access_id] : []);
   const [extra, setExtra] = useState<Perm[]>(user.extra ?? []);
   const [books, setBooks] = useState<number[]>(user.books ?? []);
+  const [newPin, setNewPin] = useState(!user.id);
   const [pin, setPin] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const toggle = (id: number) => setBooks((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
@@ -686,18 +879,28 @@ function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; 
   // roles in their order: the ready-made ones first, then the Custom ones
   const order = (a: AccessRow) => (a.kind ? ROLE_KINDS.findIndex((k) => k.kind === a.kind) : 100 + a.id);
   const sorted = [...access].sort((a, b) => order(a) - order(b));
-  const chosen = roles.map((id) => access.find((a) => a.id === id)).filter((a): a is AccessRow => !!a);
+  const chosen = sorted.filter((a) => roles.includes(a.id));
   const fromRoles = new Set(unionPerms(chosen, []));
+  const ownExtra = extra.filter((p) => !fromRoles.has(p));
   const hasKinds = access.some((a) => a.kind);
+  const had = new Set(user.roles?.length ? user.roles : user.access_id != null ? [user.access_id] : []);
+  /** why a role chip is greyed (null: it may be given, or taken away) — the server says the same */
+  const why = (a: AccessRow): Msg | null => {
+    if (!hasKinds) return null;
+    if (had.has(a.id)) return !admin && !!a.kind && ADMIN_GIVES.includes(a.kind as never) ? MSG_ADMIN_ONLY : null;
+    if (self) return MSG_NOT_SELF;
+    return whyNotGive({ admin, can }, a);
+  };
+  // the greyed roles, grouped by reason, said in words (not only on hover)
+  const greyed = new Map<string, string[]>();
+  for (const a of sorted) {
+    const w = why(a);
+    if (w && !roles.includes(a.id)) greyed.set(tx(w), [...(greyed.get(tx(w)) ?? []), roleName(a)]);
+  }
   const save = async () => {
     try {
-      if (manage) {
-        if (!roles.length) return setErr(tx(m('اختر دوراً واحداً على الأقل', 'Choose at least one role', 'Choisissez au moins un rôle')));
-        await s.api.call('user.save', { id: user.id, name, roles, extra: extra.filter((p) => !fromRoles.has(p)), books, pin: pin || undefined });
-      } else {
-        if (accessId == null) return setErr(t('اختر ملف الصلاحيات', 'Choose a permission profile'));
-        await s.api.call('user.save', { id: user.id, name, access_id: accessId, books, pin: pin || undefined });
-      }
+      if (!roles.length) return setErr(tx(m('اختر دوراً واحداً على الأقل', 'Choose at least one role', 'Choisissez au moins un rôle')));
+      await s.api.call('user.save', { id: user.id, name, roles, extra: ownExtra, books, pin: newPin && pin ? pin : undefined });
       await onDone();
       onClose();
     } catch (e) {
@@ -705,67 +908,66 @@ function UserModal({ user, access, onClose, onDone }: { user: Partial<UserRow>; 
     }
   };
   return (
-    <Modal title={user.id ? t('تعديل مستخدم', 'Edit user') : t('مستخدم جديد', 'New user')} onClose={onClose} narrow>
-      <div className="grid2">
-        <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        {!manage && (
-          <Field label={t('ملف الصلاحيات', 'Permission profile')}>
-            <select value={accessId ?? ''} onChange={(e) => setAccessId(Number(e.target.value))}>
-              {access.map((a) => <option key={a.id} value={a.id}>{roleName(a)}</option>)}
-            </select>
-          </Field>
-        )}
-        <Field label={user.id ? t('كلمة سر جديدة (اتركها فارغة إن لم تتغير)', 'New password (empty = unchanged)') : t('كلمة السر (6 على الأقل)', 'Password (6+)')} className="span2">
-          <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} />
-        </Field>
+    <Modal title={user.id ? tx(m('تعديل شخص', 'Change a person', 'Modifier une personne')) : tx(m('شخص جديد', 'New person', 'Nouvelle personne'))} onClose={onClose} narrow>
+      <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <PasswordOnce isNew={!user.id} open={newPin} setOpen={setNewPin} pin={pin} setPin={setPin} self={self} />
+      <h3 style={{ marginTop: 14 }}>{tx(m('الأدوار (واحد أو أكثر)', 'Roles (one or several)', 'Rôles (un ou plusieurs)'))}</h3>
+      <div className="chips">
+        {sorted.map((a) => {
+          const w = why(a);
+          return (
+            <button key={a.id} type="button" disabled={!!w} title={w ? tx(w) : a.kind ? tx(kindInfo(a.kind)!.about) : tx(m('دور خاص', 'Custom role', 'Rôle personnalisé'))}
+              className={`chip ${roles.includes(a.id) ? 'on' : ''}`} style={w ? { opacity: 0.45, cursor: 'not-allowed' } : undefined} onClick={() => toggleRole(a.id)}>
+              {roleName(a)}{!a.kind && hasKinds ? ` · ${tx(m('خاص', 'Custom', 'Personnalisé'))}` : ''}
+            </button>
+          );
+        })}
       </div>
-      {manage && (
-        <>
-          <h3 style={{ marginTop: 14 }}>{tx(m('الأدوار (واحد أو أكثر)', 'Roles (one or several)', 'Rôles (un ou plusieurs)'))}</h3>
-          <div className="chips">
-            {sorted.map((a) => {
-              const locked = hasKinds && !admin && !!a.kind && ADMIN_GIVES.includes(a.kind as never);
-              return (
-                <button key={a.id} type="button" disabled={locked} title={locked ? tx(m('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement')) : a.kind ? tx(kindInfo(a.kind)!.about) : tx(m('دور خاص', 'Custom role', 'Rôle personnalisé'))}
-                  className={`chip ${roles.includes(a.id) ? 'on' : ''}`} style={locked ? { opacity: 0.45 } : undefined} onClick={() => toggleRole(a.id)}>
-                  {roleName(a)}{!a.kind && hasKinds ? ` · ${tx(m('خاص', 'Custom', 'Personnalisé'))}` : ''}
-                </button>
-              );
-            })}
-          </div>
-          <p className="muted small">{tx(m('حقوق الشخص هي كل علامات أدواره معاً؛ كل دور يضيف فقط.', 'The rights of the person are all the ticks of his roles together; each role only adds.', 'Les droits de la personne sont toutes les cases de ses rôles ensemble ; chaque rôle ne fait qu’ajouter.'))}</p>
-          <BecauseOf roles={chosen} extra={extra} />
-          {hasKinds && (
-            <details style={{ marginTop: 10 }}>
-              <summary className="small">{tx(m('متقدّم: استثناءات على هذا الشخص', 'Advanced: exceptions on this person', 'Avancé : exceptions pour cette personne'))}{extra.filter((p) => !fromRoles.has(p)).length > 0 ? ` (+${extra.filter((p) => !fromRoles.has(p)).length})` : ''}</summary>
-              <p className="muted small">{tx(m('علامة تُضاف لهذا الشخص وحده، فوق أدواره. دفتر المسؤول والمنح للمشرف فقط.', 'A tick added for this person only, on top of his roles. The Respo book and the grants are for the Administrator only.', 'Une case ajoutée pour cette personne seule, en plus de ses rôles. Le livre du Respo et les subventions sont pour l’Administrateur seul.'))}</p>
-              {PERM_GROUPS.map((g) => (
-                <div key={g.key} style={{ marginBottom: 6 }}>
-                  <b className="small">{tx(g.label)}</b>
-                  {g.perms.map((p) => {
-                    const byRole = fromRoles.has(p.key);
-                    const adminOnly = ADMIN_ONLY.includes(p.key);
-                    const notMine = !admin && !can(p.key);
-                    return (
-                      <label key={p.key} className="row small" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', opacity: byRole || adminOnly || notMine ? 0.55 : 1 }}>
-                        <input type="checkbox" checked={byRole || extra.includes(p.key)} disabled={byRole || adminOnly || (notMine && !extra.includes(p.key))} onChange={() => toggleExtra(p.key)} style={{ marginTop: 3 }} />
-                        <span>{tx(p.label)}{byRole ? ` · ${tx(m('من دور', 'from a role', 'par un rôle'))}` : adminOnly ? ` · ${tx(m('للمشرف فقط', 'Administrator only', 'Administrateur seulement'))}` : ''}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              ))}
-            </details>
-          )}
-        </>
+      {greyed.size > 0 && (
+        <div className="muted small" style={{ marginTop: 4 }}>
+          {[...greyed.entries()].map(([w, names]) => <div key={w}>{names.join(' · ')}: {w}</div>)}
+        </div>
+      )}
+      {chosen.length > 0 && (
+        <ul className="small" style={{ margin: '8px 0', paddingInlineStart: 18 }}>
+          {chosen.map((a) => (
+            <li key={a.id}><b>{roleName(a)}</b>: {a.kind && kindInfo(a.kind) ? tx(kindInfo(a.kind)!.about) : tx(m('دور خاص، علاماته في صفحة الأدوار.', 'a Custom role; its ticks are on the Roles page.', 'un rôle personnalisé ; ses cases sont sur la page des rôles.'))}</li>
+          ))}
+        </ul>
+      )}
+      <p className="muted small">{tx(m('حقوق الشخص هي كل علامات أدواره معاً؛ كل دور يضيف فقط.', 'The rights of the person are all the ticks of their roles together; each role only adds.', 'Les droits de la personne sont toutes les cases de ses rôles ensemble ; chaque rôle ne fait qu’ajouter.'))}</p>
+      <BecauseOf roles={chosen} extra={ownExtra} />
+      <div className="small" style={{ marginTop: 4 }}>{tx(m('الأبواب:', 'Doors:', 'Portes :'))} {doorsLine(chosen, ownExtra, books.length > 0, !!d.inv)}</div>
+      {hasKinds && (
+        <details style={{ marginTop: 10 }}>
+          <summary className="small">{tx(m('متقدّم: استثناءات على هذا الشخص', 'Advanced: exceptions on this person', 'Avancé : exceptions pour cette personne'))}{ownExtra.length > 0 ? ` (+${ownExtra.length})` : ''}</summary>
+          <p className="muted small">{tx(m('علامة تُضاف لهذا الشخص وحده، فوق أدواره. دفتر المسؤول والمنح للمشرف فقط.', 'A tick added for this person only, on top of their roles. The Respo book and the grants are for the Administrator only.', 'Une case ajoutée pour cette personne seule, en plus de ses rôles. Le livre du Respo et les subventions sont pour l’Administrateur seul.'))}</p>
+          {PERM_GROUPS.map((g) => (
+            <div key={g.key} style={{ marginBottom: 6 }}>
+              <b className="small">{tx(g.label)}</b>
+              {g.perms.map((p) => {
+                const byRole = fromRoles.has(p.key);
+                const adminOnly = ADMIN_ONLY.includes(p.key);
+                const notMine = !admin && !can(p.key);
+                const noSelf = self && !extra.includes(p.key);
+                return (
+                  <label key={p.key} className="row small" style={{ alignItems: 'flex-start', flexWrap: 'nowrap', opacity: byRole || adminOnly || notMine || noSelf ? 0.55 : 1 }}>
+                    <input type="checkbox" checked={byRole || extra.includes(p.key)} disabled={byRole || adminOnly || noSelf || (notMine && !extra.includes(p.key))} onChange={() => toggleExtra(p.key)} style={{ marginTop: 3 }} />
+                    <span>{tx(p.label)}{byRole ? ` · ${tx(m('من دور', 'from a role', 'par un rôle'))}` : adminOnly ? ` · ${tx(m('للمشرف فقط', 'Administrator only', 'Administrateur seulement'))}` : ''}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ))}
+        </details>
       )}
       <h3 style={{ marginTop: 14 }}>{t('الدفاتر التي يحملها', 'Books this person keeps')}</h3>
       <div className="chips">
-        {d.lists.books.filter((b) => b.active).map((b) => (
+        {d.lists.books.filter((b) => b.active && (admin || !b.private || books.includes(b.id))).map((b) => (
           <button key={b.id} type="button" className={`chip ${books.includes(b.id) ? 'on' : ''}`} onClick={() => toggle(b.id)}>{b.name}</button>
         ))}
       </div>
-      <p className="muted small">{t('يكتب في هذه الدفاتر ويؤكّد ما يصلها ويغلق شهرها، إن سمح ملف صلاحياته بذلك.', 'He writes in these books, confirms what reaches them and closes their month — if his permission profile allows "Book".')}</p>
+      <p className="muted small">{tx(m('يكتب في هذه الدفاتر ويؤكّد ما يصلها ويغلق شهرها، إن كان أحد أدواره يحمل «الدفتر».', 'They write in these books, confirm what reaches them and close their month — if one of their roles has "Book".', 'La personne écrit dans ces caisses, confirme ce qui y arrive et clôt leur mois — si l’un de ses rôles a « Caisse ».'))}</p>
       {err && <div className="alert err">{err}</div>}
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
@@ -806,20 +1008,33 @@ export function PinModal({ p, onClose, onDone }: { p: Pick<Profile, 'id' | 'name
   );
 }
 
-// ---------------------------------------------------------------- permission profiles
+// ---------------------------------------------------------------- the roles page
 
 /** What is only seen (reports, registers) and what changes something, for the tags of the roles matrix. */
 const VIEW_PERMS = new Set<Perm>(['register.view', 'reports.summary', 'reports.monthly', 'reports.accounts', 'reports.exchange', 'reports.cash', 'reports.funding', 'budget.view', 'data.export', 'audit.view']);
 
-/** The roles page (as in the communities): one column per permission profile, one row per thing it may do. */
+/**
+ * The roles page (roles step 3): the ready-made roles, one plain sentence each, how many people hold them, and "Make a copy
+ * to adapt" (the copy is a Custom role). The Custom roles below. Every tick of every role folded under "Advanced".
+ */
 function AccessProfiles() {
-  const { s, reload } = useApp();
+  const { s, reload, can } = useApp();
+  const admin = !!s.profile.admin;
   const [list, setList] = useState<AccessRow[]>([]);
-  const [edit, setEdit] = useState<Partial<AccessRow> | null>(null);
+  const [edit, setEdit] = useState<(Partial<AccessRow> & { from?: number }) | null>(null);
   const refresh = () => s.api.call('access.list').then(setList);
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const hasKinds = list.some((a) => a.kind);
+  /** a role whose ticks are the Administrator's to change (his own and the Director's) */
+  const locked = (a: AccessRow) => hasKinds && !admin && !!a.kind && ADMIN_GIVES.includes(a.kind as never);
+  const mayCopyIt = (a: AccessRow) => (a.kind ? mayCopy({ admin, can }, a) : admin || a.perms.every((p) => can(p)));
+  const copy = (a: AccessRow) => {
+    const info = a.kind ? kindInfo(a.kind) : null;
+    const name = info ? `${info.label.ar} (نسخة) · ${info.label.en} (copy)` : `${a.name} (2)`;
+    setEdit({ name, perms: a.perms.filter((p) => !ADMIN_ONLY.includes(p)), from: a.id });
+  };
   const remove = async (a: AccessRow) => {
     if (!(await confirmBox(t(`حذف «${a.name}»؟`, `Delete "${a.name}"?`), true))) return;
     try {
@@ -840,9 +1055,12 @@ function AccessProfiles() {
       toast(errText(e), true);
     }
   };
-  return (
-    <div className="panel">
-      <p className="muted small">{tx(m('ماذا يستطيع كل دور: «اطّلاع» يعرض فقط، و«تعديل» يغيّر شيئاً. قد يحمل الشخص عدة أدوار: حقوقه كل علاماتها معاً. تغيير علامة يغيّر حقوق كل من يحمل الدور، عند دخوله التالي.', 'What each role may do. "View" only shows; "modify" changes something. A person may hold several roles: his rights are all their ticks together. A tick changes the rights of everybody who has the role, at their next sign-in.', 'Ce que chaque rôle peut faire. « Voir » montre seulement ; « modifier » change quelque chose. Une personne peut avoir plusieurs rôles : ses droits sont toutes leurs cases ensemble. Une case change les droits de tous ceux qui ont le rôle, à leur prochaine connexion.'))}</p>
+  const ready = ROLE_KINDS.map((k) => list.find((a) => a.kind === k.kind)).filter((a): a is AccessRow => !!a);
+  const custom = list.filter((a) => !a.kind);
+  const peopleCount = (a: AccessRow) => tx(m(`الأشخاص: ${a.users}`, `${a.users} ${a.users === 1 ? 'person' : 'people'}`, `${a.users} personne${a.users === 1 ? '' : 's'}`));
+  const matrix = (
+    <>
+      <p className="muted small">{tx(m('ماذا يستطيع كل دور: «اطّلاع» يعرض فقط، و«تعديل» يغيّر شيئاً. تغيير علامة يغيّر حقوق كل من يحمل الدور، عند دخوله التالي.', 'What each role may do. "View" only shows; "modify" changes something. A tick changes the rights of everybody who has the role, at their next sign-in.', 'Ce que chaque rôle peut faire. « Voir » montre seulement ; « modifier » change quelque chose. Une case change les droits de tous ceux qui ont le rôle, à leur prochaine connexion.'))}</p>
       <div style={{ overflowX: 'auto' }}>
         <table className="t roles-matrix">
           <thead>
@@ -851,10 +1069,10 @@ function AccessProfiles() {
               {list.map((a) => (
                 <th key={a.id} className="c">
                   {roleName(a)}
-                  {list.some((x) => x.kind) && <div className="muted small">{a.kind ? tx(m('دور جاهز', 'ready-made', 'rôle prêt')) : tx(m('خاص', 'Custom', 'Personnalisé'))}</div>}
-                  <div className="muted small">{a.users} {t('مستخدم', 'users')}</div>
+                  {hasKinds && <div className="muted small">{a.kind ? tx(m('دور جاهز', 'ready-made', 'rôle prêt')) : tx(m('خاص', 'Custom', 'Personnalisé'))}</div>}
+                  <div className="muted small">{peopleCount(a)}</div>
                   <div className="nowrap">
-                    <button className="btn small ghost" onClick={() => setEdit(a)} title={t('الاسم وكل العلامات', 'Name and all ticks')}>✎</button>
+                    {!locked(a) && <button className="btn small ghost" onClick={() => setEdit(a)} title={t('الاسم وكل العلامات', 'Name and all ticks')}>✎</button>}
                     {a.users === 0 && !a.kind && <button className="btn small ghost" onClick={() => remove(a)}>✕</button>}
                   </div>
                 </th>
@@ -867,20 +1085,64 @@ function AccessProfiles() {
               ...g.perms.map((p) => (
                 <tr key={p.key}>
                   <td><span className={`role-pill ${VIEW_PERMS.has(p.key) ? 'view' : 'modify'}`}>{VIEW_PERMS.has(p.key) ? t('اطّلاع', 'View') : t('تعديل', 'Modify')}</span> {tx(p.label)}</td>
-                  {list.map((a) => <td key={a.id} className="c"><input type="checkbox" checked={a.perms.includes(p.key)} onChange={() => toggle(a, p.key)} /></td>)}
+                  {list.map((a) => <td key={a.id} className="c"><input type="checkbox" checked={a.perms.includes(p.key)} disabled={locked(a)} onChange={() => toggle(a, p.key)} /></td>)}
                 </tr>
               )),
             ])}
           </tbody>
         </table>
       </div>
-      <div className="modal-foot"><button className="btn primary" onClick={() => setEdit({ name: '', perms: [] })}>＋ {t('ملف صلاحيات', 'Permission profile')}</button></div>
-      {edit && <AccessModal a={edit} onClose={() => setEdit(null)} onDone={async () => { await refresh(); await reload(); }} />}
+    </>
+  );
+  const editDone = async () => { await refresh(); await reload(); };
+  if (!hasKinds)
+    return (
+      <div className="panel">
+        {matrix}
+        <div className="modal-foot"><button className="btn primary" onClick={() => setEdit({ name: '', perms: [] })}>＋ {t('ملف صلاحيات', 'Permission profile')}</button></div>
+        {edit && <AccessModal a={edit} onClose={() => setEdit(null)} onDone={editDone} />}
+      </div>
+    );
+  return (
+    <div className="panel">
+      <p className="muted small">{tx(m('الأدوار الجاهزة. قد يحمل الشخص دوراً أو أكثر؛ كل دور يضيف فقط. لتكييف دور لمركزك، اصنع نسخة منه: النسخة دور «خاص».', 'The ready-made roles. A person may hold one or several; each role only adds. To adapt a role for your centre, make a copy of it: the copy is a "Custom" role.', 'Les rôles prêts. Une personne peut en avoir un ou plusieurs ; chaque rôle ne fait qu’ajouter. Pour adapter un rôle à votre centre, faites-en une copie : la copie est un rôle « personnalisé ».'))}</p>
+      {ready.map((a) => (
+        <div key={a.id} style={{ borderTop: '1px solid var(--line)', padding: '8px 0' }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <b>{roleName(a)}</b>
+            <span className="small muted">· {peopleCount(a)}</span>
+            <span style={{ marginInlineStart: 'auto' }}>{mayCopyIt(a) && <button className="btn small" onClick={() => copy(a)}>{tx(m('نسخة لتكييفها', 'Make a copy to adapt', 'Copier pour adapter'))}</button>}</span>
+          </div>
+          <div className="small">{tx(kindInfo(a.kind)!.about)}</div>
+        </div>
+      ))}
+      {custom.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 14 }}>{tx(m('أدوار خاصة', 'Custom roles', 'Rôles personnalisés'))}</h3>
+          {custom.map((a) => (
+            <div key={a.id} className="row" style={{ gap: 8, alignItems: 'center', borderTop: '1px solid var(--line)', padding: '6px 0' }}>
+              <b>{roleName(a)}</b>
+              <span className="small muted">· {tx(m(`العلامات: ${a.perms.length}`, `${a.perms.length} ticks`, `${a.perms.length} cases`))} · {peopleCount(a)}</span>
+              <span className="nowrap" style={{ marginInlineStart: 'auto' }}>
+                <button className="btn small" onClick={() => setEdit(a)} title={t('الاسم وكل العلامات', 'Name and all ticks')}>✎</button>{' '}
+                {mayCopyIt(a) && <button className="btn small" onClick={() => copy(a)}>{tx(m('نسخة', 'Copy', 'Copier'))}</button>}{' '}
+                {a.users === 0 && <button className="btn small ghost" onClick={() => remove(a)}>✕</button>}
+              </span>
+            </div>
+          ))}
+        </>
+      )}
+      <details style={{ marginTop: 14 }}>
+        <summary className="small">{tx(m('متقدّم: كل علامات كل الأدوار', 'Advanced: all the ticks of every role', 'Avancé : toutes les cases de chaque rôle'))}</summary>
+        {matrix}
+        <div className="modal-foot"><button className="btn" onClick={() => setEdit({ name: '', perms: [] })}>＋ {tx(m('دور خاص فارغ', 'Empty Custom role', 'Rôle personnalisé vide'))}</button></div>
+      </details>
+      {edit && <AccessModal a={edit} onClose={() => setEdit(null)} onDone={editDone} />}
     </div>
   );
 }
 
-function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow>; onClose: () => void; onDone: () => Promise<void> }) {
+function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow> & { from?: number }; onClose: () => void; onDone: () => Promise<void> }) {
   const { s } = useApp();
   const [name, setName] = useState(a.name ?? '');
   const [perms, setPerms] = useState<Perm[]>(a.perms ?? []);
@@ -888,9 +1150,9 @@ function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow>; onClose: (
   const [err, setErr] = useState<string | null>(null);
   const toggle = (p: Perm) => setPerms((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p]));
   return (
-    <Modal title={a.id ? t('تعديل ملف صلاحيات', 'Edit permission profile') : t('ملف صلاحيات جديد', 'New permission profile')} onClose={onClose}>
+    <Modal title={a.id ? tx(m('تعديل دور', 'Change a role', 'Modifier un rôle')) : a.from != null ? tx(m('نسخة لتكييفها', 'A copy to adapt', 'Une copie à adapter')) : tx(m('دور خاص جديد', 'New Custom role', 'Nouveau rôle personnalisé'))} onClose={onClose}>
       <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      {!a.id && (
+      {!a.id && a.from == null && (
         <div className="ready-roles" style={{ marginTop: 12 }}>
           <div className="small muted">{tx(m('ابدأ من دور جاهز (تبقى العلامات قابلة للتعديل):', 'Start from a ready-made role (the ticks stay yours to change):', 'Partir d’un rôle prêt (les cases restent à vous) :'))}</div>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
@@ -919,7 +1181,7 @@ function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow>; onClose: (
         <button className="btn" onClick={onClose}>{t('إلغاء', 'Cancel')}</button>
         <button className="btn primary" disabled={!name.trim()} onClick={async () => {
           try {
-            await s.api.call('access.save', { id: a.id, name, perms });
+            await s.api.call('access.save', { id: a.id, name, perms, from: a.id ? undefined : a.from });
             await onDone();
             onClose();
           } catch (e) {

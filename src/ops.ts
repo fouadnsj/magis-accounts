@@ -13,7 +13,7 @@ import {
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, personPerms, rolesOf, roleFor, type Profile } from './auth';
-import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, cleanExtra } from './roles';
+import { ADMIN_GIVES, ADMIN_ONLY, DIRECTOR_GIVES, MSG_NOT_SELF, cleanExtra, isHolderRole, mayCopy } from './roles';
 import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
@@ -1259,10 +1259,8 @@ async function usersList(c: OpCtx): Promise<UserRow[]> {
 
 // ---- "Adds book holders" (Fouad, 14 November 2026): the accountant may add a book holder, give him his books and a
 // password, switch him off — and nothing more: never the Superior's password, never a role with more rights.
-/** rights a book holder's role never has */
-const NOT_A_HOLDER = ['register.edit', 'register.main', 'users.manage', 'users.holders', 'users.passwords', 'data.backup', 'data.restore', 'data.import', 'month.reopen', 'lists.manage', 'lists.donors', 'budget.edit'];
-/** a role this person may give: a book holder's (keeps a book, no office right), and nothing he has not himself */
-const holderRole = (c: OpCtx, perms: string[]) => perms.includes('book.own') && !perms.some((p) => NOT_A_HOLDER.includes(p)) && perms.every((p) => p === 'book.own' || can(c, p as Perm));
+/** a role this person may give: a book holder's (keeps a book, no office right), and nothing he has not himself (src/roles.ts) */
+const holderRole = (c: OpCtx, perms: string[]) => isHolderRole(perms, (p) => can(c, p));
 /** may this person (with "Adds book holders") act on that user? a book holder only */
 async function holderOnly(c: OpCtx, id: number) {
   const perms = await personPerms(c.db, id);
@@ -1308,10 +1306,15 @@ async function holdsKind(db: Db, id: number, kinds: string[]): Promise<boolean> 
   const more = await rolesOf(db, id);
   return !!more?.roles.some((r) => r.kind && kinds.includes(r.kind));
 }
-/** a person who is not the Administrator never changes, switches off nor resets the Administrator (nor a Director's roles) */
+/**
+ * A person who is not the Administrator never changes, switches off nor resets the password of the Administrator, nor of a
+ * Director (the Administrator gives that role: the Director is his to look after). (roles step 3) His own line stays his
+ * (his name, his password), but never a new role.
+ */
 async function guardTarget(c: OpCtx, id: number, what: 'roles' | 'person') {
   if (isAdmin(c) || !(await rolesOn(c.db))) return;
-  if (await holdsKind(c.db, id, what === 'roles' ? ADMIN_GIVES : ['administrator'])) throw onlyAdmin();
+  if (what === 'person' && id === c.profile.id) return;
+  if (await holdsKind(c.db, id, ADMIN_GIVES)) throw onlyAdmin();
 }
 
 /** refuses a user of the HR database who sees only some centres (they manage users on the HR users page) */
@@ -1339,9 +1342,14 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
     if (roles.length !== 1 || !holderRole(c, roles[0].perms)) throw new UserError(m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement'));
     if (extraIn?.length) throw new UserError(m('دور أمين صندوق فقط', "A book holder's role only", 'Un rôle de teneur de caisse seulement'));
     if (a.id) await holderOnly(c, a.id);
+    // (roles step 3) a book holder keeps a book of his own, never the Main book
+    const main = await mainOf(c.db);
+    if (main != null && a.books.map(Number).includes(main)) throw new UserError(m('الدفتر الرئيسي ليس لأمين صندوق', 'The Main book is not for a book holder', 'Le livre principal n’est pas pour un teneur de caisse'));
   }
   if (on) {
     const added = roles.filter((r) => !hadRoles.has(r.id));
+    // (roles step 3) nobody gives himself a role or an exception, the Administrator included (another Administrator does it)
+    if (a.id === c.profile.id && (added.length > 0 || extra.some((p) => !(before?.extra ?? []).includes(p)))) throw new UserError(MSG_NOT_SELF);
     const removed = [...hadRoles].filter((id) => !wanted.includes(id));
     const removedRows = await roleRows(c.db, removed);
     const exAdded = extra.filter((p) => !(before?.extra ?? []).includes(p));
@@ -1353,14 +1361,16 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
       if ([...added, ...removedRows].some((r) => r.kind && ADMIN_GIVES.includes(r.kind as never))) throw onlyAdmin();
       const changed = added.length > 0 || removed.length > 0 || JSON.stringify([...extra].sort()) !== JSON.stringify([...(before?.extra ?? [])].sort());
       if (a.id) await guardTarget(c, a.id, changed ? 'roles' : 'person');
-      // nobody gives himself a role or an exception
-      if (a.id === c.profile.id && (added.length > 0 || exAdded.length > 0)) throw notMore();
       // a ready-made role a Director gives; a Custom role or an exception only within what he has himself
       for (const r of added) {
         if (r.kind && DIRECTOR_GIVES.includes(r.kind as never)) continue;
         if (r.perms.some((p) => !can(c, p))) throw notMore();
       }
       if (exAdded.some((p) => !can(c, p))) throw notMore();
+      // (roles step 3) a private book (the Respo book) is given by the Administrator only
+      const held = new Set((await c.db.query<{ book_id: number }>('SELECT book_id FROM user_book WHERE profile_id = ?', [a.id ?? -1])).map((r) => r.book_id));
+      const newBooks = [...new Set(a.books.map(Number))].filter((b) => !held.has(b));
+      if (newBooks.length && (await one(c.db, `SELECT 1 AS x FROM book WHERE private = 1 AND id IN (${newBooks.map(() => '?').join(',')})`, newBooks))) throw adminOnlyTick();
     }
   }
   const name = a.name.trim();
@@ -1454,7 +1464,7 @@ async function accessList(c: OpCtx): Promise<AccessRow[]> {
   return rows.map((r) => ({ ...r, kind: r.kind ?? null, perms: cleanPerms(JSON.parse(r.perms)) }));
 }
 
-async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: string[] }) {
+async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: string[]; from?: number }) {
   need(c, 'users.manage');
   const name = a.name.trim();
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
@@ -1472,7 +1482,12 @@ async function saveAccess(c: OpCtx, a: { id?: number; name: string; perms: strin
     if (before?.kind !== 'administrator' && addedTicks.some((p) => ADMIN_ONLY.includes(p))) throw adminOnlyTick();
     if (!isAdmin(c)) {
       if (before?.kind && ADMIN_GIVES.includes(before.kind as never)) throw onlyAdmin();
-      if (addedTicks.some((p) => !can(c, p))) throw notMore();
+      // (roles step 3) "Make a copy to adapt": a new Custom role may start from the ticks of a ready-made role he gives
+      // (a Custom role is copied only within his own ticks; the Administrator's and the Director's roles are not his to copy)
+      const src = !a.id && a.from != null ? (await roleRows(c.db, [Number(a.from)]))[0] : undefined;
+      if (src?.kind && ADMIN_GIVES.includes(src.kind as never)) throw onlyAdmin();
+      const fromSrc = src && mayCopy({ admin: false, can: (p) => can(c, p) }, src) ? src.perms : [];
+      if (addedTicks.some((p) => !can(c, p) && !fromSrc.includes(p))) throw notMore();
     }
   }
   if (a.id) {
@@ -1963,7 +1978,7 @@ export const OPS = {
       return changePin(c.db, a.id, a.pin, c.who, a.id !== c.profile.id);
     },
   },
-  'access.save': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; perms: string[] }) => saveAccess(c, a) },
+  'access.save': { check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); }, run: (c: OpCtx, a: { id?: number; name: string; perms: string[]; from?: number }) => saveAccess(c, a) },
   'access.delete': {
     check: (c: OpCtx) => { need(c, 'users.manage'); wholeHr(c); },
     run: async (c: OpCtx, a: { id: number }) => {

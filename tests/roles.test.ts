@@ -11,7 +11,7 @@ import { createOffice } from '../src/setup';
 import { MIGRATIONS } from '../src/db/migrations';
 import { migrate, splitSql, type Db } from '../src/db/db';
 import { doorsOf } from '../src/doors';
-import { sensitiveOf, unionPerms } from '../src/roles';
+import { ROLE_KINDS, sensitiveOf, unionPerms, whyNotGive } from '../src/roles';
 import { startServer, type Running } from '../server/server';
 import { nodeDb } from './nodeDb';
 
@@ -194,14 +194,130 @@ describe('several roles per person, and the limits', () => {
   });
 
   it('the last Administrator stays (nothing changed when refused)', async () => {
-    await expect(runOp(sup, 'user.save', { id: sup.profile.id, name: 'Sup', roles: [role('director').id], books: [] })).rejects.toThrow(/role Administrator/);
+    // (roles step 3) nobody gives himself a role, not even the Administrator
+    await expect(runOp(sup, 'user.save', { id: sup.profile.id, name: 'Sup', roles: [role('director').id], books: [] })).rejects.toThrow(/Nobody gives himself a role/);
     const again = await ctxOf('Sup');
     expect(again.profile.admin).toBe(true);
     expect(again.profile.roles!.map((r) => r.kind)).toEqual(['administrator']);
-    // with a second Administrator (Fouad's second person), one of them may become Director
+    // with a second Administrator (Fouad's second person), the other one gives him a role
     await runOp(sup, 'user.save', { name: 'Alvaro', roles: [role('administrator').id], books: [], pin: 'alvaro-pass-1' });
-    await runOp(sup, 'user.save', { id: sup.profile.id, name: 'Sup', roles: [role('administrator').id, role('accountant').id], books: [] });
+    const alvaro = await ctxOf('Alvaro');
+    await runOp(alvaro, 'user.save', { id: sup.profile.id, name: 'Sup', roles: [role('administrator').id, role('accountant').id], books: [] });
     expect((await ctxOf('Sup')).profile.perms).toContain('register.main');
+    // Alvaro switched off: Sup, the last Administrator, cannot drop his own Administrator role
+    await runOp(sup, 'user.deactivate', { id: alvaro.profile.id });
+    await expect(runOp(sup, 'user.save', { id: sup.profile.id, name: 'Sup', roles: [role('accountant').id], books: [] })).rejects.toThrow(/role Administrator/);
+    expect((await ctxOf('Sup')).profile.admin).toBe(true);
+  });
+});
+
+describe('who gives what (roles step 3)', () => {
+  let db: Db;
+  let sup: OpCtx;
+  let roles: AccessRow[];
+  const ctxOf = async (name: string): Promise<OpCtx> => ({ db, profile: (await loadProfile(db, await idOf(db, name)))!, who: name, install: 'office', files });
+  const role = (kind: string) => roles.find((r) => r.kind === kind)!;
+  let n = 0;
+  const pin = () => `pass-word-${++n}`;
+
+  beforeAll(async () => {
+    db = nodeDb();
+    await createOffice(db, { organisation: 'Gives centre', supName: 'Sup', supPin: 'sup-pass-1', comName: 'Com', comPin: 'com-pass-1' });
+    sup = await ctxOf('Sup');
+    roles = (await runOp(sup, 'access.list', {})) as AccessRow[];
+    // the Accountant "adds book holders" when the Administrator ticks it on that role (as today)
+    if (!role('accountant').perms.includes('users.holders')) await runOp(sup, 'access.save', { id: role('accountant').id, name: role('accountant').name, perms: [...role('accountant').perms, 'users.holders'] });
+    roles = (await runOp(sup, 'access.list', {})) as AccessRow[];
+    await runOp(sup, 'user.save', { name: 'Dina', roles: [role('director').id], books: [], pin: pin() });
+    await runOp(sup, 'user.save', { name: 'Dani', roles: [role('director').id], books: [], pin: pin() });
+  });
+
+  it('the screen and the server agree on who may give which ready-made role', async () => {
+    for (const who of ['Sup', 'Dina', 'Com']) {
+      const c = await ctxOf(who);
+      const g = { admin: !!c.profile.admin, can: (p: string) => c.profile.perms.includes(p as never) };
+      for (const k of ROLE_KINDS) {
+        const r = role(k.kind);
+        const why = whyNotGive(g, r);
+        const name = `${who} gives ${k.kind}`;
+        const res = runOp(c, 'user.save', { name, roles: [r.id], books: [], pin: pin() });
+        if (why) await expect(res, name).rejects.toThrow();
+        else await expect(res, name).resolves.toBeUndefined();
+      }
+    }
+    // in words: the Administrator gives all; the Director all but Administrator and Director; the Accountant a Book holder only
+    const g = async (who: string) => { const c = await ctxOf(who); return ROLE_KINDS.filter((k) => !whyNotGive({ admin: !!c.profile.admin, can: (p) => c.profile.perms.includes(p) }, role(k.kind))).map((k) => k.kind); };
+    expect(await g('Sup')).toEqual(ROLE_KINDS.map((k) => k.kind));
+    expect(await g('Dina')).toEqual(['accountant', 'holder', 'reception', 'coordinator', 'keeper']);
+    expect(await g('Com')).toEqual(['holder']);
+  });
+
+  it('a Director adds and removes the people of his centre, never another Director, never a role to himself', async () => {
+    const dina = await ctxOf('Dina');
+    const dani = await idOf(db, 'Dani');
+    await runOp(dina, 'user.save', { name: 'Rima', roles: [role('reception').id, role('keeper').id], books: [], pin: pin() });
+    const rima = await idOf(db, 'Rima');
+    await runOp(dina, 'user.save', { id: rima, name: 'Rima N.', roles: [role('reception').id], books: [] });
+    await runOp(dina, 'profile.setPin', { id: rima, pin: pin() });
+    await runOp(dina, 'user.deactivate', { id: rima });
+    // another Director is the Administrator's: not his name, not his password, not his books, not switched off
+    await expect(runOp(dina, 'user.save', { id: dani, name: 'Dani 2', roles: [role('director').id], books: [] })).rejects.toThrow(/Administrator only/);
+    await expect(runOp(dina, 'profile.setPin', { id: dani, pin: pin() })).rejects.toThrow(/Administrator only/);
+    await expect(runOp(dina, 'user.deactivate', { id: dani })).rejects.toThrow(/Administrator only/);
+    // his own line: his name and his password yes; a role no; dropping his own Director role no
+    await runOp(dina, 'user.save', { id: dina.profile.id, name: 'Dina', roles: [role('director').id], books: [] });
+    await runOp(dina, 'profile.setPin', { id: dina.profile.id, pin: 'dina-own-pass' });
+    await expect(runOp(dina, 'user.save', { id: dina.profile.id, name: 'Dina', roles: [role('director').id, role('accountant').id], books: [] })).rejects.toThrow(/Nobody gives himself a role/);
+    await expect(runOp(dina, 'user.save', { id: dina.profile.id, name: 'Dina', roles: [role('reception').id], books: [] })).rejects.toThrow();
+    // the Administrator does all of it
+    await runOp(sup, 'user.save', { id: dani, name: 'Dani', roles: [role('director').id, role('coordinator').id], books: [] });
+    await runOp(sup, 'profile.setPin', { id: dani, pin: pin() });
+  });
+
+  it('the Accountant adds book holders only: their book, their password, switched off; never the Main book nor another role', async () => {
+    const com = await ctxOf('Com');
+    const books = (await db.query<{ id: number; is_main: number }>('SELECT id, is_main FROM book WHERE active = 1'));
+    const main = books.find((b) => b.is_main)!.id;
+    await db.batch([{ sql: "INSERT INTO book (name, keeper_name, city_id, account_id, is_main, sort) SELECT 'Petty', 'Hadi', city_id, account_id, 0, 99 FROM book WHERE id = ?", params: [main] }]);
+    const petty = (await db.query<{ id: number }>("SELECT id FROM book WHERE name = 'Petty'"))[0].id;
+    await runOp(com, 'user.save', { name: 'Hadi', roles: [role('holder').id], books: [petty], pin: pin() });
+    const hadi = await idOf(db, 'Hadi');
+    await runOp(com, 'profile.setPin', { id: hadi, pin: pin() });
+    await expect(runOp(com, 'user.save', { id: hadi, name: 'Hadi', roles: [role('holder').id], books: [petty, main] })).rejects.toThrow(/Main book is not for a book holder/);
+    await expect(runOp(com, 'user.save', { name: 'Nour', roles: [role('reception').id], books: [], pin: pin() })).rejects.toThrow(/book holder's role only/);
+    await expect(runOp(com, 'user.save', { name: 'Nour', roles: [role('holder').id, role('reception').id], books: [], pin: pin() })).rejects.toThrow(/book holder's role only/);
+    await expect(runOp(com, 'user.save', { id: hadi, name: 'Hadi', roles: [role('holder').id], extra: ['cal.view'], books: [petty] })).rejects.toThrow(/book holder's role only/);
+    // a person who is not a book holder: not his, even for the password
+    const dani = await idOf(db, 'Dani');
+    await expect(runOp(com, 'user.save', { id: dani, name: 'Dani', roles: [role('holder').id], books: [] })).rejects.toThrow();
+    await expect(runOp(com, 'profile.setPin', { id: dani, pin: pin() })).rejects.toThrow();
+    await expect(runOp(com, 'user.deactivate', { id: dani })).rejects.toThrow();
+    // a private book (the Respo book) is given by the Administrator only, not by the Accountant nor the Director
+    if (!(await db.query('SELECT 1 FROM book WHERE private = 1')).length) await db.batch([{ sql: "INSERT INTO book (name, keeper_name, city_id, account_id, is_main, private, sort) SELECT 'Private test', 'Sup', city_id, account_id, 0, 1, 98 FROM book WHERE id = ?", params: [main] }]);
+    const respo = (await db.query<{ id: number }>('SELECT id FROM book WHERE private = 1'))[0].id;
+    await expect(runOp(com, 'user.save', { id: hadi, name: 'Hadi', roles: [role('holder').id], books: [petty, respo] })).rejects.toThrow(/only in the role Administrator/);
+    await expect(runOp(await ctxOf('Dina'), 'user.save', { id: hadi, name: 'Hadi', roles: [role('holder').id], books: [petty, respo] })).rejects.toThrow(/only in the role Administrator/);
+    // what he sees of the roles: the book holder's only
+    expect(((await runOp(com, 'access.list', {})) as AccessRow[]).map((r) => r.kind)).toEqual(['holder']);
+    await runOp(com, 'user.deactivate', { id: hadi });
+  });
+
+  it('"Make a copy to adapt": a Director copies a ready-made role he gives, then only adds what he has', async () => {
+    const dina = await ctxOf('Dina');
+    const acc = role('accountant');
+    // the Accountant's ticks are not all his (he does not write), but he gives that role, so he may copy it
+    expect(acc.perms.some((p) => !dina.profile.perms.includes(p))).toBe(true);
+    await runOp(dina, 'access.save', { name: 'Accountant (Homs copy)', perms: acc.perms.filter((p) => p !== 'data.import'), from: acc.id });
+    await expect(runOp(dina, 'access.save', { name: 'Accountant (too much)', perms: [...acc.perms, 'data.restore'], from: acc.id })).rejects.toThrow(/more than you have/);
+    await expect(runOp(dina, 'access.save', { name: 'Accountant (no from)', perms: acc.perms })).rejects.toThrow(/more than you have/);
+    await expect(runOp(dina, 'access.save', { name: 'Director (copy)', perms: role('director').perms, from: role('director').id })).rejects.toThrow(/Administrator only/);
+    // the copy is Custom, and the Director may give it (it is within a ready-made role he gives)
+    roles = (await runOp(sup, 'access.list', {})) as AccessRow[];
+    const copy = roles.find((r) => r.name === 'Accountant (Homs copy)')!;
+    expect(copy.kind).toBe(null);
+    // the Administrator copies anything but never carries the Respo book or grants into a copy
+    await expect(runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms, from: role('administrator').id })).rejects.toThrow(/only in the role Administrator/);
+    await runOp(sup, 'access.save', { name: 'Admin (copy)', perms: role('administrator').perms.filter((p) => p !== 'lists.donors' && p !== 'register.private'), from: role('administrator').id });
   });
 });
 

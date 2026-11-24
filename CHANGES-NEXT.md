@@ -405,3 +405,36 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
   giving Director, Fouad's password, a donors exception, a tick she lacks; giving Reception worked. The roles page shows the seven roles.
 - Not done here (later steps): the full Users window and "who gives what" (step 3), Respo/Grants hiding pass (step 2), the book with the user (step 5),
   the HR roles (paused).
+
+## 19. Who gives what, and the Users window with several roles (roles step 3, 25 November 2026; no database update)
+- **Who gives what, checked by the server** (`src/ops.ts`, the same rule in `src/roles.ts` `whyNotGive` for the screen): the
+  **Administrator** gives every role, Director and Administrator included; the **Director** adds and switches off the people of his
+  centre and gives the other ready-made roles (Accountant, Book holder, Reception, Coordinator, Store keeper), a Custom role only within
+  what he has himself; the **Accountant** (when his role has "Adds book holders") adds **book holders only**: their name, their book,
+  their password, switched off; never the Main book, never another role, never an exception.
+- New limits: **nobody gives himself a role**, the Administrator included (a second Administrator does it); a Director never changes
+  **another Director's** line (name, password, books, switched off): the Director is the Administrator's to look after; his own name
+  and password stay his. A **private book** (the Respo book) is given to a person by the Administrator only. At least one active
+  Administrator stays (as in step 1).
+- **The Users window** (Admin → Users): one line per person: *Name (and the books kept) · Roles as chips · Doors · Exceptions (+n)*,
+  with "Sees: prices — because of: Coordinator" under the roles. The Administrator's and the Directors' lines have no buttons for a
+  Director. The people switched off are folded under "Switched off (n)".
+- **Add / change a person**: name; the password given once (a new person must change it at the first sign-in; for a known person a
+  button "Give a new password"); the roles as chips, several; the chips one may not give are greyed and **the reason is written under
+  them** ("Administrator · Director: For the Administrator only"); one plain sentence for each chosen role; "because of" line; the
+  doors this person will see; "Advanced: exceptions on this person" folded; the books kept.
+- **The Roles page** (Admin → Roles, was "Roles and permissions"): the seven ready-made roles, one sentence each, how many people hold
+  each, and **"Make a copy to adapt"**: the copy is a Custom role (a Director may copy a role he gives — the Accountant for example —
+  and then only add ticks he has; the Respo book and the grants never go into a copy). The Custom roles below. Every tick of every role
+  folded under "Advanced: all the ticks of every role" (the Administrator's and Director's columns cannot be ticked by a Director).
+- **The Accountant's own small window** (Admin → Book holders): the book holders only, "+ Book holder", the book (not the Main book,
+  not a private book), the password, switch off; his own password; and, if his role may reset passwords, the password of another
+  person (folded).
+- Tests: `tests/roles.test.ts` "who gives what" (the screen and the server agree for Administrator, Director, Accountant on every
+  ready-made role; Director and another Director; the Accountant's limits; private book; "Make a copy to adapt"). 423 tests pass.
+- Tried in the side pane on a copy (own port): as Fouad (Roula given Store keeper), as Nagham the Director (Hiba added as Reception +
+  Accountant; Director/Administrator greyed with the reason; server refused giving Director, Fouad's password, a role to herself,
+  copying the Director role; copying the Accountant worked), as Assem the Accountant (after Fouad ticked "Adds book holders" on the
+  Accountant role: Karim added as book holder; the Respo book not offered).
+- Note: on Homs today the Accountant role does **not** have "Adds book holders"; Fouad ticks it on the Roles page if he wants it.
+- Not done here: the book made with the person (step 5), the Respo/Grants hiding pass (step 2, other session), HR roles (paused).

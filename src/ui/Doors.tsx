@@ -59,6 +59,9 @@ function Name({ msg, className }: { msg: Msg; className?: string }) {
   );
 }
 
+/** a door's name, for other screens (the Users window shows each person's doors) */
+export const doorName = (k: DoorKey): Msg => DOOR[k].name;
+
 export function Doors({ doors, centre, centreName, mark, who, badges, onEnter, children }: {
   doors: DoorKey[];
   centre: string;

@@ -60,16 +60,16 @@ export function Coordinator({ dbs, dir, onOpen, onCreated, onChanged, onSignOut,
     <HouseOpen dbs={dbs} onOpen={onOpen}>
     <BrandFrame wide invite={false}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-        <h1 style={{ margin: 0 }}>🧭 {t3('المنسّق', 'Coordinator', 'Coordinateur')}</h1>
+        <h1 style={{ margin: 0 }}>🧭 {t3('المشرف', 'Administrator', 'Administrateur')}</h1>
         <span className="row" style={{ gap: 6 }}>
           {signedIn && onBackIn && <button className="btn small" onClick={onBackIn}>{t3('رجوع إلى', 'Back to', 'Retour à')} {signedIn.db}</button>}
           <button className="btn small ghost" onClick={onSignOut}>{dir.person?.name} · {t3('خروج', 'Sign out', 'Se déconnecter')}</button>
         </span>
       </div>
       <p className="muted small" style={{ marginTop: 0 }}>
-        {t3('ما تشترك فيه الشبكة كلها: قواعد البيانات، وقوائم الموازنة، والأشخاص وصلاحياتهم. المنسّق يرى ويدير، ولا يغيّر قيود مركز: لذلك يدخل المركز. كل مركز يبقى مستقلاً.',
-          'What the whole network shares: the databases, the budget lists, the people and their access. The Coordinator sees and manages, but never changes a centre\'s records: for that, enter the centre. Each centre keeps its autonomy.',
-          "Ce que tout le réseau partage : les bases, les listes du budget, les personnes et leurs accès. Le Coordinateur voit et gère, mais ne change jamais les écritures d'un centre : pour cela, entrez dans le centre. Chaque centre garde son autonomie.")}
+        {t3('ما تشترك فيه الشبكة كلها: قواعد البيانات، وقوائم الموازنة، والأشخاص وصلاحياتهم. المشرف يرى ويدير، ولا يغيّر قيود مركز: لذلك يدخل المركز. كل مركز يبقى مستقلاً.',
+          'What the whole network shares: the databases, the budget lists, the people and their access. The Administrator sees and manages, but never changes a centre\'s records: for that, enter the centre. Each centre keeps its autonomy.',
+          "Ce que tout le réseau partage : les bases, les listes du budget, les personnes et leurs accès. L'Administrateur voit et gère, mais ne change jamais les écritures d'un centre : pour cela, entrez dans le centre. Chaque centre garde son autonomie.")}
       </p>
       <Tabs value={sec} onChange={setSec} tabs={[
         { value: 'dbs', label: t3('قواعد البيانات', 'Databases', 'Bases de données') },

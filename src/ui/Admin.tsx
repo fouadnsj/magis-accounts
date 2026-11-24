@@ -40,10 +40,10 @@ export function Admin() {
     // (Fouad, 25 November 2026) the people and their roles live in the door "Administration"; here stays the Accountant's
     // small window (book holders) and one's own password, for whoever has not that door
     { value: 'users', hidden: peopleDoor(s.profile.roles, can), label: can('users.manage') ? t('المستخدمون', 'Users') : can('users.holders') ? t('أمناء الصناديق', 'Book holders') : can('users.passwords') ? t('كلمات السر', 'Passwords') : t('كلمة السر', 'Password') },
-    { value: 'look', label: t('المظهر', 'Appearance'), hidden: !can('users.manage') },
+    { value: 'look', label: t('المظهر', 'Appearance'), hidden: true },
     { value: 'audit', label: t('سجل التعديلات', 'Audit log'), hidden: !can('audit.view') },
     { value: 'lists', label: t('قوائم الموازنة', 'Budget lists'), hidden: !listsHere },
-    { value: 'sections', label: t('الأقسام', 'Sections'), hidden: !can('lists.manage') },
+    { value: 'sections', label: t('الأقسام', 'Sections'), hidden: true },
     { value: 'server', label: t('الخادم', 'Server'), hidden: s.mode !== 'server' || !(can('data.backup') || can('users.manage')) },
   ];
   const [tab, setTab] = useState<Tab>(tabs.find((x) => !x.hidden)!.value);

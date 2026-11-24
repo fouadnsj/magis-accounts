@@ -2,7 +2,11 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useApp } from '../state';
 import { LangPick } from './LangPick';
 import type { Perm } from '../perms';
-import { t } from './kit';
+import { Modal, t } from './kit';
+import { getLang, m, tx } from '../i18n';
+import type { DbInfo } from '../net';
+import { doorsOf, type DoorKey } from '../doors';
+import { Doors } from './Doors';
 import { applyLook, brandStyle, type MyLook } from '../brand';
 import { MyLookWindow } from './MyLook';
 import { Home } from './Home';
@@ -12,12 +16,10 @@ import { Cash } from './Cash';
 import { Reports } from './Reports';
 import { BudgetPage } from './Budget';
 import { Grants } from './Grants';
-import { Inventory } from './Inventory';
 import { invEntries, pendingEntries } from '../inventory/inv';
 import { ListsPage } from './ListsPage';
 import { Files } from './Files';
 import { Admin } from './Admin';
-import { Hosting } from './Hosting';
 import { Calendar } from './Calendar';
 import { InventoryHome } from './InvHome';
 import { Guide } from './Guide';
@@ -42,10 +44,20 @@ function useNarrow() {
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
 const ADMIN_PERMS: Perm[] = ['month.close', 'month.reopen', 'users.manage', 'data.backup', 'data.restore', 'audit.view'];
 
-export type Page = 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'inventory' | 'invmap' | 'hosting' | 'calendar' | 'lists' | 'files' | 'admin' | 'guide';
+export type Page = 'doors' | 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'files' | 'admin' | 'guide';
+
+/** "← MAGIS · الأبواب": the way back to the doors page, the arrow turned the way the language reads */
+const backLabel = () => { const l = getLang(); return l === 'ar' || l === 'both' ? '→ MAGIS · الأبواب' : l === 'fr' ? '← MAGIS · Portes' : '← MAGIS · Doors'; };
+
+/** The door each page belongs to ('admin' and 'guide' belong to none: they keep the door the person came from). */
+const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', files: 'accounts', calendar: 'calendar', invmap: 'inventory' };
+/** where a door opens */
+const DOOR_HOME: Record<Exclude<DoorKey, 'hr'>, Page> = { accounts: 'home', calendar: 'calendar', inventory: 'invmap' };
 
 interface Nav {
   go: (p: Page, opts?: { review?: boolean; book?: number }) => void;
+  /** go through one of the doors (the doors page, the menu of that door) */
+  door: (k: DoorKey) => void;
   /** Open the entry form: a type for a new row, or a row to edit. */
   entry: (x: EntryStart) => void;
   reviewOnly: boolean;
@@ -57,9 +69,12 @@ interface Nav {
 const NavCtx = createContext<Nav | null>(null);
 export const useNav = () => useContext(NavCtx)!;
 
-export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void; /** the first choice: MAGIS centres, Jesuit communities, HR */ onAllDatabases?: () => void }) {
+export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hrDbs, onOpenHr }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void; /** the first choice: MAGIS centres, Jesuit communities, HR */ onAllDatabases?: () => void; /** the HR databases this person may enter (HR is one for all the centres, separated inside) */ hrDbs?: DbInfo[]; onOpenHr?: (db: DbInfo) => void }) {
   const { s, d, logout, can, myBooks, limited } = useApp();
-  const [page, setPage] = useState<Page>('home');
+  // entering a centre shows the doors page first (Fouad, 24 November 2026); each door has its own menu
+  const [page, setPage] = useState<Page>('doors');
+  const [door, setDoor] = useState<DoorKey | null>(null);
+  const [hrPick, setHrPick] = useState(false);
   const [guideSection, setGuideSection] = useState<string | null>(null);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [bookOnly, setBookOnly] = useState<number | null>(null);
@@ -69,11 +84,23 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
   // a new key each time a form is opened, so a copy opened from a form starts fresh
   const [formKey, setFormKey] = useState(0);
   const openEntry = (x: EntryStart | null) => { setFormKey((k) => k + 1); setEditing(x); };
+  const hrOn = !!hrDbs?.length && !!onOpenHr && s.mode === 'server';
+  const doors = doorsOf({ can, hasBook: myBooks.length > 0, inventoryOn: !!d.inv, hr: hrOn });
+  const openHr = () => {
+    if (!hrDbs?.length || !onOpenHr) return;
+    if (hrDbs.length === 1) onOpenHr(hrDbs[0]);
+    else setHrPick(true);
+  };
   const nav: Nav = {
     go: (p, o) => {
       setReviewOnly(!!o?.review);
       setBookOnly(o?.book ?? null);
+      if (p in DOOR_OF) setDoor(DOOR_OF[p] ?? null);
       setPage(p);
+    },
+    door: (k) => {
+      if (k === 'hr') return openHr();
+      nav.go(DOOR_HOME[k]);
     },
     entry: openEntry,
     reviewOnly,
@@ -143,20 +170,27 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
                 {myBooks.length > 0 && <> · {myBooks.map((id) => d.lists.books.find((b) => b.id === id)?.name).join('، ')}</>}
               </div>
             </div>
+            {page !== 'doors' && <button className="back-top" onClick={() => nav.go('doors')}>{backLabel()}</button>}
             <button className="menu-toggle" onClick={() => setMenuOpen((x) => !x)} aria-label="menu">☰ {t('القائمة', 'Menu')}</button>
           </div>
-          {item('home', t('الرئيسية', 'Home'))}
-          {finances && item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
-          {(myBooks.length > 0 || can('reports.cash')) && item('cash', t('النقد', 'Cash'))}
-          {REPORT_PERMS.some(can) && item('reports', t('التقارير', 'Reports'))}
-          {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
-          {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
-          {can('inventory.view') && d.inv && item('inventory', t('الجرد', 'Inventory'), toInventory ? <span className="badge">{toInventory}</span> : null)}
-          {can('inventory.view') && d.inv && item('invmap', t('الجرد الجديد', 'New inventory'), d.problems?.open ? <span className="badge">{d.problems.open}</span> : null)}
-          {d.host?.on && item('hosting', t('الإقامة والتقويم', 'Calendar'), d.host.review + d.host.toEnter ? <span className="badge">{d.host.review + d.host.toEnter}</span> : null)}
-          {can('cal.view') && item('calendar', t('التقويم الجديد', 'New calendar'))}
-          {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
-          {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
+          {page !== 'doors' && (
+            <button className="back" onClick={() => nav.go('doors')} title={tx(m('إلى صفحة الأبواب', 'Back to the doors page', 'Retour à la page des portes'))}>
+              {backLabel()}
+            </button>
+          )}
+          {door === 'accounts' && <div className="door-name">{tx(m('الحسابات', 'Accounts', 'Comptes'))}</div>}
+          {door === 'accounts' && <>
+            {item('home', t('الرئيسية', 'Home'))}
+            {finances && item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
+            {(myBooks.length > 0 || can('reports.cash')) && item('cash', t('النقد', 'Cash'))}
+            {REPORT_PERMS.some(can) && item('reports', t('التقارير', 'Reports'))}
+            {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
+            {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
+            {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
+            {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
+          </>}
+          {door === 'calendar' && can('cal.view') && item('calendar', t('التقويم', 'Calendar'))}
+          {door === 'inventory' && can('inventory.view') && d.inv && item('invmap', t('الجرد', 'Inventory'), (d.problems?.open ?? 0) + toInventory ? <span className="badge">{(d.problems?.open ?? 0) + toInventory}</span> : null)}
           {(can('lists.manage') || can('lists.donors') || can('budget.view') || can('inventory.view')) && item('guide', <><GuideSun light /> {t('الدليل', 'Guide')}</>)}
           {item('admin', ADMIN_PERMS.some((p) => p !== 'month.close' && can(p)) ? t('الإدارة', 'Admin') : t('الإعدادات', 'Settings'))}
           <div className="spacer" />
@@ -171,15 +205,17 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
         </nav>
         {lookOpen && <MyLookWindow base={st} saved={savedLook} onPreview={setLook} onSaved={(l) => { setSavedLook(l); setLook(l); }} onClose={() => setLookOpen(false)} />}
         <main className="main">
+          {page === 'doors' && (
+            <Doors doors={doors} centre={s.centre ?? 'other'} centreName={s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')} mark={st.mark ?? '/brand/magis-sun.png'} who={s.profile.name}
+              badges={{ accounts: toReview, inventory: (d.problems?.open ?? 0) + toInventory }} onEnter={nav.door} />
+          )}
           {page === 'home' && <Home />}
           {page === 'register' && <Register key={`${reviewOnly}|${bookOnly}`} />}
           {page === 'cash' && <Cash />}
           {page === 'reports' && <Reports />}
           {page === 'budget' && can('budget.view') && <BudgetPage />}
           {page === 'grants' && can('lists.donors') && <Grants />}
-          {page === 'inventory' && can('inventory.view') && <Inventory />}
           {page === 'invmap' && can('inventory.view') && d.inv && <InventoryHome />}
-          {page === 'hosting' && d.host?.on && <Hosting />}
           {page === 'calendar' && can('cal.view') && <Calendar />}
           {page === 'lists' && <ListsPage />}
           {page === 'files' && <Files />}
@@ -188,6 +224,13 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases }: 
         </main>
       </div>
       {editing && <EntryForm key={formKey} start={editing} onClose={() => setEditing(null)} onCopy={openEntry} />}
+      {hrPick && hrDbs && onOpenHr && (
+        <Modal title={tx(m('الموارد البشرية', 'HR', 'RH'))} onClose={() => setHrPick(false)}>
+          <div className="mg-places">
+            {hrDbs.map((x) => <button key={x.slug} className="btn" onClick={() => { setHrPick(false); onOpenHr(x); }}>{x.organisation}</button>)}
+          </div>
+        </Modal>
+      )}
       </div>
     </GuideCtx.Provider></NavCtx.Provider>
   );

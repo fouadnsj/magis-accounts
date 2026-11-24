@@ -1163,3 +1163,65 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 /* a window opened from the menu (the report button) must not take the menu's white text */
 .modal { color: var(--ink); }
 .modal textarea { width: 100%; font: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; resize: vertical; }
+
+/* ---------------------------------------------------------------- the doors page (Fouad, 24 November 2026)
+   Large calm badges in the style of the first page: the centre's mark in its light, then each door comes in, one after the other. */
+.dr-page { --serif: 'EB Garamond', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif; --serif-ar: 'Amiri', 'Geeza Pro', 'Noto Naskh Arabic', 'Traditional Arabic', serif;
+  max-width: 1040px; margin: 0 auto; padding: 4px 4px 40px; }
+.dr-hero { display: flex; flex-direction: column; align-items: center; text-align: center; margin: 6px auto 22px; animation: mg-in .9s ease-out both; }
+.dr-mark { position: relative; width: 150px; height: 150px; display: grid; place-items: center; }
+.dr-mark img { position: relative; height: 104px; max-width: 120px; object-fit: contain; animation: mg-house 1.1s cubic-bezier(.2, .8, .2, 1.15) both; }
+.dr-mark .mg-hh-halo { inset: 0; animation: mg-halo 1.4s ease-out both, mg-glow 5s 1.4s ease-in-out infinite; }
+.dr-name { font-family: var(--serif); font-weight: 600; font-size: 34px; margin: 2px 0 8px; color: var(--ink); animation: mg-in .8s .3s ease-out both; }
+.dr-centre-said { max-width: 560px; animation: mg-in .9s .6s ease-out both; }
+.dr-centre-said .ar { font-size: clamp(22px, 2.8vw, 27px); color: var(--gold-d); }
+.dr-centre-said .tr { font-size: 17px; margin-top: 2px; }
+.dr-who { margin-top: 12px; font-size: 13px; color: var(--soft); letter-spacing: .04em; animation: mg-in .8s .9s ease-out both; }
+.mg-said .by { font-size: 12px; margin-top: 4px; color: var(--soft); font-style: normal; font-family: inherit; }
+
+.dr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+.dr-grid.n1 { grid-template-columns: minmax(0, 460px); justify-content: center; }
+.dr-grid.n3 > .dr-door:last-child:nth-child(odd) { grid-column: 1 / -1; justify-self: center; width: calc(50% - 10px); }
+.dr-door { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 22px 18px; background: #fff; font: inherit; cursor: pointer; text-align: center;
+  border: 1px solid #ece4d0; border-top: 6px solid var(--centre, var(--gold)); border-radius: 18px; box-shadow: 0 1px 0 rgba(38, 41, 46, .04);
+  transition: transform .35s ease, box-shadow .35s ease; animation: mg-house 1s cubic-bezier(.2, .8, .2, 1.15) both; }
+.dr-door:hover, .dr-door:focus-visible { transform: translateY(-5px); box-shadow: 0 20px 40px rgba(120, 90, 20, .16); outline: none; }
+.dr-glyph { position: relative; width: 92px; height: 92px; display: grid; place-items: center; color: var(--centre-deep, var(--centre, var(--gold-d))); }
+.dr-glyph svg { position: relative; width: 56px; height: 56px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .5s cubic-bezier(.2, .8, .2, 1.2); }
+.dr-glyph .mg-hh-halo { inset: 0; opacity: .55; transform: none; }
+.dr-door:hover .dr-glyph svg, .dr-door:focus-visible .dr-glyph svg { transform: translateY(-3px) scale(1.1); }
+.dr-door:hover .mg-hh-halo, .dr-door:focus-visible .mg-hh-halo { opacity: 1; transform: scale(1.12); }
+.dr-title { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.dr-title .ar { font-family: var(--serif-ar); font-size: 30px; font-weight: 700; color: var(--ink); line-height: 1.3; }
+.dr-title span { font-family: var(--serif); font-size: 18px; color: var(--soft); letter-spacing: .04em; }
+.dr-hint { font-size: 13px; color: var(--soft); }
+.dr-said { margin-top: 6px; padding-top: 10px; border-top: 1px solid #efe7d3; width: 100%; }
+.dr-said .ar { font-size: 19px; line-height: 1.7; }
+.dr-said .tr { font-size: 15px; margin-top: 2px; line-height: 1.45; }
+.dr-go { margin-top: auto; padding-top: 8px; font-size: 14px; font-weight: 600; letter-spacing: .02em; color: var(--centre-deep, var(--gold-d)); }
+.dr-badge { position: absolute; top: 12px; inset-inline-end: 14px; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 13px; background: var(--gold); color: #fff; font-size: 13px; font-weight: 700; display: grid; place-items: center; }
+.dr-houses { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 2px 0; }
+.dr-houses img { height: 26px; opacity: .9; }
+.dr-houses-note { flex-basis: 100%; font-size: 12.5px; color: var(--gold-d); font-style: italic; }
+.dr-none { max-width: 520px; margin: 30px auto; text-align: center; padding: 22px; border: 1px dashed var(--line); border-radius: 14px; color: var(--soft); }
+.dr-foot { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
+/* the back button at the top of a door's menu */
+.side button.back { background: rgba(255, 255, 255, .14); font-weight: 600; margin-bottom: 4px; }
+.side .door-name { padding: 4px 10px 6px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; opacity: .75; }
+@media (max-width: 760px) {
+  .dr-grid, .dr-grid.n1 { grid-template-columns: minmax(0, 1fr); }
+  .dr-grid.n3 > .dr-door:last-child:nth-child(odd) { width: auto; }
+  .dr-name { font-size: 28px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dr-hero, .dr-mark img, .dr-mark .mg-hh-halo, .dr-name, .dr-centre-said, .dr-who, .dr-door { animation: none; }
+  .dr-mark .mg-hh-halo { opacity: 1; transform: none; }
+}
+
+/* a phone-sized screen: the menu is folded, so the way back to the doors stays in the top bar */
+.side .back-top { display: none; background: rgba(255, 255, 255, .14); font-weight: 600; white-space: nowrap; padding: 7px 10px; border-radius: 6px; color: #fff; border: 0; cursor: pointer; }
+@media (max-width: 1000px) {
+  .side button.back { display: none; }
+  .side .back-top { display: block; }
+  .side .top { flex-wrap: wrap; }
+}

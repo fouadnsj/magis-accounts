@@ -99,9 +99,9 @@ export function Home() {
 
       {financeless && (
         <div className="big-actions" style={{ gridTemplateColumns: 'repeat(2, minmax(0,1fr))' }}>
-          {d.host?.on && <button className="Transfer" onClick={() => nav.go('hosting')}><span className="big-icon" aria-hidden="true">📅</span>{t('التقويم والحجوزات', 'Calendar and bookings')}<small>{d.host.review ? `${d.host.review} ${t('حجز ينتظر نظرة', 'booking(s) to look at')}` : t('الغرف حسب اليوم', 'rooms by day')}</small></button>}
-          {d.inv && <button className="Income" onClick={() => nav.go('inventory')}><span className="big-icon" aria-hidden="true">📦</span>{t('الجرد', 'Inventory')}<small>{toInventory ? `${toInventory} ${t('مشتريات تُسجَّل', 'purchases to register')}` : t('الأغراض والأماكن', 'items and places')}</small></button>}
-          {!d.host?.on && !d.inv && <p className="muted">{t('لا شيء بعد لتعمل به هنا.', 'Nothing to work with here yet.')}</p>}
+          {can('cal.view') && <button className="Transfer" onClick={() => nav.door('calendar')}><span className="big-icon" aria-hidden="true">📅</span>{t('التقويم', 'Calendar')}<small>{t('القاعات والغرف والمجموعات', 'halls, rooms and groups')}</small></button>}
+          {d.inv && can('inventory.view') && <button className="Income" onClick={() => nav.door('inventory')}><span className="big-icon" aria-hidden="true">📦</span>{t('الجرد', 'Inventory')}<small>{toInventory ? `${toInventory} ${t('مشتريات تُسجَّل', 'purchases to register')}` : t('الأغراض والأماكن', 'items and places')}</small></button>}
+          {!can('cal.view') && !(d.inv && can('inventory.view')) && <p className="muted">{t('لا شيء بعد لتعمل به هنا.', 'Nothing to work with here yet.')}</p>}
         </div>
       )}
 
@@ -154,7 +154,7 @@ export function Home() {
       {toInventory > 0 && (
         <div className="alert warn row" style={{ justifyContent: 'space-between' }}>
           <span>{t(`${toInventory} مشتريات على بنود الأثاث أو المعدات لم تُسجَّل في الجرد`, `${toInventory} purchases on furniture or equipment lines are not in the inventory yet`)}</span>
-          <button className="btn small" onClick={() => nav.go('inventory')}>{t('الجرد', 'Inventory')}</button>
+          <button className="btn small" onClick={() => nav.door('inventory')}>{t('الجرد', 'Inventory')}</button>
         </div>
       )}
       {toReview > 0 && (

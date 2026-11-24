@@ -274,6 +274,47 @@ export function App() {
     });
   };
 
+  /** go to one of this person's databases: the same way from the list of databases and from the HR door */
+  const openDb = async (db: DbInfo) => {
+    if (!server) return;
+    if (session && db.slug === serverDb?.slug && !db.setupNeeded) return setBrowsing(false);
+    // signed in from the first page: another of this person's databases, without signing in again
+    if (server.ring?.includes(db.slug)) {
+      try {
+        const r = await serverEnter(db.slug);
+        setServerDb(db);
+        setMustChange(r.mustChange);
+        setBrowsing(false);
+        setSession(serverSession(db, r.profile));
+      } catch (e) {
+        toast(errText(e), true);
+      }
+      return;
+    }
+    // signed in to the directory: straight in, as the account given to this person
+    if (server.dir?.person && !db.setupNeeded) {
+      try {
+        const r = await dirEnter(db.slug);
+        setServerDb(db);
+        setMustChange(false);
+        setBrowsing(false);
+        setSession(serverSession(db, r.profile));
+      } catch (e) {
+        toast(errText(e), true);
+      }
+      return;
+    }
+    if (session) {
+      // another database: a new sign-in there
+      void serverLogout();
+      setSession(null);
+      setMustChange(false);
+      setBrowsing(false);
+    }
+    setServerDb(db);
+    setSettingUp(db.setupNeeded);
+  };
+
   let body;
   if (booting) body = <div className="center-page muted">…</div>;
   else if (server?.dir?.person?.mustChange && !session)
@@ -322,44 +363,7 @@ export function App() {
         onLeave={remoteBase ? leaveServer : undefined}
         onChangeServer={remoteBase ? () => void changeServer() : undefined}
         onBackIn={session ? () => setBrowsing(false) : undefined}
-        onOpen={async (db) => {
-          if (session && db.slug === serverDb?.slug && !db.setupNeeded) return setBrowsing(false);
-          // signed in from the first page: another of this person's databases, without signing in again
-          if (server.ring?.includes(db.slug)) {
-            try {
-              const r = await serverEnter(db.slug);
-              setServerDb(db);
-              setMustChange(r.mustChange);
-              setBrowsing(false);
-              setSession(serverSession(db, r.profile));
-            } catch (e) {
-              toast(errText(e), true);
-            }
-            return;
-          }
-          // signed in to the directory: straight in, as the account given to this person
-          if (server.dir?.person && !db.setupNeeded) {
-            try {
-              const r = await dirEnter(db.slug);
-              setServerDb(db);
-              setMustChange(false);
-              setBrowsing(false);
-              setSession(serverSession(db, r.profile));
-            } catch (e) {
-              toast(errText(e), true);
-            }
-            return;
-          }
-          if (session) {
-            // another database: a new sign-in there
-            void serverLogout();
-            setSession(null);
-            setMustChange(false);
-            setBrowsing(false);
-          }
-          setServerDb(db);
-          setSettingUp(db.setupNeeded);
-        }}
+        onOpen={openDb}
         onCreated={async (slug) => {
           await refreshServer(slug);
           setSettingUp(true);
@@ -466,7 +470,7 @@ export function App() {
     body = (
       <AppProvider session={session!} onLogout={logout}>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
+        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} hrDbs={server ? server.dbs.filter((x) => x.kind === 'hr' && !x.setupNeeded) : undefined} onOpenHr={server ? openDb : undefined} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
       </AppProvider>
     );
 

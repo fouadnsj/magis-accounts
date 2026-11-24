@@ -330,5 +330,37 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - **Small fix:** on the calendar phone, "I forgot the code" now asks "Yes, forget this phone / Cancel" inside the page (the browser's own box is blocked in some views). No other `confirm` or `alert` is in that page.
 - **Halls and rooms apart (calendar phone):** on Today, Week and Spaces there are two titled groups, **Halls · القاعات · Salles** and **Rooms · الغرف · Chambres** (title in the phone's language). Activities and bookings in halls go under Halls; stays under Rooms. Arriving / leaving / free tonight and the bedroom "To prepare" lines belong to Rooms; the hall "To prepare" lines to Halls. Area colours and marks kept. A space is a room when its kind has beds (as in "To prepare"), otherwise a hall; no pack change, no database update. Tried at 375 wide (Arabic: Spaces and Today).
 
+## 16. The doors page (job J1, 24 November 2026; no database update — update 77 stays free)
+- **Entering a centre now shows the doors page**: the centre's mark in its light, its name, a warm sentence, then large badges — **Accounts, Calendar,
+  Inventory, HR** — each coming in one after the other (same style and movement as the first page), each with its own warm sentence and a small
+  number where something waits (books to look at, problems and purchases for the inventory). A person with a single door (Reception, the store
+  keeper) sees the same page with that one door.
+- **Which doors show is decided by the ticks already there (no new right)**: Accounts = keeps a book, or looks at the books, reports, budget, donors, lists,
+  exports or closes months; Calendar = "Sees the calendar"; Inventory = "Sees the inventory"; **HR = there is an HR database on this server that this person may
+  enter** (their name and password also exist there, or the Coordinator's grants) — HR is one for all the centres and separated inside, the badge says so and
+  shows the four marks. Someone with no door sees a gentle note. (`src/doors.ts`, tested in `tests/doors.test.ts`.)
+- **Each door has its own menu** with a clear back button at the top, "→ MAGIS · الأبواب" (English: "← MAGIS · Doors", French "← MAGIS · Portes"; on a narrow screen the button
+  stays in the top bar). Accounts: Home, Register, Cash, Reports, Budget, Grants, Lists, Export. Calendar: the calendar (its settings stay inside it).
+  Inventory: the inventory (its settings stay inside it). Guide, Admin/Settings and the usual bottom buttons are in every menu. The HR badge opens the HR
+  database the same way the list of databases does (no new sign-in).
+- **The old calendar ("Calendar · الإقامة والتقويم") and the old inventory pages leave the menu and the home page** (their data stays; the pages are no longer reachable).
+  The menu names are simply "Calendar · التقويم" and "Inventory · الجرد". The "purchases to register" warning on the accounts home now leads to the new inventory.
+- **Ready-made roles** (Roles and permissions → "＋ Permission profile" → "Start from a ready-made role"): Director, Accountant and calendar, Reception, Store keeper,
+  Coordinator (workshops, academic). They only fill the name and the ticks; everything stays editable. The ticks are exactly the two baselines' tables
+  (calendar 2.1 §3, inventory 1.1 §2): Reception = sees the calendar and its contacts, books outside groups, keeps organisations, welcomes guests, never prices;
+  Coordinator = those plus our programme, prices and payments, and looks at the inventory without its values; Director = every calendar tick, looks at the inventory
+  with values and at the books; Store keeper = the keeper's three inventory ticks; Accountant = the accounts as the Accountant profile has them, plus "Sees the calendar".
+  Nothing is added to the databases (no update): the roles are made by the Superior when needed.
+- **The warm sentences** (`src/ui/doorSentences.ts`; for Fouad's review: `DOORS-SENTENCES.md`, 49 sentences with their sources): from the MAGIS charter, the explanation of the
+  centres' logos (the Arabic text), the concept note, three testimonies (never a name), the sentences already on the first page, and a few clearly marked ORIGINAL
+  ones in the same spirit. One under the centre's name (its own logo or house sentence when it has one) and one per door chosen to suit it; drawn at random each time the page opens,
+  never twice on the same page and not the one of the last visit. Arabic always, with the English or French under it. English or French that is a translation of another
+  language's source is marked in the review file.
+- Tried in the side pane (a copy of the test data on its own port, never the real data): the Coordinator (all four doors, the HR door opens the HR database), Reception (one door;
+  the calendar opens; its menu and back button), the store keeper (one door), the accountant (Accounts and Calendar; the accounts menu), the roles page with the five
+  ready-made roles made from it; English, French and Arabic; a narrow screen. Not tried: a Director sign-in; several HR databases at once (a small list opens); a real phone.
+- Remark: the accountant of the real databases already has the inventory keeper's ticks (update 55), so there he sees the Inventory door too; the ready-made "Accountant and
+  calendar" role does not. Two tests of `tests/calphone.test.ts` fail only when the day five days ahead is a Sunday (the Sunday warning) — not touched here.
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".

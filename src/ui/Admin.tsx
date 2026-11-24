@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
 import type { Profile } from '../auth';
 import type { AccessRow, AuditRow, BackupFile, UserRow } from '../ops';
-import { PERM_GROUPS, type Perm } from '../perms';
-import { tx } from '../i18n';
+import { PERM_GROUPS, withImplied, type Perm } from '../perms';
+import { READY_ROLES } from '../doors';
+import { m, tx } from '../i18n';
 import { Field, Modal, Tabs, biName, confirmBox, errText, fmtSyp, fmtUsd, parseAmount, promptBox, t, toast } from './kit';
 import type { CashCountRow } from '../ops';
 import { ServerTab } from './ServerTab';
@@ -782,11 +783,23 @@ function AccessModal({ a, onClose, onDone }: { a: Partial<AccessRow>; onClose: (
   const { s } = useApp();
   const [name, setName] = useState(a.name ?? '');
   const [perms, setPerms] = useState<Perm[]>(a.perms ?? []);
+  const [ready, setReady] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const toggle = (p: Perm) => setPerms((x) => (x.includes(p) ? x.filter((y) => y !== p) : [...x, p]));
   return (
     <Modal title={a.id ? t('تعديل ملف صلاحيات', 'Edit permission profile') : t('ملف صلاحيات جديد', 'New permission profile')} onClose={onClose}>
       <Field label={t('الاسم', 'Name')}><input value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      {!a.id && (
+        <div className="ready-roles" style={{ marginTop: 12 }}>
+          <div className="small muted">{tx(m('ابدأ من دور جاهز (تبقى العلامات قابلة للتعديل):', 'Start from a ready-made role (the ticks stay yours to change):', 'Partir d’un rôle prêt (les cases restent à vous) :'))}</div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '6px 0' }}>
+            {READY_ROLES.map((r) => (
+              <button key={r.key} type="button" className={`btn small ${ready === r.key ? 'primary' : ''}`} onClick={() => { setReady(r.key); setName(r.name); setPerms(withImplied(r.perms)); }}>{biName(r.name)}</button>
+            ))}
+          </div>
+          {ready && <div className="small">{tx(READY_ROLES.find((r) => r.key === ready)!.about)}</div>}
+        </div>
+      )}
       <div className="grid2" style={{ marginTop: 14 }}>
         {PERM_GROUPS.map((g) => (
           <div key={g.key} className="panel" style={{ padding: 12, marginBottom: 0 }}>

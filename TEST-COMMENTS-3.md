@@ -53,3 +53,16 @@
    everything else (items, counts, moves, state) but no value; the donor report (PDF/Excel) shows values only when the Administrator makes it
    (to confirm: should the donor report keep the values? donors usually want them). Note: the old accountants' tick from update 55 (keeper rights)
    would then lose the values on the real databases: a "less" in the rehearsal, to say to Fouad in advance.
+
+6. **Quick add by room: one room after another, or several identical rooms at once.** "In the quick add the room must be with the origin: I enter a room and
+   mark everything, then move to the next; or select several rooms if they are identical, for example the bedrooms are the same and all contain
+   the same things."
+   Analysis (manager, nothing changed): today (`src/ui/InvQuick.tsx`) Quick add opens from ONE space with the usual items of its kind ready (a bedroom:
+   bed, cupboard…), the quantity empty; one "Origin" choice (old, gift… not "bought") above the table applies to all the rows; the keeper types the
+   numbers and saves once, then must go back to the map and open the next space. From the map home the space is chosen on each row instead.
+   Proposed flow: (1) "Save and next room": after saving, the screen goes to the next room of the same area/kind with its list ready, so one
+   walks through the building; (2) "Same in several rooms": on the quick add, a list of tick boxes of the spaces of the same kind (all bedrooms,
+   or any chosen) — the list typed once is saved in each ticked room (a bed ×2 in each of 12 bedrooms = 12 groups); a "select all bedrooms" shortcut;
+   (3) the origin chosen for the whole batch (as now), kept from room to room, changeable per room if needed.
+   Question to confirm: by "with the origin" did Fouad mean exactly that the origin stays chosen from one room to the next, or that each room/row
+   has its own origin? (The current screen has one origin for the whole save.)

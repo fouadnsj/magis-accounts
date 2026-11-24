@@ -13,9 +13,9 @@ checks the commit + tests, `npm run build:server`, restarts the preview `magis-n
       HR (HR = one door for all, separated inside). Rights decide which doors show; a person with one door: still show the nice page
       (Fouad: "it would be a pity to avoid it"). Each door has its own menu + "← MAGIS" back; old calendar and old inventory pages
       leave the menu. Ready-made roles (Director, Accountant, Reception, Store keeper, Coordinator; ticks still editable).
-- [ ] J2 CALENDAR STEP 8 rest: reports by organisation and free use, optional reminders, guide, checklist.
-- [ ] J3 INVENTORY STEP 5 rest: guide, checklist (door/roles done in J1).
-- [ ] J4 TEST DATA (Fouad 24 Nov: "skip the website data, you can create data for test"): create realistic SAMPLE data in the TEST COPY ONLY (test-servers/next-test, never the real db): areas/spaces already typed by Fouad stay; add sample organisations, weekly activities, outside bookings with prices, a stay, holds, payments + one cancellation with a part kept, inventory items with photos placeholders, a problem reported. Clearly sample names (no real people). A script kept in `scripts/` that can be re-run on a fresh copy. Model: Sonnet is fine.
+- [x] J2 (guide+checklist only, ab6da64; reports and reminders later): reports by organisation and free use, optional reminders, guide, checklist.
+- [x] J3 (guide+checklist, ab6da64): guide, checklist (door/roles done in J1).
+- [x] J4 TEST DATA (cf645fb; run on next-test 24 Nov) (Fouad 24 Nov: "skip the website data, you can create data for test"): create realistic SAMPLE data in the TEST COPY ONLY (test-servers/next-test, never the real db): areas/spaces already typed by Fouad stay; add sample organisations, weekly activities, outside bookings with prices, a stay, holds, payments + one cancellation with a part kept, inventory items with photos placeholders, a problem reported. Clearly sample names (no real people). A script kept in `scripts/` that can be re-run on a fresh copy. Model: Sonnet is fine.
 - [ ] J5 Final check: all tests, rehearsal of all updates on copies of the six real databases, test checklist file, a short list for Fouad's last test. Then tell Fouad "ready for the build" and WAIT for his word "build".
 
 ## Notes

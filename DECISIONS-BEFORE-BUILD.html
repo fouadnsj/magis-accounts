@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your comments and my suggestions · before the build</title>
+<style>
+  :root { --ink:#26292E; --soft:#6b6a63; --gold:#B8891B; --gold-d:#8A6A1A; --bg:#FBF9F4; --card:#fff; --line:#E4DED0; --ok:#2F6B4F; --warm:#F6EFDD; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 'Iowan Old Style','Palatino Linotype',Palatino,Georgia,serif; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 22px 16px 120px; }
+  h1 { font-size: 28px; margin: 6px 0 2px; }
+  h2 { font-size: 20px; margin: 0 0 6px; }
+  .sub { color: var(--soft); margin: 0 0 18px; }
+  .done { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; margin: 14px 0 26px; }
+  .done h2 { color: var(--ok); }
+  .done ul { margin: 6px 0 0; padding-left: 20px; }
+  .done li { margin: 3px 0; }
+  .q { background: var(--card); border: 1px solid var(--line); border-top: 5px solid var(--gold); border-radius: 14px; padding: 16px 18px; margin: 16px 0; }
+  .q .num { color: var(--gold-d); font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+  .said { background: var(--warm); border-radius: 10px; padding: 8px 12px; margin: 8px 0; font-style: italic; }
+  .now { color: var(--soft); font-size: 14.5px; margin: 6px 0; }
+  label.opt { display: block; padding: 9px 12px; margin: 6px 0; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; background: #fff; }
+  label.opt:hover { border-color: var(--gold); }
+  label.opt input { margin-inline-end: 8px; }
+  label.opt.rec { border-color: var(--gold); background: #FFFBEF; }
+  label.opt .tag { font-size: 12px; background: var(--gold); color: #fff; border-radius: 9px; padding: 1px 8px; margin-inline-start: 6px; }
+  label.opt small { display: block; color: var(--soft); margin-top: 2px; font-size: 14px; }
+  textarea { width: 100%; min-height: 54px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 15px; background: #fff; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 10px 16px; display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 10px 18px; cursor: pointer; background: var(--gold); color: #fff; font-weight: 600; }
+  button.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  #prog { color: var(--soft); font-size: 14px; }
+  #out { display: none; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 18px 0; white-space: pre-wrap; font: 14px/1.5 ui-monospace, Menlo, monospace; }
+  .later { background: var(--card); border: 1px dashed var(--line); border-radius: 14px; padding: 12px 18px; margin: 18px 0; color: var(--soft); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Your comments and my suggestions</h1>
+  <p class="sub">24–25 November 2026 · before the build. Choose an option (my suggestion is marked), add a note if you want, then press <b>Copy my answers</b> at the bottom and paste them in our conversation. Nothing is built until you say so, and nothing is built or tagged without your word “build”.</p>
+
+  <div class="done">
+    <h2>✔ Already done from your comments</h2>
+    <ul>
+      <li>Calendar phone: clearer, in colour by area, halls apart from rooms, “I forgot the code” works.</li>
+      <li>Doors page: five equal badges, a way back on every page, the new door “Administration” (People and Roles) for Administrators and Directors.</li>
+      <li>Roles: one person, one password, several roles; the Respo book and the Grants only for the Administrator; a book made with the user.</li>
+      <li>“Test as…” at the top of Administration; “Sign in as” shows the real person’s databases and doors (bug fixed).</li>
+      <li>Settings: Appearance and Sections hidden; Controls stay. The network page is now called “Administrator”.</li>
+      <li>Rehearsal of all updates on copies of your real databases: nothing lost, nobody loses a right.</li>
+    </ul>
+  </div>
+
+  <h2 style="margin-top:26px">Your notes, waiting for your answer</h2>
+
+  <!-- Q1 -->
+  <section class="q" data-id="Q1" data-title="The city in the Accounts">
+    <div class="num">1 · Accounts</div>
+    <h2>The city</h2>
+    <div class="said">“If everyone enters with the centre door the city has no meaning; even in lists, cities do not matter.”</div>
+    <p class="now">Today the city is a field on every entry, a column on each book, a list (Lists → Cities), a column in the Excel export and a sheet in the Excel import.</p>
+    <label class="opt rec"><input type="radio" name="Q1" value="A — hide it on screen"> Hide it everywhere on screen <span class="tag">my suggestion</span><small>Entry form, Lists → Cities, the Books column, Compare. The values stay in the database and in the Excel files. Nothing is lost, small change.</small></label>
+    <label class="opt"><input type="radio" name="Q1" value="B — remove it for good"> Remove it for good<small>Needs a database update and changes to the Excel export and import. More risk.</small></label>
+    <label class="opt"><input type="radio" name="Q1" value="C — keep it"> Keep it as it is</label>
+    <textarea placeholder="Your note (optional)"></textarea>
+  </section>
+
+  <!-- Q2 -->
+  <section class="q" data-id="Q2" data-title="Export">
+    <div class="num">2 · Accounts</div>
+    <h2>The Export section</h2>
+    <div class="said">“Export section needs review, and maybe move it to Reports and have more options to export.”</div>
+    <p class="now">Today “Export” is one menu item: Excel of the register (filters: period, book, project; options: lists, reports, confidential) and, when the register is empty, “Start from the Excel workbook”.</p>
+    <label class="opt rec"><input type="radio" name="Q2" value="A — an Export button on each report and one Export entry in Reports"> Move it into Reports <span class="tag">my suggestion</span><small>Each report tab gets Excel and PDF of what is on screen (with its period and filters). One “Export” entry in Reports exports the register, the books and the lists, with a choice of project, month or book. The import goes to Settings, shown only when the register is empty.</small></label>
+    <label class="opt"><input type="radio" name="Q2" value="B — keep it where it is, add more options"> Keep it where it is and add more options</label>
+    <p class="now" style="margin-top:12px"><b>Second part:</b> the calendar and the inventory already export their own things (bookings Excel, donor report, printed pages).</p>
+    <label class="opt rec"><input type="radio" name="Q2b" value="each door keeps its own exports"> Each door keeps its own exports <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q2b" value="list them all in Accounts → Reports"> List them all inside Reports of the Accounts</label>
+    <textarea placeholder="Which exports do you need most? (optional)"></textarea>
+  </section>
+
+  <!-- Q3 -->
+  <section class="q" data-id="Q3" data-title="Projects in Lists">
+    <div class="num">3 · Accounts</div>
+    <h2>Projects in Lists</h2>
+    <div class="said">“We do not use it now because it is related to the budget lines. If it is useless in the accountant page, move it to the budget section. It will be helpful only if we have a certain specific donation.”</div>
+    <p class="now">Lists → Projects shows each project with its grant and donor, dates, share and number of entries; you can add a private project, merge two, or mark “outside the budget”. Since the new roles, only the Administrator sees donors and grants.</p>
+    <label class="opt rec"><input type="radio" name="Q3" value="A — move into the Budget section, only for the Administrator or when a special fund exists"> Move it into the Budget section <span class="tag">my suggestion</span><small>A small block “Special funds”, shown to the Administrator, or when a special donation or private project exists. Same data and rules, no update.</small></label>
+    <label class="opt"><input type="radio" name="Q3" value="B — keep it in Lists"> Keep it in Lists</label>
+    <p class="now" style="margin-top:12px"><b>The name:</b></p>
+    <label class="opt rec"><input type="radio" name="Q3b" value="keep the word Project"> Keep the word “Project” <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q3b" value="call it Fund"> Call it “Fund”</label>
+    <textarea placeholder="Your note (optional)"></textarea>
+  </section>
+
+  <!-- Q4 -->
+  <section class="q" data-id="Q4" data-title="Calendar for everyone, view only">
+    <div class="num">4 · Calendar</div>
+    <h2>The calendar for everyone, to look at</h2>
+    <div class="said">“The calendar must appear for everyone, view only.”</div>
+    <p class="now">Today only the roles with a calendar right see the Calendar door: Administrator, Director, Reception, Coordinator (workshops) and the Accountant. A Book holder and a Store keeper do not.</p>
+    <label class="opt rec"><input type="radio" name="Q4" value="A — every person with an account sees the calendar, view only"> Every person with an account in the centre <span class="tag">my suggestion</span><small>They see activities, spaces and “To prepare today”. No prices, no money, no contacts (a private booking stays “Reserved”), and they cannot change anything.</small></label>
+    <label class="opt"><input type="radio" name="Q4" value="B — only some roles"> Only some roles (tell me which in the note)</label>
+    <textarea placeholder="Your note (optional)"></textarea>
+  </section>
+
+  <!-- Q5 -->
+  <section class="q" data-id="Q5" data-title="Inventory values only for the Administrator">
+    <div class="num">5 · Inventory</div>
+    <h2>The value of the inventory</h2>
+    <div class="said">“In the inventory, no one needs to see the total value except the administrator.”</div>
+    <p class="now">Today the Director and the Store keeper see values (the big figure, the space cards, the item pages, the donor report).</p>
+    <label class="opt rec"><input type="radio" name="Q5" value="A — values only for the Administrator (the server refuses them to every other role)"> Values only for the Administrator <span class="tag">my suggestion</span><small>The Store keeper and the Director keep everything else (items, counts, moves, state) but see no value. The server refuses the right to any other role, like the Respo book.</small></label>
+    <label class="opt"><input type="radio" name="Q5" value="B — only hide the total on the home page"> Only hide the big total on the home page; values stay in the items</label>
+    <p class="now" style="margin-top:12px"><b>The donor report</b> (PDF and Excel, items bought for a project):</p>
+    <label class="opt rec"><input type="radio" name="Q5b" value="donor report keeps values, only the Administrator can make it"> Keeps the values; only the Administrator can make it <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q5b" value="donor report without values"> Without values</label>
+    <p class="now" style="margin-top:12px"><b>One consequence:</b> on your real databases the old Accountants got inventory-keeper rights from an earlier update, and they would lose the values. It is the one deliberate “less”.</p>
+    <label class="opt rec"><input type="radio" name="Q5c" value="accept: accountants lose the values"> I accept it <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q5c" value="keep values for the accountants"> Let the accountants keep the values</label>
+    <textarea placeholder="Your note (optional)"></textarea>
+  </section>
+
+  <!-- Q6 -->
+  <section class="q" data-id="Q6" data-title="Quick add by room">
+    <div class="num">6 · Inventory</div>
+    <h2>Quick add: one room after another, or several identical rooms</h2>
+    <div class="said">“I enter a room and mark everything, then move to the next; or select several rooms if they are identical. For example the bedrooms are the same and all contain the same things.”</div>
+    <p class="now">Today it opens from one room with the usual list, one “Origin” for the whole save; then you go back to the map for the next room.</p>
+    <label class="opt rec"><input type="radio" name="Q6" value="A — both: Save and next room, and Same in several rooms"> Both <span class="tag">my suggestion</span><small><b>Save and next room:</b> after saving, the next room of the same kind opens with its list ready. <b>Same in several rooms:</b> tick the rooms (or “all bedrooms”); the list you type once is saved in each.</small></label>
+    <label class="opt"><input type="radio" name="Q6" value="B — only Save and next room"> Only “Save and next room”</label>
+    <label class="opt"><input type="radio" name="Q6" value="C — only Same in several rooms"> Only “Same in several rooms”</label>
+    <p class="now" style="margin-top:12px"><b>The origin</b> (old, gift, … not “bought”):</p>
+    <label class="opt rec"><input type="radio" name="Q6b" value="origin chosen once, kept from room to room, changeable per room"> Chosen once, kept from room to room, changeable for one room <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q6b" value="origin on each row"> On each row</label>
+    <textarea placeholder="Your note (optional)"></textarea>
+  </section>
+
+  <!-- Q7 -->
+  <section class="q" data-id="Q7" data-title="Open points">
+    <div class="num">7 · To settle before the build</div>
+    <h2>Three practical points</h2>
+    <p class="now"><b>a) Jaramana.</b> I found no Jaramana database to rehearse the update on.</p>
+    <label class="opt rec"><input type="radio" name="Q7a" value="I will bring a copy of the latest Jaramana backup"> I will bring a copy of the latest Jaramana backup <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q7a" value="Jaramana has no database yet, nothing to update"> Jaramana has no database yet; nothing to update</label>
+    <p class="now" style="margin-top:12px"><b>b) The newest backups.</b> My rehearsal used the Homs files of 22 November and the Aleppo files of 30 October. Before the build I repeat it on the newest ones.</p>
+    <label class="opt rec"><input type="radio" name="Q7b" value="I will bring the newest backups of Homs, Aleppo, Al-Ard, HR, communities, Province"> I will bring the newest backups of every real database <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q7b" value="use what is there"> Use what is there</label>
+    <p class="now" style="margin-top:12px"><b>c) The version number.</b> The last real version is 0.12.1. This one adds the new calendar, the new inventory, the doors and the roles.</p>
+    <label class="opt rec"><input type="radio" name="Q7c" value="0.13.0"> 0.13.0 <span class="tag">my suggestion</span></label>
+    <label class="opt"><input type="radio" name="Q7c" value="1.0.0"> 1.0.0 (a bigger step)</label>
+    <label class="opt"><input type="radio" name="Q7c" value="other number"> Another number (write it in the note)</label>
+    <textarea placeholder="Your note (optional)"></textarea>
+  </section>
+
+  <!-- Q8 -->
+  <section class="q" data-id="Q8" data-title="Preparing the build">
+    <div class="num">8 · The build</div>
+    <h2>How do we go to the build?</h2>
+    <p class="now">When you say “build”, I make the installers for Mac, Windows and the server, the notes of what is new, and a test PC copy first, as before. The Windows installers are made on GitHub when I push the version tag (that publishes the version in your private repository).</p>
+    <label class="opt rec"><input type="radio" name="Q8" value="A — I send my last comments first; then you build step by step with my yes"> First your last comments are built; then I prepare the build and ask your yes before each outward step <span class="tag">my suggestion</span><small>Order: (1) the answers above are built; (2) you test again; (3) the final rehearsal on the newest backups; (4) you say “build”; (5) installers made; (6) I ask before pushing the tag to GitHub.</small></label>
+    <label class="opt"><input type="radio" name="Q8" value="B — build as soon as the answers are built, no second test"> Build as soon as the answers are built (no second test)</label>
+    <textarea placeholder="Anything else you want me to know (optional)"></textarea>
+  </section>
+
+  <div class="later">
+    <b>Not before this build (later):</b> HR roles on the person, the locked HR copy and joining several HR databases (waiting for your reflection); sessions of animators suggested from the calendar; reports by organisation and reminders; the TV with the map of areas; the central server.
+  </div>
+
+  <pre id="out"></pre>
+</div>
+
+<div class="bar">
+  <span id="prog"></span>
+  <button id="copy">Copy my answers</button>
+  <button class="ghost" id="clear">Clear</button>
+</div>
+
+<script>
+(function () {
+  var KEY = 'magis-decisions-2026-11-25';
+  var secs = Array.prototype.slice.call(document.querySelectorAll('.q'));
+  function state() {
+    var s = {};
+    secs.forEach(function (sec) {
+      var id = sec.getAttribute('data-id');
+      sec.querySelectorAll('input[type=radio]:checked').forEach(function (r) { s[r.name] = r.value; });
+      var ta = sec.querySelector('textarea'); if (ta && ta.value.trim()) s[id + '_note'] = ta.value.trim();
+    });
+    return s;
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state())); } catch (e) {} progress(); }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY) || '{}');
+      Object.keys(s).forEach(function (k) {
+        if (/_note$/.test(k)) { var sec = document.querySelector('.q[data-id="' + k.replace('_note', '') + '"]'); if (sec) sec.querySelector('textarea').value = s[k]; }
+        else document.querySelectorAll('input[name="' + k + '"]').forEach(function (r) { if (r.value === s[k]) r.checked = true; });
+      });
+    } catch (e) {}
+    progress();
+  }
+  function progress() {
+    var answered = secs.filter(function (sec) { return sec.querySelector('input:checked'); }).length;
+    document.getElementById('prog').textContent = answered + ' of ' + secs.length + ' answered';
+  }
+  document.addEventListener('change', save);
+  document.addEventListener('input', function (e) { if (e.target.tagName === 'TEXTAREA') save(); });
+  document.getElementById('copy').addEventListener('click', function () {
+    var lines = ['My answers (before the build, 25 November 2026)', ''];
+    secs.forEach(function (sec) {
+      var id = sec.getAttribute('data-id');
+      var parts = [];
+      sec.querySelectorAll('input[type=radio]:checked').forEach(function (r) { parts.push(r.value); });
+      var ta = sec.querySelector('textarea');
+      var line = id + ' · ' + sec.getAttribute('data-title') + ': ' + (parts.length ? parts.join(' | ') : '(no answer)');
+      if (ta && ta.value.trim()) line += ' — note: ' + ta.value.trim();
+      lines.push(line);
+    });
+    var text = lines.join('\n');
+    var out = document.getElementById('out'); out.style.display = 'block'; out.textContent = text;
+    function done() { document.getElementById('prog').textContent = 'Copied. Paste it in our conversation.'; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { document.getSelection().selectAllChildren(out); });
+    else document.getSelection().selectAllChildren(out);
+    out.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+  document.getElementById('clear').addEventListener('click', function () {
+    if (!confirm('Clear all my answers?')) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  });
+  load();
+})();
+</script>
+</body>
+</html>

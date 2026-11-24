@@ -1179,7 +1179,7 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
 .dr-who { margin-top: 12px; font-size: 13px; color: var(--soft); letter-spacing: .04em; animation: mg-in .8s .9s ease-out both; }
 .mg-said .by { font-size: 12px; margin-top: 4px; color: var(--soft); font-style: normal; font-family: inherit; }
 
-.dr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+.dr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; align-content: start; gap: 20px; align-items: stretch; }
 .dr-grid.n1 { grid-template-columns: minmax(0, 460px); justify-content: center; }
 .dr-grid.n3 > .dr-door:last-child:nth-child(odd) { grid-column: 1 / -1; justify-self: center; width: calc(50% - 10px); }
 .dr-door { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 22px 18px; background: #fff; font: inherit; cursor: pointer; text-align: center;

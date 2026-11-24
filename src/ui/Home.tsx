@@ -167,7 +167,7 @@ export function Home() {
       {fileHolder && unsent > 0 && (
         <div className="alert info row" style={{ justifyContent: 'space-between' }}>
           <span>{t(`${unsent} قيداً لم تُرسل إلى المكتب بعد`, `${unsent} entries not yet sent to the office`)}</span>
-          <button className="btn small" onClick={() => nav.go('files')}>{t('تصدير', 'Export')}</button>
+          <button className="btn small" onClick={() => nav.go('reports')}>{t('تصدير', 'Export')}</button>
         </div>
       )}
 

@@ -18,7 +18,6 @@ import { BudgetPage } from './Budget';
 import { Grants } from './Grants';
 import { invEntries, pendingEntries } from '../inventory/inv';
 import { ListsPage } from './ListsPage';
-import { Files } from './Files';
 import { Admin } from './Admin';
 import { PeoplePage, RolesPage } from './People';
 import { TestAs } from './SignAs';
@@ -46,15 +45,15 @@ function useNarrow() {
 
 export const REPORT_PERMS: Perm[] = ['reports.summary', 'reports.monthly', 'reports.accounts', 'reports.funding', 'reports.exchange'];
 
-export type Page = 'doors' | 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'files' | 'admin' | 'guide' | 'people' | 'roles';
+export type Page = 'doors' | 'home' | 'register' | 'cash' | 'reports' | 'budget' | 'grants' | 'invmap' | 'calendar' | 'lists' | 'admin' | 'guide' | 'people' | 'roles';
 
 /** "← MAGIS · الأبواب": the way back to the doors page, the arrow turned the way the language reads */
 const backLabel = () => { const l = getLang(); return l === 'ar' || l === 'both' ? '→ MAGIS · الأبواب' : l === 'fr' ? '← MAGIS · Portes' : '← MAGIS · Doors'; };
 
-const PAGES: Page[] = ['doors', 'home', 'register', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'files', 'admin', 'guide', 'people', 'roles'];
+const PAGES: Page[] = ['doors', 'home', 'register', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'admin', 'guide', 'people', 'roles'];
 
 /** The door each page belongs to ('admin' and 'guide' belong to none: they keep the door the person came from). */
-const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', files: 'accounts', calendar: 'calendar', invmap: 'inventory', people: 'admin', roles: 'admin' };
+const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', calendar: 'calendar', invmap: 'inventory', people: 'admin', roles: 'admin' };
 /** where a door opens */
 const DOOR_HOME: Record<Exclude<DoorKey, 'hr'>, Page> = { accounts: 'home', calendar: 'calendar', inventory: 'invmap', admin: 'people' };
 
@@ -206,11 +205,10 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
             {item('home', t('الرئيسية', 'Home'))}
             {finances && item('register', limited ? t('قيودي', 'My entries') : t('السجل', 'Register'), toReview ? <span className="badge">{toReview}</span> : null)}
             {(myBooks.length > 0 || can('reports.cash')) && item('cash', t('النقد', 'Cash'))}
-            {REPORT_PERMS.some(can) && item('reports', t('التقارير', 'Reports'))}
+            {(REPORT_PERMS.some(can) || can('data.export')) && item('reports', t('التقارير', 'Reports'))}
             {can('budget.view') && item('budget', t('الموازنة', 'Budget'))}
             {can('lists.donors') && item('grants', t('المنح', 'Grants'))}
             {can('lists.manage') && item('lists', t('القوائم', 'Lists'))}
-            {(can('data.export') || can('data.import')) && item('files', t('التصدير', 'Export'))}
           </>}
           {door === 'admin' && <div className="door-name">{tx(m('الإدارة', 'Administration', 'Administration'))}</div>}
           {door === 'admin' && people && <>
@@ -257,7 +255,6 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
           {page === 'invmap' && can('inventory.view') && d.inv && <InventoryHome />}
           {page === 'calendar' && can('cal.view') && <Calendar />}
           {page === 'lists' && <ListsPage />}
-          {page === 'files' && <Files />}
           {page === 'admin' && <Admin />}
           {page === 'people' && people && <PeoplePage />}
           {page === 'roles' && people && <RolesPage />}

@@ -1067,6 +1067,15 @@ export const FR: Record<string, string> = {
   "with the Superior": "chez le Supérieur",
   "year closed": "année clôturée",
   "— no grant": "— pas de subvention",
+  "Export the register to Excel": "Exporter le registre vers Excel",
+  "From month to month": "D'un mois à l'autre",
+  "No table on the screen": "Aucun tableau à l'écran",
+  "An Excel file of what is on the screen, with its period": "Un fichier Excel de ce qui est à l'écran, avec sa période",
+  "Year": "Année",
+  "Period": "Période",
+  "This shows only while the register is empty.": "Ceci ne s'affiche que tant que le registre est vide.",
+  "Special funds · projects": "Fonds spéciaux · projets",
+  "A Transactions sheet with a TRX table in exactly the same column order — values, no formulas. For a report as shown on the screen, use the \"Excel\" button above it.": "Une feuille Transactions avec un tableau TRX dans exactement le même ordre de colonnes — des valeurs, sans formules. Pour un rapport tel qu'à l'écran, utilisez le bouton « Excel » au-dessus.",
 };
 
 export const FR_PATTERNS: [string, string][] = [

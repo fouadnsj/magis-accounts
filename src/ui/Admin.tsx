@@ -12,7 +12,9 @@ import { DbCard, OwnBrand } from './Landing';
 import { CENTRES, RECEIPT_TITLE_AR, brandStyle, type CentreKey } from '../brand';
 import { mainListApi, serverRestoreUpload } from '../net';
 import { MainListPanel } from './MainListPanel';
-import { saveFile, toBase64 } from '../platform';
+import { pickFile, saveFile, toBase64 } from '../platform';
+import type { ImportReport } from '../io/importWorkbook';
+import { MigrationReport } from './Welcome';
 import { pickDatabaseFile } from '../io/dbFile';
 import { serverCopyPassword, serverStatus } from '../net';
 import { notesOf } from './Cash';
@@ -22,10 +24,10 @@ import { Phones } from './Phones';
 import { Users } from './People';
 import { peopleDoor } from '../roles';
 
-type Tab = 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'look' | 'audit' | 'lists' | 'sections' | 'server';
+type Tab = 'start' | 'months' | 'checks' | 'controls' | 'backups' | 'users' | 'look' | 'audit' | 'lists' | 'sections' | 'server';
 
 export function Admin() {
-  const { s, can, myBooks, reload } = useApp();
+  const { s, d, can, myBooks, reload } = useApp();
   // the budget lists live in the Coordinator; a server with no sign-in directory yet (so no Coordinator) keeps them here,
   // for whoever manages the users on the server computer itself
   const [listsHere, setListsHere] = useState(false);
@@ -33,6 +35,8 @@ export function Admin() {
     if (s.mode === 'server' && can('lists.manage')) mainListApi.lists().then((x) => setListsHere(x.admin && !x.dir)).catch(() => setListsHere(false));
   }, [s]);
   const tabs: { value: Tab; label: string; hidden?: boolean }[] = [
+    // starting from the Excel workbook: only while the register is empty (moved here from "Export", 25 November 2026)
+    { value: 'start', label: t('البدء من ملف Excel', 'Start from the Excel workbook'), hidden: !(can('data.import') && !d.rows.length) },
     { value: 'months', label: t('إغلاق الأشهر', 'Month closing'), hidden: !(can('month.close') || can('month.reopen') || (can('book.own') && myBooks.length > 0)) },
     { value: 'checks', label: t('التحقق قبل الإغلاق', 'Checks before closing'), hidden: !(can('lists.donors') || can('budget.view') || can('month.close')) },
     { value: 'controls', label: t('الضوابط', 'Controls'), hidden: !can('users.manage') },
@@ -52,6 +56,7 @@ export function Admin() {
       <div className="page-head"><h1>{t('الإعدادات', 'Settings')}<GuideLink id={tab === 'months' || tab === 'controls' || tab === 'checks' ? 'months' : 'admin'} /></h1></div>
       {s.mode === 'desktop' && <p className="muted small ltr" style={{ textAlign: 'start' }}>{s.dbPath}</p>}
       <Tabs value={tab} onChange={setTab} tabs={tabs} />
+      {tab === 'start' && can('data.import') && !d.rows.length && <StartFromWorkbook />}
       {tab === 'months' && <Months />}
       {tab === 'checks' && <Checks />}
       {tab === 'controls' && can('users.manage') && <Controls />}
@@ -64,6 +69,37 @@ export function Admin() {
       {tab === 'sections' && can('lists.manage') && <Sections />}
       {tab === 'server' && s.mode === 'server' && <ServerTab />}
     </>
+  );
+}
+
+// ---------------------------------------------------------------- start from the Excel workbook (an empty register only)
+
+function StartFromWorkbook() {
+  const { s, d, reload } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [seedReport, setSeedReport] = useState<ImportReport | null>(null);
+  const doSeed = async () => {
+    if (d.rows.length) return toast(t('السجل ليس فارغاً', 'The register is not empty'), true);
+    if (!(await confirmBox(t('ستحل قوائم ملف Excel محل القوائم الحالية. متابعة؟', "The workbook's lists will replace the current lists. Continue?")))) return;
+    const f = await pickFile(['xlsx'], t('اختر ملف Excel', 'Choose the Excel workbook'));
+    if (!f) return;
+    setBusy(true);
+    try {
+      setSeedReport(await s.api.call('workbook.import', { base64: toBase64(f.bytes), fileName: f.name }));
+      await reload();
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="panel">
+      <h2>{t('البدء من ملف Excel', 'Start from the Excel workbook')}</h2>
+      <p className="muted small">{t('لا يظهر هذا إلا والسجل فارغ.', 'This shows only while the register is empty.')}</p>
+      <button className="btn" disabled={busy} onClick={doSeed}>{t('استيراد Master Sup / Master Com…', 'Import Master Sup / Master Com…')}</button>
+      {seedReport && <div style={{ marginTop: 12 }}><MigrationReport r={seedReport} /></div>}
+    </div>
   );
 }
 

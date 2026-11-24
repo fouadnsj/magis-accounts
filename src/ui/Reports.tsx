@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp, useNames, useIcons } from '../state';
 import { exchangeLog, funding, monthly, summary, inPeriod, type Period } from '../domain/reports';
 import { MONTHS_AR, MONTHS_EN } from '../domain/types';
@@ -15,9 +15,11 @@ import { catIcon } from './catIcons';
 import { centreStyle } from '../brand';
 import { projectXlsx } from '../io/projectExcel';
 import { saveFile } from '../platform';
+import { tablesXlsx, type ShownTable } from '../io/tableExcel';
+import { ExportTab } from './ExportTab';
 import { GuideLink } from '../guide/GuideView';
 
-type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'all' | 'funding' | 'exchange';
+type Tab = 'summary' | 'explore' | 'quarters' | 'monthly' | 'accounts' | 'all' | 'funding' | 'exchange' | 'export';
 
 const monthName = (ym: string) => {
   const m = Number(ym.slice(5, 7)) - 1;
@@ -35,13 +37,33 @@ function useAllCentres() {
   return ok;
 }
 
+/** The tables shown in a part of the screen, as they are shown (a heading just before a table names its sheet). */
+function shownTables(root: HTMLElement | null, fallback: string): ShownTable[] {
+  if (!root) return [];
+  const text = (e: Element) => (e.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const out: ShownTable[] = [];
+  root.querySelectorAll('table').forEach((tb, i) => {
+    let name = '';
+    for (let e: Element | null = tb.closest('table'); e && e !== root && !name; e = e.parentElement) {
+      for (let p = e.previousElementSibling; p && !name; p = p.previousElementSibling) if (/^H[1-4]$/.test(p.tagName)) name = text(p);
+    }
+    const headRow = tb.querySelector('thead tr') ?? tb.querySelector('tr');
+    const head = headRow ? [...headRow.children].map(text) : [];
+    const rows = [...tb.querySelectorAll('tbody tr, tfoot tr')].filter((r) => r !== headRow && r.querySelector('td, th')).map((r) => [...r.children].map(text));
+    if (rows.length || head.length) out.push({ name: name || `${fallback} ${i + 1}`, head, rows });
+  });
+  return out;
+}
+
 export function Reports() {
-  const { d, can } = useApp();
+  const { s, d, can } = useApp();
+  const body = useRef<HTMLDivElement>(null);
+  const [busy, setBusy] = useState(false);
   const allCentres = useAllCentres();
   const names = useNames();
   const years = useMemo(() => [...new Set(d.centreRows.map((r) => r.date?.slice(0, 4)).filter(Boolean) as string[])].sort(), [d.centreRows]);
   const lastYear = years[years.length - 1] ?? String(new Date().getFullYear());
-  const first = (['summary', 'monthly', 'accounts', 'funding', 'exchange'] as Tab[]).find((x) => can(`reports.${x}` as Perm)) ?? 'summary';
+  const first = (['summary', 'monthly', 'accounts', 'funding', 'exchange'] as Tab[]).find((x) => can(`reports.${x}` as Perm)) ?? (can('data.export') ? 'export' : 'summary');
   const [tab, setTab] = useState<Tab>(first);
   const [p, setP] = useState<Period>({ from: `${lastYear}-01`, to: `${lastYear}-12` });
   const year = Number(p.to.slice(0, 4));
@@ -64,11 +86,33 @@ export function Reports() {
     </div>
   );
 
+  const TAB_NAME: Record<Tab, string> = {
+    summary: t('الملخص', 'Summary'), explore: t('التحليل', 'Explore'), quarters: t('الفصول والبنود', 'Quarters & categories'), monthly: t('شهرياً', 'Monthly'),
+    accounts: t('حسب المشروع', 'By project'), all: t('كل المراكز', 'All centres'), funding: t('التمويل', 'Funding'), exchange: t('سجل التصريف', 'Exchange log'), export: t('تصدير', 'Export'),
+  };
+  // an Excel file of what is on the screen in this tab: its tables, with the period at the top
+  const excelOfScreen = async () => {
+    const tables = shownTables(body.current, TAB_NAME[tab]);
+    if (!tables.length) return toast(t('لا جدول على الشاشة', 'No table on the screen'), true);
+    setBusy(true);
+    try {
+      const lines = [s.organisation, tab === 'monthly' ? `${t('السنة', 'Year')} ${year}` : tab === 'quarters' ? '' : `${monthName(p.from)} → ${monthName(p.to)}`, new Date().toISOString().slice(0, 10)].filter(Boolean);
+      const bytes = await tablesXlsx({ title: `${t('التقارير', 'Reports')} · ${TAB_NAME[tab]}`, lines, tables });
+      const path = await saveFile(`reports-${tab}-${p.from}-${p.to}.xlsx`, ['xlsx'], bytes, t('احفظ ملف Excel', 'Save the Excel file'));
+      if (path) toast(t('صُدّر', 'Exported') + ': ' + path);
+    } catch (e) {
+      toast(errText(e), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <div className="page-head">
         <h1>{t('التقارير', 'Reports')}<GuideLink id="reports" /></h1>
-        {period}
+        {tab !== 'export' && period}
+        {tab !== 'export' && <button className="btn" disabled={busy} onClick={excelOfScreen} title={t('ملف Excel لما على الشاشة، بفترته', 'An Excel file of what is on the screen, with its period')}>⬇ {t('تصدير', 'Export')} Excel</button>}
       </div>
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: 'summary', label: t('الملخص', 'Summary'), hidden: !can('reports.summary') },
@@ -79,7 +123,9 @@ export function Reports() {
         { value: 'all', label: t('كل المراكز', 'All centres'), hidden: !allCentres },
         { value: 'funding', label: t('التمويل', 'Funding'), hidden: !can('reports.funding') },
         { value: 'exchange', label: t('سجل التصريف', 'Exchange log'), hidden: !can('reports.exchange') },
+        { value: 'export', label: t('تصدير', 'Export'), hidden: !can('data.export') },
       ]} />
+      <div ref={body}>
       {tab === 'funding' && can('reports.funding') && <FundingTab p={p} />}
       {can('users.manage') && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{t('من يرى أي تقرير: الإدارة ← الأدوار والصلاحيات ← مجموعة «التقارير».', 'Who sees which report: Admin → Roles and permissions → the "Reports" group.')}</p>}
       {tab === 'summary' && can('reports.summary') && <SummaryTab p={p} />}
@@ -89,6 +135,8 @@ export function Reports() {
       {tab === 'accounts' && can('reports.accounts') && <ProjectsTab p={p} />}
       {tab === 'all' && allCentres && <AllCentresTab p={p} />}
       {tab === 'exchange' && can('reports.exchange') && <ExchangeTab p={p} names={names} />}
+      </div>
+      {tab === 'export' && can('data.export') && <ExportTab />}
     </>
   );
 }

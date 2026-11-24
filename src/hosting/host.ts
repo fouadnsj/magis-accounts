@@ -66,6 +66,9 @@ export interface HostPay {
   kind?: 'in' | 'back';
   /** how many times its receipt was printed (printed again: the mark "copy"). Update 74. */
   printed?: number;
+  /** the book it belongs to: null = the Main book; a number = the cash book of the Book holder who took the money. Update 79. */
+  book_id?: number | null;
+  by_profile?: number | null;
 }
 
 /** What the screens receive. The amounts are null (and `pays` empty) for someone who does not keep the calendar. */

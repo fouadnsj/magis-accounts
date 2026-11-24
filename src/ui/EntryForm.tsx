@@ -461,11 +461,11 @@ export function EntryForm({ start, onClose: close, onCopy }: { start: EntryStart
           </Field>
           {f.type !== 'Transfer' ? (
             <Field label={t('الدفتر', 'Book')}>
-              <Select value={f.bookId} options={myBookOpts} disabled={restricted && myBookOpts.length <= 1} onChange={(v) => {
+              <Select value={f.bookId} options={myBookOpts} disabled={(restricted && myBookOpts.length <= 1) || fromPay} onChange={(v) => {
                 const b = L.books.find((x) => x.id === v);
                 setF((x) => ({ ...x, bookId: v, cityId: b?.city_id ?? x.cityId }));
               }} />
-              {ownPrivate != null && f.bookId === mainId && (
+              {ownPrivate != null && f.bookId === mainId && !fromPay && (
                 <div className="small" style={{ color: '#8a5a10', marginTop: 4 }}>
                   ⚠ {t('الدفتر الرئيسي يراه المحاسب سطراً سطراً؛ دفترك الخاص سرّي.', 'Main is seen by the Accountant, line by line; your own book is private.')}
                   {' '}<button type="button" className="btn small ghost" onClick={() => {

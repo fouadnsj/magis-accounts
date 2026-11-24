@@ -85,7 +85,7 @@ describe('payments waiting for the books (M1)', () => {
   it('it holds ONLY the receipt number, date, amount, currency, group, code and kind: no price, contact or note', async () => {
     const w = await waiting(accountant);
     expect(w.ever).toBe(true);
-    expect(Object.keys(w.rows[0]).sort()).toEqual(['amount', 'code', 'currency', 'kind', 'name', 'paid_on', 'receipt_no']);
+    expect(Object.keys(w.rows[0]).sort()).toEqual(['amount', 'book', 'book_id', 'code', 'currency', 'kind', 'name', 'paid_on', 'receipt_no']);
     expect(w.rows[0]).toMatchObject({ receipt_no: `H${today().slice(0, 4)}-0001`, amount: 200, currency: 'USD', kind: 'in', name: 'Test choir' });
     const text = JSON.stringify(w);
     for (const s of ['SECRET', String(secret), 'Person A']) expect(text).not.toContain(s);

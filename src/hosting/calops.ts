@@ -42,14 +42,47 @@ async function enteredOf(c: { db: Db }): Promise<string[]> {
   return (await c.db.query<{ receipt: string }>('SELECT DISTINCT p.receipt_no AS receipt FROM host_pay p WHERE EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no)))')).map((x) => x.receipt);
 }
 
+/** a book a payment of the calendar may go into: the Main book, or a cash book kept by the person who takes the money */
+export interface PayBook { id: number; name: string; main: boolean }
+interface BookRow { id: number; name: string; is_main: number; private: number | null; active: number; parent_id: number | null }
+const bookRows = (db: Db) => db.query<BookRow>('SELECT id, name, is_main, private, active, parent_id FROM book');
+
+/**
+ * (Fouad, 26 November 2026) The book a payment of the calendar belongs to is the book of the person who took the money: a Book
+ * holder who also keeps the calendar (Nagham in Homs) puts it in her own book, not in the Accountant's. The choices of one person:
+ * the Main book (money handed straight to the office) and the cash books he keeps himself; never another person's book, never a
+ * private book (the Respo book). By default: his own book when he keeps exactly one, else the Main book.
+ */
+export async function payBooksFor(c: Pick<OpCtx, 'db' | 'profile'>): Promise<{ options: PayBook[]; default: number; mainId: number }> {
+  const books = await bookRows(c.db);
+  const main = books.find((b) => !!b.is_main);
+  const mainId = main?.id ?? 0;
+  const mine = books.filter((b) => !b.is_main && !b.private && !!b.active && b.parent_id == null && c.profile.books.includes(b.id));
+  const options: PayBook[] = [{ id: mainId, name: main?.name ?? 'Main', main: true }, ...mine.map((b) => ({ id: b.id, name: b.name, main: false }))];
+  return { options, default: mine.length === 1 ? mine[0].id : mainId, mainId };
+}
+
 /** what the books may see of a payment or a refund of the calendar: no price, no contact, no note (Fouad, M1 of the review) */
-export interface PayWaiting { receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: 'in' | 'back'; name: string; code: string }
-/** the payments and the refunds that are not yet an entry of the books (the taken-back ones are left out) */
-export async function paysWaiting(db: Db): Promise<PayWaiting[]> {
-  const rows = await db.query<{ receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: string | null; group_name: string; code: string; private: number | null }>(
-    "SELECT p.receipt_no, p.paid_on, p.amount, p.currency, p.kind, b.group_name, b.code, b.private FROM host_pay p JOIN host_booking b ON b.id = p.booking_id WHERE p.status <> 'refused' AND NOT EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no))) ORDER BY p.paid_on, p.id");
+export interface PayWaiting { receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: 'in' | 'back'; name: string; code: string; /** the book it belongs to (the Main book's id for the Main book) */ book_id: number; book: string }
+/**
+ * The payments and the refunds that are not yet an entry of the books (the taken-back ones are left out), the ones of the books
+ * THIS person may write in: a Book holder (who takes the money) his own books, the Accountant the Main book, the Administrator all.
+ * `elsewhere`: how many wait in the books of other people (a plain count for the Accountant: no amount, no name).
+ */
+export async function paysWaiting(c: Pick<OpCtx, 'db' | 'profile'>): Promise<{ rows: PayWaiting[]; ever: boolean; elsewhere: number }> {
+  const perms = c.profile.perms;
+  const admin = perms.includes('register.edit'), mainWriter = perms.includes('register.main'), holder = perms.includes('book.own') && perms.includes('cal.money');
+  const books = await bookRows(c.db);
+  const mainId = books.find((b) => !!b.is_main)?.id ?? 0;
+  const mayBook = (id: number) => admin || (mainWriter && id === mainId) || (holder && id !== mainId && c.profile.books.includes(id));
+  const all = await c.db.query<{ receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: string | null; status: string; group_name: string; code: string; private: number | null; book_id: number | null; entered: number }>(
+    "SELECT p.receipt_no, p.paid_on, p.amount, p.currency, p.kind, p.status, p.book_id, b.group_name, b.code, b.private, EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no))) AS entered FROM host_pay p JOIN host_booking b ON b.id = p.booking_id ORDER BY p.paid_on, p.id");
+  const mine = all.filter((r) => mayBook(r.book_id ?? mainId));
+  const waiting = (r: { status: string; entered: number }) => r.status !== 'refused' && !r.entered;
+  const nameOf = (id: number) => books.find((b) => b.id === id)?.name ?? '';
   // a private booking shows "Reserved" to someone who has no right to the contacts, as everywhere in the calendar
-  return rows.map((r) => ({ receipt_no: r.receipt_no, paid_on: r.paid_on, amount: r.amount, currency: r.currency, kind: r.kind === 'back' ? 'back' : 'in', name: r.private ? 'Reserved · محجوز' : r.group_name, code: r.code }));
+  const rows: PayWaiting[] = mine.filter(waiting).map((r) => ({ receipt_no: r.receipt_no, paid_on: r.paid_on, amount: r.amount, currency: r.currency, kind: r.kind === 'back' ? 'back' : 'in', name: r.private ? 'Reserved · محجوز' : r.group_name, code: r.code, book_id: r.book_id ?? mainId, book: nameOf(r.book_id ?? mainId) }));
+  return { rows, ever: mine.length > 0, elsewhere: admin || !mainWriter ? 0 : all.filter((r) => !mayBook(r.book_id ?? mainId) && waiting(r)).length };
 }
 
 /**
@@ -59,13 +92,14 @@ export async function paysWaiting(db: Db): Promise<PayWaiting[]> {
  */
 export async function checkCalReceipts(
   db: Db,
-  rows: { id: string; receipt: string | null; type: string | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }[],
-  old: Map<string, { receipt: string | null; type: string | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }>,
+  rows: { id: string; receipt: string | null; type: string | null; book_id: number | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }[],
+  old: Map<string, { receipt: string | null; type: string | null; book_id: number | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }>,
   others: { id: string; receipt: string | null }[],
 ): Promise<void> {
   const norm = (x: string | null | undefined) => (x ?? '').trim().toLowerCase();
-  const sig = (r: { receipt: string | null; type: string | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }) => [norm(r.receipt), r.type, r.inc_usd, r.exp_usd, r.inc_syp, r.exp_syp].join('|');
+  const sig = (r: { receipt: string | null; type: string | null; book_id: number | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }) => [norm(r.receipt), r.type, r.book_id, r.inc_usd, r.exp_usd, r.inc_syp, r.exp_syp].join('|');
   const seen = new Set<string>();
+  let books: BookRow[] | null = null;
   for (const r of rows) {
     const key = norm(r.receipt);
     if (!key) continue;
@@ -78,6 +112,11 @@ export async function checkCalReceipts(
       throw err(`الوصل ${p.receipt_no} صار قيداً في الدفاتر: لا يُقيَّد مرتين`, `Receipt ${p.receipt_no} is already an entry of the books: it cannot be entered twice`, `Le reçu ${p.receipt_no} est déjà une écriture des livres : on ne l’écrit pas deux fois`);
     seen.add(key);
     if (p.status === 'refused') throw err(`الدفعة ${p.receipt_no} سُحبت: لا قيد لها`, `Payment ${p.receipt_no} was taken back: it has no entry`, `Le paiement ${p.receipt_no} a été retiré : pas d’écriture`);
+    // the entry goes into the book of the payment (the Main book when the payment has none), or into an envelope of that book
+    books ??= await bookRows(db);
+    const payBook = p.book_id ?? books.find((b) => !!b.is_main)?.id ?? null;
+    if (payBook != null && r.book_id !== payBook && books.find((b) => b.id === r.book_id)?.parent_id !== payBook)
+      throw err(`الوصل ${p.receipt_no} يخصّ دفتر «${books.find((b) => b.id === payBook)?.name ?? ''}»: لا يُقيَّد في دفتر آخر`, `Receipt ${p.receipt_no} belongs to the book "${books.find((b) => b.id === payBook)?.name ?? ''}": it cannot be entered in another book`, `Le reçu ${p.receipt_no} appartient à la caisse « ${books.find((b) => b.id === payBook)?.name ?? ''} » : il ne s’écrit pas dans une autre caisse`);
     const back = p.kind === 'back', usd = p.currency === 'USD';
     const want = back ? 'Exp' : 'Income';
     const got = (c: 'USD' | 'SYP') => (back ? (c === 'USD' ? r.exp_usd : r.exp_syp) : c === 'USD' ? r.inc_usd : r.inc_syp);
@@ -432,6 +471,7 @@ async function backStmts(c: OpCtx, b: CalBooking, back: { USD: number; SYP: numb
     throw err('المبلغ المُعاد صار قيداً في الدفاتر: لا يتغيّر من هنا', 'The money given back is already an entry of the books: it cannot change from here', 'L’argent rendu est déjà une écriture des livres : il ne change plus d’ici');
   }
   const out: Stmt[] = rows.map((p) => ({ sql: 'DELETE FROM host_pay WHERE id = ?', params: [p.id] }));
+  const paid = await c.db.query<HostPay>("SELECT * FROM host_pay WHERE booking_id = ? AND kind = 'in' AND status <> 'refused'", [b.id]);
   const year = Number(today().slice(0, 4));
   // the rows replaced give back their numbers (never used in the books): a new decision keeps HR2026-0001
   const gone = new Set(rows.map((p) => p.receipt_no));
@@ -441,8 +481,12 @@ async function backStmts(c: OpCtx, b: CalBooking, back: { USD: number; SYP: numb
     if (amount <= 0) continue;
     const no = nextReceipt(numbers, year, 'HR');
     numbers.push(no);
-    out.push({ sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, method, receipt_no, note, who, at, kind) VALUES (?,?,?,?,?,?,?,?,?,'back')", params: [b.id, amount, cu, today(), 'cash', no, 'Given back after the cancellation · مُعاد بعد الإلغاء', c.who, nowIso()] });
-    out.push(auditStmt(c.who, 'add', 'host_pay', no, null, { booking: b.code, amount, currency: cu, kind: 'back' }));
+    // the money goes back out of the book it came into (when it came into several, the one that took most)
+    const into = new Map<number | null, number>();
+    for (const p of paid.filter((x) => x.currency === cu)) into.set(p.book_id ?? null, (into.get(p.book_id ?? null) ?? 0) + p.amount);
+    const book = [...into.entries()].sort((x, y) => y[1] - x[1] || (x[0] == null ? -1 : 1))[0]?.[0] ?? null;
+    out.push({ sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, method, receipt_no, note, who, at, kind, book_id, by_profile) VALUES (?,?,?,?,?,?,?,?,?,'back',?,?)", params: [b.id, amount, cu, today(), 'cash', no, 'Given back after the cancellation · مُعاد بعد الإلغاء', c.who, nowIso(), book, c.profile.id] });
+    out.push(auditStmt(c.who, 'add', 'host_pay', no, null, { booking: b.code, amount, currency: cu, kind: 'back', book_id: book }));
   }
   return out;
 }
@@ -687,7 +731,7 @@ async function history(c: OpCtx, a: { booking_id?: number } = {}) {
 
 // ------------------------------------------------------------------ payments (baseline §7)
 
-async function addPay(c: OpCtx, a: { booking_id: number; amount: number; currency?: Currency; paid_on?: string; method?: string; note?: string | null }) {
+async function addPay(c: OpCtx, a: { booking_id: number; amount: number; currency?: Currency; paid_on?: string; method?: string; note?: string | null; /** the book the money goes into: undefined = the default of this person, null = the Main book */ book_id?: number | null }) {
   const b = await bookingOf(c, a.booking_id);
   if (b.status === 'cancelled') throw err('الحجز ملغى: لا تُسجَّل عليه دفعة', 'The booking is cancelled: no payment can be recorded', 'La réservation est annulée : aucun paiement');
   const currency = cur(a.currency ?? b.currency);
@@ -698,12 +742,29 @@ async function addPay(c: OpCtx, a: { booking_id: number; amount: number; currenc
   if (day > today()) throw err('تاريخ الدفعة في المستقبل', 'The date of the payment is in the future', 'La date du paiement est dans le futur');
   const receipt = nextReceipt((await c.db.query<{ receipt_no: string }>('SELECT receipt_no FROM host_pay')).map((x) => x.receipt_no), Number(day.slice(0, 4)));
   const method = ['cash', 'transfer', 'other'].includes(String(a.method)) ? String(a.method) : 'cash';
+  // the book: his own (or the Main book); never another person's, never a private one
+  const pb = await payBooksFor(c);
+  const wanted = a.book_id === undefined ? pb.default : a.book_id === null ? pb.mainId : Number(a.book_id);
+  if (!pb.options.some((o) => o.id === wanted)) throw err('اختر دفترك أنت أو الدفتر الرئيسي', 'Choose your own book or the Main book', 'Choisissez votre propre caisse ou la caisse principale');
+  const book = wanted === pb.mainId ? null : wanted;
   await c.db.batch([
-    { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, method, receipt_no, note, who, at, kind) VALUES (?,?,?,?,?,?,?,?,?,'in')", params: [b.id, amount, currency, day, method, receipt, txt(a.note), c.who, nowIso()] },
-    auditStmt(c.who, 'add', 'host_pay', receipt, null, { booking: b.code, amount, currency, paid_on: day, method }),
+    { sql: "INSERT INTO host_pay (booking_id, amount, currency, paid_on, method, receipt_no, note, who, at, kind, book_id, by_profile) VALUES (?,?,?,?,?,?,?,?,?,'in',?,?)", params: [b.id, amount, currency, day, method, receipt, txt(a.note), c.who, nowIso(), book, c.profile.id] },
+    auditStmt(c.who, 'add', 'host_pay', receipt, null, { booking: b.code, amount, currency, paid_on: day, method, book_id: book }),
   ]);
   const p = await one<{ id: number }>(c.db, 'SELECT id FROM host_pay WHERE receipt_no = ?', [receipt]);
   return { id: p?.id ?? null, receipt_no: receipt };
+}
+
+async function setPayBook(c: OpCtx, a: { receipt_no: string; book_id: number | null }) {
+  const p = await one<HostPay>(c.db, 'SELECT * FROM host_pay WHERE receipt_no = ?', [String(a.receipt_no ?? '')]);
+  if (!p) throw err('الدفعة غير موجودة', 'Payment not found', 'Paiement introuvable');
+  if ((await enteredOf(c)).includes(p.receipt_no)) throw err('صارت قيداً في الدفاتر', 'It is already an entry of the books', 'C’est déjà une écriture des livres');
+  const books = await bookRows(c.db);
+  const main = books.find((b) => !!b.is_main);
+  const target = a.book_id == null || a.book_id === main?.id ? null : books.find((b) => b.id === Number(a.book_id));
+  if (target !== null && (!target || target.private || !target.active || target.parent_id != null)) throw err('دفتر غير مسموح', 'This book cannot take the money', 'Cette caisse ne peut pas recevoir l’argent');
+  await c.db.batch([{ sql: 'UPDATE host_pay SET book_id = ? WHERE id = ?', params: [target?.id ?? null, p.id] }, auditStmt(c.who, 'book', 'host_pay', p.receipt_no, { book_id: p.book_id ?? null }, { book_id: target?.id ?? null })]);
+  return { ok: true as const };
 }
 
 async function cancelPay(c: OpCtx, a: { id: number }) {
@@ -803,7 +864,15 @@ export const CAL_OPS = {
   },
   /** money received for a booking, at any time, even before confirming: a suggestion for the books with its receipt number */
   /** M1 of the review: the payments and refunds waiting for the books, for whoever writes entries; only what an entry needs */
-  'cal.pay.waiting': { check: (c: OpCtx) => { if (!c.profile.perms.includes('register.edit') && !c.profile.perms.includes('register.main')) throw refuse(); }, run: async (c: OpCtx) => ({ rows: await paysWaiting(c.db), ever: ((await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM host_pay'))?.n ?? 0) > 0 }) },
+  'cal.pay.waiting': {
+    // whoever writes entries (the Administrator, the Accountant) and a Book holder who takes the calendar's money (his own books only)
+    check: (c: OpCtx) => { const p = c.profile.perms; if (!p.includes('register.edit') && !p.includes('register.main') && !(p.includes('book.own') && p.includes('cal.money') && c.profile.books.length)) throw refuse(); },
+    run: (c: OpCtx) => paysWaiting(c),
+  },
+  /** the books this person may put a payment into, and the one proposed (his own when he keeps exactly one, else the Main book) */
+  'cal.pay.books': { check: need('money'), run: (c: OpCtx) => payBooksFor(c) },
+  /** the Administrator moves a payment that is not yet in the books to another book (or back to the Main book): e.g. a refund */
+  'cal.pay.book': { check: (c: OpCtx) => { if (!c.profile.admin) throw refuse(); }, run: (c: OpCtx, a: { receipt_no: string; book_id: number | null }) => setPayBook(c, a) },
   'cal.pay.add': { check: need('money'), run: (c: OpCtx, a: Parameters<typeof addPay>[1]) => addPay(c, a) },
   /** a payment recorded by mistake, not yet in the books: taken back (kept, marked refused) */
   'cal.pay.cancel': { check: need('money'), run: (c: OpCtx, a: { id: number }) => cancelPay(c, a) },
@@ -853,7 +922,7 @@ export const CAL_OPS = {
   'cal.import.orgs': { check: need('orgs'), run: (c: OpCtx, a: { rows: unknown[][]; dry?: boolean }) => importOrgs(c, a) },
 } as const;
 
-export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options', 'cal.phone.list', 'cal.pay.waiting'];
+export const CAL_READ_ONLY = ['cal.get', 'cal.history', 'cal.equip.options', 'cal.phone.list', 'cal.pay.waiting', 'cal.pay.books'];
 
 /** for the tests and the coming screens: who sees the amounts */
 export const calSeesPrices = (c: OpCtx) => seesPrices(rightsOf(c));

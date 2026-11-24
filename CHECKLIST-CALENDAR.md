@@ -25,9 +25,13 @@ door **Calendar**. For each point, tick it when it did what is written. If it di
 
 ## D. Money and paper
 15. **A payment received** before confirming (an advance). → it lists as "waiting for the books"; take it back once, see it struck through.
+    **Whose book:** record it as someone who keeps one book (Nagham): the window says "The money goes into: her book" → the payment is in HER list
+    "Payments waiting for the books", she makes the entry in her own book; the Accountant sees only "n payments are in the books of holders"
+    (no amount). Record it as someone with no book, or choose the Main book: it is in the Accountant's list. Try to choose another person's book → refused.
 16. Print the **Receipt** of the booking and of one payment. → "Receipt · وصل استلام" (never "invoice"), the amount **in words in Arabic and
     English**, two places to sign; printed again says **COPY**. *(Arabic words not yet tested)*
-17. **Cancel** a booking that has money: keep a part. → asks for the amount per currency; what is given back appears as a suggestion for the books.
+17. **Cancel** a booking that has money: keep a part. → asks for the amount per currency; what is given back appears (HR…) in the list of the
+    book the money came into (Nagham's payment → Nagham's list, as an expense). Only the Administrator can move it to another book.
 18. 🖨 **Print**: the week, the day, one hall's week, the booking sheet. **Excel** of a period and of payments. → the files save and open;
     Reception sees no amounts. *(PDF and Excel saves not yet tested)*
 19. **Organisations**: search by name, by person, by phone.

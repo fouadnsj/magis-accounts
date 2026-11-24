@@ -2577,4 +2577,16 @@ CREATE TABLE sentence (
 CREATE UNIQUE INDEX sentence_key ON sentence (builtin_key) WHERE builtin_key IS NOT NULL;
 `,
   },
+  {
+    n: 79,
+    name: 'a payment of the calendar belongs to a book: the book of the person who took the money (null = the Main book)',
+    sql: `
+-- (Fouad, 26 November 2026) "If the one who managed the payment of the calendar has a book, the amount must appear in HIS book, not
+-- in the accountant's." Each payment and each refund of the calendar records the book it belongs to: null = the Main book (all
+-- the payments made before this update stay there), a number = the cash book of a Book holder. by_profile = the person who
+-- recorded it (the name stays in "who").
+ALTER TABLE host_pay ADD COLUMN book_id INTEGER REFERENCES book(id);
+ALTER TABLE host_pay ADD COLUMN by_profile INTEGER;
+`,
+  },
 ];

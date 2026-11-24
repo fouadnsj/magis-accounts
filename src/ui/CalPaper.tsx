@@ -2,7 +2,7 @@
 // the receipt of each payment and of the whole booking (وصل استلام — never an invoice), cancelling with the money kept,
 // given back or a part kept, the booking sheet for the group, the week of one hall, a short page for a day or a week, and
 // the Excel list. Every payment and every amount given back is a suggestion for the books, with its number.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useApp } from '../state';
 import { Field, Modal, errText, toast, todayIso } from './kit';
 import { m, tx } from '../i18n';
@@ -80,21 +80,28 @@ export function PayWindow({ data, b, onClose, refresh }: { data: CalData; b: Cal
   const firstCur: Currency = due.USD > 0 || !due.SYP ? (b.currency === 'SYP' && due.SYP > 0 ? 'SYP' : 'USD') : 'SYP';
   const [f, setF] = useState({ amount: due[firstCur] ? String(due[firstCur]) : '', currency: firstCur, paid_on: todayIso(), method: 'cash', note: '' });
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ id: number; receipt_no: string } | null>(null);
+  const [done, setDone] = useState<{ id: number; receipt_no: string; book: string } | null>(null);
   const printPay = usePayReceipt(data, refresh);
+  // the book the money goes into: his own book when he keeps one, else the Main book; he may choose the Main book instead
+  const [books, setBooks] = useState<{ options: { id: number; name: string; main: boolean }[]; default: number } | null>(null);
+  const [book, setBook] = useState<number | null>(null);
+  useEffect(() => { void s.api.call('cal.pay.books').then((x) => { setBooks(x); setBook(x.default); }).catch(() => setBooks(null)); }, [s.api]);
+  const bookName = (id: number | null) => books?.options.find((o) => o.id === id);
   const save = async () => {
     setBusy(true);
     try {
-      const r = (await s.api.call('cal.pay.add', { booking_id: b.id, amount: Number(f.amount), currency: f.currency, paid_on: f.paid_on, method: f.method, note: f.note })) as { id: number; receipt_no: string };
+      const r = (await s.api.call('cal.pay.add', { booking_id: b.id, amount: Number(f.amount), currency: f.currency, paid_on: f.paid_on, method: f.method, note: f.note, ...(book != null ? { book_id: book } : {}) })) as { id: number; receipt_no: string };
       await refresh();
-      setDone(r);
+      setDone({ ...r, book: bookName(book) ? (bookName(book)!.main ? L('الدفتر الرئيسي', 'the Main book', 'la caisse principale') : bookName(book)!.name) : '' });
     } catch (e) { toast(errText(e), true); } finally { setBusy(false); }
   };
   if (done) {
     return (
       <Modal title={L('سُجّلت الدفعة', 'Payment recorded', 'Paiement enregistré')} onClose={onClose} narrow>
         <p>{L('رقم الوصل', 'Receipt number', 'Numéro du reçu')}: <b dir="ltr">{done.receipt_no}</b></p>
-        <p className="small muted">{L('تنتظر المحاسب ليجعلها قيداً في الدفاتر بالرقم نفسه.', 'It waits for the accountant to make it an entry of the books, with the same number.', 'Elle attend que le comptable en fasse une écriture des livres, avec le même numéro.')}</p>
+        <p className="small muted">{done.book
+          ? L(`تنتظر أن تصير قيداً في «${done.book}» بالرقم نفسه.`, `It waits to be made an entry in ${done.book}, with the same number.`, `Elle attend de devenir une écriture dans ${done.book}, avec le même numéro.`)
+          : L('تنتظر أن تصير قيداً في الدفاتر بالرقم نفسه.', 'It waits to be made an entry of the books, with the same number.', 'Elle attend de devenir une écriture des livres, avec le même numéro.')}</p>
         <div className="row" style={{ justifyContent: 'flex-end', gap: 6, marginTop: 12 }}>
           <button className="btn" onClick={onClose}>{L('إغلاق', 'Close', 'Fermer')}</button>
           <button className="btn primary" onClick={() => void printPay(b, done.id).then(onClose)}>🖨 {L('وصل الاستلام', 'The receipt', 'Le reçu')}</button>
@@ -116,6 +123,13 @@ export function PayWindow({ data, b, onClose, refresh }: { data: CalData; b: Cal
           <Field label={L('طريقة الدفع', 'Paid by', 'Payé par')}><select className="inp" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>{Object.keys(METHOD).map((k) => <option key={k} value={k}>{METHOD[k]()}</option>)}</select></Field>
         </div>
         <Field label={L('ملاحظة', 'Note', 'Note')}><input className="inp" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
+        {books && book != null && (
+          <Field label={L('المال يدخل في', 'The money goes into', 'L’argent va dans')}>
+            {books.options.length > 1
+              ? <select className="inp" value={book} onChange={(e) => setBook(Number(e.target.value))}>{books.options.map((o) => <option key={o.id} value={o.id}>{o.main ? L('الدفتر الرئيسي (للمكتب)', 'The Main book (the office)', 'La caisse principale (le bureau)') : `${o.name} · ${L('دفتري', 'my book', 'ma caisse')}`}</option>)}</select>
+              : <b>{L('الدفتر الرئيسي (للمكتب)', 'The Main book (the office)', 'La caisse principale (le bureau)')}</b>}
+          </Field>
+        )}
       </div>
       <div className="row" style={{ justifyContent: 'flex-end', gap: 6, marginTop: 12 }}>
         <button className="btn" onClick={onClose}>{L('إلغاء', 'Cancel', 'Annuler')}</button>

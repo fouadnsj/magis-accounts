@@ -73,3 +73,9 @@
    server, or the three HR/accounts databases side by side) rows need an origin: either the city (works while each centre keeps its own city as default)
    or a database name/identifier stamped on each row at merge time. Rule to keep: never remove `city_id`; keep each centre's default city set to its own
    city; when the merge is designed, add the database name as the origin flag (so that two centres in the same city do not collide).
+
+8. **The app has become wide; one can get lost** (Fouad, 25 November): "the app became really wide and sometimes I am lost in it; I imagine the users will be lost a little."
+   Manager's note (nothing changed): five doors, each with its own menu, plus the first page, the network "Administrator" page and the old community app. Ideas for a
+   later pass (not before the build): a clear "where am I" line at the top of every page (Door › Page), the same position for the "← MAGIS · Doors" bar
+   and the Guide button, hide in each menu what the role cannot use (partly done), fewer words per menu item, a short first-visit tour of the doors,
+   one search box (find a page, a person, a booking, an item). To decide with Fouad after the first weeks of real use.

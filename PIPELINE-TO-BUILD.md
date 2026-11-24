@@ -6,7 +6,7 @@ files by path, no build / no installer / no tag (only when Fouad says "build"), 
 checks the commit + tests, `npm run build:server`, restarts the preview `magis-next-test`, notes the result here.
 
 ## Jobs, in order
-- [ ] J1 THE DOORS PAGE (Shell): entering a centre shows LARGE, nice door badges inspired by the home page (style, chart, animation
+- [x] J1 THE DOORS PAGE (b23de65) (Shell): entering a centre shows LARGE, nice door badges inspired by the home page (style, chart, animation
       like or different), each with a warm sentence: from the chart, from the explanation of the logo of each centre, or random deep
       and meaningful sentences from the MAGIS concept note / testimonies / recreated from both, in the same spirit (Arabic/English/
       French; never invent facts or quotes: sentences must be traceable or clearly original). Doors: Accounts, Calendar, Inventory,

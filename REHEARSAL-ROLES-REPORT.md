@@ -1,5 +1,40 @@
 # Rehearsal of the updates 57 → 77 on copies of the real databases — who can do what, before and after
 
+## Fourth rehearsal, the new Aleppo file (26 November 2026)
+
+**What the file is:** `real-db/aleppo/magis_2026-11-25_005737_daily.db` (25 November, 778 KB) is the **real Aleppo**: the organisation inside is
+**"MAGIS Aleppo"**, made on 30 October from "Magis budget (Basis, Aleppo)", at **update 50**, with **19 register rows** (31 October to 19 November), 89
+budget lines, 16 headings, 5 parties, 4 books (Main, Respo, الاستقبال, and a phone book) and **3 people: Fouad, Salim and وصفي بكره جيه**. It is *not* the demo.
+(The 493 rows of the first rehearsal were an older import file; this one is the live database, with the real entries so far.)
+
+**Result: passes.** 29 updates (50 → 79) ran in 62 ms, **no error**, integrity ok before and after, no broken link, **a second run changes nothing**,
+no table lost a row (register 19 → 19, budget 89 → 89, audit 126 → 126, people 3 → 3), only the roles list changed in the old tables. `host_pay` has its
+two new columns, the sentences table is created (empty). The real file is unchanged by checksum; the copy is deleted. **Nobody has less.**
+
+| Person | Today (old profile) | After: role | Rights | Doors before → after |
+|---|---|---|---|---|
+| **Fouad** | Superior | **Administrator** | more (+21: the Respo book, the whole calendar, the inventory with values and big totals, downloads) | Accounts, Administration → **+ Calendar, Inventory** |
+| **Salim** | Accountant **who also manages the users** | stays his old profile, **Custom** (not the ready-made Accountant) | more (+20, see the warning) | Accounts, Administration → **+ Calendar, Inventory** |
+| وصفي بكره جيه | Book holder (book الاستقبال) | Book holder | same | Accounts |
+
+**⚠ Salim needs your attention.** Salim's Accountant profile in Aleppo is not an ordinary accountant: it **manages the users**, restores backups, and
+(because it manages users) an older update **gives it the Respo book** (`register.private`), together with the calendar prices, the inventory
+(keeping it and its values) and downloads. So after the update **Salim sees the Respo book**, which the new rule keeps for the Administrator only; the program
+did not take it away (nobody is locked out or loses anything), and it shows up as the "old role" notice on the People page. He does **not** have the
+donors and grants. Because of this the update did not turn his profile into the ready-made Accountant; a ready-made "Accountant (2)" role was added, given to
+nobody.
+
+**To decide by Fouad (Aleppo):**
+- ☐ **Fouad** stays Administrator (as you said).
+- ☐ **Julian** has no account in Aleppo: add him as second Administrator (in *Administration → People*, after the update).
+- ☐ **Salim**: what is he? Keep as he is (a Custom role with the Respo book), or make him **Director** (looks at the books, keeps the whole calendar, gives the
+  other roles, no Respo, no donors), or the ready-made **Accountant** (writes in the Main book, closes months; he would then lose managing the users and the
+  Respo book, which is a deliberate choice, not something the update does)? Nothing happens to him until you change it.
+- ☐ Is there another centre boss for **Director**? (nobody else is Superior-only.)
+- Names: HR still has only Fouad. Salim and وصفي have no HR account (as today).
+
+---
+
 ## Third rehearsal, updates up to 79 (26 November 2026)
 
 Same files as the second rehearsal (the newest in `real-db/`: Homs, Al-Ard, HR, community, country, Province, the old demo, and the "aleppo" file, which is

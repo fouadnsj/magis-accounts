@@ -215,6 +215,29 @@ export function quickToSave<R extends QuickRow>(rows: R[]): R[] {
 /** A row whose quantity is not a whole number (it would be skipped without a word): to show in red. */
 export const quickBadQty = (r: Pick<QuickRow, 'name' | 'qty'>) => !!r.name.trim() && r.qty.trim() !== '' && !(Number(r.qty) >= 0 && Number.isInteger(Number(r.qty)));
 
+/** Quick add, room after room: the rooms of the same area and the same kind as this one, in the map's order (the ones that can hold items). */
+export function quickRooms<S extends Pick<MapSpace, 'id' | 'building_id' | 'kind_id' | 'active' | 'sort' | 'place_id'>>(space: S, spaces: S[]): S[] {
+  return spaces
+    .filter((x) => x.active && x.place_id != null && x.building_id === space.building_id && (x.kind_id ?? null) === (space.kind_id ?? null))
+    .sort((a, b) => a.sort - b.sort || a.id - b.id);
+}
+
+/** At most this many items in one go (the server keeps the first 1000 and would drop the rest without a word). */
+export const QUICK_MAX = 1000;
+
+/** One serial number is one object: a row that has one (or must have one: a category with a serial number, quantity 1) cannot be copied into several rooms. */
+export const quickSerialBlocked = (r: Pick<QuickRow, 'qty' | 'serial'>, categoryAsksSerial: boolean, rooms: number) =>
+  rooms > 1 && categoryAsksSerial && (r.serial.trim() !== '' || Number(r.qty) === 1);
+
+/** The same list in several rooms: every row to save is repeated in each room, room by room; the rows that cannot be copied are given back apart (skipped). */
+export function quickInRooms<R extends QuickRow>(rows: R[], placeIds: number[], asksSerial: (categoryId: number | null) => boolean): { items: R[]; skipped: R[] } {
+  const rooms = [...new Set(placeIds)];
+  const keep: R[] = [];
+  const skipped: R[] = [];
+  for (const r of quickToSave(rows)) (quickSerialBlocked(r, asksSerial(r.category_id), rooms.length) ? skipped : keep).push(r);
+  return { items: rooms.flatMap((pid) => keep.map((r) => ({ ...r, place_id: pid }))), skipped };
+}
+
 // ------------------------------------------------------------------ with a staff member (comment 4, baseline §3)
 
 /** a person of the centre in MAGIS HR (names only); left = the day they left, null while they are there */

@@ -569,3 +569,28 @@ server cut what it sends** (not only the screen).
   Test as Assem: Accounts, Calendar, Inventory and the Databases list shows only MAGIS Homs; as Nagham: Accounts; as Julian: Accounts, Calendar,
   Inventory, no HR and no Administration. (The copy has no Reception person; Reception = one door is in `tests/doors.test.ts` and the new test.)
 - Note: Assem's old Accountant role in the test copy has "Sees the inventory" ticked, which is why he sees the Inventory door.
+
+## 25. Quick add: room after room, and the same list in several rooms (Fouad's third test, comment 6, answer "A — both"; no database update)
+- **Fouad's wish**: "I enter a room and mark everything, then move to the next; or select several rooms if they are identical (the bedrooms are the
+  same and all contain the same things)."
+- **Room after room.** Quick add opened from a room shows, beside the title, "room 3 of 12" (the rooms of the same area and kind, in the map's order).
+  **"Record and next room ›"** records this room and opens the next one with its ready list (the numbers empty). The **Origin** stays as chosen.
+  If nothing was typed, the button is **"Next room ›"** (skips this room). When you have gone through at least one room, **Cancel** becomes
+  **Done** (back to the space page where you started). The last room has no "next": only Record.
+- **Same in several rooms.** A folded box under the Origin line: the tick boxes of the other spaces of the same kind (any area, grouped by area;
+  a space without a kind: the spaces of its own area without a kind), with **"Select all · Bedroom"** and **"Only this room"**. The room you are
+  in is always counted. What you type once is recorded **in each ticked room** (a group "Bed ×2" in 12 bedrooms = 12 groups), all in **one save**
+  (the existing `inv.item.many`: all rooms or none), with the history line "added" of every item as for any quick add. The big button then says
+  "Record in 3 rooms". With rooms ticked, "next room" is hidden (the walk and the batch are two ways, not mixed). After the save you are back on the space page.
+- **Serial number.** One serial number is one object, so it cannot be copied. With several rooms ticked, a row of a serial category with quantity 1
+  (or with a serial written) is **skipped**: marked ⛔ and a sentence under the table says it needs its own serial number in each room — record it
+  room by room (untick the other rooms) or leave it out; the message after the save names the skipped rows. Quantity above 1 without a serial is copied as always.
+- **Kept as before:** rows empty or 0 skipped; the serial box only for serial categories; valuable categories 📷🏷 (photo and label later);
+  values only when the person sees values; the Excel template and blank labels; the map's home Quick add (the space on each row) is unchanged.
+  One go is limited to **1000 items** (the server would have dropped the rest without a word): the screen says so before saving.
+- Code: `quickRooms`, `quickInRooms`, `quickSerialBlocked`, `QUICK_MAX` in `src/inventory/map.ts`; `QuickAddRoom` in `src/ui/InvQuick.tsx`. No server change.
+  Test: `tests/inventory-quick-rooms.test.ts` (6): the walk order, the list copied room by room, the serial rule, three rooms saved with one history line each
+  and the origin, all-or-none, the same serial twice refused. (The whole suite: 449 pass; the 2 failures are in `tests/roles.test.ts`, from the roles work in progress, not from this.)
+- Tried in the side pane on a COPY (own port, test123), as Fouad on Homs: Sample Bedroom 2 "room 2 of 3" → Bed 2, Cupboard 1 → "Record and next room"
+  → Sample Bedroom 3 "room 3 of 3", numbers empty, button "Done"; there "Same in several rooms" → Select all (3 rooms) → Bed 2 + a Laptop row (quantity 1):
+  Laptop ⛔ skipped with the sentence; "Record in 3 rooms" → 3 items, one in each room, message "not copied (serial number): Laptop".

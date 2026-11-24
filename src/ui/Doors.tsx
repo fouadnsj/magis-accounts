@@ -102,7 +102,7 @@ export function Doors({ doors, centre, centreName, mark, who, badges, onEnter, c
       {ordered.length > 0 ? (
         <div className={`dr-grid n${ordered.length}`}>
           {ordered.map((k, i) => (
-            <button key={k} type="button" className={`dr-door ${k}`} style={{ animationDelay: `${0.35 + i * 0.28}s` } as CSSProperties} onClick={() => onEnter(k)}
+            <button key={k} type="button" className={`dr-door dr-${k}`} style={{ animationDelay: `${0.35 + i * 0.28}s` } as CSSProperties} onClick={() => onEnter(k)}
               aria-label={`${DOOR[k].name.ar} · ${DOOR[k].name.en} · ${tx(ENTER)}`}>
               {!!badges?.[k] && <span className="dr-badge" title={String(badges[k])}>{badges[k]}</span>}
               <span className="dr-glyph"><span className="mg-hh-halo" />{DOOR[k].glyph}</span>

@@ -310,3 +310,5 @@ Nothing is built. When these are answered, the first job is step 1 (roles as dat
 6. Administrators: **Fouad = the main Administrator everywhere.** Second Administrators: Alvaro (Aleppo), Julian (Homs and/or Aleppo: Fouad wrote "the secondary in Aleppo Alvaro in Homs and Aleppo Julian" — to confirm, and Jaramana's second is not named yet).
 
 **So now:** step 1 (roles as data, several roles per person) can start; then steps 2, 3, 5. The HR steps wait for the HR reflection.
+
+**Confirmed by Fouad (25 November 2026):** second Administrators: **Alvaro = Jaramana**; **Julian = Homs and Aleppo**. Fouad = main Administrator everywhere. Animators: **HR enters the animator**; the calendar's workshop leader is **picked from the centre's animators in HR** (names only), typed only if not there — agreed.

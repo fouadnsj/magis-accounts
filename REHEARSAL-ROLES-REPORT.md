@@ -1,5 +1,34 @@
 # Rehearsal of the updates 57 → 77 on copies of the real databases — who can do what, before and after
 
+## Third rehearsal, updates up to 79 (26 November 2026)
+
+Same files as the second rehearsal (the newest in `real-db/`: Homs, Al-Ard, HR, community, country, Province, the old demo, and the "aleppo" file, which is
+a demo), same rules: copies in a private scratch folder, deleted afterwards, real files unchanged by checksum. The code now goes up to **update 79**
+(78 = the sentences of a centre; 79 = a calendar payment belongs to a book).
+
+**Result: everything passes.** 8 copies, **0 errors**, integrity ok before and after, no broken link, **a second run changes nothing**, no table
+lost a row (Homs register 814 → 814), nothing changed in the old tables except the roles list and the calendar space kinds. **Nobody has less
+(0 people)**, and the people and roles are the same as in the second rehearsal (below): Homs, Al-Ard, Province and the demo Superior become Administrator,
+the Accountants and Book holders keep their roles, HR / community / country / Ghassan stay Custom. (The demo Superior now shows +17 instead of +16: it
+also gets the new inventory big totals, Administrator only.)
+
+| File | Update before → after | Ran | Time |
+|---|---|---|---|
+| Homs | 63 → 79 | 16 | 37 ms |
+| Al-Ard, HR, community, country | 63 → 79 | 16 | 35–38 ms |
+| Province, demo | 57 → 79 | 22 | 43–45 ms |
+| "aleppo" file (a demo) | 50 → 79 | 29 | 49 ms |
+
+- **Update 79:** `host_pay` has the two new columns `book_id` and `by_profile` in all 8 copies. **No copy holds a calendar payment yet** (`host_pay` is
+  empty everywhere, Al-Ard has one booking but no payment), so "existing payments stay on the Main book" could not be seen on real data: adding a
+  column leaves every existing row empty (= Main book) by the way SQLite works.
+- **Update 78:** the `sentence` table is created in **every** database (not only the centres: HR, community, country and Province get it too, empty and
+  unused) and is **empty** everywhere: it is not seeded, because the warm sentences stay in the program and the table only holds what a centre changes
+  or writes.
+- Not covered, as before: the server, the screens and the phone app. The real Aleppo (30 October) is still not available to repeat (first rehearsal below).
+
+---
+
 ## Second rehearsal, newest backups (25 November 2026)
 
 Same method and same rules as the first one (below): I copied the newest files you put in `real-db/` (taken 24 November, evening), worked only on the

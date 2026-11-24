@@ -192,3 +192,108 @@ Nothing is built. When you say yes to these answers, the first job is step 1 of 
 - **Several roles per person** (agreed in principle): a person's rights = all the ticks of all their roles together; doors come from that. Limits: only the Administrator gives Administrator or Director; the Respo book and Grants exist only in the Administrator role; an HR keeper role is always "of a centre". The ticks stay under "Advanced" for rare exceptions.
 - **Book and user in one step:** when a person gets the role Book holder (or "keeps a book"), the program makes their book with their name; one window, no separate "new book".
 - **The three HR for the Administrator:** HR data (salaries) is private and must **never** go through a cloud or a shared folder (Fouad's rule: real data stays off shared folders and clouds). Two stages proposed: (A) fast: each server makes a **locked copy file** of its HR (with a password), carried to the Administrator's server and opened **read-only** there, showing the date of the copy; (B) later: the servers send that copy to each other directly and securely over the network, if they can reach each other. Question for Fouad: can the three servers reach each other over the internet today?
+
+---
+
+## 9. Final design before building (25 November 2026, analysis only)
+
+### 9.1 Several roles per person
+
+**How a union behaves.** A role is a named bundle of ticks. A person's rights = **all the ticks of all their roles put together** (a tick present in any role is on). Doors come from that union, as now (`doorsOf`). Nothing is taken away by adding a role: that is simple and easy to explain ("each role only adds").
+
+**The one thing a union can break is a "never".** A "no prices" role must stay safe when joined with another:
+- "Reception never sees prices" is **not a ban**, it is only the *absence* of the tick `cal.prices` (and `cal.money`). Reception + Store keeper = still no prices, because neither role has them. Reception + Coordinator (workshops) **does** see prices, because Coordinator has `cal.prices`. This is correct: that person really is a coordinator too. The Roles screen says it in one line next to the person: "Sees prices because of: Coordinator".
+- So the rule for the screen is: **show, for every sensitive thing (prices, salaries, donors, Respo), which role brings it.** No hidden bans, no surprise.
+- Things that must never be reached by a union stay *only* in the Administrator role (Respo, Grants, donors) and are refused for anyone else by the server, even if an "Advanced" tick is added by hand (see limits).
+
+**Limits (checked by the server, not only hidden on screen):**
+1. Only the **Administrator** gives the roles Administrator and Director.
+2. **Respo book and Grants/Donors** (`register.private`, `lists.donors`) exist only in the Administrator role. A Director cannot add them under "Advanced".
+3. **HR roles are always "of a centre".** The person carries the list of centres (today's `hr_centres`). A Director gives an HR role only **for his own centre**; the Administrator for any centre of that server.
+4. A Director cannot give a person more than the Director himself has (no climbing).
+5. "Advanced" ticks = exceptions on **one person**, shown in a list "Exceptions: +2" so they are not forgotten; the Administrator sees all exceptions on the server.
+
+**Final role table (a person has one or several):**
+
+| Role | Accounts | Calendar | Inventory | HR (of a centre) | Respo + Grants | Who gives it |
+|---|---|---|---|---|---|---|
+| **Administrator** | everything | all | all | all centres of the server, salaries | **only him** | Administrator |
+| **Director** | looks at books, reports, budget; no write; no donor name | all | looks, values | none by itself; may give HR roles for his centre | no | Administrator |
+| **Accountant** | writes Main, closes months, adds book holders | looks | — | — | no | Director |
+| **Book holder** | own book | — | — | — | no | Director, Accountant |
+| **Reception** | — | contacts, outside groups, guests; no prices | — | — | no | Director |
+| **Coordinator (workshops)** | — | programme, prices, payments | looks, no values | **"Sessions" section only** (9.2) | no | Director |
+| **Store keeper** | — | — | keeps it, values | — | no | Director |
+| **HR keeper (of a centre)** | — | — | — | the whole HR of that centre; with or without salaries (two kinds, as today's "HR keeper" / "Reader") | no | Administrator; Director for his centre |
+| **HR Sessions (of a centre)** (new, narrow) | — | — | — | the **Sessions / attendance** page only | no | Director for his centre |
+
+Inventory and HR "stay roles" as Fouad asked: Store keeper and HR keeper are roles of their own and can be combined (Accountant + HR keeper; Reception + Store keeper).
+
+### 9.2 Workshops and attendance (Coordinator takes the attendance of the animators)
+
+**What exists today:**
+- HR: **tutors' sessions** register (migration 38). Page `Sessions` (`src/hr/ui/Sessions.tsx`), operations `hr.sessions.get/add/save/delete` in `src/hr/sessions.ts`. The tick is **`hr.sessions`** ("Records the tutors' sessions; sees the price only if they also see amounts"). Only people of category *tutor*; a session = person + date + activity + note, one row per session (`hr_session`). The table already has **`source`** ('hand' now, 'calendar' prepared in a comment) and **`ext_id`** with a unique index: **the door for a calendar import is already built, only the import is missing.** A session already paid (`run_line_id`) cannot be changed.
+- Calendar (new): a booking has `origin = 'ours'` for our programme, an **activity kind**, a **`leader`** (a typed name, not a link to a person), **`repeat_days`** (weekly repeats) with `time_from/time_to`, and **`cal_date`** exceptions (cancel / move one day, with a reason). So the calendar knows *what, when, how often, who leads (as a name)*, and which days were cancelled or moved.
+- The old proposal `hr-tutor-sessions-link.md` (Alberto website app) is **another program** (a monthly Excel file from the Alberto calendar to HR). Its idea of "the calendar knows, HR pays; no money in the calendar" is the same, but it does not fit here: in MAGIS Accounts the calendar and HR are on the **same server**, so no file is needed.
+- Not found: any link between `leader` (text) and an HR tutor person; no "attendance taken" mark in the calendar.
+
+**Problem today.** `hr.sessions` brings, through `withImplied`, the tick `hr.view`, so the person sees **the names, positions and dates of the people of the centre** in HR. That is more than a coordinator needs, and it is not salaries, but it is HR. Also the HR menu shows other sections. A narrow role must open **one page only**.
+
+**Proposal (narrow role, then optional calendar help):**
+1. **Small, now:** a role **"HR Sessions of a centre"** = tick `hr.sessions` only, plus a new rule in the HR screen: for a person whose HR rights are *only* `hr.sessions`, the HR door opens **straight on the Sessions page**, the other sections are not shown, and the list of tutors shows **name and activity only** (no centre details, no agreement, no price). The server cuts what it sends in the same way (as `scope.ts` already cuts by centre). **Coordinator (workshops)** includes this role by default (it is a role-in-role; the Director may untick it).
+2. **Medium, soon:** a button **"Suggest from the calendar"** on the Sessions page: for the month and the centre, the server reads the calendar's *our programme* bookings with a `leader`, expands their weekly repeats and the exceptions (`cal_date`: cancelled days are left out, moved days use the new day), and proposes a list "Tuesday 4 · English B1 · leader Rima". The coordinator **ticks what really took place** (attendance) and confirms; each confirmed row is written in `hr_session` with `source = 'calendar'`, `ext_id = booking:date`, so doing it twice never doubles. Nothing is paid or priced by the calendar.
+3. **To prepare first (small):** matching the typed `leader` with the HR tutor card. First time by name, the coordinator picks "this is Rima"; the choice is remembered. No change to the calendar's data.
+4. **Later:** a "who took the attendance" mark on the calendar day, replacements ("replaced by…"), two animators on one session. Not needed for the first version.
+
+**What it never gives:** salaries, the session price, agreements, personal details, the vault, the payroll. The price stays behind `hr.salary`.
+
+### 9.3 The book with the user (one window)
+
+- Today: create the **book** (Lists → Books), then create the **user** (Admin → Users) and tick the book. Two windows, two places (also `createKeepers` exists to make the accounts for books already made).
+- Proposal: in the **add-person window**, when the role **Book holder** is ticked (alone or with others), the program **makes the book** with the person's name (private flag off, in the Main's city, as `users.createKeepers` does today), links it, and shows the temporary password once. Removing the person switches the book **off** (never deleted: its rows stay).
+- The word "book holder" in the window: "keeps a cash book".
+- **For the Accountant:** he keeps the Main book and today may add book holders (`users.holders`). He keeps that: his window is the same small window, limited to **Book holder** (no other role). He no longer needs the "Lists → Books" page for a new keeper; he does still need it to rename or switch a book off. He cannot give himself more roles. His "Users" tab shows only book holders, as now.
+- An Accountant who is also a book holder: he gets his own book through the same window, given by the Director.
+- Existing real users: nothing changes; their books are already linked.
+
+### 9.4 The Administrator and the three HR databases
+
+**Facts from Fouad:** servers are reached only by AnyDesk, not server to server; a copy travels as a **locked file** (password).
+
+**Stage A (possible now, small–medium):**
+1. On each server (as the HR keeper or Administrator there): **"Make a locked HR copy"**. The program already makes a protected copy (copy password, `src/io/protect.ts`, `protectCopy` in `server.ts`); this button makes one file of the HR database, **named with the centre and the date**.
+2. The file is carried by **AnyDesk file transfer** to the Administrator's server.
+3. On the Administrator's server: **"Open a locked HR copy"**: type the copy password, the program unlocks and keeps the file as a **read-only copy** with its date. This copies the way the program already keeps **copies of centres from other servers** (`/api/province/copy`: read only, nobody signs in to it, newer replaces older, an older one is refused, shown with its date). Today that mechanism accepts **centre** databases only and takes a plain file: it needs to accept `kind hr` and to unlock a locked file first. Both small.
+4. **How the Administrator sees the three side by side:** one page "HR of the three centres": the three copies in three columns or a switch at the top (Jaramana · Aleppo · Homs), **each with its date of copy** ("Homs, copy of 24 Nov"). A simple total list (people, monthly amounts in dollars by centre) is built from the copies' contents. No editing.
+5. **Never merged** into the live HR of the Administrator's own server. Never written to: the copy is opened read-only and the server refuses every change on it.
+
+**What must never happen:** no cloud, no shared folder, no e-mail of the unlocked file; the locked file is deleted after opening (the copy stays inside the server's own folder); the copy password is not written in the file name or in any note; the Administrator's HR copies are **not part of any backup mirror** unless locked too; salaries are seen only by the Administrator and his second person.
+
+**Stage B (automatic, not possible today).** It would need: the servers able to reach each other (they do not today: AnyDesk only); a secure connection between them (certificates, an address for each server, a fixed internet link); a way to let the Administrator's server **ask** and a **permission** on the other side. In practice it is the "central server" or a secure link; to be studied only when the link exists. Stage A does not block it.
+
+### 9.5 Build steps, updated
+
+| # | Step | Size | Model | Parallel? |
+|---|---|---|---|---|
+| 1 | **Roles as data** + several roles per person (union), "Exceptions" list, doors from the union, limits in the server | Medium–large | Opus (risky: sign-in) | First; alone |
+| 2 | **Administrator-only Respo and Grants** (ticks only in Administrator, hidden from Advanced, check donor names for Director) | Small–medium | Sonnet | After 1; with 3 |
+| 3 | **Who gives what** (Administrator → Director → others; Director's HR roles for his centre only) + the Users window with several roles | Medium | Opus | After 1; with 2 |
+| 4 | **HR roles on the person** (HR keeper, HR Sessions: one account behind the scenes, same password; ring sign-in keeps working; narrow Sessions door) | Medium–large | Opus (two databases) | After 1; apart from 2–3 |
+| 5 | **Book with the user** (one window; Accountant limited to book holders) | Small–medium | Sonnet | After 3 |
+| 6 | **HR locked copy** (make / open read-only / three centres side by side; `kind hr` accepted; older refused) | Medium | Opus (private data) | After 1; apart from the others |
+| 7 | **Sessions from the calendar** ("Suggest", leader ↔ tutor matching, confirm) | Medium | Opus | After 4 |
+| 8 | **Mapping of real users on copies + before/after report** | Medium | Opus | After 1, 3, 4 |
+| 9 | Guide, Arabic/English/French texts, test list | Small | Sonnet | Last |
+
+Order: 1 → (2+3 together, 4, 6 each in its own session, different files) → 5 → 7 → 8 → 9. Two writers at the same time at most on `ops.ts` / `server.ts`. No installer, no tag: only when Fouad says "build"; every update rehearsed on copies.
+
+### 9.6 Last questions for Fouad (only the real open points)
+
+1. **Coordinator (workshops) and attendance:** may the coordinator take the attendance of the animators of **his centre only**, seeing only names and activities, never any pay? *I recommend yes; "HR Sessions" is a small role the Director can also give to someone else, e.g. Reception.*
+2. **Calendar suggestions:** is it right that the calendar only **suggests** and the coordinator **confirms** each session (nothing automatic, nothing paid by the calendar)? *I recommend yes.*
+3. **The "leader" in the calendar** is a typed name today. Are you happy that the first time the coordinator says "this is Rima" for each animator, and the program remembers? *I recommend yes; no change to the calendar.*
+4. **Locked HR copy:** who makes the copy on each server, and how often (for example the 1st of each month, and before the payroll)? *I recommend the HR keeper of the centre, each month and before approving the payroll; the Administrator sees the date on every copy.*
+5. **Removing a person who keeps a book:** the book is switched off, not deleted (its past stays). *I recommend yes.*
+6. **Who is the second Administrator** on each server (name)? Needed before the update, to avoid locking everyone out while Fouad is away. *I recommend one trusted person per server, written in the update note.*
+
+Nothing is built. When these are answered, the first job is step 1 (roles as data).

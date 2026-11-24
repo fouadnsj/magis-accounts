@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useApp } from '../state';
 import { LangPick } from './LangPick';
 import type { Perm } from '../perms';
@@ -49,6 +49,8 @@ export type Page = 'doors' | 'home' | 'register' | 'cash' | 'reports' | 'budget'
 /** "← MAGIS · الأبواب": the way back to the doors page, the arrow turned the way the language reads */
 const backLabel = () => { const l = getLang(); return l === 'ar' || l === 'both' ? '→ MAGIS · الأبواب' : l === 'fr' ? '← MAGIS · Portes' : '← MAGIS · Doors'; };
 
+const PAGES: Page[] = ['doors', 'home', 'register', 'cash', 'reports', 'budget', 'grants', 'invmap', 'calendar', 'lists', 'files', 'admin', 'guide'];
+
 /** The door each page belongs to ('admin' and 'guide' belong to none: they keep the door the person came from). */
 const DOOR_OF: Partial<Record<Page, DoorKey | null>> = { doors: null, home: 'accounts', register: 'accounts', cash: 'accounts', reports: 'accounts', budget: 'accounts', grants: 'accounts', lists: 'accounts', files: 'accounts', calendar: 'calendar', invmap: 'inventory' };
 /** where a door opens */
@@ -72,8 +74,12 @@ export const useNav = () => useContext(NavCtx)!;
 export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hrDbs, onOpenHr }: { onCloseDb: () => void; onToggleLang: () => void; onDatabases?: () => void; /** the first choice: MAGIS centres, Jesuit communities, HR */ onAllDatabases?: () => void; /** the HR databases this person may enter (HR is one for all the centres, separated inside) */ hrDbs?: DbInfo[]; onOpenHr?: (db: DbInfo) => void }) {
   const { s, d, logout, can, myBooks, limited } = useApp();
   // entering a centre shows the doors page first (Fouad, 24 November 2026); each door has its own menu
-  const [page, setPage] = useState<Page>('doors');
-  const [door, setDoor] = useState<DoorKey | null>(null);
+  // after a reload of the browser the person comes back to the page they were on (kept in the history entry), else to the doors
+  const kept = (() => { try { const h = history.state as { mgShell?: Page; mgDoor?: DoorKey | null } | null; const nav0 = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined; return h?.mgShell && PAGES.includes(h.mgShell) && nav0?.type === 'reload' ? h : null; } catch { return null; } })();
+  const [page, setPage] = useState<Page>(kept?.mgShell ?? 'doors');
+  const [door, setDoor] = useState<DoorKey | null>(kept?.mgDoor ?? null);
+  const here = useRef<{ page: Page; door: DoorKey | null }>({ page, door });
+  here.current = { page, door };
   const [hrPick, setHrPick] = useState(false);
   const [guideSection, setGuideSection] = useState<string | null>(null);
   const [reviewOnly, setReviewOnly] = useState(false);
@@ -84,6 +90,17 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
   // a new key each time a form is opened, so a copy opened from a form starts fresh
   const [formKey, setFormKey] = useState(0);
   const openEntry = (x: EntryStart | null) => { setFormKey((k) => k + 1); setEditing(x); };
+  useEffect(() => {
+    try { history.replaceState({ mgShell: here.current.page, mgDoor: here.current.door }, ''); } catch { /* no history */ }
+    const on = (e: PopStateEvent) => {
+      const h = e.state as { mgShell?: Page; mgDoor?: DoorKey | null } | null;
+      const p = h?.mgShell && PAGES.includes(h.mgShell) ? h.mgShell : 'doors';
+      setReviewOnly(false); setBookOnly(null); setPage(p); setDoor(p === 'doors' ? null : h?.mgDoor ?? null);
+    };
+    window.addEventListener('popstate', on);
+    return () => window.removeEventListener('popstate', on);
+  }, []);
+  const backTitle = tx(m('إلى صفحة الأبواب', 'Back to the doors page', 'Retour à la page des portes'));
   const hrOn = !!hrDbs?.length && !!onOpenHr && s.mode === 'server';
   const doors = doorsOf({ can, hasBook: myBooks.length > 0, inventoryOn: !!d.inv, hr: hrOn });
   const openHr = () => {
@@ -95,8 +112,11 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
     go: (p, o) => {
       setReviewOnly(!!o?.review);
       setBookOnly(o?.book ?? null);
-      if (p in DOOR_OF) setDoor(DOOR_OF[p] ?? null);
+      const dr = p in DOOR_OF ? DOOR_OF[p] ?? null : here.current.door;
+      setDoor(dr);
       setPage(p);
+      // each page of a door is a step of the browser's history: its Back button goes to the page before, down to the doors page
+      if (p !== here.current.page) { try { history.pushState({ mgShell: p, mgDoor: dr }, ''); } catch { /* no history */ } }
     },
     door: (k) => {
       if (k === 'hr') return openHr();
@@ -160,21 +180,20 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
       <div className="shell">
         <nav className={`side ${menuOpen ? 'open' : ''}`} onClick={(e) => (e.target as HTMLElement).closest('button:not(.menu-toggle)') && setMenuOpen(false)}>
           <div className="top">
-            <div className="side-brand">
+            <div className="side-brand go" role="button" tabIndex={0} title={backTitle} onClick={() => nav.go('doors')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') nav.go('doors'); }}>
               <img src={st.mark ?? '/brand/magis-sun.png'} alt="" />
             </div>
-            <div style={{ flex: 1 }}>
+            <div className="go" style={{ flex: 1 }} onClick={() => nav.go('doors')} title={backTitle}>
               <div className="org">{s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')}</div>
               <div className="who">
                 {s.profile.name}
                 {myBooks.length > 0 && <> · {myBooks.map((id) => d.lists.books.find((b) => b.id === id)?.name).join('، ')}</>}
               </div>
             </div>
-            {page !== 'doors' && <button className="back-top" onClick={() => nav.go('doors')}>{backLabel()}</button>}
             <button className="menu-toggle" onClick={() => setMenuOpen((x) => !x)} aria-label="menu">☰ {t('القائمة', 'Menu')}</button>
           </div>
           {page !== 'doors' && (
-            <button className="back" onClick={() => nav.go('doors')} title={tx(m('إلى صفحة الأبواب', 'Back to the doors page', 'Retour à la page des portes'))}>
+            <button className="back" onClick={() => nav.go('doors')} title={backTitle}>
               {backLabel()}
             </button>
           )}
@@ -205,6 +224,14 @@ export function Shell({ onCloseDb, onToggleLang, onDatabases, onAllDatabases, hr
         </nav>
         {lookOpen && <MyLookWindow base={st} saved={savedLook} onPreview={setLook} onSaved={(l) => { setSavedLook(l); setLook(l); }} onClose={() => setLookOpen(false)} />}
         <main className="main">
+          {page !== 'doors' && (
+            <div className="door-bar">
+              <button className="door-back" onClick={() => nav.go('doors')} title={backTitle}>{backLabel()}</button>
+              {door === 'accounts' && <span className="door-here">{tx(m('الحسابات', 'Accounts', 'Comptes'))}</span>}
+              {door === 'calendar' && <span className="door-here">{tx(m('التقويم', 'Calendar', 'Calendrier'))}</span>}
+              {door === 'inventory' && <span className="door-here">{tx(m('الجرد', 'Inventory', 'Inventaire'))}</span>}
+            </div>
+          )}
           {page === 'doors' && (
             <Doors doors={doors} centre={s.centre ?? 'other'} centreName={s.organisation || t('حسابات ماجيس', 'MAGIS Accounts')} mark={st.mark ?? '/brand/magis-sun.png'} who={s.profile.name}
               badges={{ accounts: toReview, inventory: (d.problems?.open ?? 0) + toInventory }} onEnter={nav.door} />

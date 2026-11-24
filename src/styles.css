@@ -1218,10 +1218,15 @@ button.mg-house.go:hover { background: rgba(0,0,0,.04); }
   .dr-mark .mg-hh-halo { opacity: 1; transform: none; }
 }
 
-/* a phone-sized screen: the menu is folded, so the way back to the doors stays in the top bar */
-.side .back-top { display: none; background: rgba(255, 255, 255, .14); font-weight: 600; white-space: nowrap; padding: 7px 10px; border-radius: 6px; color: #fff; border: 0; cursor: pointer; }
-@media (max-width: 1000px) {
-  .side button.back { display: none; }
-  .side .back-top { display: block; }
-  .side .top { flex-wrap: wrap; }
-}
+/* the way back to the doors page, at the top of every page of a door (Fouad, 24 November 2026: "there is no way to go back") */
+.door-bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; margin: -20px -24px 14px; padding: 8px 24px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.door-back { background: var(--brand, #2F4858); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.door-back:hover { filter: brightness(1.15); }
+.door-here { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--soft); }
+.side .go, .side-brand.go { cursor: pointer; }
+@media (max-width: 640px) { .door-bar { margin: -14px -12px 12px; padding: 8px 12px; } }
+
+.door-bar.flat { position: static; margin: 0 0 14px; padding: 0 0 10px; }
+.hr .door-back { background: var(--hr-ink, #2F4858); }
+.hr-side button.hr-back { background: rgba(255, 255, 255, .14); font-weight: 600; margin-bottom: 8px; }
+@media (max-width: 1000px) { .door-bar { position: static; } }

@@ -51,6 +51,8 @@ export function App() {
   const [server, setServer] = useState<Hello | null>(null);
   /** server: the database chosen on the welcome page, and whether it is being set up */
   const [serverDb, setServerDb] = useState<DbInfo | null>(null);
+  /** the centre whose HR door was opened: the way back to its doors page */
+  const [doorsFrom, setDoorsFrom] = useState<DbInfo | null>(null);
   const [settingUp, setSettingUp] = useState(false);
   /** logged in, but looking at the list of databases (to create one, or change) */
   const [browsing, setBrowsing] = useState(false);
@@ -449,7 +451,7 @@ export function App() {
     body = (
       <>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <HrApp session={session} onLogout={logout} onLang={() => force((x) => x + 1)} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
+        <HrApp session={session} onLogout={logout} onDoors={server && doorsFrom ? () => { const from = doorsFrom; setDoorsFrom(null); void openDb(from); } : undefined} onLang={() => force((x) => x + 1)} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
       </>
     );
   else if (session?.kind === 'country')
@@ -470,7 +472,7 @@ export function App() {
     body = (
       <AppProvider session={session!} onLogout={logout}>
         <IdleGuard minutes={server?.idleMinutes ?? 15} onTimeout={idleLogout} touch={server ? serverTouch : undefined} />
-        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} hrDbs={server ? server.dbs.filter((x) => x.kind === 'hr' && !x.setupNeeded) : undefined} onOpenHr={server ? openDb : undefined} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
+        <Shell onCloseDb={closeDb} onToggleLang={toggleLang} hrDbs={server ? server.dbs.filter((x) => x.kind === 'hr' && !x.setupNeeded) : undefined} onOpenHr={server ? (db) => { setDoorsFrom(serverDb); void openDb(db); } : undefined} onDatabases={server ? async () => { await refreshServer(); setBrowseTop(false); setBrowsing(true); } : undefined} onAllDatabases={server ? async () => { await refreshServer(); setBrowseTop(true); setBrowsing(true); } : undefined} />
       </AppProvider>
     );
 

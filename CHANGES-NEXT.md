@@ -362,6 +362,13 @@ the 0.12 inventory stays where it was). File: `src/ui/InvHome.tsx`. No database 
 - Remark: the accountant of the real databases already has the inventory keeper's ticks (update 55), so there he sees the Inventory door too; the ready-made "Accountant and
   calendar" role does not. Two tests of `tests/calphone.test.ts` fail only when the day five days ahead is a Sunday (the Sunday warning) — not touched here.
 
+- **The way back, on every page of a door (Fouad's test of 24 November: "there is no way to go back when we enter the door")**: a bar at the top of every page of Accounts,
+  Calendar and Inventory with the button "→ MAGIS · الأبواب" (English "← MAGIS · Doors", French "← MAGIS · Portes") and the door's name; the centre's mark and name in the
+  top bar of the menu also lead to the doors page; the browser's Back and Forward buttons now walk the pages of the program (down to the doors page, no dead end); after a
+  reload of the browser the person comes back to the page they were on. The HR door: the HR application has the same bar and a button at the top of its menu that return to **this
+  centre's** doors page (no new sign-in). Tried in the side pane (narrow window; the wide layout uses the same bar): each door, a page inside (Register, Calendar settings),
+  Back / Forward, reload, HR and back. Not tried: the Inventory item page itself (the bar is above every inventory page), a wide window by eye.
+
 ## Not in the installer (tools only)
 - `scripts/alard-build.ts`: makes the ready Al-Ard database, following the main list "Al Ard".
 

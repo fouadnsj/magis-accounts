@@ -40,7 +40,7 @@ function onlyCentre(d: HrData, code: string | null): HrData {
   return { ...d, people, papers: mine(d.papers), signs: mine(d.signs), docs: d.docs ? mine(d.docs) : null, alerts: mine(d.alerts), checksDone: mine(d.checksDone) };
 }
 
-export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { session: Session; onLogout: () => void; onLang?: () => void; /** the other databases of this person (server) */ onDatabases?: () => void; /** the first choice: MAGIS centres, Jesuit communities, HR */ onAllDatabases?: () => void }) {
+export function HrApp({ session, onLogout, onDatabases, onAllDatabases, onDoors }: { session: Session; onLogout: () => void; onLang?: () => void; /** back to the doors page of the centre this person came from */ onDoors?: () => void; /** the other databases of this person (server) */ onDatabases?: () => void; /** the first choice: MAGIS centres, Jesuit communities, HR */ onAllDatabases?: () => void }) {
   const [all, setAll] = useState<HrData | null>(null);
   const [pd, setPd] = useState<HrPayData | null>(null);
   const [page, setPage] = useState<Page>('home');
@@ -90,6 +90,7 @@ export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { sess
     <GuideCtx.Provider value={(id) => { setGuideSection(id); go('guide'); }}>
     <div className="hr">
       <nav className="hr-side">
+        {onDoors && <button className="hr-back" onClick={onDoors}>{getLang() === 'fr' ? '← MAGIS · Portes' : getLang() === 'en' ? '← MAGIS · Doors' : '→ MAGIS · الأبواب'}</button>}
         <div className="hr-side-top">
           <div className="tile"><img src="/brand/jesuits.png" alt="" /></div>
           <div><b>{t3('الموارد البشرية', 'Human resources', 'Ressources humaines')}</b><span>{single ? centreLabel(all, single) : session.organisation}</span></div>
@@ -117,6 +118,12 @@ export function HrApp({ session, onLogout, onDatabases, onAllDatabases }: { sess
         <button onClick={onLogout}>{t3('خروج', 'Sign out', 'Sortir')}</button>
       </nav>
       <main className="hr-main">
+        {onDoors && (
+          <div className="door-bar flat">
+            <button className="door-back" onClick={onDoors}>{getLang() === 'fr' ? '← MAGIS · Portes' : getLang() === 'en' ? '← MAGIS · Doors' : '→ MAGIS · الأبواب'}</button>
+            <span className="door-here">{t3('الموارد البشرية', 'HR', 'RH')}</span>
+          </div>
+        )}
         {err && <div className="alert err">{err}</div>}
         {!single && mineCentres.length > 1 && page !== 'person' && (
           <div className="hr-centrebar">

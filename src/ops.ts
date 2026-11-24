@@ -200,7 +200,7 @@ export interface DataPayload {
   grantsBookId: number | null;
   /** the inventory's lines and the purchases already listed (only for those who see the inventory) */
   inv?: InvLite | null;
-  host?: { on: boolean; review: number; toEnter: number; inventoryOn: boolean } | null;
+  host?: { on: boolean; review: number; inventoryOn: boolean } | null;
   /** problems reported (inventory step 3): null when this database has no inventory */
   problems?: { on: true; open: number } | null;
 }

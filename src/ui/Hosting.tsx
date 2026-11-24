@@ -1,6 +1,6 @@
 // Accommodation and events (Fouad, 22 November 2026): "Rooms by day" — the rooms of the centre's buildings down the page,
-// the days across, a coloured cell for each booking. Four tabs: the calendar; the bookings; the payments (suggestions of
-// entries, for whoever keeps the calendar); and the buildings, rooms and services. A booking made on a phone with no
+// the days across, a coloured cell for each booking. Tabs: the calendar; the bookings; the equipment; the reports; and the
+// buildings, rooms and services. (Payments are in the Calendar's pay window and, for the books, in "Payments waiting for the books".) A booking made on a phone with no
 // connection waits for a look in a window that shows what it runs into.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../state';
@@ -10,13 +10,12 @@ import { hostWorkbook } from '../io/hostFile';
 import { convertReceipt, initialRows, receiptPdf, receiptTotals, rowAmount, type ReceiptRow } from '../io/hostReceipt';
 import { RECEIPT_TITLE_AR, brandStyle } from '../brand';
 import { GuideLink } from '../guide/GuideView';
-import { useNav } from './Shell';
 import {
   addDays, addMonths, bookingTotals, capacity, clashing, colorOf, conflictsOf, daysInMonth, dueOf, equipmentLoad, heldDays, knownNames, live, nameKey, nightsOf, occupancy, PALETTE, report, shortagesFor, stayAmount, takenOn, toReview,
   type BookingKind, type BookingStatus, type Currency, type Shortage, type HostAlloc, type HostAsset, type HostBooking, type HostData, type HostRoom, type Totals,
 } from '../hosting/host';
 
-type Tab = 'calendar' | 'bookings' | 'equipment' | 'report' | 'payments' | 'settings';
+type Tab = 'calendar' | 'bookings' | 'equipment' | 'report' | 'settings';
 /** where a new booking starts: the rooms and the days picked on the calendar (the last night is `to` minus one day) */
 interface NewStart { rooms?: number[]; from?: string; to?: string }
 
@@ -66,7 +65,6 @@ export function Hosting() {
   useEffect(() => { void load(); }, [load, d.host]);
   const both = async () => { await reload(); await load(); };
   const waiting = useMemo(() => (data ? toReview(data) : []), [data]);
-  const toEnter = data ? data.pays.filter((p) => p.status === 'suggested' && !data.entered.includes(p.receipt_no)).length : 0;
 
   return (
     <>
@@ -76,7 +74,6 @@ export function Hosting() {
         { value: 'bookings', label: t('الحجوزات', 'Bookings') },
         { value: 'equipment', label: t('التجهيزات', 'Equipment'), hidden: !data?.equip.some((e) => e.active) && !keeps },
         { value: 'report', label: t('تقارير', 'Reports') },
-        { value: 'payments', label: `${t('الدفعات', 'Payments')}${toEnter ? ` (${toEnter})` : ''}`, hidden: !priced },
         { value: 'settings', label: t('المباني والغرف', 'Buildings and rooms'), hidden: !keeps },
       ]} />
       {!data ? <p className="muted">…</p> : (
@@ -90,7 +87,6 @@ export function Hosting() {
           {tab === 'bookings' && <BookingsTab data={data} books={books} onOpen={(b) => setViewId(b.id)} onNew={() => setEdit({ booking: null })} />}
           {tab === 'equipment' && <EquipmentTab data={data} onOpen={(b) => setViewId(b.id)} />}
           {tab === 'report' && <ReportTab data={data} onOpen={(b) => setViewId(b.id)} />}
-          {tab === 'payments' && priced && <PaymentsTab data={data} refresh={both} />}
           {tab === 'settings' && keeps && <SettingsTab data={data} refresh={both} />}
           {viewId != null && !edit && data.bookings.some((x) => x.id === viewId) && <BookingView data={data} booking={data.bookings.find((x) => x.id === viewId)!} canChange={books} onClose={() => setViewId(null)} onModify={(b) => { setViewId(null); setEdit({ booking: b }); }} refresh={both} />}
           {edit && <BookingEditor data={data} start={edit} onClose={() => setEdit(null)} refresh={both} />}
@@ -1122,50 +1118,6 @@ function ReportTab({ data, onOpen }: { data: HostData; onOpen: (b: HostBooking) 
           {people.map((p) => <tr key={p.name}><td><b>{p.name}</b></td><td dir="ltr">{p.phone}</td><td className="n">{p.bookings}</td><td>{[...p.groups].join('، ')}</td><td>{fmtDate(p.last)}</td></tr>)}
           {!people.length && <tr><td colSpan={5} className="muted">{t('لا شيء في هذه الفترة', 'Nothing in this period')}</td></tr>}
         </tbody></table></div>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------- payments: suggestions of entries
-
-function PaymentsTab({ data, refresh }: { data: HostData; refresh: () => Promise<void> }) {
-  const { s, can } = useApp();
-  // only someone who writes entries can make one; the others see where each payment stands
-  const writes = can('register.edit') || can('register.main') || can('book.own');
-  const nav = useNav();
-  const [show, setShow] = useState<'todo' | 'all'>('todo');
-  const rows = data.pays.map((p) => ({ p, b: data.bookings.find((x) => x.id === p.booking_id), state: p.status === 'refused' ? 'refused' : data.entered.includes(p.receipt_no) ? 'entered' : 'todo' as const }))
-    .filter((r) => show === 'all' || r.state === 'todo');
-  // money received → an income; money given back after a cancellation (calendar step 4) → an expense
-  const makeEntry = (p: (typeof data.pays)[number], b?: HostBooking) => nav.entry({
-    preset: true, type: p.kind === 'back' ? 'Exp' : 'Income', date: p.paid_on,
-    prefill: { amount: p.amount, currency: p.currency, explanation: `${p.kind === 'back' ? 'Given back · مُعاد: ' : ''}${b?.group_name ?? ''} · ${b?.code ?? ''}`.trim(), receipt: p.receipt_no },
-  });
-  const refuse = async (id: number, on: boolean) => {
-    try { await s.api.call('host.pay.refuse', { id, on }); await refresh(); } catch (e) { toast(errText(e), true); }
-  };
-  return (
-    <>
-      <p className="small muted">{t('كل دفعة تُسجَّل على حجز هي «اقتراح قيد». المحاسب يجعلها قيد دخل في السجل (يختار الدفتر والبند)، أو يرفضها. رقم الوصل يُكتب على القيد فيرتبط بالدفعة.', 'Each payment recorded on a booking is a suggestion of an entry. The accountant makes it an Income entry in the register (choosing the book and the line) or refuses it. The receipt number goes on the entry, which is how the two are linked.')}</p>
-      <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-        <select value={show} onChange={(e) => setShow(e.target.value as 'todo' | 'all')}><option value="todo">{t('تنتظر القيد', 'Waiting for an entry')}</option><option value="all">{t('الكل', 'All')}</option></select>
-      </div>
-      <div className="tbl-wrap"><table className="t small">
-        <thead><tr><th>{t('الوصل', 'Receipt')}</th><th>{t('التاريخ', 'Date')}</th><th>{t('الحجز', 'Booking')}</th><th className="n">{t('المبلغ', 'Amount')}</th><th>{t('الحالة', 'State')}</th><th /></tr></thead>
-        <tbody>
-          {rows.map(({ p, b, state }) => (
-            <tr key={p.id}>
-              <td>{p.receipt_no}{p.kind === 'back' && <small className="muted"> · {t('مُعاد', 'given back')}</small>}</td><td>{fmtDate(p.paid_on)}</td><td>{b?.group_name} <small className="muted">{b?.code}</small></td><td className="n">{money(p.amount, p.currency)}</td>
-              <td>{state === 'entered' ? `✓ ${t('قيد في السجل', 'entered')}` : state === 'refused' ? t('مرفوضة', 'refused') : t('تنتظر', 'waiting')}</td>
-              <td>
-                {state === 'todo' && <>{writes && <button className="btn primary small" onClick={() => makeEntry(p, b)}>{t('اجعلها قيداً', 'Make the entry')}</button>} <button className="btn ghost small" onClick={() => void refuse(p.id, true)}>{t('ارفض', 'Refuse')}</button></>}
-                {state === 'refused' && <button className="btn ghost small" onClick={() => void refuse(p.id, false)}>{t('أعدها', 'Restore')}</button>}
-              </td>
-            </tr>
-          ))}
-          {!rows.length && <tr><td colSpan={6} className="muted">{t('لا دفعات', 'No payments')}</td></tr>}
-        </tbody>
-      </table></div>
     </>
   );
 }

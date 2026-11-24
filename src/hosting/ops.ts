@@ -424,19 +424,6 @@ export const HOST_OPS = {
     },
   },
 
-  /** the accountant decides this payment will not be an entry (wrong, or kept elsewhere) */
-  'host.pay.refuse': {
-    check: pricedOnly,
-    run: async (c: OpCtx, a: { id: number; on?: boolean }) => {
-      const p = await one<HostPay>(c.db, 'SELECT * FROM host_pay WHERE id = ?', [a.id]);
-      if (!p) throw new UserError(m('الدفعة غير موجودة', 'Payment not found', 'Paiement introuvable'));
-      if (await one(c.db, 'SELECT 1 FROM trx WHERE receipt = ?', [p.receipt_no])) throw new UserError(m('صارت قيداً في السجل', 'It is already an entry of the register', 'C’est déjà une écriture du registre'));
-      const st = a.on === false ? 'suggested' : 'refused';
-      await c.db.batch([{ sql: 'UPDATE host_pay SET status = ? WHERE id = ?', params: [st, p.id] }, auditStmt(c.who, st, 'host_pay', p.receipt_no, null, null)]);
-      return { ok: true };
-    },
-  },
-
   /** Al-Ard's farm: the first headings and lines of its books (what already exists is left alone) */
   'host.farm.seed': {
     check: (c: OpCtx) => { if (!has(c.profile, 'lists.manage')) throw refuse(); },
@@ -474,13 +461,10 @@ export const HOST_READ_ONLY = ['host.get'];
 export async function hostLite(c: OpCtx) {
   const can = has(c.profile, 'hosting.view') || has(c.profile, 'hosting.book') || has(c.profile, 'hosting.prices') || has(c.profile, 'hosting.keep');
   const on = await sectionOn(c.db);
-  if (!on) return can || has(c.profile, 'lists.manage') ? { on: false, review: 0, toEnter: 0, inventoryOn: await inventoryOn(c.db) } : null;
+  if (!on) return can || has(c.profile, 'lists.manage') ? { on: false, review: 0, inventoryOn: await inventoryOn(c.db) } : null;
   if (!can) return null;
   const review = looksAtAll(c) ? ((await one<{ n: number }>(c.db, 'SELECT COUNT(*) AS n FROM host_booking WHERE review = 1 AND status <> ?', ['cancelled']))?.n ?? 0) : 0;
-  const toEnter = priced(c)
-    ? ((await one<{ n: number }>(c.db, "SELECT COUNT(*) AS n FROM host_pay WHERE status = 'suggested' AND receipt_no NOT IN (SELECT receipt FROM trx WHERE receipt IS NOT NULL)"))?.n ?? 0)
-    : 0;
-  return { on: true, review, toEnter, inventoryOn: await inventoryOn(c.db) };
+  return { on: true, review, inventoryOn: await inventoryOn(c.db) };
 }
 
 /** the bookings made on a phone that wait for a look, with what each runs into (for the window shown at the connection) */

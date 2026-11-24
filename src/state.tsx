@@ -65,7 +65,7 @@ export interface Data {
   /** the inventory's lines and the purchases already listed (null: this person does not see the inventory) */
   inv: InvLite | null;
   /** the hosting section: null when it is off or this person does not see it */
-  host: { on: boolean; review: number; toEnter: number; inventoryOn: boolean } | null;
+  host: { on: boolean; review: number; inventoryOn: boolean } | null;
   /** problems reported: the button for everyone; `open` = those waiting for the keeper */
   problems: { on: true; open: number } | null;
 }

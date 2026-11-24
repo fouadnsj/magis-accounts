@@ -73,7 +73,7 @@ describe('buildings, rooms and the section', () => {
 
   it('the section is off until switched on; it reaches the menu only then', async () => {
     const d0 = (await runOp(sup, 'data', {})) as DataPayload;
-    expect(d0.host).toEqual({ on: false, review: 0, toEnter: 0, inventoryOn: true });
+    expect(d0.host).toEqual({ on: false, review: 0, inventoryOn: true });
     await runOp(sup, 'host.section', { on: true });
     expect(((await runOp(sup, 'data', {})) as DataPayload).host?.on).toBe(true);
     expect(((await runOp(holder, 'data', {})) as DataPayload).host).toBeNull();
@@ -170,24 +170,6 @@ describe('the prices are for those who keep the calendar', () => {
     expect(b).toMatchObject({ rate: 12, price_mode: 'person', group_name: 'Pilgrims (changed)' });
     const ls = await db.query<{ label: string; amount: number }>('SELECT label, amount FROM host_line WHERE booking_id = ? ORDER BY id', [id]);
     expect(ls).toEqual([{ label: 'Lunch', amount: 30 }, { label: 'Heating', amount: 0 }]);
-  });
-});
-
-describe('payments are suggestions of entries', () => {
-  it('a payment waits until the accountant makes the entry (the receipt number links them) or refuses it', async () => {
-    const id = (await db.query<{ id: number }>("SELECT id FROM host_booking WHERE group_name LIKE 'Pilgrims%'"))[0].id;
-    const r = (await runOp(sup, 'host.pay.add', { booking_id: id, amount: 50, currency: 'USD', paid_on: day(31) })) as { receipt_no: string };
-    expect(r.receipt_no).toMatch(/^H2027-\d{4}$/);
-    expect(((await runOp(sup, 'data', {})) as DataPayload).host?.toEnter).toBe(2);
-    // the accountant makes the entry with that receipt number
-    await db.batch([{ sql: "INSERT INTO trx (id, date, type, explanation, receipt, inc_usd, created_at) VALUES ('t-1', ?, 'Income', 'Pilgrims', ?, 50, '2027-04-01T00:00:00Z')", params: [day(31), r.receipt_no] }]);
-    expect((await host()).entered).toContain(r.receipt_no);
-    expect(((await runOp(sup, 'data', {})) as DataPayload).host?.toEnter).toBe(1);
-    await expect(runOp(sup, 'host.pay.refuse', { id: (await host()).pays.find((p) => p.receipt_no === r.receipt_no)!.id })).rejects.toThrow();
-    // the other one is refused
-    const other = (await host()).pays.find((p) => p.receipt_no !== r.receipt_no)!;
-    await runOp(sup, 'host.pay.refuse', { id: other.id });
-    expect(((await runOp(sup, 'data', {})) as DataPayload).host?.toEnter).toBe(0);
   });
 });
 
@@ -461,7 +443,6 @@ describe('who sees the prices, and people with no books', () => {
     const made = (await runOp(acc, 'host.booking.save', { group_name: 'Priced', people: 2, from_day: day(410), to_day: day(412), allocs: [{ room_id: r2 }], price_mode: 'person', rate: 7, currency: 'USD' })) as { id: number };
     expect((await host(acc)).bookings.find((b) => b.id === made.id)?.rate).toBe(7);
     await runOp(acc, 'host.pay.add', { booking_id: made.id, amount: 10 });
-    expect(((await runOp(acc, 'data', {})) as DataPayload).host?.toEnter).toBeGreaterThan(0);
     await expect(runOp(acc, 'host.building.save', { name: 'No' })).rejects.toThrow();
     await expect(runOp(acc, 'host.room.save', { building_id: 1, name: 'x', beds: 1 })).rejects.toThrow();
     // reception with no prices tick still sees none of it

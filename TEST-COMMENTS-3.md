@@ -20,3 +20,15 @@
    plus a general "Export the register / the books / the lists" under one "Export" entry inside Reports; keep the import ("Start from the workbook")
    where it is (Settings, only when the register is empty). The new doors also export their own things (calendar bookings Excel, donor report PDF+Excel,
    printed pages) — decide whether Reports of the Accounts door should list those too or each door keeps its own.
+
+3. **Projects in Lists.** "We do not use it now because it is related to the budget lines. If it is useless in the accountant page, move it to the budget
+   section. It will be helpful only if we have a certain specific donation."
+   Analysis (manager, nothing changed): Lists → "Projects" (`FundsTab` in `ListsPage.tsx`, table `account`; test copy: Deir, Center, harat,
+   Furniture, Network, Building, Canzali) shows each project with its grant and donor, dates, the share of the grant here and how many entries use
+   it; actions: new private project (money with no grant that one wants to follow alone: private gift, money from the order), merge two projects,
+   "outside the budget" (money spent outside the centre's budget, e.g. the monastery), dates. A project is created from the Grants page for a grant
+   (Administrator only). Since step 2 only the Administrator sees donors and grants, so for the accountant or a Director this tab is mostly
+   names and counts. In entries a project is only asked for money outside the budget (`fundOfRow`).
+   Proposal: take "Projects" out of Lists and put it inside the Budget section (Lists → Budget, or the Budget page) as a small block "Special funds ·
+   projects" shown only when the Administrator has grants or private projects (or always for the Administrator, hidden for the others); keep the
+   data and the rules as they are (no update). To discuss: the word "Project" vs "Fund".

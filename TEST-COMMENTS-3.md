@@ -42,3 +42,14 @@
    (and of a Custom role by default), and the server/screen already hides contacts and prices without their ticks. Question: does "everyone"
    include the phones of the calendar (already view only) and a person with no role at all? Recommendation: every person with an account of the
    centre, yes; no account = no.
+
+5. **Inventory values only for the Administrator** (screenshots: the home figure "$4,230.00 · value (bought or estimated)" and "2 · with staff").
+   "In the inventory, no one needs to see the total value except the administrator."
+   Analysis (manager, nothing changed): the value is behind the tick `inventory.values` ("inventory values", `src/roles.ts` line 43). Today it is in
+   the Director role, the Store keeper role (`doors.ts` line 89: view, values, manage) and the Administrator; the baseline said Director and keeper (the
+   accountant is a keeper) see values. It appears as the big figure on the inventory home, on each space card, the item pages, the donor report
+   (value per item) and the space sheet already hides it. Proposal: `inventory.values` only in the Administrator role (and refused by the server
+   to every other role and exception, like Respo and Grants — i.e. one more "Administrator-only" tick); the Store keeper and the Director keep
+   everything else (items, counts, moves, state) but no value; the donor report (PDF/Excel) shows values only when the Administrator makes it
+   (to confirm: should the donor report keep the values? donors usually want them). Note: the old accountants' tick from update 55 (keeper rights)
+   would then lose the values on the real databases: a "less" in the rehearsal, to say to Fouad in advance.

@@ -197,6 +197,8 @@ export function booksSwitchedOffWith(
 }
 
 export const MSG_AS_PRIVATE = m('هذا الشخص يمسك دفتراً خاصاً: المشرف وحده يدخل باسمه', 'This person keeps a private book: only the Administrator signs in as them', 'Cette personne tient un livre privé : seul l’Administrateur se connecte comme elle');
+/** (review 2 before 0.13.0, M-B) the same door for a password: the Director and the Accountant never reset the password of someone who keeps a private book or an Administrator-only right */
+export const MSG_PW_PRIVATE = m('هذا الشخص يمسك دفتراً خاصاً أو صلاحية للمشرف وحده: المشرف وحده يغيّر كلمة سرّه', 'This person keeps a private book (or holds a right of the Administrator): only the Administrator changes their password', 'Cette personne tient un livre privé (ou un droit de l’Administrateur) : seul l’Administrateur change son mot de passe');
 export const MSG_AS_VIEW_ONLY = m('تدخل للمشاهدة فقط؛ العمل باسم شخص آخر للمشرف وحده', 'You sign in to look only; acting as another person is for the Administrator alone', 'Vous entrez pour regarder seulement ; agir comme une autre personne est réservé à l’Administrateur');
 /** may this person act as somebody else (not only look)? The Administrator; a database without ready-made roles keeps the old way. */
 export const mayActAs = (p: { admin?: boolean; roles?: { kind?: string | null }[] }) => !!p.admin || !p.roles?.some((r) => !!r.kind);

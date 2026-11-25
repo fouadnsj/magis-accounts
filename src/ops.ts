@@ -13,7 +13,7 @@ import {
   UserError, type SimpleList,
 } from './db/repo';
 import { changePin, checkSecretShape, hashSecret, has, listProfiles, personPerms, rolesOf, roleFor, type Profile } from './auth';
-import { ADMIN_GIVES, ADMIN_GIVES_TICKS, ADMIN_ONLY, DIRECTOR_GIVES, MSG_ADMIN_GIVES_TICK, MSG_ADMIN_TICK, MSG_NOT_SELF, cleanExtra, holdsControlsOf, isHolderRole, keepsBook, rolePerms } from './roles';
+import { ADMIN_GIVES, ADMIN_GIVES_TICKS, ADMIN_ONLY, DIRECTOR_GIVES, MSG_ADMIN_GIVES_TICK, MSG_ADMIN_TICK, MSG_NOT_SELF, MSG_PW_PRIVATE, cleanExtra, holdsControlsOf, isHolderRole, keepsBook, rolePerms } from './roles';
 import { cleanPerms, withImplied, type Perm } from './perms';
 import { validateTrx } from './domain/validate';
 import { ENTRY_FIELDS, compareRows } from './domain/compare';
@@ -1423,6 +1423,17 @@ async function guardTarget(c: OpCtx, id: number, what: 'roles' | 'person') {
   if (await holdsKind(c.db, id, ADMIN_GIVES)) throw onlyAdmin();
 }
 
+/**
+ * (review 2 before 0.13.0, M-B) A password of someone else is a way into their books: whoever is not the Administrator does not set the
+ * password of a person who keeps a private book (the Respo book or another) or who holds an Administrator-only tick.
+ */
+async function guardSecretTarget(c: OpCtx, id: number) {
+  if (id === c.profile.id || isAdmin(c) || !(await rolesOn(c.db))) return;
+  const priv = await one(c.db, 'SELECT 1 AS x FROM user_book ub JOIN book b ON b.id = ub.book_id WHERE ub.profile_id = ? AND b.private = 1', [id]);
+  const ticks = (await personPerms(c.db, id)) ?? [];
+  if (priv || ticks.some((p) => ADMIN_ONLY.includes(p))) throw new UserError(MSG_PW_PRIVATE);
+}
+
 /** refuses a user of the HR database who sees only some centres (they manage users on the HR users page) */
 function wholeHr(c: OpCtx) {
   if (c.profile.hrCentres?.length) throw new UserError(m('من صفحة المستخدمين في الموارد البشرية', 'From the users page of HR', 'Depuis la page des utilisateurs des RH'));
@@ -1521,6 +1532,7 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
     password = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
     a = { ...a, pin: password };
   }
+  if (id && a.pin) await guardSecretTarget(c, id);
   if (id) {
     stmts.push({ sql: 'UPDATE profile SET name = ?, access_id = ?, role = ?, book_id = ? WHERE id = ?', params: [name, first.id, role, books[0] ?? null, id] });
     if (a.pin) {
@@ -2132,6 +2144,7 @@ export const OPS = {
       }
       // the Administrator's password: only the Administrator changes it (roles step 1)
       if (a.id !== c.profile.id) await guardTarget(c, a.id, 'person');
+      if (a.id !== c.profile.id) await guardSecretTarget(c, a.id);
       return changePin(c.db, a.id, a.pin, c.who, a.id !== c.profile.id);
     },
   },

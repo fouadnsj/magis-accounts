@@ -141,4 +141,26 @@ describe('review 2 before 0.13.0: sign in as, passwords, the TV, receipts', () =
     await must(call('/api/as', { profileId: ids.Ida, mode: 'view' }, ck.Fouad));
     await call('/api/as/back', {}, ck.Fouad);
   });
+
+  it('M-B: the Director and the Accountant cannot set the password of a person who keeps a private book (nor one with an Administrator-only right); the Administrator can; an ordinary Book holder can be reset', async () => {
+    for (const who of ['Dina', 'Assem']) {
+      refused(await op(who)('profile.setPin', { id: ids.Hana, pin: 'taken-over-1' }), `${who} setPin on a private book keeper`);
+      refused(await op(who)('user.save', { id: ids.Hana, name: 'Hana', roles: [kind('holder')], books: [respoId], pin: 'taken-over-2' }), `${who} user.save with a password on a private book keeper`);
+      // the person with the old Custom role that carries "donors" (S-2 above): an Administrator-only right
+      refused(await op(who)('profile.setPin', { id: ids.Ida, pin: 'taken-over-3' }), `${who} setPin on a holder of an Administrator-only right`);
+    }
+    // Hana still signs in with her own password
+    expect((await call('/api/login', { db: slug, profileId: ids.Hana, password: 'hana-secret' })).status).toBe(200);
+    // the Administrator may
+    await must(op('Fouad')('profile.setPin', { id: ids.Hana, pin: 'hana-reset-1' }));
+    expect((await call('/api/login', { db: slug, profileId: ids.Hana, password: 'hana-reset-1' })).status).toBe(200);
+    // an ordinary Book holder (a book that is not private): the Director and the Accountant reset it, both ways
+    await must(op('Fouad')('user.save', { name: 'Jade', roles: [kind('holder')], books: [], makeBook: true, pin: 'jade-secret' }));
+    const jade = (await op('Fouad')('users.list')).body.find((u: { name: string }) => u.name === 'Jade') as { id: number; books: number[] };
+    await must(op('Dina')('profile.setPin', { id: jade.id, pin: 'jade-reset-1' }));
+    await must(op('Assem')('profile.setPin', { id: jade.id, pin: 'jade-reset-2' }));
+    await must(op('Dina')('user.save', { id: jade.id, name: 'Jade', roles: [kind('holder')], books: jade.books, pin: 'jade-reset-3' }));
+    // and everybody changes their own password
+    await must(op('Hana')('profile.setPin', { id: ids.Hana, pin: 'hana-own-12' }));
+  });
 });

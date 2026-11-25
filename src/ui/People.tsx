@@ -9,7 +9,7 @@ import type { AccessRow, SavedUser, UserRow } from '../ops';
 import { PERM_GROUPS, withImplied, type Perm } from '../perms';
 import { READY_ROLES, doorsOf } from '../doors';
 import { doorName } from './Doors';
-import { ADMIN_GIVES, ADMIN_GIVES_TICKS, ADMIN_ONLY, MSG_AS_PRIVATE, KEEPS_BOOK, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, booksSwitchedOffWith, keepsBook, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, withEveryone, type RoleLike } from '../roles';
+import { ADMIN_GIVES, ADMIN_GIVES_TICKS, ADMIN_ONLY, MSG_AS_PRIVATE, MSG_PW_PRIVATE, KEEPS_BOOK, MSG_ADMIN_ONLY, MSG_NOT_SELF, ROLE_KINDS, booksSwitchedOffWith, keepsBook, kindInfo, peopleDoor, sensitiveOf, unionPerms, whyNotGive, withEveryone, type RoleLike } from '../roles';
 import { m, tx, type Msg } from '../i18n';
 import { Field, Modal, biName, confirmBox, errText, t, toast } from './kit';
 import { GuideLink } from '../guide/GuideView';
@@ -96,6 +96,8 @@ function People() {
   const adminsLine = (u: UserRow) => hasKinds && !admin && u.id !== s.profile.id && rolesOfUser(u, access).some((a) => !!a.kind && ADMIN_GIVES.includes(a.kind as never));
   const mine = (u: UserRow) => manage && !adminsLine(u);
   const pinOk = (u: UserRow) => (manage || u.id === s.profile.id || can('users.passwords')) && !adminsLine(u);
+  // (review 2 before 0.13.0, M-B) the password of a keeper of a private book (or of a person with an Administrator-only right) is the Administrator's: greyed, with the reason
+  const pwWhy = (u: UserRow) => (!admin && hasKinds && u.id !== s.profile.id && (u.books.some((b) => !!d.lists.books.find((x) => x.id === b)?.private) || [...rolesOfUser(u, access).flatMap((a) => a.perms), ...(u.extra ?? [])].some((p) => ADMIN_ONLY.includes(p))) ? MSG_PW_PRIVATE : null);
   useEffect(() => {
     void refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -165,7 +167,9 @@ function People() {
                 <td className="right nowrap">
                   {!adminsLine(u) && <SignAsButton s={s} profileId={u.id} name={u.name} small why={!admin && hasKinds && u.books.some((b) => d.lists.books.find((x) => x.id === b)?.private) ? MSG_AS_PRIVATE : null} />}{' '}
                   {mine(u) && <button className="btn small" onClick={() => setEdit(u)} title={tx(m('تعديل', 'Change', 'Modifier'))}>✎</button>}{' '}
-                  {pinOk(u) && <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>}{' '}
+                  {pinOk(u) && (pwWhy(u)
+                    ? <button className="btn small" disabled title={tx(pwWhy(u)!)}>{t('كلمة السر', 'Password')}</button>
+                    : <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>)}{' '}
                   {mine(u) && u.id !== s.profile.id && <button className="btn small ghost" onClick={() => deactivate(u)} title={tx(m('إيقاف', 'Switch off', 'Désactiver'))}>✕</button>}
                 </td>
               </tr>
@@ -242,7 +246,9 @@ function HolderUsers() {
               <td>{u.books.map(bookName).join('، ') || '—'}</td>
               <td className="right nowrap">
                 <button className="btn small" onClick={() => setEdit(u)} title={tx(m('تعديل', 'Change', 'Modifier'))}>✎</button>{' '}
-                <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>{' '}
+                {u.books.some((b) => !!d.lists.books.find((x) => x.id === b)?.private)
+                  ? <button className="btn small" disabled title={tx(MSG_PW_PRIVATE)}>{t('كلمة السر', 'Password')}</button>
+                  : <button className="btn small" onClick={() => setPinFor(u)}>{t('كلمة السر', 'Password')}</button>}{' '}
                 <button className="btn small ghost" onClick={() => deactivate(u)} title={tx(m('إيقاف', 'Switch off', 'Désactiver'))}>✕</button>
               </td>
             </tr>

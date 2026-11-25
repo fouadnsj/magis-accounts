@@ -38,9 +38,18 @@ async function equipOf(c: { db: Db }): Promise<HostEquip[]> {
   return c.db.query<HostEquip>("SELECT e.*, COALESCE((SELECT SUM(i.qty) FROM inv_item i WHERE lower(trim(i.name)) = lower(trim(e.name)) AND i.status = 'in_use' AND i.condition = 'good'), 0) AS total FROM host_equip e ORDER BY e.sort, e.name");
 }
 
+/**
+ * (review 2 before 0.13.0, N-2) receipt numbers are compared without spaces and punctuation and without capitals:
+ * "H2026-0008", " h2026-0008. " and "H 2026 0008" are the same receipt. In SQL and in the program the same list of characters.
+ */
+const recSql = (col: string) => `replace(replace(replace(replace(replace(replace(replace(replace(lower(${col}), ' ', ''), char(9), ''), '-', ''), '.', ''), '/', ''), '_', ''), ',', ''), ':', '')`;
+export const normReceipt = (x: string | null | undefined) => (x ?? '').toLowerCase().replace(/[ \t\-./_,:]/g, '');
+/** a number that looks like one of the calendar's (H2026-0008, HR2026-0008) */
+const looksCalReceipt = (key: string) => /^hr?\d{8}$/.test(key);
+
 /** the receipt numbers already made entries in the books (an income for money received, an expense for money given back) */
 async function enteredOf(c: { db: Db }): Promise<string[]> {
-  return (await c.db.query<{ receipt: string }>('SELECT DISTINCT p.receipt_no AS receipt FROM host_pay p WHERE EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no)))')).map((x) => x.receipt);
+  return (await c.db.query<{ receipt: string }>(`SELECT DISTINCT p.receipt_no AS receipt FROM host_pay p WHERE EXISTS (SELECT 1 FROM trx t WHERE ${recSql('t.receipt')} = ${recSql('p.receipt_no')})`)).map((x) => x.receipt);
 }
 
 /** a book a payment of the calendar may go into: the Main book, or a cash book kept by the person who takes the money */
@@ -77,7 +86,7 @@ export async function paysWaiting(c: Pick<OpCtx, 'db' | 'profile'>): Promise<{ r
   const mainId = books.find((b) => !!b.is_main)?.id ?? 0;
   const mayBook = (id: number) => admin || (mainWriter && id === mainId) || (holder && id !== mainId && c.profile.books.includes(id));
   const all = await c.db.query<{ receipt_no: string; paid_on: string; amount: number; currency: Currency; kind: string | null; status: string; group_name: string; code: string; private: number | null; book_id: number | null; entered: number; origin: string | null; bkind: string | null }>(
-    "SELECT p.receipt_no, p.paid_on, p.amount, p.currency, p.kind, p.status, p.book_id, b.group_name, b.code, b.private, b.origin, b.kind AS bkind, EXISTS (SELECT 1 FROM trx t WHERE lower(trim(t.receipt)) = lower(trim(p.receipt_no))) AS entered FROM host_pay p JOIN host_booking b ON b.id = p.booking_id ORDER BY p.paid_on, p.id");
+    `SELECT p.receipt_no, p.paid_on, p.amount, p.currency, p.kind, p.status, p.book_id, b.group_name, b.code, b.private, b.origin, b.kind AS bkind, EXISTS (SELECT 1 FROM trx t WHERE ${recSql('t.receipt')} = ${recSql('p.receipt_no')}) AS entered FROM host_pay p JOIN host_booking b ON b.id = p.booking_id ORDER BY p.paid_on, p.id`);
   const mine = all.filter((r) => mayBook(r.book_id ?? mainId));
   const waiting = (r: { status: string; entered: number }) => r.status !== 'refused' && !r.entered;
   const nameOf = (id: number) => books.find((b) => b.id === id)?.name ?? '';
@@ -96,22 +105,35 @@ export async function checkCalReceipts(
   rows: { id: string; receipt: string | null; type: string | null; book_id: number | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }[],
   old: Map<string, { receipt: string | null; type: string | null; book_id: number | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }>,
   others: { id: string; receipt: string | null }[],
+  /** a row put back from a backup (old data): only "one entry per receipt" is asked, nothing else */
+  duplicatesOnly = false,
 ): Promise<void> {
-  const norm = (x: string | null | undefined) => (x ?? '').trim().toLowerCase();
+  const norm = normReceipt;
   const sig = (r: { receipt: string | null; type: string | null; book_id: number | null; inc_usd: number; exp_usd: number; inc_syp: number; exp_syp: number }) => [norm(r.receipt), r.type, r.book_id, r.inc_usd, r.exp_usd, r.inc_syp, r.exp_syp].join('|');
   const seen = new Set<string>();
   let books: BookRow[] | null = null;
+  let pays: Map<string, string> | null = null; // the payments' receipt numbers, normalised → as written
   for (const r of rows) {
     const key = norm(r.receipt);
     if (!key) continue;
-    let p: HostPay | undefined;
-    try { p = (await db.query<HostPay>('SELECT * FROM host_pay WHERE lower(trim(receipt_no)) = ?', [key]))[0]; } catch { return; /* a file with no calendar */ }
-    if (!p) continue;
+    if (!pays) {
+      try { pays = new Map((await db.query<{ receipt_no: string }>('SELECT receipt_no FROM host_pay')).map((x) => [norm(x.receipt_no), x.receipt_no])); } catch { return; /* a file with no calendar */ }
+    }
     const before = old.get(r.id);
+    const written = pays.get(key);
+    // a number that looks like a calendar number but is no payment's: a slip of the pen, not a number of the holder's own
+    if (!written) {
+      if (!duplicatesOnly && looksCalReceipt(key) && !(before && sig(before) === sig(r)))
+        throw err(`رقم الوصل «${(r.receipt ?? '').trim()}» يشبه أرقام التقويم لكنه لا يطابق أي دفعة: راجع الرقم أو امسحه`, `The receipt number "${(r.receipt ?? '').trim()}" looks like a calendar number but matches no payment: check the number, or clear it`, `Le numéro de reçu « ${(r.receipt ?? '').trim()} » ressemble à un numéro du calendrier mais ne correspond à aucun paiement : vérifiez-le ou effacez-le`);
+      continue;
+    }
+    const p = (await db.query<HostPay>('SELECT * FROM host_pay WHERE receipt_no = ?', [written]))[0];
+    if (!p) continue;
     if (before && sig(before) === sig(r)) continue;
     if (seen.has(key) || others.some((x) => x.id !== r.id && norm(x.receipt) === key))
       throw err(`الوصل ${p.receipt_no} صار قيداً في الدفاتر: لا يُقيَّد مرتين`, `Receipt ${p.receipt_no} is already an entry of the books: it cannot be entered twice`, `Le reçu ${p.receipt_no} est déjà une écriture des livres : on ne l’écrit pas deux fois`);
     seen.add(key);
+    if (duplicatesOnly) continue;
     if (p.status === 'refused') throw err(`الدفعة ${p.receipt_no} سُحبت: لا قيد لها`, `Payment ${p.receipt_no} was taken back: it has no entry`, `Le paiement ${p.receipt_no} a été retiré : pas d’écriture`);
     // the entry goes into the book of the payment (the Main book when the payment has none), or into an envelope of that book
     books ??= await bookRows(db);

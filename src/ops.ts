@@ -515,7 +515,8 @@ async function saveRows(c: OpCtx, a: { rows: Trx[]; deletes?: string[]; reason?:
   if (errors.length) throw new UserError({ ar: errors.map((e) => e.ar).join(' · '), en: errors.map((e) => e.en).join(' · ') });
   if (!a.restoring) await checkGrantTransfers(c, a.rows, byId, all, lists);
   // a receipt number of the calendar (H2026-0001, HR2026-0001) is an entry once, and the entry says what the payment says
-  if (!a.restoring) await checkCalReceipts(c.db, a.rows, byId, others);
+  // (review 2, N-1) a row put back from a backup is asked only the one thing that is always true: one entry per receipt
+  await checkCalReceipts(c.db, a.rows, byId, others, !!a.restoring);
 
   // Changing or deleting a row already saved: say why (kept in the audit log).
   const SAME = (x: Trx, y: Trx) => (['date', 'type', 'book_id', 'account_id', 'city_id', 'heading_id', 'line_id', 'party_id', 'explanation', 'receipt', 'inc_syp', 'exp_syp', 'inc_usd', 'exp_usd', 'trf_syp', 'trf_usd'] as const).every((k) => (x[k] ?? null) === (y[k] ?? null));

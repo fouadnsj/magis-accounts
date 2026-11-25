@@ -14,6 +14,7 @@ import { auditStmt, insertTrxStmt, loadLists, loadTrx, nextN, setMetaStmt, UserE
 import { validateTrx } from '../domain/validate';
 import type { Trx } from '../domain/types';
 import { m } from '../i18n';
+import { checkCalReceipts } from '../hosting/calops';
 
 const ENTRIES = 'magis-entries';
 const LISTS = 'magis-lists';
@@ -148,6 +149,13 @@ export async function importEntries(db: Db, text: string, fileName: string, who:
     }
     const { errors } = validateTrx(t, { lists, rows: [...rows, ...added], closedMonths: closed, today: '9999-12-31' });
     reasons.push(...errors.map((e) => e.en));
+    // (review 2 before 0.13.0, N-1) the receipt of the calendar is an entry once, here too: such a row goes to "review", the file is not refused
+    try {
+      await checkCalReceipts(db, [t], new Map(), [...rows, ...added].map((x) => ({ id: x.id, receipt: x.receipt })));
+    } catch (e) {
+      if (!(e instanceof UserError)) throw e;
+      reasons.push(e.msg.en);
+    }
     if (reasons.length) {
       t.review = reasons.join(' | ');
       toReview++;

@@ -13,6 +13,8 @@ import { addDays } from '../src/hosting/host';
 import type { CalData } from '../src/hosting/calendar';
 import type { PayBook, PayWaiting } from '../src/hosting/calops';
 import { nodeDb } from './nodeDb';
+import { checkCalReceipts } from '../src/hosting/calops';
+import { importEntries } from '../src/io/keeperFiles';
 
 const day = (n: number) => addDays('2027-03-01', n);
 const today = () => nowIso().slice(0, 10);
@@ -243,6 +245,55 @@ describe('a refund goes back out of the book the money came into', () => {
     const moved = (await waiting(nagham)).rows.find((r) => r.receipt_no === w.receipt_no)!;
     await save(nagham, entryOf(moved, bookN));
     await expect(runOp(director, 'cal.pay.book', { receipt_no: w.receipt_no, book_id: null })).rejects.toThrow();
+  });
+});
+
+describe('review 2 before 0.13.0: one entry per receipt, the side doors (N-1, N-2)', () => {
+  const fileOf = (rows: Trx[]) => JSON.stringify({ kind: 'magis-entries', version: 1, exported_at: nowIso(), book: { id: bookN, name: 'Nagham book' }, lists_version: null, rows: rows.map((r) => ({ ...r, _names: {} })) });
+  const fresh = async () => { const r = await pay(nagham, await newBooking(nagham)); return (await waiting(nagham)).rows.find((x) => x.receipt_no === r.receipt_no)!; };
+
+  it('N-2: a receipt typed with a space, a capital or a full stop is the same receipt (the payment leaves the waiting list; a second entry is refused)', async () => {
+    const w = await fresh();
+    const messy = ` ${w.receipt_no.toLowerCase().replace('-', ' - ')}. `;
+    await save(nagham, { ...entryOf(w, bookN), id: 'messy-1', receipt: messy });
+    expect((await waiting(nagham)).rows.map((x) => x.receipt_no)).not.toContain(w.receipt_no);
+    await expect(save(nagham, { ...entryOf(w, bookN), id: 'messy-2' })).rejects.toThrow(/already an entry/);
+  });
+
+  it('N-2: a number that looks like a calendar number but matches no payment is refused (a slip of the pen); a number of the holder\'s own is fine', async () => {
+    const w = await fresh();
+    const year = w.receipt_no.slice(1, 5);
+    await expect(save(nagham, { ...entryOf(w, bookN), id: 'slip-1', receipt: `H${year}-9999` })).rejects.toThrow(/matches no payment/);
+    await expect(save(nagham, { ...entryOf(w, bookN), id: 'slip-2', receipt: `H ${year} 9998` })).rejects.toThrow(/matches no payment/);
+    await save(nagham, { ...entryOf(w, bookN), id: 'own-1', receipt: 'PAPER-12' });
+    // the right number still works
+    await save(nagham, { ...entryOf(w, bookN), id: 'right-1' });
+  });
+
+  it('N-1: a row of a holder\'s file imported in the office goes to "review" when its receipt is already an entry or says something else; the file is not refused', async () => {
+    const w = await fresh();
+    const ok = { ...entryOf(w, bookN), id: 'imp-ok' };
+    const dup = { ...entryOf(w, bookN), id: 'imp-dup' };
+    const w2 = await fresh();
+    const wrong = { ...entryOf(w2, bookN), id: 'imp-wrong', inc_usd: w2.amount + 1 };
+    const first = await importEntries(db, fileOf([ok]), 'a.json', 'office');
+    expect(first).toMatchObject({ added: 1, toReview: 0 });
+    const second = await importEntries(db, fileOf([dup, wrong]), 'b.json', 'office');
+    expect(second).toMatchObject({ added: 2, toReview: 2 });
+    const reviews = await db.query<{ id: string; review: string }>("SELECT id, review FROM trx WHERE id IN ('imp-dup', 'imp-wrong')");
+    expect(reviews.find((x) => x.id === 'imp-dup')!.review).toMatch(/already an entry/);
+    expect(reviews.find((x) => x.id === 'imp-wrong')!.review).toMatch(/entry says something else/);
+  });
+
+  it('N-1: putting a row back from a backup is still asked "one entry per receipt", and nothing else', async () => {
+    const w = await fresh();
+    const e1 = { ...entryOf(w, bookN), id: 'back-1' };
+    await save(nagham, e1);
+    await expect(checkCalReceipts(db, [{ ...e1, id: 'back-2' }], new Map(), [{ id: 'back-1', receipt: e1.receipt }], true)).rejects.toThrow(/already an entry/);
+    // an old row that no longer agrees with its payment (another amount) may be put back: only duplicates are asked
+    const other = await fresh();
+    await checkCalReceipts(db, [{ ...entryOf(other, bookN), id: 'back-3', inc_usd: other.amount + 5 }], new Map(), [], true);
+    await expect(checkCalReceipts(db, [{ ...entryOf(other, bookN), id: 'back-3', inc_usd: other.amount + 5 }], new Map(), [], false)).rejects.toThrow();
   });
 });
 

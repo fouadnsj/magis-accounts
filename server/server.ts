@@ -28,8 +28,8 @@ import { type Db, type Row, type SqlValue, type Stmt, migrate, one, pendingMigra
 import { addHeading, addLine, addNamed, auditStmt, blankTrx, getMeta, loadLists, loadTrx, setMetaStmt } from '../src/db/repo';
 import { checkSecretShape, has, hashSecret, listProfiles, loadProfile, login, verifySecret, type Profile } from '../src/auth';
 import { READ_ONLY, runOp, type BackupFile, type BudgetPayload, type DataPayload, type FileOps, type OpCtx } from '../src/ops';
-import { ALL_PERMS } from '../src/perms';
-import { holdsControlsOf } from '../src/roles';
+import { ALL_PERMS, type Perm } from '../src/perms';
+import { ADMIN_ONLY, holdsControlsOf } from '../src/roles';
 import { deleteNetGrant, listNetGrants, partAmount, saveNetGrant, type NetGrant } from '../src/domain/netGrants';
 import { grantReport, type GrantReportPartIn } from '../src/domain/grantReport';
 import { projectReport } from '../src/domain/projects';
@@ -707,7 +707,13 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     if (target.id === real.id) return null;
     const no = (ar: string, en: string, fr: string) => new HttpError(403, { ar, en, fr });
     if (target.admin && !real.admin) return no('للمشرف فقط', 'For the Administrator only', 'Pour l’Administrateur seulement');
-    if (real.admin || !real.roles?.some((r) => !!r.kind)) return null;
+    if (real.admin) return null;
+    // (review 2 before 0.13.0, S-1 and S-2) "see only" shows what the target sees: never what the real person may not see himself
+    // (the Administrator's own ticks, the salaries), whatever roles the target carries. ("data.download" is not in the list: the
+    // ready-made Accountant has it and the Director may look as the Accountant; a copy is no read-only operation, so "see only" cannot make one)
+    if (([...ADMIN_ONLY, 'hr.salary'] as Perm[]).some((p) => has(target, p) && !has(real, p)))
+      return no('لدى هذا الشخص صلاحيات ليست لك: المشرف وحده يدخل باسمه', 'This person has rights you do not have (private books, donors, totals, salaries): only the Administrator may sign in as them', 'Cette personne a des droits que vous n’avez pas (livres privés, donateurs, totaux, salaires) : seul l’Administrateur peut se connecter comme elle');
+    if (!real.roles?.some((r) => !!r.kind)) return null;
     if (target.roles?.some((r) => r.kind === 'administrator' || r.kind === 'director'))
       return no('المشرف أو المدير: للمشرف فقط', 'The Administrator and the Directors: only the Administrator may sign in as them', 'L’Administrateur et les Directeurs : seul l’Administrateur peut se connecter comme eux');
     if (target.books.length) {
@@ -724,10 +730,12 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
    *  otherwise their ring: the databases of the house they are in (a community: the Jesuits' door) where their name is, and
    *  the HR databases where their name is. `local`: the request comes from the server computer (when the directory is enforced
    *  and it does not, a person without a directory account sees nothing but where they are). */
-  const asViewOf = async (c: Centre, target: Profile, local: boolean): Promise<AsView> => {
+  const asViewOf = async (c: Centre, target: Profile, local: boolean, realDir: DirPerson | null): Promise<AsView> => {
     const name = target.name.trim().toLowerCase();
-    const dir = directory.people.find((q) => q.active && (q.name.toLowerCase() === name || q.grants[c.slug] === target.id)) ?? null;
-    if (dir) return { ring: null, dir };
+    // (review 2 before 0.13.0, M-A) the directory person of the target is found by the LINK only, never by a name that looks alike;
+    // and whoever is not himself the directory's administrator never borrows that power through someone he looks as
+    const dir = directory.people.find((q) => q.active && q.grants[c.slug] === target.id) ?? null;
+    if (dir) return { ring: null, dir: dir.admin && !realDir?.admin ? { ...dir, admin: false } : dir };
     const here = await describe(c);
     const jesuits = here.kind === 'community' || here.kind === 'country';
     const house = here.kind === 'centre' ? here.centre : null;
@@ -748,9 +756,14 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     return { ring, dir: null };
   };
 
+  /** The Coordinator's powers (the directory's administrator) right now: the REAL person's directory account must be the administrator's,
+   *  and while he looks as someone else it must also be the Coordinator he looks as (as the first page of that person would give):
+   *  the target's account alone never gives them (review 2 before 0.13.0, M-A) */
+  const coordinatorNow = (real: DirPerson | null, as: Session['as'] | undefined) => !!real?.admin && (!as || !!as.view.dir?.admin);
+
   /** Creating or setting up a database: on the server computer itself, or by someone who manages users. */
   const mayCreate = (req: http.IncomingMessage, found: [string, Session, Centre] | null) =>
-    isLocal(req) || (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || !!(found?.[1].as ? found[1].as.view.dir : dirPersonOf(req))?.admin;
+    isLocal(req) || (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || coordinatorNow(dirPersonOf(req), found?.[1].as);
 
   const send = (res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) => {
     const text = JSON.stringify(body === undefined ? null : body);
@@ -942,6 +955,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     const asNow = found?.[1].as;
     const realDir = dirPersonOf(req); // (always read: it keeps the directory sign-in awake while seen as someone else)
     const dirPerson = asNow ? asNow.view.dir : realDir;
+    const coordNow = coordinatorNow(realDir, asNow);
     const ringNow = asNow ? asNow.view.ring : found?.[1].ring;
     /** may this directory person enter this database? (the administrator: all) */
     const dirSees = (p: DirPerson, slug: string) => p.admin || Object.prototype.hasOwnProperty.call(p.grants, slug);
@@ -951,7 +965,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // communities' password is gone; a name and a password are enough, and a person sees only the databases allowed to him):
     // the Coordinator (the directory's administrator), a person the directory gave a community, or someone signed in to one.
     const ctyOpen = (): boolean => {
-      if (dirPerson && (dirPerson.admin || Object.keys(dirPerson.grants).some((x) => ctyKinds.get(x)))) return true;
+      if (dirPerson && ((dirPerson.admin && coordNow) || Object.keys(dirPerson.grants).some((x) => ctyKinds.get(x)))) return true;
       return !!found && (ctyKinds.get(found[2].slug) === true || !!ringNow?.some((r) => ctyKinds.get(r.db) === true));
     };
     const ctyKinds = new Map<string, boolean>();
@@ -968,8 +982,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // (the Coordinator — the directory's administrator — manages every database, Fouad 2026-11-07)
     // (review before 0.13.0, M6: the server's own controls are the Administrator's, not any Director's)
     /** the server's controls that need a signed-in person (backup folder, copy password, status): the Administrator or the directory's administrator */
-    const mayConfig = () => (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || !!dirPerson?.admin;
-    const mayManage = () => isLocal(req) || (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || !!dirPerson?.admin;
+    const mayConfig = () => (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || coordNow;
+    const mayManage = () => isLocal(req) || (!!found && holdsControlsOf(found[1].profile, has(found[1].profile, 'users.manage'))) || coordNow;
 
     if (url === '/api/hello' && method === 'GET') {
       // the communities are not even named until their password is given
@@ -1004,7 +1018,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     /** the password of a user who manages users in THAT database (its Superior) */
     const needSuperior = async (c: Centre, password: unknown, coordinatorToo = false) => {
       // switching a database off or deleting it: the Coordinator does not need each Superior's password
-      if (coordinatorToo && dirPerson?.admin) return `${dirPerson.name} (Coordinator)`;
+      if (coordinatorToo && coordNow) return `${realDir!.name} (Coordinator)`;
       const f = failures.get(ip);
       if (f && f.until > Date.now()) throw new HttpError(429, { ar: 'محاولات كثيرة — انتظر 5 دقائق', en: 'Too many attempts — wait 5 minutes' });
       for (const p of await listProfiles(c.handle.db)) {
@@ -1115,7 +1129,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       failures.set(ip, { n, until: n >= 8 ? Date.now() + 5 * 60e3 : 0 });
     };
     const needDirAdmin = () => {
-      if (!(dirPerson?.admin || (isLocal(req) && !directory.people.length))) throw new HttpError(403, { ar: 'لمدير الدليل فقط', en: 'For the directory administrator only' });
+      if (!(coordNow || (isLocal(req) && !directory.people.length))) throw new HttpError(403, { ar: 'لمدير الدليل فقط', en: 'For the directory administrator only' });
     };
     const publicPerson = (p: DirPerson) => ({ id: p.id, name: p.name, admin: p.admin, active: p.active, mustChange: p.mustChange, grants: p.grants });
     /** going to another database while signed in as someone else: stays "as", and the real person needs an account of their own there */
@@ -1126,7 +1140,9 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!mine) throw new HttpError(403, { ar: 'ليس لك حساب في قاعدة البيانات هذه: ارجع أولاً إلى حسابك', en: 'You have no account of your own in this database: first go back to your own account', fr: "Vous n'avez pas de compte à vous dans cette base : revenez d'abord à votre compte" });
       // the same limits in the other database: a Director does not become its Administrator by going there
       const real = await loadProfile(c.handle.db, mine.id);
-      const refused = real ? await asRefusal(c, real, target, s.as.mode) : null;
+      // (review 2 before 0.13.0, M-A part 3 and S-1) his own account THERE must also manage the users, as "sign in as" asks in the first database
+      if (!real || !has(real, 'users.manage')) throw new HttpError(403, { ar: 'لا تملك صلاحية «إدارة المستخدمين» في قاعدة البيانات هذه: ارجع أولاً إلى حسابك', en: 'Your own account in this database does not manage the users: first go back to your own account', fr: "Votre propre compte dans cette base ne gère pas les utilisateurs : revenez d'abord à votre compte" });
+      const refused = await asRefusal(c, real, target, s.as.mode);
       if (refused) throw refused;
       return { ...s.as, byId: mine.id };
     };
@@ -1299,7 +1315,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
     // ---- HR: fill the lists (centre, accounts, budget lines) from the budget of a centre database. Names and codes only.
     // who may see every centre together (Fouad, 2026-11-02): the administrator only — the directory's administrator; a
     // server with no directory yet: whoever manages the users and keeps the grants (the Administrator), on the server computer itself
-    const allCentresAllowed = () => !!dirPerson?.admin || (!directory.people.length && isLocal(req) && !!found && has(found[1].profile, 'users.manage') && has(found[1].profile, 'lists.donors'));
+    const allCentresAllowed = () => coordNow || (!directory.people.length && isLocal(req) && !!found && has(found[1].profile, 'users.manage') && has(found[1].profile, 'lists.donors'));
     if (url === '/api/all-centres/allowed' && method === 'GET') return send(res, 200, { allowed: !!found && allCentresAllowed() });
 
     // ---- The main lists of headings and lines (Fouad, 2026-11-03; several, one per kind of project, 2026-11-07): kept on
@@ -2490,7 +2506,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (refused) throw refused;
       if (target.id === real.id) { s.profile = real; s.as = undefined; return send(res, 200, { ok: true }); }
       s.profile = target;
-      s.as = { byId: real.id, by: real.name, mode, view: await asViewOf(c, target, isLocal(req)) };
+      s.as = { byId: real.id, by: real.name, mode, view: await asViewOf(c, target, isLocal(req), dirPersonOf(req)) };
       s.mustChange = false;
       await c.handle.db.batch([auditStmt(real.name, 'sign-as', 'profile', String(target.id), null, { as: target.name, mode })]);
       log(`${c.slug}: ${real.name} signed in as ${target.name} (${mode === 'act' ? 'see and act' : 'see only'})`);
@@ -2538,7 +2554,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (method !== 'POST') throw new HttpError(404, { ar: 'غير موجود', en: 'Not found' });
       if (!country) throw new HttpError(400, { ar: 'لا قيم بلد لهذه الجماعة على هذا الخادم: استعمل الملف', en: 'No country econome for this community on this server: use the file', fr: "Pas d'économe du pays pour cette communauté sur ce serveur : utilisez le fichier" });
       if (s.as?.mode === 'view') throw new HttpError(403, { ar: 'للرؤية فقط', en: 'See only', fr: 'Lecture seule' });
-      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files };
+      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files, dirNames: directory.people.filter((q) => q.active).map((q) => ({ name: q.name.trim().toLowerCase(), linkedId: q.grants[c.slug] ?? null })) };
       if (url === '/api/cty/send') {
         const body = (await readBody(req)) as { yms?: string[] };
         const yms = (body.yms ?? []).filter((x) => /^\d{4}-\d{2}$/.test(String(x))).slice(0, 12);
@@ -2819,7 +2835,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       // signed in as someone else: never a password, whatever the rights (a Director took over an account this way: M5)
       if (s.as && (op === 'profile.setPin' || (op === 'user.save' && !!(args as { pin?: string } | null)?.pin)))
         throw new HttpError(403, { ar: 'لا تُغيَّر كلمة سر وأنت تدخل باسم غيرك: ارجع إلى حسابك', en: 'No password is changed while you are signed in as someone else: go back to your own account first', fr: 'Aucun mot de passe ne change tant que vous êtes connecté comme une autre personne : revenez d’abord à votre compte' });
-      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files };
+      const ctx: OpCtx = { db: c.handle.db, profile: s.profile, who: whoOf(s), install: 'office', files: c.files, dirNames: directory.people.filter((q) => q.active).map((q) => ({ name: q.name.trim().toLowerCase(), linkedId: q.grants[c.slug] ?? null })) };
       const t0 = performance.now();
       const result = await runOp(ctx, op, args);
       // a slow operation is written in the log with its name, so that what is slow can be seen (Fouad, 21 November 2026)

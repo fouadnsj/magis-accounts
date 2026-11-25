@@ -101,6 +101,8 @@ export interface OpCtx {
   who: string;
   install: Install;
   files: FileOps;
+  /** the directory's people (names lower-cased) with the account of THIS database each is linked to: a new person may not take such a name (review 2 before 0.13.0, M-A) */
+  dirNames?: { name: string; linkedId: number | null }[];
 }
 
 export interface HolderReceipt {
@@ -1486,8 +1488,13 @@ async function saveUser(c: OpCtx, a: { id?: number; name: string; access_id?: nu
   }
   const name = a.name.trim();
   if (!name) throw new UserError(m('الاسم فارغ', 'The name is empty'));
-  if (await one(c.db, 'SELECT 1 FROM profile WHERE name = ? AND active = 1 AND id <> ?', [name, a.id ?? -1]))
+  // (review 2 before 0.13.0, M-A) names are compared without capitals and without spaces at the ends: "sample admin" is "Sample Admin"
+  const key = name.toLowerCase();
+  if ((await c.db.query<{ name: string }>('SELECT name FROM profile WHERE active = 1 AND id <> ?', [a.id ?? -1])).some((p) => p.name.trim().toLowerCase() === key))
     throw new UserError(m(`"${name}" موجود مسبقاً`, `"${name}" already exists`));
+  // ...and a name that is a person of the directory's (the Coordinator's) is that person's linked account only
+  if (c.dirNames?.some((d) => d.name === key && d.linkedId !== (a.id ?? -1)))
+    throw new UserError(m(`"${name}": اسم شخص في دليل الخادم، لا يُستعمل هنا`, `"${name}" is the name of a person of the server's directory: choose another name`, `« ${name} » est le nom d’une personne de l’annuaire du serveur : choisissez un autre nom`));
   const first = roles[0];
   const role = roleFor([...new Set(roles.flatMap((r) => r.perms))]);
   const books = [...new Set(a.books)];

@@ -105,6 +105,13 @@ describe('review 2 before 0.13.0: sign in as, passwords, the TV, receipts', () =
     expect((await call('/api/all-centres/allowed', undefined, both)).body.allowed).toBe(true);
   });
 
+  it('M-A: an existing person keeps saving under his unchanged name even when the directory has that name (only new or changed names are checked)', async () => {
+    // the directory now has "rami boss" (test above), not linked to the centre's "Rami Boss": changing his roles still works
+    await must(op('Fouad')('user.save', { id: ids['Rami Boss'], name: 'Rami Boss', roles: [kind('holder'), kind('reception')], books: [] }));
+    // but renaming someone else to that name is refused
+    refused(await op('Fouad')('user.save', { id: ids.Ida, name: 'RAMI BOSS', roles: [kind('holder')], books: [] }), 'rename to a directory name');
+  });
+
   it('M-A: a person linked to the Coordinator\'s directory account shows no Coordinator power to a Director either', async () => {
     const fid = ids.Fouad;
     await must(call('/api/dir/save', { name: 'Linked Boss', admin: true, active: true, password: 'linked-secret-1', grants: { [slug]: ids['Rami Boss'] } }, dirCookie));

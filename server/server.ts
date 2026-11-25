@@ -54,7 +54,7 @@ import { mayPhone, pairPhone, phoneHostBook, phoneHostStatus, phoneInvCount, pho
 import { inventorySummary } from '../src/inventory/ops';
 import { isLocalIp, phoneTls, startPage, type PhoneTls } from './phone-tls';
 
-export const SERVER_VERSION = '0.12.1';
+export const SERVER_VERSION = '0.13.0';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 

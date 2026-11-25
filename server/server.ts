@@ -48,7 +48,7 @@ import { accountFor, centreItem, lineFor } from '../src/hr/link';
 import { applySeed, readWorkbook } from '../src/io/importWorkbook';
 import type { Msg } from '../src/i18n';
 import type { Trx, TrxType } from '../src/domain/types';
-import { calPhoneOf, calPhonePack, claimLink, tvPack } from './calphone';
+import { calPhoneOf, calPhonePack, claimLink, deviceKind, markDevice, tvPack } from './calphone';
 import { TV_HTML, TV_JS } from './tv-page';
 import { mayPhone, pairPhone, phoneHostBook, phoneHostStatus, phoneInvCount, phoneInvNew, phoneInvPhoto, phoneOf, phonePack, phonePhoto, phoneProblem, phonePush, validUntil, type PhoneEntry } from './phone';
 import { inventorySummary } from '../src/inventory/ops';
@@ -2601,6 +2601,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const got = await claimLink(pc.handle.db, String(body.code ?? ''));
         if (!got) continue;
         failures.delete(ip);
+        await markDevice(pc.handle.db, got.id, 'phone');
         log(`calendar phone ${pc.slug}: "${got.name}" (${got.role}) linked from ${ip}`);
         const d = new Date();
         const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -2618,6 +2619,8 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!pc || !pid || !key || (config.inactive ?? []).includes(pc.slug) || config.copies?.[pc.slug]) throw unlinked;
       let phone;
       try { phone = await calPhoneOf(pc.handle.db, pid, key); } catch (e) { throw new HttpError(401, (e as { msg: Msg }).msg); }
+      // a TV's key (kept in the browser on the wall) never opens the phone's pack, which may carry contacts (review 2, S-3)
+      if ((await deviceKind(pc.handle.db, phone.id)) === 'tv') throw new HttpError(403, { ar: 'هذا مفتاح الشاشة: لا يفتح حزمة الهاتف', en: 'This is the key of a TV screen: it does not open a phone’s pack', fr: 'C’est la clé d’un écran : elle n’ouvre pas le paquet d’un téléphone' });
       const d = new Date();
       const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return send(res, 200, await calPhonePack(pc.handle.db, phone, today));
@@ -2633,6 +2636,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
         const got = await claimLink(pc.handle.db, String(body.code ?? ''));
         if (!got) continue;
         failures.delete(ip);
+        await markDevice(pc.handle.db, got.id, 'tv');
         log(`TV ${pc.slug}: "${got.name}" linked from ${ip}`);
         return send(res, 200, { key: `${pc.slug}:${got.id}:${got.key}` });
       }
@@ -2647,6 +2651,7 @@ export async function startServer(opts: StartOptions = {}): Promise<Running> {
       if (!pc || !pid || !key || (config.inactive ?? []).includes(pc.slug) || config.copies?.[pc.slug]) throw unlinked;
       let phone;
       try { phone = await calPhoneOf(pc.handle.db, pid, key); } catch (e) { throw new HttpError(401, (e as { msg: Msg }).msg); }
+      if ((await deviceKind(pc.handle.db, phone.id)) === 'phone') throw new HttpError(403, { ar: 'هذا مفتاح هاتف: لا يفتح شاشة التلفاز', en: 'This is the key of a phone: it does not open the TV screen', fr: 'C’est la clé d’un téléphone : elle n’ouvre pas l’écran' });
       const d = new Date();
       const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       return send(res, 200, await tvPack(pc.handle.db, phone, today));

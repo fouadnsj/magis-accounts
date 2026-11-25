@@ -163,4 +163,25 @@ describe('review 2 before 0.13.0: sign in as, passwords, the TV, receipts', () =
     // and everybody changes their own password
     await must(op('Hana')('profile.setPin', { id: ids.Hana, pin: 'hana-own-12' }));
   });
+
+  it('S-3: a TV\'s key never opens the phone pack, a phone\'s key never opens the TV screen; a device linked before the mark works on both as before', async () => {
+    const add = async (name: string, role: string) => (await must(op('Fouad')('cal.phone.add', { name, role }))).body as { id: string; code: string };
+    const tv = await add('Entrance TV', 'reception'); // (made with a role that sees contacts: the worst case)
+    const ph = await add('Reception phone', 'reception');
+    const legacy = await add('Old TV', 'reception');
+    const tvKey = (await must(call('/api/tv/link', { code: tv.code }))).body.key as string;
+    const phKey = (await must(call('/api/calphone/link', { code: ph.code }))).body.key as string;
+    const oldKey = (await must(call('/api/calphone/link', { code: legacy.code }))).body.key as string;
+    // (a device linked before the mark: take the mark away, as if it had been linked by the previous version)
+    const raw = nodeDb(path.join(dir, 'dbs', slug, 'magis.db'));
+    await raw.batch([{ sql: 'DELETE FROM meta WHERE key = ?', params: [`cal_device_${legacy.id}`] }]);
+    const bearer = (k: string) => ({ Authorization: `Bearer ${k}` });
+    const post = async (url: string, k: string) => { const r = await fetch(local + url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...bearer(k) }, body: '{}' }); return r.status; };
+    expect(await post('/api/tv/screen', tvKey)).toBe(200);
+    expect(await post('/api/calphone/pack', tvKey)).toBeGreaterThanOrEqual(400);
+    expect(await post('/api/calphone/pack', phKey)).toBe(200);
+    expect(await post('/api/tv/screen', phKey)).toBeGreaterThanOrEqual(400);
+    expect(await post('/api/calphone/pack', oldKey)).toBe(200);
+    expect(await post('/api/tv/screen', oldKey)).toBe(200);
+  });
 });

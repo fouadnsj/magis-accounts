@@ -5,7 +5,7 @@
 // refused at once. Nothing is ever written from a calendar phone.
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { nowIso, one, type Db } from '../src/db/db';
-import { auditStmt, getMeta, UserError } from '../src/db/repo';
+import { auditStmt, getMeta, setMetaStmt, UserError } from '../src/db/repo';
 import { m } from '../src/i18n';
 import { loadCalRaw } from '../src/hosting/calops';
 import { phoneCut, windowOf, shaHex, normCode, isPhoneRole, type CalPhonePack, type PhoneRole } from '../src/hosting/calphone';
@@ -29,6 +29,21 @@ export async function claimLink(db: Db, code: string): Promise<{ id: string; key
     auditStmt(p.name, 'cal-phone-linked', 'cal_phone', p.id, null, { role: p.role }),
   ]);
   return { id: p.id, key, name: p.name, role: p.role };
+}
+
+/**
+ * (review 2 before 0.13.0, S-3) Which door a device was linked through: the TV page or the calendar phone page. A note in the
+ * `meta` table (a row of data: no database update). A device linked before this note is unmarked and keeps working on both
+ * doors as before; a marked TV never opens the phone pack, a marked phone never opens the TV screen.
+ */
+export type DeviceKind = 'tv' | 'phone';
+const deviceKey = (id: string) => `cal_device_${id}`;
+export async function markDevice(db: Db, id: string, kind: DeviceKind): Promise<void> {
+  await db.batch([setMetaStmt(deviceKey(id), kind)]);
+}
+export async function deviceKind(db: Db, id: string): Promise<DeviceKind | null> {
+  const v = await getMeta(db, deviceKey(id));
+  return v === 'tv' || v === 'phone' ? v : null;
 }
 
 /** the phone behind this key; throws what the phone must show */
